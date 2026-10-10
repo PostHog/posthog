@@ -1,0 +1,71 @@
+{
+    "method": "workspace.switchProject",
+    "toolName": "switch-project",
+    "title": "Switch active project",
+    "category": "Organization & project management",
+    "description": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-get` and `switch-organization` first, then retry `projects-get`. If it is still not there, the project belongs to another PostHog account or cloud region (US/EU) that your API key does not reach at all — switching cannot get you there, so use `posthog-connection-call` over a PostHog connection instead. Default to the active project when no specific project is mentioned.",
+    "requiredScopes": ["project:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/workspace/client.ts",
+    "input": {
+        "name": "WorkspaceSwitchProjectInput",
+        "importPath": "@posthog/sdk/workspace",
+        "source": "src/generated/workspace/switch-project.ts",
+        "declaration": "dist/generated/workspace/switch-project.d.ts"
+    },
+    "output": {
+        "name": "WorkspaceSwitchProjectOutput",
+        "importPath": "@posthog/sdk/workspace",
+        "source": "src/generated/workspace/switch-project.ts",
+        "declaration": "dist/generated/workspace/switch-project.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WorkspaceSwitchProjectResponseShape2",
+            "importPath": "@posthog/sdk/workspace",
+            "source": "src/generated/workspace/switch-project.ts",
+            "declaration": "dist/generated/workspace/switch-project.d.ts"
+        },
+        {
+            "name": "WorkspaceSwitchProjectData",
+            "importPath": "@posthog/sdk/workspace",
+            "source": "src/generated/workspace/switch-project.ts",
+            "declaration": "dist/generated/workspace/switch-project.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Switch the active PostHog project for subsequent tool calls. Call this proactively whenever the user names a project or workspace they want to operate on. Use `projects-get` to resolve a project name to an id. If the project isn't found, the user may be referring to a project in a different organization, in which case call `organizations-get` and `switch-organization` first, then retry `projects-get`. If it is still not there, the project belongs to another PostHog account or cloud region (US/EU) that your API key does not reach at all — switching cannot get you there, so use `posthog-connection-call` over a PostHog connection instead. Default to the active project when no specific project is mentioned.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/switch-project/description"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": [
+        {
+            "toolName": "projects-get",
+            "method": "workspace.projectsGet"
+        },
+        {
+            "toolName": "organizations-get",
+            "method": "workspace.organizationsGet"
+        },
+        {
+            "toolName": "switch-organization",
+            "method": "workspace.switchOrganization"
+        },
+        {
+            "toolName": "posthog-connection-call",
+            "method": "integrations.posthogConnectionCall"
+        }
+    ]
+}

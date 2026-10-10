@@ -1,0 +1,5497 @@
+[
+    {
+        "toolName": "access-control-default-objects-list",
+        "status": "exported",
+        "method": "accessControl.accessControlDefaultObjectsList"
+    },
+    {
+        "toolName": "access-control-default-properties-list",
+        "status": "exported",
+        "method": "accessControl.accessControlDefaultPropertiesList"
+    },
+    {
+        "toolName": "access-control-default-rule-set-execute",
+        "status": "exported",
+        "method": "accessControl.accessControlDefaultRuleSetExecute"
+    },
+    {
+        "toolName": "access-control-default-rule-set-prepare",
+        "status": "exported",
+        "method": "accessControl.accessControlDefaultRuleSetPrepare"
+    },
+    {
+        "toolName": "access-control-defaults-get",
+        "status": "exported",
+        "method": "accessControl.accessControlDefaultsGet"
+    },
+    {
+        "toolName": "access-control-member-objects-list",
+        "status": "exported",
+        "method": "accessControl.accessControlMemberObjectsList"
+    },
+    {
+        "toolName": "access-control-member-properties-list",
+        "status": "exported",
+        "method": "accessControl.accessControlMemberPropertiesList"
+    },
+    {
+        "toolName": "access-control-member-rule-set-execute",
+        "status": "exported",
+        "method": "accessControl.accessControlMemberRuleSetExecute"
+    },
+    {
+        "toolName": "access-control-member-rule-set-prepare",
+        "status": "exported",
+        "method": "accessControl.accessControlMemberRuleSetPrepare"
+    },
+    {
+        "toolName": "access-control-members-list",
+        "status": "exported",
+        "method": "accessControl.accessControlMembersList"
+    },
+    {
+        "toolName": "access-control-role-objects-list",
+        "status": "exported",
+        "method": "accessControl.accessControlRoleObjectsList"
+    },
+    {
+        "toolName": "access-control-role-properties-list",
+        "status": "exported",
+        "method": "accessControl.accessControlRolePropertiesList"
+    },
+    {
+        "toolName": "access-control-role-rule-set-execute",
+        "status": "exported",
+        "method": "accessControl.accessControlRoleRuleSetExecute"
+    },
+    {
+        "toolName": "access-control-role-rule-set-prepare",
+        "status": "exported",
+        "method": "accessControl.accessControlRoleRuleSetPrepare"
+    },
+    {
+        "toolName": "access-control-roles-list",
+        "status": "exported",
+        "method": "accessControl.accessControlRolesList"
+    },
+    {
+        "toolName": "account-relationship-definitions-create",
+        "status": "exported",
+        "method": "customerAnalytics.accountRelationshipDefinitionsCreate"
+    },
+    {
+        "toolName": "account-relationship-definitions-destroy",
+        "status": "exported",
+        "method": "customerAnalytics.accountRelationshipDefinitionsDestroy"
+    },
+    {
+        "toolName": "account-relationship-definitions-list",
+        "status": "exported",
+        "method": "customerAnalytics.accountRelationshipDefinitionsList"
+    },
+    {
+        "toolName": "account-relationship-definitions-partial-update",
+        "status": "exported",
+        "method": "customerAnalytics.accountRelationshipDefinitionsPartialUpdate"
+    },
+    {
+        "toolName": "account-relationship-definitions-retrieve",
+        "status": "exported",
+        "method": "customerAnalytics.accountRelationshipDefinitionsRetrieve"
+    },
+    {
+        "toolName": "accounts-create",
+        "status": "exported",
+        "method": "customerAnalytics.accountsCreate"
+    },
+    {
+        "toolName": "accounts-custom-property-values-create",
+        "status": "exported",
+        "method": "customerAnalytics.accountsCustomPropertyValuesCreate"
+    },
+    {
+        "toolName": "accounts-custom-property-values-list",
+        "status": "exported",
+        "method": "customerAnalytics.accountsCustomPropertyValuesList"
+    },
+    {
+        "toolName": "accounts-destroy",
+        "status": "exported",
+        "method": "customerAnalytics.accountsDestroy"
+    },
+    {
+        "toolName": "accounts-list",
+        "status": "exported",
+        "method": "customerAnalytics.accountsList"
+    },
+    {
+        "toolName": "accounts-meetings-list",
+        "status": "exported",
+        "method": "customerAnalytics.accountsMeetingsList"
+    },
+    {
+        "toolName": "accounts-notebooks-create",
+        "status": "exported",
+        "method": "customerAnalytics.accountsNotebooksCreate"
+    },
+    {
+        "toolName": "accounts-notebooks-destroy",
+        "status": "exported",
+        "method": "customerAnalytics.accountsNotebooksDestroy"
+    },
+    {
+        "toolName": "accounts-notebooks-list",
+        "status": "exported",
+        "method": "customerAnalytics.accountsNotebooksList"
+    },
+    {
+        "toolName": "accounts-notebooks-retrieve",
+        "status": "exported",
+        "method": "customerAnalytics.accountsNotebooksRetrieve"
+    },
+    {
+        "toolName": "accounts-partial-update",
+        "status": "exported",
+        "method": "customerAnalytics.accountsPartialUpdate"
+    },
+    {
+        "toolName": "accounts-relationships-create",
+        "status": "exported",
+        "method": "customerAnalytics.accountsRelationshipsCreate"
+    },
+    {
+        "toolName": "accounts-relationships-end-create",
+        "status": "exported",
+        "method": "customerAnalytics.accountsRelationshipsEndCreate"
+    },
+    {
+        "toolName": "accounts-relationships-list",
+        "status": "exported",
+        "method": "customerAnalytics.accountsRelationshipsList"
+    },
+    {
+        "toolName": "accounts-retrieve",
+        "status": "exported",
+        "method": "customerAnalytics.accountsRetrieve"
+    },
+    {
+        "toolName": "accounts-summaries-list",
+        "status": "exported",
+        "method": "customerAnalytics.accountsSummariesList"
+    },
+    {
+        "toolName": "action-create",
+        "status": "exported",
+        "method": "actions.actionCreate"
+    },
+    {
+        "toolName": "action-delete",
+        "status": "exported",
+        "method": "actions.actionDelete"
+    },
+    {
+        "toolName": "action-get",
+        "status": "exported",
+        "method": "actions.actionGet"
+    },
+    {
+        "toolName": "action-update",
+        "status": "exported",
+        "method": "actions.actionUpdate"
+    },
+    {
+        "toolName": "actions-get-all",
+        "status": "exported",
+        "method": "actions.actionsGetAll"
+    },
+    {
+        "toolName": "advanced-activity-logs-filters",
+        "status": "exported",
+        "method": "platformFeatures.advancedActivityLogsFilters"
+    },
+    {
+        "toolName": "advanced-activity-logs-list",
+        "status": "exported",
+        "method": "platformFeatures.advancedActivityLogsList"
+    },
+    {
+        "toolName": "agent-feedback",
+        "status": "exported",
+        "method": "feedback.agentFeedback"
+    },
+    {
+        "toolName": "alert-create",
+        "status": "exported",
+        "method": "alerts.alertCreate"
+    },
+    {
+        "toolName": "alert-delete",
+        "status": "exported",
+        "method": "alerts.alertDelete"
+    },
+    {
+        "toolName": "alert-destinations-create",
+        "status": "exported",
+        "method": "alerts.alertDestinationsCreate"
+    },
+    {
+        "toolName": "alert-destinations-delete",
+        "status": "exported",
+        "method": "alerts.alertDestinationsDelete"
+    },
+    {
+        "toolName": "alert-get",
+        "status": "exported",
+        "method": "alerts.alertGet"
+    },
+    {
+        "toolName": "alert-simulate",
+        "status": "exported",
+        "method": "alerts.alertSimulate"
+    },
+    {
+        "toolName": "alert-update",
+        "status": "exported",
+        "method": "alerts.alertUpdate"
+    },
+    {
+        "toolName": "alerts-list",
+        "status": "exported",
+        "method": "alerts.alertsList"
+    },
+    {
+        "toolName": "annotation-create",
+        "status": "exported",
+        "method": "annotations.annotationCreate"
+    },
+    {
+        "toolName": "annotation-delete",
+        "status": "exported",
+        "method": "annotations.annotationDelete"
+    },
+    {
+        "toolName": "annotation-retrieve",
+        "status": "exported",
+        "method": "annotations.annotationRetrieve"
+    },
+    {
+        "toolName": "annotations-list",
+        "status": "exported",
+        "method": "annotations.annotationsList"
+    },
+    {
+        "toolName": "annotations-partial-update",
+        "status": "exported",
+        "method": "annotations.annotationsPartialUpdate"
+    },
+    {
+        "toolName": "announcements-channels-list",
+        "status": "exported",
+        "method": "customerAnalytics.announcementsChannelsList"
+    },
+    {
+        "toolName": "announcements-create-execute",
+        "status": "exported",
+        "method": "customerAnalytics.announcementsCreateExecute"
+    },
+    {
+        "toolName": "announcements-create-prepare",
+        "status": "exported",
+        "method": "customerAnalytics.announcementsCreatePrepare"
+    },
+    {
+        "toolName": "announcements-list",
+        "status": "exported",
+        "method": "customerAnalytics.announcementsList"
+    },
+    {
+        "toolName": "announcements-retrieve",
+        "status": "exported",
+        "method": "customerAnalytics.announcementsRetrieve"
+    },
+    {
+        "toolName": "apm-attribute-breakdown",
+        "status": "exported",
+        "method": "tracing.apmAttributeBreakdown"
+    },
+    {
+        "toolName": "apm-attribute-values-list",
+        "status": "exported",
+        "method": "tracing.apmAttributeValuesList"
+    },
+    {
+        "toolName": "apm-attributes-list",
+        "status": "exported",
+        "method": "tracing.apmAttributesList"
+    },
+    {
+        "toolName": "apm-services-list",
+        "status": "exported",
+        "method": "tracing.apmServicesList"
+    },
+    {
+        "toolName": "apm-spans-aggregate",
+        "status": "exported",
+        "method": "tracing.apmSpansAggregate"
+    },
+    {
+        "toolName": "apm-spans-count",
+        "status": "exported",
+        "method": "tracing.apmSpansCount"
+    },
+    {
+        "toolName": "apm-spans-duration-histogram",
+        "status": "exported",
+        "method": "tracing.apmSpansDurationHistogram"
+    },
+    {
+        "toolName": "apm-spans-latency-heatmap",
+        "status": "exported",
+        "method": "tracing.apmSpansLatencyHeatmap"
+    },
+    {
+        "toolName": "apm-spans-sparkline",
+        "status": "exported",
+        "method": "tracing.apmSpansSparkline"
+    },
+    {
+        "toolName": "apm-spans-tree",
+        "status": "exported",
+        "method": "tracing.apmSpansTree"
+    },
+    {
+        "toolName": "apm-trace-get",
+        "status": "exported",
+        "method": "tracing.apmTraceGet"
+    },
+    {
+        "toolName": "approval-policies-list",
+        "status": "exported",
+        "method": "platformFeatures.approvalPoliciesList"
+    },
+    {
+        "toolName": "approval-policy-get",
+        "status": "exported",
+        "method": "platformFeatures.approvalPolicyGet"
+    },
+    {
+        "toolName": "autoresearch-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchCreate"
+    },
+    {
+        "toolName": "autoresearch-list",
+        "status": "exported",
+        "method": "autoresearch.autoresearchList"
+    },
+    {
+        "toolName": "autoresearch-materialize-features",
+        "status": "exported",
+        "method": "autoresearch.autoresearchMaterializeFeatures"
+    },
+    {
+        "toolName": "autoresearch-models-list",
+        "status": "exported",
+        "method": "autoresearch.autoresearchModelsList"
+    },
+    {
+        "toolName": "autoresearch-models-retrieve",
+        "status": "exported",
+        "method": "autoresearch.autoresearchModelsRetrieve"
+    },
+    {
+        "toolName": "autoresearch-online-performance-retrieve",
+        "status": "exported",
+        "method": "autoresearch.autoresearchOnlinePerformanceRetrieve"
+    },
+    {
+        "toolName": "autoresearch-resolve-template-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchResolveTemplateCreate"
+    },
+    {
+        "toolName": "autoresearch-retrieve",
+        "status": "exported",
+        "method": "autoresearch.autoresearchRetrieve"
+    },
+    {
+        "toolName": "autoresearch-runs-list",
+        "status": "exported",
+        "method": "autoresearch.autoresearchRunsList"
+    },
+    {
+        "toolName": "autoresearch-score-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchScoreCreate"
+    },
+    {
+        "toolName": "autoresearch-suggestions-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchSuggestionsCreate"
+    },
+    {
+        "toolName": "autoresearch-suggestions-list",
+        "status": "exported",
+        "method": "autoresearch.autoresearchSuggestionsList"
+    },
+    {
+        "toolName": "autoresearch-suggestions-respond",
+        "status": "exported",
+        "method": "autoresearch.autoresearchSuggestionsRespond"
+    },
+    {
+        "toolName": "autoresearch-train-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchTrainCreate"
+    },
+    {
+        "toolName": "autoresearch-training-runs-artifacts-get-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchTrainingRunsArtifactsGetCreate"
+    },
+    {
+        "toolName": "autoresearch-training-runs-artifacts-retrieve",
+        "status": "exported",
+        "method": "autoresearch.autoresearchTrainingRunsArtifactsRetrieve"
+    },
+    {
+        "toolName": "autoresearch-training-runs-artifacts-upload-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchTrainingRunsArtifactsUploadCreate"
+    },
+    {
+        "toolName": "autoresearch-training-runs-complete-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchTrainingRunsCompleteCreate"
+    },
+    {
+        "toolName": "autoresearch-training-runs-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchTrainingRunsCreate"
+    },
+    {
+        "toolName": "autoresearch-training-runs-history",
+        "status": "exported",
+        "method": "autoresearch.autoresearchTrainingRunsHistory"
+    },
+    {
+        "toolName": "autoresearch-training-runs-iterations-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchTrainingRunsIterationsCreate"
+    },
+    {
+        "toolName": "autoresearch-training-runs-list",
+        "status": "exported",
+        "method": "autoresearch.autoresearchTrainingRunsList"
+    },
+    {
+        "toolName": "autoresearch-validate-create",
+        "status": "exported",
+        "method": "autoresearch.autoresearchValidateCreate"
+    },
+    {
+        "toolName": "batch-export-create",
+        "status": "exported",
+        "method": "batchExports.batchExportCreate"
+    },
+    {
+        "toolName": "batch-export-delete",
+        "status": "exported",
+        "method": "batchExports.batchExportDelete"
+    },
+    {
+        "toolName": "batch-export-get",
+        "status": "exported",
+        "method": "batchExports.batchExportGet"
+    },
+    {
+        "toolName": "batch-export-update",
+        "status": "exported",
+        "method": "batchExports.batchExportUpdate"
+    },
+    {
+        "toolName": "batch-exports-list",
+        "status": "exported",
+        "method": "batchExports.batchExportsList"
+    },
+    {
+        "toolName": "billing-features-get",
+        "status": "exported",
+        "method": "billing.billingFeaturesGet"
+    },
+    {
+        "toolName": "billing-forecast-get",
+        "status": "exported",
+        "method": "billing.billingForecastGet"
+    },
+    {
+        "toolName": "billing-limits-get",
+        "status": "exported",
+        "method": "billing.billingLimitsGet"
+    },
+    {
+        "toolName": "billing-overview-get",
+        "status": "exported",
+        "method": "billing.billingOverviewGet"
+    },
+    {
+        "toolName": "billing-product-get",
+        "status": "exported",
+        "method": "billing.billingProductGet"
+    },
+    {
+        "toolName": "billing-products-summary-get",
+        "status": "exported",
+        "method": "billing.billingProductsSummaryGet"
+    },
+    {
+        "toolName": "billing-projects-list",
+        "status": "exported",
+        "method": "billing.billingProjectsList"
+    },
+    {
+        "toolName": "billing-spend-get",
+        "status": "exported",
+        "method": "billing.billingSpendGet"
+    },
+    {
+        "toolName": "billing-spend-summary-get",
+        "status": "exported",
+        "method": "billing.billingSpendSummaryGet"
+    },
+    {
+        "toolName": "billing-spend-timeseries-get",
+        "status": "exported",
+        "method": "billing.billingSpendTimeseriesGet"
+    },
+    {
+        "toolName": "billing-subscription-get",
+        "status": "exported",
+        "method": "billing.billingSubscriptionGet"
+    },
+    {
+        "toolName": "billing-usage-get",
+        "status": "exported",
+        "method": "billing.billingUsageGet"
+    },
+    {
+        "toolName": "billing-usage-status-get",
+        "status": "exported",
+        "method": "billing.billingUsageStatusGet"
+    },
+    {
+        "toolName": "billing-usage-summary-get",
+        "status": "exported",
+        "method": "billing.billingUsageSummaryGet"
+    },
+    {
+        "toolName": "billing-usage-timeseries-get",
+        "status": "exported",
+        "method": "billing.billingUsageTimeseriesGet"
+    },
+    {
+        "toolName": "broadcasts-create",
+        "status": "exported",
+        "method": "workflows.broadcastsCreate"
+    },
+    {
+        "toolName": "business-knowledge-document-window-retrieve",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeDocumentWindowRetrieve"
+    },
+    {
+        "toolName": "business-knowledge-documents-search",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeDocumentsSearch"
+    },
+    {
+        "toolName": "business-knowledge-repositories-file-retrieve",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeRepositoriesFileRetrieve"
+    },
+    {
+        "toolName": "business-knowledge-repositories-search",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeRepositoriesSearch"
+    },
+    {
+        "toolName": "business-knowledge-sources-list",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeSourcesList"
+    },
+    {
+        "toolName": "business-knowledge-sources-partial-update",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeSourcesPartialUpdate"
+    },
+    {
+        "toolName": "business-knowledge-sources-retrieve",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeSourcesRetrieve"
+    },
+    {
+        "toolName": "business-knowledge-sources-text-create",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeSourcesTextCreate"
+    },
+    {
+        "toolName": "business-knowledge-sources-url-create",
+        "status": "exported",
+        "method": "businessKnowledge.businessKnowledgeSourcesUrlCreate"
+    },
+    {
+        "toolName": "canvas-builds-retrieve",
+        "status": "exported",
+        "method": "canvas.canvasBuildsRetrieve"
+    },
+    {
+        "toolName": "canvas-comments-list",
+        "status": "exported",
+        "method": "canvas.canvasCommentsList"
+    },
+    {
+        "toolName": "canvas-comments-retrieve",
+        "status": "exported",
+        "method": "canvas.canvasCommentsRetrieve"
+    },
+    {
+        "toolName": "canvas-connectors-retrieve",
+        "status": "exported",
+        "method": "canvas.canvasConnectorsRetrieve"
+    },
+    {
+        "toolName": "canvas-create",
+        "status": "exported",
+        "method": "canvas.canvasCreate"
+    },
+    {
+        "toolName": "canvas-draft-create",
+        "status": "exported",
+        "method": "canvas.canvasDraftCreate"
+    },
+    {
+        "toolName": "canvas-drafts-retrieve",
+        "status": "exported",
+        "method": "canvas.canvasDraftsRetrieve"
+    },
+    {
+        "toolName": "canvas-edit-create",
+        "status": "exported",
+        "method": "canvas.canvasEditCreate"
+    },
+    {
+        "toolName": "canvas-layout-get",
+        "status": "exported",
+        "method": "canvas.canvasLayoutGet"
+    },
+    {
+        "toolName": "canvas-layout-patch",
+        "status": "exported",
+        "method": "canvas.canvasLayoutPatch"
+    },
+    {
+        "toolName": "canvas-layout-publish",
+        "status": "exported",
+        "method": "canvas.canvasLayoutPublish"
+    },
+    {
+        "toolName": "canvas-list",
+        "status": "exported",
+        "method": "canvas.canvasList"
+    },
+    {
+        "toolName": "canvas-move",
+        "status": "exported",
+        "method": "canvas.canvasMove"
+    },
+    {
+        "toolName": "canvas-promote-create",
+        "status": "exported",
+        "method": "canvas.canvasPromoteCreate"
+    },
+    {
+        "toolName": "canvas-publish-create",
+        "status": "exported",
+        "method": "canvas.canvasPublishCreate"
+    },
+    {
+        "toolName": "canvas-publish-current-version",
+        "status": "exported",
+        "method": "canvas.canvasPublishCurrentVersion"
+    },
+    {
+        "toolName": "canvas-source-retrieve",
+        "status": "exported",
+        "method": "canvas.canvasSourceRetrieve"
+    },
+    {
+        "toolName": "canvas-state-retrieve",
+        "status": "exported",
+        "method": "canvas.canvasStateRetrieve"
+    },
+    {
+        "toolName": "canvas-state-set",
+        "status": "exported",
+        "method": "canvas.canvasStateSet"
+    },
+    {
+        "toolName": "canvas-state-value-retrieve",
+        "status": "exported",
+        "method": "canvas.canvasStateValueRetrieve"
+    },
+    {
+        "toolName": "canvas-validate-create",
+        "status": "exported",
+        "method": "canvas.canvasValidateCreate"
+    },
+    {
+        "toolName": "cdp-function-templates-list",
+        "status": "exported",
+        "method": "cdpFunctionTemplates.cdpFunctionTemplatesList"
+    },
+    {
+        "toolName": "cdp-function-templates-retrieve",
+        "status": "exported",
+        "method": "cdpFunctionTemplates.cdpFunctionTemplatesRetrieve"
+    },
+    {
+        "toolName": "cdp-functions-create",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsCreate"
+    },
+    {
+        "toolName": "cdp-functions-delete",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsDelete"
+    },
+    {
+        "toolName": "cdp-functions-discard-draft",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsDiscardDraft"
+    },
+    {
+        "toolName": "cdp-functions-get-revision",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsGetRevision"
+    },
+    {
+        "toolName": "cdp-functions-invocations-create",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsInvocationsCreate"
+    },
+    {
+        "toolName": "cdp-functions-list",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsList"
+    },
+    {
+        "toolName": "cdp-functions-list-revisions",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsListRevisions"
+    },
+    {
+        "toolName": "cdp-functions-logs-retrieve",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsLogsRetrieve"
+    },
+    {
+        "toolName": "cdp-functions-metrics-retrieve",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsMetricsRetrieve"
+    },
+    {
+        "toolName": "cdp-functions-partial-update",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsPartialUpdate"
+    },
+    {
+        "toolName": "cdp-functions-publish",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsPublish"
+    },
+    {
+        "toolName": "cdp-functions-rearrange-partial-update",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsRearrangePartialUpdate"
+    },
+    {
+        "toolName": "cdp-functions-restore-revision",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsRestoreRevision"
+    },
+    {
+        "toolName": "cdp-functions-retrieve",
+        "status": "exported",
+        "method": "cdpFunctions.cdpFunctionsRetrieve"
+    },
+    {
+        "toolName": "change-request-get",
+        "status": "exported",
+        "method": "platformFeatures.changeRequestGet"
+    },
+    {
+        "toolName": "change-requests-approve-execute",
+        "status": "exported",
+        "method": "platformFeatures.changeRequestsApproveExecute"
+    },
+    {
+        "toolName": "change-requests-approve-prepare",
+        "status": "exported",
+        "method": "platformFeatures.changeRequestsApprovePrepare"
+    },
+    {
+        "toolName": "change-requests-list",
+        "status": "exported",
+        "method": "platformFeatures.changeRequestsList"
+    },
+    {
+        "toolName": "change-requests-reject-execute",
+        "status": "exported",
+        "method": "platformFeatures.changeRequestsRejectExecute"
+    },
+    {
+        "toolName": "change-requests-reject-prepare",
+        "status": "exported",
+        "method": "platformFeatures.changeRequestsRejectPrepare"
+    },
+    {
+        "toolName": "channel-create",
+        "status": "exported",
+        "method": "tasks.channelCreate"
+    },
+    {
+        "toolName": "channel-instructions-retrieve",
+        "status": "exported",
+        "method": "tasks.channelInstructionsRetrieve"
+    },
+    {
+        "toolName": "channel-instructions-update",
+        "status": "exported",
+        "method": "tasks.channelInstructionsUpdate"
+    },
+    {
+        "toolName": "channel-list",
+        "status": "exported",
+        "method": "tasks.channelList"
+    },
+    {
+        "toolName": "channel-retrieve",
+        "status": "exported",
+        "method": "tasks.channelRetrieve"
+    },
+    {
+        "toolName": "characterize-metric-anomaly",
+        "status": "exported",
+        "method": "metrics.characterizeMetricAnomaly"
+    },
+    {
+        "toolName": "cohorts-add-persons-to-static-cohort-partial-update",
+        "status": "exported",
+        "method": "cohorts.cohortsAddPersonsToStaticCohortPartialUpdate"
+    },
+    {
+        "toolName": "cohorts-create",
+        "status": "exported",
+        "method": "cohorts.cohortsCreate"
+    },
+    {
+        "toolName": "cohorts-list",
+        "status": "exported",
+        "method": "cohorts.list"
+    },
+    {
+        "toolName": "cohorts-partial-update",
+        "status": "exported",
+        "method": "cohorts.cohortsPartialUpdate"
+    },
+    {
+        "toolName": "cohorts-retrieve",
+        "status": "exported",
+        "method": "cohorts.get"
+    },
+    {
+        "toolName": "cohorts-rm-person-from-static-cohort-partial-update",
+        "status": "exported",
+        "method": "cohorts.cohortsRmPersonFromStaticCohortPartialUpdate"
+    },
+    {
+        "toolName": "comment-count",
+        "status": "exported",
+        "method": "platformFeatures.commentCount"
+    },
+    {
+        "toolName": "comment-get",
+        "status": "exported",
+        "method": "platformFeatures.commentGet"
+    },
+    {
+        "toolName": "comment-thread",
+        "status": "exported",
+        "method": "platformFeatures.commentThread"
+    },
+    {
+        "toolName": "comments-create",
+        "status": "exported",
+        "method": "platformFeatures.commentsCreate"
+    },
+    {
+        "toolName": "comments-list",
+        "status": "exported",
+        "method": "platformFeatures.commentsList"
+    },
+    {
+        "toolName": "context-wiki-channel-resolve",
+        "status": "exported",
+        "method": "contextLayer.contextWikiChannelResolve"
+    },
+    {
+        "toolName": "context-wiki-page-retrieve",
+        "status": "exported",
+        "method": "contextLayer.contextWikiPageRetrieve"
+    },
+    {
+        "toolName": "context-wiki-page-update",
+        "status": "exported",
+        "method": "contextLayer.contextWikiPageUpdate"
+    },
+    {
+        "toolName": "conversations-list",
+        "status": "exported",
+        "method": "posthogAi.conversationsList"
+    },
+    {
+        "toolName": "conversations-retrieve",
+        "status": "exported",
+        "method": "posthogAi.conversationsRetrieve"
+    },
+    {
+        "toolName": "conversations-tickets-list",
+        "status": "exported",
+        "method": "conversations.conversationsTicketsList"
+    },
+    {
+        "toolName": "conversations-tickets-messages-retrieve",
+        "status": "exported",
+        "method": "conversations.conversationsTicketsMessagesRetrieve"
+    },
+    {
+        "toolName": "conversations-tickets-notes-create",
+        "status": "exported",
+        "method": "conversations.conversationsTicketsNotesCreate"
+    },
+    {
+        "toolName": "conversations-tickets-notes-destroy",
+        "status": "exported",
+        "method": "conversations.conversationsTicketsNotesDestroy"
+    },
+    {
+        "toolName": "conversations-tickets-notes-partial-update",
+        "status": "exported",
+        "method": "conversations.conversationsTicketsNotesPartialUpdate"
+    },
+    {
+        "toolName": "conversations-tickets-reply-create",
+        "status": "exported",
+        "method": "conversations.conversationsTicketsReplyCreate"
+    },
+    {
+        "toolName": "conversations-tickets-retrieve",
+        "status": "exported",
+        "method": "conversations.conversationsTicketsRetrieve"
+    },
+    {
+        "toolName": "conversations-tickets-update",
+        "status": "exported",
+        "method": "conversations.conversationsTicketsUpdate"
+    },
+    {
+        "toolName": "conversations-views-create",
+        "status": "exported",
+        "method": "conversations.conversationsViewsCreate"
+    },
+    {
+        "toolName": "conversations-views-list",
+        "status": "exported",
+        "method": "conversations.conversationsViewsList"
+    },
+    {
+        "toolName": "conversations-views-retrieve",
+        "status": "exported",
+        "method": "conversations.conversationsViewsRetrieve"
+    },
+    {
+        "toolName": "conversations-views-update",
+        "status": "exported",
+        "method": "conversations.conversationsViewsUpdate"
+    },
+    {
+        "toolName": "create-feature-flag",
+        "status": "exported",
+        "method": "featureFlags.create"
+    },
+    {
+        "toolName": "cross-project-dashboard-tiles-list",
+        "status": "exported",
+        "method": "crossProjectDashboards.crossProjectDashboardTilesList"
+    },
+    {
+        "toolName": "cross-project-dashboards-get",
+        "status": "exported",
+        "method": "crossProjectDashboards.crossProjectDashboardsGet"
+    },
+    {
+        "toolName": "cross-project-dashboards-list",
+        "status": "exported",
+        "method": "crossProjectDashboards.crossProjectDashboardsList"
+    },
+    {
+        "toolName": "custom-property-definitions-create",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertyDefinitionsCreate"
+    },
+    {
+        "toolName": "custom-property-definitions-destroy",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertyDefinitionsDestroy"
+    },
+    {
+        "toolName": "custom-property-definitions-list",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertyDefinitionsList"
+    },
+    {
+        "toolName": "custom-property-definitions-partial-update",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertyDefinitionsPartialUpdate"
+    },
+    {
+        "toolName": "custom-property-definitions-retrieve",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertyDefinitionsRetrieve"
+    },
+    {
+        "toolName": "custom-property-sources-backfill",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertySourcesBackfill"
+    },
+    {
+        "toolName": "custom-property-sources-create",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertySourcesCreate"
+    },
+    {
+        "toolName": "custom-property-sources-destroy",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertySourcesDestroy"
+    },
+    {
+        "toolName": "custom-property-sources-list",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertySourcesList"
+    },
+    {
+        "toolName": "custom-property-sources-partial-update",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertySourcesPartialUpdate"
+    },
+    {
+        "toolName": "custom-property-sources-retrieve",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertySourcesRetrieve"
+    },
+    {
+        "toolName": "custom-property-sources-runs-list",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertySourcesRunsList"
+    },
+    {
+        "toolName": "custom-property-sources-sync",
+        "status": "exported",
+        "method": "customerAnalytics.customPropertySourcesSync"
+    },
+    {
+        "toolName": "customer-tasks-activities-list",
+        "status": "exported",
+        "method": "customerAnalytics.customerTasksActivitiesList"
+    },
+    {
+        "toolName": "customer-tasks-archive-create",
+        "status": "exported",
+        "method": "customerAnalytics.customerTasksArchiveCreate"
+    },
+    {
+        "toolName": "customer-tasks-create",
+        "status": "exported",
+        "method": "customerAnalytics.customerTasksCreate"
+    },
+    {
+        "toolName": "customer-tasks-list",
+        "status": "exported",
+        "method": "customerAnalytics.customerTasksList"
+    },
+    {
+        "toolName": "customer-tasks-partial-update",
+        "status": "exported",
+        "method": "customerAnalytics.customerTasksPartialUpdate"
+    },
+    {
+        "toolName": "customer-tasks-restore-create",
+        "status": "exported",
+        "method": "customerAnalytics.customerTasksRestoreCreate"
+    },
+    {
+        "toolName": "customer-tasks-retrieve",
+        "status": "exported",
+        "method": "customerAnalytics.customerTasksRetrieve"
+    },
+    {
+        "toolName": "dashboard-create",
+        "status": "exported",
+        "method": "dashboards.create"
+    },
+    {
+        "toolName": "dashboard-create-tile",
+        "status": "exported",
+        "method": "dashboards.dashboardCreateTile"
+    },
+    {
+        "toolName": "dashboard-delete",
+        "status": "exported",
+        "method": "dashboards.dashboardDelete"
+    },
+    {
+        "toolName": "dashboard-delete-tile",
+        "status": "exported",
+        "method": "dashboards.dashboardDeleteTile"
+    },
+    {
+        "toolName": "dashboard-get",
+        "status": "exported",
+        "method": "dashboards.get"
+    },
+    {
+        "toolName": "dashboard-insights-run",
+        "status": "exported",
+        "method": "dashboards.dashboardInsightsRun"
+    },
+    {
+        "toolName": "dashboard-reorder-tiles",
+        "status": "exported",
+        "method": "dashboards.dashboardReorderTiles"
+    },
+    {
+        "toolName": "dashboard-templates-list",
+        "status": "exported",
+        "method": "dashboards.dashboardTemplatesList"
+    },
+    {
+        "toolName": "dashboard-templates-retrieve",
+        "status": "exported",
+        "method": "dashboards.dashboardTemplatesRetrieve"
+    },
+    {
+        "toolName": "dashboard-tile-copy",
+        "status": "exported",
+        "method": "dashboards.dashboardTileCopy"
+    },
+    {
+        "toolName": "dashboard-transfer-tile",
+        "status": "exported",
+        "method": "dashboards.dashboardTransferTile"
+    },
+    {
+        "toolName": "dashboard-update",
+        "status": "exported",
+        "method": "dashboards.update"
+    },
+    {
+        "toolName": "dashboard-update-text-tile",
+        "status": "exported",
+        "method": "dashboards.dashboardUpdateTextTile"
+    },
+    {
+        "toolName": "dashboard-widget-catalog-list",
+        "status": "exported",
+        "method": "dashboards.dashboardWidgetCatalogList"
+    },
+    {
+        "toolName": "dashboard-widgets-batch-add",
+        "status": "exported",
+        "method": "dashboards.dashboardWidgetsBatchAdd"
+    },
+    {
+        "toolName": "dashboard-widgets-batch-update",
+        "status": "exported",
+        "method": "dashboards.dashboardWidgetsBatchUpdate"
+    },
+    {
+        "toolName": "dashboard-widgets-run",
+        "status": "exported",
+        "method": "dashboards.dashboardWidgetsRun"
+    },
+    {
+        "toolName": "dashboards-get-all",
+        "status": "exported",
+        "method": "dashboards.list"
+    },
+    {
+        "toolName": "data-catalog-certification-certify-execute",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogCertificationCertifyExecute"
+    },
+    {
+        "toolName": "data-catalog-certification-certify-prepare",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogCertificationCertifyPrepare"
+    },
+    {
+        "toolName": "data-catalog-certification-deprecate-execute",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogCertificationDeprecateExecute"
+    },
+    {
+        "toolName": "data-catalog-certification-deprecate-prepare",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogCertificationDeprecatePrepare"
+    },
+    {
+        "toolName": "data-catalog-certification-propose",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogCertificationPropose"
+    },
+    {
+        "toolName": "data-catalog-metric-approve-execute",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogMetricApproveExecute"
+    },
+    {
+        "toolName": "data-catalog-metric-approve-prepare",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogMetricApprovePrepare"
+    },
+    {
+        "toolName": "data-catalog-metric-create",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogMetricCreate"
+    },
+    {
+        "toolName": "data-catalog-metric-delete-execute",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogMetricDeleteExecute"
+    },
+    {
+        "toolName": "data-catalog-metric-delete-prepare",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogMetricDeletePrepare"
+    },
+    {
+        "toolName": "data-catalog-metric-run",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogMetricRun"
+    },
+    {
+        "toolName": "data-catalog-metric-update",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogMetricUpdate"
+    },
+    {
+        "toolName": "data-catalog-metrics-refresh-from-insight-create",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogMetricsRefreshFromInsightCreate"
+    },
+    {
+        "toolName": "data-catalog-relationship-accept-execute",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogRelationshipAcceptExecute"
+    },
+    {
+        "toolName": "data-catalog-relationship-accept-prepare",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogRelationshipAcceptPrepare"
+    },
+    {
+        "toolName": "data-catalog-relationship-propose",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogRelationshipPropose"
+    },
+    {
+        "toolName": "data-catalog-relationship-reject-execute",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogRelationshipRejectExecute"
+    },
+    {
+        "toolName": "data-catalog-relationship-reject-prepare",
+        "status": "exported",
+        "method": "dataCatalog.dataCatalogRelationshipRejectPrepare"
+    },
+    {
+        "toolName": "data-quality-check-create",
+        "status": "exported",
+        "method": "dataQuality.dataQualityCheckCreate"
+    },
+    {
+        "toolName": "data-quality-check-delete",
+        "status": "exported",
+        "method": "dataQuality.dataQualityCheckDelete"
+    },
+    {
+        "toolName": "data-quality-check-results",
+        "status": "exported",
+        "method": "dataQuality.dataQualityCheckResults"
+    },
+    {
+        "toolName": "data-quality-check-run",
+        "status": "exported",
+        "method": "dataQuality.dataQualityCheckRun"
+    },
+    {
+        "toolName": "data-quality-check-schedule",
+        "status": "exported",
+        "method": "dataQuality.dataQualityCheckSchedule"
+    },
+    {
+        "toolName": "data-quality-check-types",
+        "status": "exported",
+        "method": "dataQuality.dataQualityCheckTypes"
+    },
+    {
+        "toolName": "data-quality-check-update",
+        "status": "exported",
+        "method": "dataQuality.dataQualityCheckUpdate"
+    },
+    {
+        "toolName": "data-quality-subjects",
+        "status": "exported",
+        "method": "dataQuality.dataQualitySubjects"
+    },
+    {
+        "toolName": "data-warehouse-source-connect-link",
+        "status": "exported",
+        "method": "warehouseSources.dataWarehouseSourceConnectLink"
+    },
+    {
+        "toolName": "data-warehouse-source-setup",
+        "status": "exported",
+        "method": "warehouseSources.dataWarehouseSourceSetup"
+    },
+    {
+        "toolName": "data-warehouse-stored-credentials-list",
+        "status": "exported",
+        "method": "warehouseSources.dataWarehouseStoredCredentialsList"
+    },
+    {
+        "toolName": "debug-mcp-ui-apps",
+        "status": "exported",
+        "method": "debug.debugMcpUiApps"
+    },
+    {
+        "toolName": "delete-feature-flag",
+        "status": "exported",
+        "method": "featureFlags.deleteFeatureFlag"
+    },
+    {
+        "toolName": "docs-search",
+        "status": "exported",
+        "method": "docs.docsSearch"
+    },
+    {
+        "toolName": "domains-list",
+        "status": "exported",
+        "method": "core.domainsList"
+    },
+    {
+        "toolName": "early-access-feature-create",
+        "status": "exported",
+        "method": "earlyAccessFeatures.earlyAccessFeatureCreate"
+    },
+    {
+        "toolName": "early-access-feature-destroy",
+        "status": "exported",
+        "method": "earlyAccessFeatures.earlyAccessFeatureDestroy"
+    },
+    {
+        "toolName": "early-access-feature-list",
+        "status": "exported",
+        "method": "earlyAccessFeatures.earlyAccessFeatureList"
+    },
+    {
+        "toolName": "early-access-feature-partial-update",
+        "status": "exported",
+        "method": "earlyAccessFeatures.earlyAccessFeaturePartialUpdate"
+    },
+    {
+        "toolName": "early-access-feature-retrieve",
+        "status": "exported",
+        "method": "earlyAccessFeatures.earlyAccessFeatureRetrieve"
+    },
+    {
+        "toolName": "elements-stats-retrieve",
+        "status": "exported",
+        "method": "productAnalytics.elementsStatsRetrieve"
+    },
+    {
+        "toolName": "endpoint-create",
+        "status": "exported",
+        "method": "endpoints.endpointCreate"
+    },
+    {
+        "toolName": "endpoint-delete",
+        "status": "exported",
+        "method": "endpoints.endpointDelete"
+    },
+    {
+        "toolName": "endpoint-get",
+        "status": "exported",
+        "method": "endpoints.endpointGet"
+    },
+    {
+        "toolName": "endpoint-logs",
+        "status": "exported",
+        "method": "endpoints.endpointLogs"
+    },
+    {
+        "toolName": "endpoint-materialization-conditions",
+        "status": "exported",
+        "method": "endpoints.endpointMaterializationConditions"
+    },
+    {
+        "toolName": "endpoint-materialization-status",
+        "status": "exported",
+        "method": "endpoints.endpointMaterializationStatus"
+    },
+    {
+        "toolName": "endpoint-materialization-suggestion",
+        "status": "exported",
+        "method": "endpoints.endpointMaterializationSuggestion"
+    },
+    {
+        "toolName": "endpoint-openapi-spec",
+        "status": "exported",
+        "method": "endpoints.endpointOpenapiSpec"
+    },
+    {
+        "toolName": "endpoint-run",
+        "status": "exported",
+        "method": "endpoints.endpointRun"
+    },
+    {
+        "toolName": "endpoint-update",
+        "status": "exported",
+        "method": "endpoints.endpointUpdate"
+    },
+    {
+        "toolName": "endpoint-versions",
+        "status": "exported",
+        "method": "endpoints.endpointVersions"
+    },
+    {
+        "toolName": "endpoints-get-all",
+        "status": "exported",
+        "method": "endpoints.endpointsGetAll"
+    },
+    {
+        "toolName": "endpoints-last-execution-times",
+        "status": "exported",
+        "method": "endpoints.endpointsLastExecutionTimes"
+    },
+    {
+        "toolName": "endpoints-materialization-preview",
+        "status": "exported",
+        "method": "endpoints.endpointsMaterializationPreview"
+    },
+    {
+        "toolName": "engineering-analytics-broken-tests",
+        "status": "exported",
+        "method": "engineeringAnalytics.engineeringAnalyticsBrokenTests"
+    },
+    {
+        "toolName": "engineering-analytics-ci-failure-logs",
+        "status": "exported",
+        "method": "engineeringAnalytics.engineeringAnalyticsCiFailureLogs"
+    },
+    {
+        "toolName": "engineering-analytics-flaky-tests",
+        "status": "exported",
+        "method": "engineeringAnalytics.engineeringAnalyticsFlakyTests"
+    },
+    {
+        "toolName": "engineering-analytics-pr-cost",
+        "status": "exported",
+        "method": "engineeringAnalytics.engineeringAnalyticsPrCost"
+    },
+    {
+        "toolName": "engineering-analytics-run-failure-logs",
+        "status": "exported",
+        "method": "engineeringAnalytics.engineeringAnalyticsRunFailureLogs"
+    },
+    {
+        "toolName": "engineering-analytics-sources",
+        "status": "exported",
+        "method": "engineeringAnalytics.engineeringAnalyticsSources"
+    },
+    {
+        "toolName": "engineering-analytics-team-ci-health",
+        "status": "exported",
+        "method": "engineeringAnalytics.engineeringAnalyticsTeamCiHealth"
+    },
+    {
+        "toolName": "engineering-analytics-workflow-jobs",
+        "status": "exported",
+        "method": "engineeringAnalytics.engineeringAnalyticsWorkflowJobs"
+    },
+    {
+        "toolName": "engineering-analytics-workflow-runner-costs",
+        "status": "exported",
+        "method": "engineeringAnalytics.engineeringAnalyticsWorkflowRunnerCosts"
+    },
+    {
+        "toolName": "error-tracking-alerts-create",
+        "status": "exported",
+        "method": "errorTrackingAlerts.errorTrackingAlertsCreate"
+    },
+    {
+        "toolName": "error-tracking-alerts-delete",
+        "status": "exported",
+        "method": "errorTrackingAlerts.errorTrackingAlertsDelete"
+    },
+    {
+        "toolName": "error-tracking-alerts-list",
+        "status": "exported",
+        "method": "errorTrackingAlerts.errorTrackingAlertsList"
+    },
+    {
+        "toolName": "error-tracking-alerts-partial-update",
+        "status": "exported",
+        "method": "errorTrackingAlerts.errorTrackingAlertsPartialUpdate"
+    },
+    {
+        "toolName": "error-tracking-assignment-rules-create",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingAssignmentRulesCreate"
+    },
+    {
+        "toolName": "error-tracking-assignment-rules-list",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingAssignmentRulesList"
+    },
+    {
+        "toolName": "error-tracking-bypass-rules-create",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingBypassRulesCreate"
+    },
+    {
+        "toolName": "error-tracking-bypass-rules-list",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingBypassRulesList"
+    },
+    {
+        "toolName": "error-tracking-bypass-rules-update",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingBypassRulesUpdate"
+    },
+    {
+        "toolName": "error-tracking-external-references-create",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingExternalReferencesCreate"
+    },
+    {
+        "toolName": "error-tracking-grouping-rules-create",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingGroupingRulesCreate"
+    },
+    {
+        "toolName": "error-tracking-grouping-rules-list",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingGroupingRulesList"
+    },
+    {
+        "toolName": "error-tracking-grouping-rules-update",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingGroupingRulesUpdate"
+    },
+    {
+        "toolName": "error-tracking-issues-assign-partial-update",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingIssuesAssignPartialUpdate"
+    },
+    {
+        "toolName": "error-tracking-issues-merge-create",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingIssuesMergeCreate"
+    },
+    {
+        "toolName": "error-tracking-issues-partial-update",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingIssuesPartialUpdate"
+    },
+    {
+        "toolName": "error-tracking-issues-split-create",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingIssuesSplitCreate"
+    },
+    {
+        "toolName": "error-tracking-recommendations-list",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingRecommendationsList"
+    },
+    {
+        "toolName": "error-tracking-settings-get",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSettingsGet"
+    },
+    {
+        "toolName": "error-tracking-settings-update",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSettingsUpdate"
+    },
+    {
+        "toolName": "error-tracking-severity-rules-create",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSeverityRulesCreate"
+    },
+    {
+        "toolName": "error-tracking-severity-rules-list",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSeverityRulesList"
+    },
+    {
+        "toolName": "error-tracking-severity-rules-update",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSeverityRulesUpdate"
+    },
+    {
+        "toolName": "error-tracking-suppression-rules-create",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSuppressionRulesCreate"
+    },
+    {
+        "toolName": "error-tracking-suppression-rules-list",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSuppressionRulesList"
+    },
+    {
+        "toolName": "error-tracking-suppression-rules-update",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSuppressionRulesUpdate"
+    },
+    {
+        "toolName": "error-tracking-symbol-sets-download-retrieve",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSymbolSetsDownloadRetrieve"
+    },
+    {
+        "toolName": "error-tracking-symbol-sets-list",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSymbolSetsList"
+    },
+    {
+        "toolName": "error-tracking-symbol-sets-retrieve",
+        "status": "exported",
+        "method": "errorTracking.errorTrackingSymbolSetsRetrieve"
+    },
+    {
+        "toolName": "event-definition-create",
+        "status": "exported",
+        "method": "events.eventDefinitionCreate"
+    },
+    {
+        "toolName": "event-definition-update",
+        "status": "exported",
+        "method": "events.eventDefinitionUpdate"
+    },
+    {
+        "toolName": "event-streams-add-account",
+        "status": "exported",
+        "method": "customerAnalytics.eventStreamsAddAccount"
+    },
+    {
+        "toolName": "event-streams-create",
+        "status": "exported",
+        "method": "customerAnalytics.eventStreamsCreate"
+    },
+    {
+        "toolName": "event-streams-destroy",
+        "status": "exported",
+        "method": "customerAnalytics.eventStreamsDestroy"
+    },
+    {
+        "toolName": "event-streams-list",
+        "status": "exported",
+        "method": "customerAnalytics.eventStreamsList"
+    },
+    {
+        "toolName": "event-streams-partial-update",
+        "status": "exported",
+        "method": "customerAnalytics.eventStreamsPartialUpdate"
+    },
+    {
+        "toolName": "event-streams-remove-account",
+        "status": "exported",
+        "method": "customerAnalytics.eventStreamsRemoveAccount"
+    },
+    {
+        "toolName": "event-streams-send-test-message",
+        "status": "exported",
+        "method": "customerAnalytics.eventStreamsSendTestMessage"
+    },
+    {
+        "toolName": "execute-sql",
+        "status": "exported",
+        "method": "queries.sql"
+    },
+    {
+        "toolName": "experiment-activity",
+        "status": "exported",
+        "method": "experiments.experimentActivity"
+    },
+    {
+        "toolName": "experiment-archive",
+        "status": "exported",
+        "method": "experiments.experimentArchive"
+    },
+    {
+        "toolName": "experiment-calculate-running-time",
+        "status": "exported",
+        "method": "experiments.experimentCalculateRunningTime"
+    },
+    {
+        "toolName": "experiment-cleanup-task",
+        "status": "exported",
+        "method": "experiments.experimentCleanupTask"
+    },
+    {
+        "toolName": "experiment-copy-to-project",
+        "status": "exported",
+        "method": "experiments.experimentCopyToProject"
+    },
+    {
+        "toolName": "experiment-create",
+        "status": "exported",
+        "method": "experiments.experimentCreate"
+    },
+    {
+        "toolName": "experiment-create-from-prompt",
+        "status": "exported",
+        "method": "experiments.experimentCreateFromPrompt"
+    },
+    {
+        "toolName": "experiment-delete",
+        "status": "exported",
+        "method": "experiments.experimentDelete"
+    },
+    {
+        "toolName": "experiment-duplicate",
+        "status": "exported",
+        "method": "experiments.experimentDuplicate"
+    },
+    {
+        "toolName": "experiment-end",
+        "status": "exported",
+        "method": "experiments.experimentEnd"
+    },
+    {
+        "toolName": "experiment-freeze-exposure",
+        "status": "exported",
+        "method": "experiments.experimentFreezeExposure"
+    },
+    {
+        "toolName": "experiment-get",
+        "status": "exported",
+        "method": "experiments.get"
+    },
+    {
+        "toolName": "experiment-get-by-flag-key",
+        "status": "exported",
+        "method": "experiments.experimentGetByFlagKey"
+    },
+    {
+        "toolName": "experiment-holdouts-create",
+        "status": "exported",
+        "method": "experiments.experimentHoldoutsCreate"
+    },
+    {
+        "toolName": "experiment-holdouts-destroy",
+        "status": "exported",
+        "method": "experiments.experimentHoldoutsDestroy"
+    },
+    {
+        "toolName": "experiment-holdouts-list",
+        "status": "exported",
+        "method": "experiments.experimentHoldoutsList"
+    },
+    {
+        "toolName": "experiment-holdouts-partial-update",
+        "status": "exported",
+        "method": "experiments.experimentHoldoutsPartialUpdate"
+    },
+    {
+        "toolName": "experiment-holdouts-retrieve",
+        "status": "exported",
+        "method": "experiments.experimentHoldoutsRetrieve"
+    },
+    {
+        "toolName": "experiment-launch",
+        "status": "exported",
+        "method": "experiments.experimentLaunch"
+    },
+    {
+        "toolName": "experiment-list",
+        "status": "exported",
+        "method": "experiments.list"
+    },
+    {
+        "toolName": "experiment-metrics-recalculation-create",
+        "status": "exported",
+        "method": "experiments.experimentMetricsRecalculationCreate"
+    },
+    {
+        "toolName": "experiment-metrics-recalculation-latest-retrieve",
+        "status": "exported",
+        "method": "experiments.experimentMetricsRecalculationLatestRetrieve"
+    },
+    {
+        "toolName": "experiment-metrics-recalculation-retrieve",
+        "status": "exported",
+        "method": "experiments.experimentMetricsRecalculationRetrieve"
+    },
+    {
+        "toolName": "experiment-migrate",
+        "status": "exported",
+        "method": "experiments.experimentMigrate"
+    },
+    {
+        "toolName": "experiment-pause",
+        "status": "exported",
+        "method": "experiments.experimentPause"
+    },
+    {
+        "toolName": "experiment-prompt-templates",
+        "status": "exported",
+        "method": "experiments.experimentPromptTemplates"
+    },
+    {
+        "toolName": "experiment-reset",
+        "status": "exported",
+        "method": "experiments.experimentReset"
+    },
+    {
+        "toolName": "experiment-results-get",
+        "status": "exported",
+        "method": "experiments.experimentResultsGet"
+    },
+    {
+        "toolName": "experiment-resume",
+        "status": "exported",
+        "method": "experiments.experimentResume"
+    },
+    {
+        "toolName": "experiment-saved-metrics-create",
+        "status": "exported",
+        "method": "experiments.experimentSavedMetricsCreate"
+    },
+    {
+        "toolName": "experiment-saved-metrics-destroy",
+        "status": "exported",
+        "method": "experiments.experimentSavedMetricsDestroy"
+    },
+    {
+        "toolName": "experiment-saved-metrics-list",
+        "status": "exported",
+        "method": "experiments.experimentSavedMetricsList"
+    },
+    {
+        "toolName": "experiment-saved-metrics-partial-update",
+        "status": "exported",
+        "method": "experiments.experimentSavedMetricsPartialUpdate"
+    },
+    {
+        "toolName": "experiment-saved-metrics-retrieve",
+        "status": "exported",
+        "method": "experiments.experimentSavedMetricsRetrieve"
+    },
+    {
+        "toolName": "experiment-setup-context",
+        "status": "exported",
+        "method": "experiments.experimentSetupContext"
+    },
+    {
+        "toolName": "experiment-ship-variant",
+        "status": "exported",
+        "method": "experiments.experimentShipVariant"
+    },
+    {
+        "toolName": "experiment-stats",
+        "status": "exported",
+        "method": "experiments.experimentStats"
+    },
+    {
+        "toolName": "experiment-timeseries-results",
+        "status": "exported",
+        "method": "experiments.experimentTimeseriesResults"
+    },
+    {
+        "toolName": "experiment-unarchive",
+        "status": "exported",
+        "method": "experiments.experimentUnarchive"
+    },
+    {
+        "toolName": "experiment-unfreeze-exposure",
+        "status": "exported",
+        "method": "experiments.experimentUnfreezeExposure"
+    },
+    {
+        "toolName": "experiment-update",
+        "status": "exported",
+        "method": "experiments.experimentUpdate"
+    },
+    {
+        "toolName": "experiments-bulk-update-tags-create",
+        "status": "exported",
+        "method": "experiments.experimentsBulkUpdateTagsCreate"
+    },
+    {
+        "toolName": "experiments-session-event-deltas-create",
+        "status": "exported",
+        "method": "experiments.experimentsSessionEventDeltasCreate"
+    },
+    {
+        "toolName": "external-data-destinations-list",
+        "status": "exported",
+        "method": "warehouseSources.externalDataDestinationsList"
+    },
+    {
+        "toolName": "external-data-destinations-retrieve",
+        "status": "exported",
+        "method": "warehouseSources.externalDataDestinationsRetrieve"
+    },
+    {
+        "toolName": "external-data-schemas-cancel",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSchemasCancel"
+    },
+    {
+        "toolName": "external-data-schemas-delete-data",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSchemasDeleteData"
+    },
+    {
+        "toolName": "external-data-schemas-destinations-retrieve",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSchemasDestinationsRetrieve"
+    },
+    {
+        "toolName": "external-data-schemas-incremental-fields-create",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSchemasIncrementalFieldsCreate"
+    },
+    {
+        "toolName": "external-data-schemas-list",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSchemasList"
+    },
+    {
+        "toolName": "external-data-schemas-partial-update",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSchemasPartialUpdate"
+    },
+    {
+        "toolName": "external-data-schemas-reload",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSchemasReload"
+    },
+    {
+        "toolName": "external-data-schemas-resync",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSchemasResync"
+    },
+    {
+        "toolName": "external-data-schemas-retrieve",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSchemasRetrieve"
+    },
+    {
+        "toolName": "external-data-sources-bulk-update-schemas",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesBulkUpdateSchemas"
+    },
+    {
+        "toolName": "external-data-sources-check-cdc-prerequisites-create",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesCheckCdcPrerequisitesCreate"
+    },
+    {
+        "toolName": "external-data-sources-connections-list",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesConnectionsList"
+    },
+    {
+        "toolName": "external-data-sources-create",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesCreate"
+    },
+    {
+        "toolName": "external-data-sources-create-webhook-create",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesCreateWebhookCreate"
+    },
+    {
+        "toolName": "external-data-sources-db-schema",
+        "status": "exported",
+        "method": "dataWarehouse.externalDataSourcesDbSchema"
+    },
+    {
+        "toolName": "external-data-sources-delete-webhook-create",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesDeleteWebhookCreate"
+    },
+    {
+        "toolName": "external-data-sources-destinations-retrieve",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesDestinationsRetrieve"
+    },
+    {
+        "toolName": "external-data-sources-destroy",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesDestroy"
+    },
+    {
+        "toolName": "external-data-sources-jobs",
+        "status": "exported",
+        "method": "dataWarehouse.externalDataSourcesJobs"
+    },
+    {
+        "toolName": "external-data-sources-list",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesList"
+    },
+    {
+        "toolName": "external-data-sources-partial-update",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesPartialUpdate"
+    },
+    {
+        "toolName": "external-data-sources-preview-resource",
+        "status": "exported",
+        "method": "dataWarehouse.externalDataSourcesPreviewResource"
+    },
+    {
+        "toolName": "external-data-sources-refresh-schemas",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesRefreshSchemas"
+    },
+    {
+        "toolName": "external-data-sources-reload",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesReload"
+    },
+    {
+        "toolName": "external-data-sources-repair-cdc-create",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesRepairCdcCreate"
+    },
+    {
+        "toolName": "external-data-sources-retrieve",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesRetrieve"
+    },
+    {
+        "toolName": "external-data-sources-update-webhook-inputs-create",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesUpdateWebhookInputsCreate"
+    },
+    {
+        "toolName": "external-data-sources-webhook-info-retrieve",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesWebhookInfoRetrieve"
+    },
+    {
+        "toolName": "external-data-sources-wizard",
+        "status": "exported",
+        "method": "warehouseSources.externalDataSourcesWizard"
+    },
+    {
+        "toolName": "external-data-sync-logs",
+        "status": "exported",
+        "method": "dataWarehouse.externalDataSyncLogs"
+    },
+    {
+        "toolName": "feature-flag-archive",
+        "status": "exported",
+        "method": "featureFlags.archive"
+    },
+    {
+        "toolName": "feature-flag-disable",
+        "status": "exported",
+        "method": "featureFlags.disable"
+    },
+    {
+        "toolName": "feature-flag-enable",
+        "status": "exported",
+        "method": "featureFlags.enable"
+    },
+    {
+        "toolName": "feature-flag-get-all",
+        "status": "exported",
+        "method": "featureFlags.list"
+    },
+    {
+        "toolName": "feature-flag-get-definition",
+        "status": "exported",
+        "method": "featureFlags.get"
+    },
+    {
+        "toolName": "feature-flag-get-definition-by-key",
+        "status": "exported",
+        "method": "flags.featureFlagGetDefinitionByKey"
+    },
+    {
+        "toolName": "feature-flag-roll-out-to-everyone",
+        "status": "exported",
+        "method": "featureFlags.rollOutToEveryone"
+    },
+    {
+        "toolName": "feature-flag-set-release-condition-rollout",
+        "status": "exported",
+        "method": "featureFlags.setReleaseConditionRollout"
+    },
+    {
+        "toolName": "feature-flag-unarchive",
+        "status": "exported",
+        "method": "featureFlags.unarchive"
+    },
+    {
+        "toolName": "feature-flags-activity-retrieve",
+        "status": "exported",
+        "method": "featureFlags.featureFlagsActivityRetrieve"
+    },
+    {
+        "toolName": "feature-flags-bulk-delete-create",
+        "status": "exported",
+        "method": "featureFlags.featureFlagsBulkDeleteCreate"
+    },
+    {
+        "toolName": "feature-flags-bulk-keys-retrieve",
+        "status": "exported",
+        "method": "featureFlags.featureFlagsBulkKeysRetrieve"
+    },
+    {
+        "toolName": "feature-flags-bulk-update-tags-create",
+        "status": "exported",
+        "method": "featureFlags.featureFlagsBulkUpdateTagsCreate"
+    },
+    {
+        "toolName": "feature-flags-copy-dependencies-check",
+        "status": "exported",
+        "method": "featureFlags.featureFlagsCopyDependenciesCheck"
+    },
+    {
+        "toolName": "feature-flags-copy-flags-create",
+        "status": "exported",
+        "method": "featureFlags.featureFlagsCopyFlagsCreate"
+    },
+    {
+        "toolName": "feature-flags-dependent-flags-retrieve",
+        "status": "exported",
+        "method": "featureFlags.dependentFlags"
+    },
+    {
+        "toolName": "feature-flags-evaluation-reasons-retrieve",
+        "status": "exported",
+        "method": "featureFlags.featureFlagsEvaluationReasonsRetrieve"
+    },
+    {
+        "toolName": "feature-flags-my-flags-retrieve",
+        "status": "exported",
+        "method": "featureFlags.featureFlagsMyFlagsRetrieve"
+    },
+    {
+        "toolName": "feature-flags-status-retrieve",
+        "status": "exported",
+        "method": "featureFlags.status"
+    },
+    {
+        "toolName": "feature-flags-test-evaluation-create",
+        "status": "exported",
+        "method": "featureFlags.featureFlagsTestEvaluationCreate"
+    },
+    {
+        "toolName": "feature-flags-user-blast-radius-create",
+        "status": "exported",
+        "method": "featureFlags.featureFlagsUserBlastRadiusCreate"
+    },
+    {
+        "toolName": "feature-request-product-areas-create",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestProductAreasCreate"
+    },
+    {
+        "toolName": "feature-request-product-areas-list",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestProductAreasList"
+    },
+    {
+        "toolName": "feature-request-product-areas-partial-update",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestProductAreasPartialUpdate"
+    },
+    {
+        "toolName": "feature-requests-add-account-create",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsAddAccountCreate"
+    },
+    {
+        "toolName": "feature-requests-add-evidence-create",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsAddEvidenceCreate"
+    },
+    {
+        "toolName": "feature-requests-archive-create",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsArchiveCreate"
+    },
+    {
+        "toolName": "feature-requests-create",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsCreate"
+    },
+    {
+        "toolName": "feature-requests-history-list",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsHistoryList"
+    },
+    {
+        "toolName": "feature-requests-list",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsList"
+    },
+    {
+        "toolName": "feature-requests-partial-update",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsPartialUpdate"
+    },
+    {
+        "toolName": "feature-requests-remove-evidence-create",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsRemoveEvidenceCreate"
+    },
+    {
+        "toolName": "feature-requests-restore-create",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsRestoreCreate"
+    },
+    {
+        "toolName": "feature-requests-retrieve",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsRetrieve"
+    },
+    {
+        "toolName": "feature-requests-status-history-list",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsStatusHistoryList"
+    },
+    {
+        "toolName": "feature-requests-update-evidence-create",
+        "status": "exported",
+        "method": "customerAnalytics.featureRequestsUpdateEvidenceCreate"
+    },
+    {
+        "toolName": "field-notes-get",
+        "status": "exported",
+        "method": "fieldNotes.fieldNotesGet"
+    },
+    {
+        "toolName": "field-notes-list",
+        "status": "exported",
+        "method": "fieldNotes.fieldNotesList"
+    },
+    {
+        "toolName": "field-notes-partial-update",
+        "status": "exported",
+        "method": "fieldNotes.fieldNotesPartialUpdate"
+    },
+    {
+        "toolName": "file-download-batch-exports-cancel-create",
+        "status": "exported",
+        "method": "batchExports.fileDownloadBatchExportsCancelCreate"
+    },
+    {
+        "toolName": "file-download-batch-exports-count-rows-create",
+        "status": "exported",
+        "method": "batchExports.fileDownloadBatchExportsCountRowsCreate"
+    },
+    {
+        "toolName": "file-download-batch-exports-create",
+        "status": "exported",
+        "method": "batchExports.fileDownloadBatchExportsCreate"
+    },
+    {
+        "toolName": "file-download-batch-exports-retrieve",
+        "status": "exported",
+        "method": "batchExports.fileDownloadBatchExportsRetrieve"
+    },
+    {
+        "toolName": "generate-app-url",
+        "status": "exported",
+        "method": "links.generateAppUrl"
+    },
+    {
+        "toolName": "get-llm-total-costs-for-project",
+        "status": "exported",
+        "method": "llmAnalytics.getLlmTotalCostsForProject"
+    },
+    {
+        "toolName": "health-issues-get",
+        "status": "exported",
+        "method": "healthIssues.healthIssuesGet"
+    },
+    {
+        "toolName": "health-issues-list",
+        "status": "exported",
+        "method": "healthIssues.healthIssuesList"
+    },
+    {
+        "toolName": "health-issues-summary",
+        "status": "exported",
+        "method": "healthIssues.healthIssuesSummary"
+    },
+    {
+        "toolName": "heatmaps-events",
+        "status": "exported",
+        "method": "webAnalytics.heatmapsEvents"
+    },
+    {
+        "toolName": "heatmaps-list",
+        "status": "exported",
+        "method": "webAnalytics.heatmapsList"
+    },
+    {
+        "toolName": "heatmaps-saved-create",
+        "status": "exported",
+        "method": "webAnalytics.heatmapsSavedCreate"
+    },
+    {
+        "toolName": "heatmaps-saved-get",
+        "status": "exported",
+        "method": "webAnalytics.heatmapsSavedGet"
+    },
+    {
+        "toolName": "heatmaps-saved-list",
+        "status": "exported",
+        "method": "webAnalytics.heatmapsSavedList"
+    },
+    {
+        "toolName": "heatmaps-saved-regenerate",
+        "status": "exported",
+        "method": "webAnalytics.heatmapsSavedRegenerate"
+    },
+    {
+        "toolName": "heatmaps-saved-update",
+        "status": "exported",
+        "method": "webAnalytics.heatmapsSavedUpdate"
+    },
+    {
+        "toolName": "identity-provider-configs-create-execute",
+        "status": "exported",
+        "method": "core.identityProviderConfigsCreateExecute"
+    },
+    {
+        "toolName": "identity-provider-configs-create-prepare",
+        "status": "exported",
+        "method": "core.identityProviderConfigsCreatePrepare"
+    },
+    {
+        "toolName": "identity-provider-configs-destroy-execute",
+        "status": "exported",
+        "method": "core.identityProviderConfigsDestroyExecute"
+    },
+    {
+        "toolName": "identity-provider-configs-destroy-prepare",
+        "status": "exported",
+        "method": "core.identityProviderConfigsDestroyPrepare"
+    },
+    {
+        "toolName": "identity-provider-configs-list",
+        "status": "exported",
+        "method": "core.identityProviderConfigsList"
+    },
+    {
+        "toolName": "identity-provider-configs-partial-update-execute",
+        "status": "exported",
+        "method": "core.identityProviderConfigsPartialUpdateExecute"
+    },
+    {
+        "toolName": "identity-provider-configs-partial-update-prepare",
+        "status": "exported",
+        "method": "core.identityProviderConfigsPartialUpdatePrepare"
+    },
+    {
+        "toolName": "identity-provider-configs-retrieve",
+        "status": "exported",
+        "method": "core.identityProviderConfigsRetrieve"
+    },
+    {
+        "toolName": "identity-provider-configs-scim-token-create-execute",
+        "status": "exported",
+        "method": "core.identityProviderConfigsScimTokenCreateExecute"
+    },
+    {
+        "toolName": "identity-provider-configs-scim-token-create-prepare",
+        "status": "exported",
+        "method": "core.identityProviderConfigsScimTokenCreatePrepare"
+    },
+    {
+        "toolName": "inbox-report-artefacts-create",
+        "status": "exported",
+        "method": "signals.inboxReportArtefactsCreate"
+    },
+    {
+        "toolName": "inbox-report-artefacts-delete",
+        "status": "exported",
+        "method": "signals.inboxReportArtefactsDelete"
+    },
+    {
+        "toolName": "inbox-report-artefacts-list",
+        "status": "exported",
+        "method": "signals.inboxReportArtefactsList"
+    },
+    {
+        "toolName": "inbox-report-artefacts-retrieve",
+        "status": "exported",
+        "method": "signals.inboxReportArtefactsRetrieve"
+    },
+    {
+        "toolName": "inbox-report-artefacts-update",
+        "status": "exported",
+        "method": "signals.inboxReportArtefactsUpdate"
+    },
+    {
+        "toolName": "inbox-report-checks-create",
+        "status": "exported",
+        "method": "signals.inboxReportChecksCreate"
+    },
+    {
+        "toolName": "inbox-report-checks-list",
+        "status": "exported",
+        "method": "signals.inboxReportChecksList"
+    },
+    {
+        "toolName": "inbox-report-checks-replace",
+        "status": "exported",
+        "method": "signals.inboxReportChecksReplace"
+    },
+    {
+        "toolName": "inbox-report-checks-retrieve",
+        "status": "exported",
+        "method": "signals.inboxReportChecksRetrieve"
+    },
+    {
+        "toolName": "inbox-reports-bulk-set-state",
+        "status": "exported",
+        "method": "signals.inboxReportsBulkSetState"
+    },
+    {
+        "toolName": "inbox-reports-claim",
+        "status": "exported",
+        "method": "signals.inboxReportsClaim"
+    },
+    {
+        "toolName": "inbox-reports-leave-reviewers",
+        "status": "exported",
+        "method": "signals.inboxReportsLeaveReviewers"
+    },
+    {
+        "toolName": "inbox-reports-list",
+        "status": "exported",
+        "method": "signals.inboxReportsList"
+    },
+    {
+        "toolName": "inbox-reports-merge",
+        "status": "exported",
+        "method": "signals.inboxReportsMerge"
+    },
+    {
+        "toolName": "inbox-reports-retrieve",
+        "status": "exported",
+        "method": "signals.inboxReportsRetrieve"
+    },
+    {
+        "toolName": "inbox-reports-set-state",
+        "status": "exported",
+        "method": "signals.inboxReportsSetState"
+    },
+    {
+        "toolName": "inbox-reports-update",
+        "status": "exported",
+        "method": "signals.inboxReportsUpdate"
+    },
+    {
+        "toolName": "inbox-source-configs-create",
+        "status": "exported",
+        "method": "signals.inboxSourceConfigsCreate"
+    },
+    {
+        "toolName": "inbox-source-configs-list",
+        "status": "exported",
+        "method": "signals.inboxSourceConfigsList"
+    },
+    {
+        "toolName": "inbox-source-configs-partial-update",
+        "status": "exported",
+        "method": "signals.inboxSourceConfigsPartialUpdate"
+    },
+    {
+        "toolName": "inbox-source-configs-retrieve",
+        "status": "exported",
+        "method": "signals.inboxSourceConfigsRetrieve"
+    },
+    {
+        "toolName": "inbox-source-configs-update",
+        "status": "exported",
+        "method": "signals.inboxSourceConfigsUpdate"
+    },
+    {
+        "toolName": "insight-create",
+        "status": "exported",
+        "method": "productAnalytics.insightCreate"
+    },
+    {
+        "toolName": "insight-delete",
+        "status": "exported",
+        "method": "productAnalytics.insightDelete"
+    },
+    {
+        "toolName": "insight-get",
+        "status": "exported",
+        "method": "productAnalytics.insightGet"
+    },
+    {
+        "toolName": "insight-query",
+        "status": "exported",
+        "method": "insights.insightQuery"
+    },
+    {
+        "toolName": "insight-update",
+        "status": "exported",
+        "method": "productAnalytics.insightUpdate"
+    },
+    {
+        "toolName": "insights-activity-retrieve",
+        "status": "exported",
+        "method": "productAnalytics.insightsActivityRetrieve"
+    },
+    {
+        "toolName": "insights-all-activity-retrieve",
+        "status": "exported",
+        "method": "productAnalytics.insightsAllActivityRetrieve"
+    },
+    {
+        "toolName": "insights-list",
+        "status": "exported",
+        "method": "productAnalytics.insightsList"
+    },
+    {
+        "toolName": "insights-trending-retrieve",
+        "status": "exported",
+        "method": "productAnalytics.insightsTrendingRetrieve"
+    },
+    {
+        "toolName": "integration-delete",
+        "status": "exported",
+        "method": "integrations.integrationDelete"
+    },
+    {
+        "toolName": "integration-get",
+        "status": "exported",
+        "method": "integrations.integrationGet"
+    },
+    {
+        "toolName": "integrations-channels-retrieve",
+        "status": "exported",
+        "method": "integrations.integrationsChannelsRetrieve"
+    },
+    {
+        "toolName": "integrations-github-repos-retrieve",
+        "status": "exported",
+        "method": "integrations.integrationsGithubReposRetrieve"
+    },
+    {
+        "toolName": "integrations-jira-projects-retrieve",
+        "status": "exported",
+        "method": "integrations.integrationsJiraProjectsRetrieve"
+    },
+    {
+        "toolName": "integrations-linear-teams-retrieve",
+        "status": "exported",
+        "method": "integrations.integrationsLinearTeamsRetrieve"
+    },
+    {
+        "toolName": "integrations-list",
+        "status": "exported",
+        "method": "integrations.integrationsList"
+    },
+    {
+        "toolName": "integrations-users-retrieve",
+        "status": "exported",
+        "method": "integrations.integrationsUsersRetrieve"
+    },
+    {
+        "toolName": "llma-clustering-config-get",
+        "status": "exported",
+        "method": "aiObservability.llmaClusteringConfigGet"
+    },
+    {
+        "toolName": "llma-clustering-config-set-event-filters",
+        "status": "exported",
+        "method": "aiObservability.llmaClusteringConfigSetEventFilters"
+    },
+    {
+        "toolName": "llma-clustering-job-create",
+        "status": "exported",
+        "method": "aiObservability.llmaClusteringJobCreate"
+    },
+    {
+        "toolName": "llma-clustering-job-delete",
+        "status": "exported",
+        "method": "aiObservability.llmaClusteringJobDelete"
+    },
+    {
+        "toolName": "llma-clustering-job-get",
+        "status": "exported",
+        "method": "aiObservability.llmaClusteringJobGet"
+    },
+    {
+        "toolName": "llma-clustering-job-list",
+        "status": "exported",
+        "method": "aiObservability.llmaClusteringJobList"
+    },
+    {
+        "toolName": "llma-clustering-job-update",
+        "status": "exported",
+        "method": "aiObservability.llmaClusteringJobUpdate"
+    },
+    {
+        "toolName": "llma-dataset-archive",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetArchive"
+    },
+    {
+        "toolName": "llma-dataset-create",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetCreate"
+    },
+    {
+        "toolName": "llma-dataset-get",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetGet"
+    },
+    {
+        "toolName": "llma-dataset-item-archive",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetItemArchive"
+    },
+    {
+        "toolName": "llma-dataset-item-create",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetItemCreate"
+    },
+    {
+        "toolName": "llma-dataset-item-get",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetItemGet"
+    },
+    {
+        "toolName": "llma-dataset-item-list",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetItemList"
+    },
+    {
+        "toolName": "llma-dataset-item-restore",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetItemRestore"
+    },
+    {
+        "toolName": "llma-dataset-item-update",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetItemUpdate"
+    },
+    {
+        "toolName": "llma-dataset-item-version-list",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetItemVersionList"
+    },
+    {
+        "toolName": "llma-dataset-list",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetList"
+    },
+    {
+        "toolName": "llma-dataset-restore",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetRestore"
+    },
+    {
+        "toolName": "llma-dataset-revision-list",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetRevisionList"
+    },
+    {
+        "toolName": "llma-dataset-update",
+        "status": "exported",
+        "method": "aiObservability.llmaDatasetUpdate"
+    },
+    {
+        "toolName": "llma-evaluation-backfill-cancel",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationBackfillCancel"
+    },
+    {
+        "toolName": "llma-evaluation-backfill-create",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationBackfillCreate"
+    },
+    {
+        "toolName": "llma-evaluation-backfill-estimate",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationBackfillEstimate"
+    },
+    {
+        "toolName": "llma-evaluation-backfill-get",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationBackfillGet"
+    },
+    {
+        "toolName": "llma-evaluation-backfill-list",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationBackfillList"
+    },
+    {
+        "toolName": "llma-evaluation-config-get",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationConfigGet"
+    },
+    {
+        "toolName": "llma-evaluation-config-set-active-key",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationConfigSetActiveKey"
+    },
+    {
+        "toolName": "llma-evaluation-create",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationCreate"
+    },
+    {
+        "toolName": "llma-evaluation-delete",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationDelete"
+    },
+    {
+        "toolName": "llma-evaluation-directory-create",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationDirectoryCreate"
+    },
+    {
+        "toolName": "llma-evaluation-directory-delete",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationDirectoryDelete"
+    },
+    {
+        "toolName": "llma-evaluation-directory-get",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationDirectoryGet"
+    },
+    {
+        "toolName": "llma-evaluation-directory-list",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationDirectoryList"
+    },
+    {
+        "toolName": "llma-evaluation-directory-update",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationDirectoryUpdate"
+    },
+    {
+        "toolName": "llma-evaluation-get",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationGet"
+    },
+    {
+        "toolName": "llma-evaluation-judge-models",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationJudgeModels"
+    },
+    {
+        "toolName": "llma-evaluation-list",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationList"
+    },
+    {
+        "toolName": "llma-evaluation-report-create",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationReportCreate"
+    },
+    {
+        "toolName": "llma-evaluation-report-generate",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationReportGenerate"
+    },
+    {
+        "toolName": "llma-evaluation-report-get",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationReportGet"
+    },
+    {
+        "toolName": "llma-evaluation-report-list",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationReportList"
+    },
+    {
+        "toolName": "llma-evaluation-report-run-list",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationReportRunList"
+    },
+    {
+        "toolName": "llma-evaluation-report-update",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationReportUpdate"
+    },
+    {
+        "toolName": "llma-evaluation-run",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationRun"
+    },
+    {
+        "toolName": "llma-evaluation-test-hog",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationTestHog"
+    },
+    {
+        "toolName": "llma-evaluation-update",
+        "status": "exported",
+        "method": "aiObservability.llmaEvaluationUpdate"
+    },
+    {
+        "toolName": "llma-offline-experiment-complete",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentComplete"
+    },
+    {
+        "toolName": "llma-offline-experiment-create",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentCreate"
+    },
+    {
+        "toolName": "llma-offline-experiment-fail",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentFail"
+    },
+    {
+        "toolName": "llma-offline-experiment-get",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentGet"
+    },
+    {
+        "toolName": "llma-offline-experiment-item-get",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentItemGet"
+    },
+    {
+        "toolName": "llma-offline-experiment-item-list",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentItemList"
+    },
+    {
+        "toolName": "llma-offline-experiment-item-payload-get",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentItemPayloadGet"
+    },
+    {
+        "toolName": "llma-offline-experiment-item-result-list",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentItemResultList"
+    },
+    {
+        "toolName": "llma-offline-experiment-list",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentList"
+    },
+    {
+        "toolName": "llma-offline-experiment-result-cells",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentResultCells"
+    },
+    {
+        "toolName": "llma-offline-experiment-result-payload-get",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentResultPayloadGet"
+    },
+    {
+        "toolName": "llma-offline-experiment-scorer-summary-list",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentScorerSummaryList"
+    },
+    {
+        "toolName": "llma-offline-experiment-upload",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineExperimentUpload"
+    },
+    {
+        "toolName": "llma-offline-scorer-history",
+        "status": "exported",
+        "method": "aiObservability.llmaOfflineScorerHistory"
+    },
+    {
+        "toolName": "llma-parser-recipe-create",
+        "status": "exported",
+        "method": "llmAnalytics.llmaParserRecipeCreate"
+    },
+    {
+        "toolName": "llma-parser-recipe-reference",
+        "status": "exported",
+        "method": "llmAnalytics.llmaParserRecipeReference"
+    },
+    {
+        "toolName": "llma-personal-spend",
+        "status": "exported",
+        "method": "aiObservability.llmaPersonalSpend"
+    },
+    {
+        "toolName": "llma-prompt-create",
+        "status": "exported",
+        "method": "aiObservability.llmaPromptCreate"
+    },
+    {
+        "toolName": "llma-prompt-duplicate",
+        "status": "exported",
+        "method": "aiObservability.llmaPromptDuplicate"
+    },
+    {
+        "toolName": "llma-prompt-get",
+        "status": "exported",
+        "method": "aiObservability.llmaPromptGet"
+    },
+    {
+        "toolName": "llma-prompt-label-delete",
+        "status": "exported",
+        "method": "aiObservability.llmaPromptLabelDelete"
+    },
+    {
+        "toolName": "llma-prompt-label-set",
+        "status": "exported",
+        "method": "aiObservability.llmaPromptLabelSet"
+    },
+    {
+        "toolName": "llma-prompt-list",
+        "status": "exported",
+        "method": "aiObservability.llmaPromptList"
+    },
+    {
+        "toolName": "llma-prompt-update",
+        "status": "exported",
+        "method": "aiObservability.llmaPromptUpdate"
+    },
+    {
+        "toolName": "llma-provider-key-get",
+        "status": "exported",
+        "method": "aiObservability.llmaProviderKeyGet"
+    },
+    {
+        "toolName": "llma-provider-key-list",
+        "status": "exported",
+        "method": "aiObservability.llmaProviderKeyList"
+    },
+    {
+        "toolName": "llma-review-queue-create",
+        "status": "exported",
+        "method": "aiObservability.llmaReviewQueueCreate"
+    },
+    {
+        "toolName": "llma-review-queue-delete",
+        "status": "exported",
+        "method": "aiObservability.llmaReviewQueueDelete"
+    },
+    {
+        "toolName": "llma-review-queue-get",
+        "status": "exported",
+        "method": "aiObservability.llmaReviewQueueGet"
+    },
+    {
+        "toolName": "llma-review-queue-item-create",
+        "status": "exported",
+        "method": "aiObservability.llmaReviewQueueItemCreate"
+    },
+    {
+        "toolName": "llma-review-queue-item-delete",
+        "status": "exported",
+        "method": "aiObservability.llmaReviewQueueItemDelete"
+    },
+    {
+        "toolName": "llma-review-queue-item-get",
+        "status": "exported",
+        "method": "aiObservability.llmaReviewQueueItemGet"
+    },
+    {
+        "toolName": "llma-review-queue-item-list",
+        "status": "exported",
+        "method": "aiObservability.llmaReviewQueueItemList"
+    },
+    {
+        "toolName": "llma-review-queue-item-update",
+        "status": "exported",
+        "method": "aiObservability.llmaReviewQueueItemUpdate"
+    },
+    {
+        "toolName": "llma-review-queue-list",
+        "status": "exported",
+        "method": "aiObservability.llmaReviewQueueList"
+    },
+    {
+        "toolName": "llma-review-queue-update",
+        "status": "exported",
+        "method": "aiObservability.llmaReviewQueueUpdate"
+    },
+    {
+        "toolName": "llma-score-definition-create",
+        "status": "exported",
+        "method": "aiObservability.llmaScoreDefinitionCreate"
+    },
+    {
+        "toolName": "llma-score-definition-get",
+        "status": "exported",
+        "method": "aiObservability.llmaScoreDefinitionGet"
+    },
+    {
+        "toolName": "llma-score-definition-list",
+        "status": "exported",
+        "method": "aiObservability.llmaScoreDefinitionList"
+    },
+    {
+        "toolName": "llma-score-definition-new-version",
+        "status": "exported",
+        "method": "aiObservability.llmaScoreDefinitionNewVersion"
+    },
+    {
+        "toolName": "llma-score-definition-update",
+        "status": "exported",
+        "method": "aiObservability.llmaScoreDefinitionUpdate"
+    },
+    {
+        "toolName": "llma-score-definition-version-get",
+        "status": "exported",
+        "method": "aiObservability.llmaScoreDefinitionVersionGet"
+    },
+    {
+        "toolName": "llma-score-definition-version-list",
+        "status": "exported",
+        "method": "aiObservability.llmaScoreDefinitionVersionList"
+    },
+    {
+        "toolName": "llma-skill-archive",
+        "status": "exported",
+        "method": "skills.llmaSkillArchive"
+    },
+    {
+        "toolName": "llma-skill-create",
+        "status": "exported",
+        "method": "skills.llmaSkillCreate"
+    },
+    {
+        "toolName": "llma-skill-duplicate",
+        "status": "exported",
+        "method": "skills.llmaSkillDuplicate"
+    },
+    {
+        "toolName": "llma-skill-file-create",
+        "status": "exported",
+        "method": "skills.llmaSkillFileCreate"
+    },
+    {
+        "toolName": "llma-skill-file-delete",
+        "status": "exported",
+        "method": "skills.llmaSkillFileDelete"
+    },
+    {
+        "toolName": "llma-skill-file-get",
+        "status": "exported",
+        "method": "skills.llmaSkillFileGet"
+    },
+    {
+        "toolName": "llma-skill-file-rename",
+        "status": "exported",
+        "method": "skills.llmaSkillFileRename"
+    },
+    {
+        "toolName": "llma-skill-get",
+        "status": "exported",
+        "method": "skills.llmaSkillGet"
+    },
+    {
+        "toolName": "llma-skill-list",
+        "status": "exported",
+        "method": "skills.llmaSkillList"
+    },
+    {
+        "toolName": "llma-skill-update",
+        "status": "exported",
+        "method": "skills.llmaSkillUpdate"
+    },
+    {
+        "toolName": "llma-summarization-create",
+        "status": "exported",
+        "method": "aiObservability.llmaSummarizationCreate"
+    },
+    {
+        "toolName": "llma-tagger-create",
+        "status": "exported",
+        "method": "aiObservability.llmaTaggerCreate"
+    },
+    {
+        "toolName": "llma-tagger-list",
+        "status": "exported",
+        "method": "aiObservability.llmaTaggerList"
+    },
+    {
+        "toolName": "llma-tagger-test-hog",
+        "status": "exported",
+        "method": "aiObservability.llmaTaggerTestHog"
+    },
+    {
+        "toolName": "llma-trace-review-create",
+        "status": "exported",
+        "method": "aiObservability.llmaTraceReviewCreate"
+    },
+    {
+        "toolName": "llma-trace-review-delete",
+        "status": "exported",
+        "method": "aiObservability.llmaTraceReviewDelete"
+    },
+    {
+        "toolName": "llma-trace-review-get",
+        "status": "exported",
+        "method": "aiObservability.llmaTraceReviewGet"
+    },
+    {
+        "toolName": "llma-trace-review-list",
+        "status": "exported",
+        "method": "aiObservability.llmaTraceReviewList"
+    },
+    {
+        "toolName": "llma-trace-review-update",
+        "status": "exported",
+        "method": "aiObservability.llmaTraceReviewUpdate"
+    },
+    {
+        "toolName": "logs-alerts-create",
+        "status": "exported",
+        "method": "logs.logsAlertsCreate"
+    },
+    {
+        "toolName": "logs-alerts-destinations-create",
+        "status": "exported",
+        "method": "logs.logsAlertsDestinationsCreate"
+    },
+    {
+        "toolName": "logs-alerts-destinations-delete-create",
+        "status": "exported",
+        "method": "logs.logsAlertsDestinationsDeleteCreate"
+    },
+    {
+        "toolName": "logs-alerts-destroy",
+        "status": "exported",
+        "method": "logs.logsAlertsDestroy"
+    },
+    {
+        "toolName": "logs-alerts-events-list",
+        "status": "exported",
+        "method": "logs.logsAlertsEventsList"
+    },
+    {
+        "toolName": "logs-alerts-list",
+        "status": "exported",
+        "method": "logs.logsAlertsList"
+    },
+    {
+        "toolName": "logs-alerts-partial-update",
+        "status": "exported",
+        "method": "logs.logsAlertsPartialUpdate"
+    },
+    {
+        "toolName": "logs-alerts-retrieve",
+        "status": "exported",
+        "method": "logs.logsAlertsRetrieve"
+    },
+    {
+        "toolName": "logs-alerts-simulate-create",
+        "status": "exported",
+        "method": "logs.logsAlertsSimulateCreate"
+    },
+    {
+        "toolName": "logs-anomalies-scan",
+        "status": "exported",
+        "method": "logs.logsAnomaliesScan"
+    },
+    {
+        "toolName": "logs-anomalies-series-bands",
+        "status": "exported",
+        "method": "logs.logsAnomaliesSeriesBands"
+    },
+    {
+        "toolName": "logs-attribute-values-list",
+        "status": "exported",
+        "method": "logs.logsAttributeValuesList"
+    },
+    {
+        "toolName": "logs-attributes-list",
+        "status": "exported",
+        "method": "logs.logsAttributesList"
+    },
+    {
+        "toolName": "logs-count",
+        "status": "exported",
+        "method": "logs.logsCount"
+    },
+    {
+        "toolName": "logs-count-ranges",
+        "status": "exported",
+        "method": "logs.logsCountRanges"
+    },
+    {
+        "toolName": "logs-facet-values-create",
+        "status": "exported",
+        "method": "logs.logsFacetValuesCreate"
+    },
+    {
+        "toolName": "logs-patterns",
+        "status": "exported",
+        "method": "logs.logsPatterns"
+    },
+    {
+        "toolName": "logs-patterns-diff",
+        "status": "exported",
+        "method": "logs.logsPatternsDiff"
+    },
+    {
+        "toolName": "logs-services-create",
+        "status": "exported",
+        "method": "logs.logsServicesCreate"
+    },
+    {
+        "toolName": "logs-sparkline-query",
+        "status": "exported",
+        "method": "logs.logsSparklineQuery"
+    },
+    {
+        "toolName": "loop-channel-instructions-retrieve",
+        "status": "exported",
+        "method": "tasks.loopChannelInstructionsRetrieve"
+    },
+    {
+        "toolName": "loop-channel-instructions-update",
+        "status": "exported",
+        "method": "tasks.loopChannelInstructionsUpdate"
+    },
+    {
+        "toolName": "loop-context-wiki-channel-resolve",
+        "status": "exported",
+        "method": "contextLayer.loopContextWikiChannelResolve"
+    },
+    {
+        "toolName": "loop-context-wiki-page-retrieve",
+        "status": "exported",
+        "method": "contextLayer.loopContextWikiPageRetrieve"
+    },
+    {
+        "toolName": "loop-context-wiki-page-update",
+        "status": "exported",
+        "method": "contextLayer.loopContextWikiPageUpdate"
+    },
+    {
+        "toolName": "loops-create-execute",
+        "status": "exported",
+        "method": "tasks.loopsCreateExecute"
+    },
+    {
+        "toolName": "loops-create-prepare",
+        "status": "exported",
+        "method": "tasks.loopsCreatePrepare"
+    },
+    {
+        "toolName": "loops-destroy",
+        "status": "exported",
+        "method": "tasks.loopsDestroy"
+    },
+    {
+        "toolName": "loops-list",
+        "status": "exported",
+        "method": "tasks.loopsList"
+    },
+    {
+        "toolName": "loops-partial-update",
+        "status": "exported",
+        "method": "tasks.loopsPartialUpdate"
+    },
+    {
+        "toolName": "loops-preview-create",
+        "status": "exported",
+        "method": "tasks.loopsPreviewCreate"
+    },
+    {
+        "toolName": "loops-retrieve",
+        "status": "exported",
+        "method": "tasks.loopsRetrieve"
+    },
+    {
+        "toolName": "loops-review",
+        "status": "exported",
+        "method": "tasks.loopsReview"
+    },
+    {
+        "toolName": "loops-run-create",
+        "status": "exported",
+        "method": "tasks.loopsRunCreate"
+    },
+    {
+        "toolName": "loops-runs-retrieve",
+        "status": "exported",
+        "method": "tasks.loopsRunsRetrieve"
+    },
+    {
+        "toolName": "managed-migrations-support-get",
+        "status": "exported",
+        "method": "managedMigrations.managedMigrationsSupportGet"
+    },
+    {
+        "toolName": "managed-migrations-support-list",
+        "status": "exported",
+        "method": "managedMigrations.managedMigrationsSupportList"
+    },
+    {
+        "toolName": "managed-warehouse-metric-history-get",
+        "status": "exported",
+        "method": "dataWarehouse.managedWarehouseMetricHistoryGet"
+    },
+    {
+        "toolName": "managed-warehouse-monitoring-get",
+        "status": "exported",
+        "method": "dataWarehouse.managedWarehouseMonitoringGet"
+    },
+    {
+        "toolName": "marketing-analytics-conversion-goals",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsConversionGoals"
+    },
+    {
+        "toolName": "marketing-analytics-create-conversion-goal",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsCreateConversionGoal"
+    },
+    {
+        "toolName": "marketing-analytics-data-sources",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsDataSources"
+    },
+    {
+        "toolName": "marketing-analytics-delete-conversion-goal",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsDeleteConversionGoal"
+    },
+    {
+        "toolName": "marketing-analytics-diagnose",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsDiagnose"
+    },
+    {
+        "toolName": "marketing-analytics-explain-conversion-goal",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsExplainConversionGoal"
+    },
+    {
+        "toolName": "marketing-analytics-setup-plan",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsSetupPlan"
+    },
+    {
+        "toolName": "marketing-analytics-suggest-conversion-goals",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsSuggestConversionGoals"
+    },
+    {
+        "toolName": "marketing-analytics-suggest-utm-mappings",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsSuggestUtmMappings"
+    },
+    {
+        "toolName": "marketing-analytics-update-conversion-goal",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsUpdateConversionGoal"
+    },
+    {
+        "toolName": "marketing-analytics-utm-audit",
+        "status": "exported",
+        "method": "marketingAnalytics.marketingAnalyticsUtmAudit"
+    },
+    {
+        "toolName": "mcp-analytics-intent-clusters-recompute",
+        "status": "exported",
+        "method": "mcpAnalytics.mcpAnalyticsIntentClustersRecompute"
+    },
+    {
+        "toolName": "mcp-analytics-intent-clusters-retrieve",
+        "status": "exported",
+        "method": "mcpAnalytics.mcpAnalyticsIntentClustersRetrieve"
+    },
+    {
+        "toolName": "mcp-analytics-sessions-generate-intent",
+        "status": "exported",
+        "method": "mcpAnalytics.mcpAnalyticsSessionsGenerateIntent"
+    },
+    {
+        "toolName": "mcp-analytics-sessions-list",
+        "status": "exported",
+        "method": "mcpAnalytics.mcpAnalyticsSessionsList"
+    },
+    {
+        "toolName": "mcp-analytics-sessions-tool-calls",
+        "status": "exported",
+        "method": "mcpAnalytics.mcpAnalyticsSessionsToolCalls"
+    },
+    {
+        "toolName": "mcp-connection-tools-list",
+        "status": "exported",
+        "method": "mcpStore.mcpConnectionToolsList"
+    },
+    {
+        "toolName": "mcp-connections-list",
+        "status": "exported",
+        "method": "mcpStore.mcpConnectionsList"
+    },
+    {
+        "toolName": "mcp-missing-capability-report",
+        "status": "exported",
+        "method": "mcpAnalytics.mcpMissingCapabilityReport"
+    },
+    {
+        "toolName": "mcp-registry-discover",
+        "status": "exported",
+        "method": "mcpRegistry.mcpRegistryDiscover"
+    },
+    {
+        "toolName": "mcp-registry-server-get",
+        "status": "exported",
+        "method": "mcpRegistry.mcpRegistryServerGet"
+    },
+    {
+        "toolName": "media-image-upload-complete",
+        "status": "exported",
+        "method": "core.mediaImageUploadComplete"
+    },
+    {
+        "toolName": "media-image-upload-start",
+        "status": "exported",
+        "method": "core.mediaImageUploadStart"
+    },
+    {
+        "toolName": "media-images-list",
+        "status": "exported",
+        "method": "core.mediaImagesList"
+    },
+    {
+        "toolName": "metric-describe",
+        "status": "exported",
+        "method": "dataCatalog.metricDescribe"
+    },
+    {
+        "toolName": "metric-list",
+        "status": "exported",
+        "method": "dataCatalog.metricList"
+    },
+    {
+        "toolName": "metric-names-list",
+        "status": "exported",
+        "method": "metrics.metricNamesList"
+    },
+    {
+        "toolName": "notebook-edit",
+        "status": "exported",
+        "method": "notebooks.notebookEdit"
+    },
+    {
+        "toolName": "notebooks-add-cell",
+        "status": "exported",
+        "method": "notebooks.notebooksAddCell"
+    },
+    {
+        "toolName": "notebooks-compute-options",
+        "status": "exported",
+        "method": "notebooks.notebooksComputeOptions"
+    },
+    {
+        "toolName": "notebooks-configure-compute",
+        "status": "exported",
+        "method": "notebooks.notebooksConfigureCompute"
+    },
+    {
+        "toolName": "notebooks-create",
+        "status": "exported",
+        "method": "notebooks.notebooksCreate"
+    },
+    {
+        "toolName": "notebooks-create-markdown",
+        "status": "exported",
+        "method": "notebooks.notebooksCreateMarkdown"
+    },
+    {
+        "toolName": "notebooks-delete-cell",
+        "status": "exported",
+        "method": "notebooks.notebooksDeleteCell"
+    },
+    {
+        "toolName": "notebooks-destroy",
+        "status": "exported",
+        "method": "notebooks.notebooksDestroy"
+    },
+    {
+        "toolName": "notebooks-get",
+        "status": "exported",
+        "method": "notebooks.notebooksGet"
+    },
+    {
+        "toolName": "notebooks-list",
+        "status": "exported",
+        "method": "notebooks.notebooksList"
+    },
+    {
+        "toolName": "notebooks-list-frames",
+        "status": "exported",
+        "method": "notebooks.notebooksListFrames"
+    },
+    {
+        "toolName": "notebooks-partial-update",
+        "status": "exported",
+        "method": "notebooks.notebooksPartialUpdate"
+    },
+    {
+        "toolName": "notebooks-retrieve",
+        "status": "exported",
+        "method": "notebooks.notebooksRetrieve"
+    },
+    {
+        "toolName": "notebooks-run",
+        "status": "exported",
+        "method": "notebooks.notebooksRun"
+    },
+    {
+        "toolName": "notebooks-run-cell-interrupt",
+        "status": "exported",
+        "method": "notebooks.notebooksRunCellInterrupt"
+    },
+    {
+        "toolName": "notebooks-run-cell-result",
+        "status": "exported",
+        "method": "notebooks.notebooksRunCellResult"
+    },
+    {
+        "toolName": "notebooks-run-status",
+        "status": "exported",
+        "method": "notebooks.notebooksRunStatus"
+    },
+    {
+        "toolName": "notebooks-set-variables",
+        "status": "exported",
+        "method": "notebooks.notebooksSetVariables"
+    },
+    {
+        "toolName": "notebooks-update-cell",
+        "status": "exported",
+        "method": "notebooks.notebooksUpdateCell"
+    },
+    {
+        "toolName": "notebooks-widget-attach",
+        "status": "exported",
+        "method": "notebooks.notebooksWidgetAttach"
+    },
+    {
+        "toolName": "notebooks-widget-cancel",
+        "status": "exported",
+        "method": "notebooks.notebooksWidgetCancel"
+    },
+    {
+        "toolName": "notebooks-widget-generate",
+        "status": "exported",
+        "method": "notebooks.notebooksWidgetGenerate"
+    },
+    {
+        "toolName": "notebooks-widget-status",
+        "status": "exported",
+        "method": "notebooks.notebooksWidgetStatus"
+    },
+    {
+        "toolName": "opt-outs-add",
+        "status": "exported",
+        "method": "messaging.optOutsAdd"
+    },
+    {
+        "toolName": "opt-outs-list",
+        "status": "exported",
+        "method": "messaging.optOutsList"
+    },
+    {
+        "toolName": "opt-outs-remove",
+        "status": "exported",
+        "method": "messaging.optOutsRemove"
+    },
+    {
+        "toolName": "org-member-get-github-login",
+        "status": "exported",
+        "method": "platformFeatures.orgMemberGetGithubLogin"
+    },
+    {
+        "toolName": "org-members-list",
+        "status": "exported",
+        "method": "platformFeatures.orgMembersList"
+    },
+    {
+        "toolName": "organization-enforce-2fa-execute",
+        "status": "exported",
+        "method": "platformFeatures.organizationEnforce2faExecute"
+    },
+    {
+        "toolName": "organization-enforce-2fa-prepare",
+        "status": "exported",
+        "method": "platformFeatures.organizationEnforce2faPrepare"
+    },
+    {
+        "toolName": "organization-get",
+        "status": "exported",
+        "method": "platformFeatures.organizationGet"
+    },
+    {
+        "toolName": "organizations-get",
+        "status": "exported",
+        "method": "workspace.organizationsGet"
+    },
+    {
+        "toolName": "organizations-list",
+        "status": "exported",
+        "method": "platformFeatures.organizationsList"
+    },
+    {
+        "toolName": "path-cleaning-rules-update",
+        "status": "exported",
+        "method": "webAnalytics.pathCleaningRulesUpdate"
+    },
+    {
+        "toolName": "persons-bulk-delete",
+        "status": "exported",
+        "method": "persons.personsBulkDelete"
+    },
+    {
+        "toolName": "persons-cohorts-retrieve",
+        "status": "exported",
+        "method": "persons.personsCohortsRetrieve"
+    },
+    {
+        "toolName": "persons-list",
+        "status": "exported",
+        "method": "persons.personsList"
+    },
+    {
+        "toolName": "persons-property-delete",
+        "status": "exported",
+        "method": "persons.personsPropertyDelete"
+    },
+    {
+        "toolName": "persons-property-set",
+        "status": "exported",
+        "method": "persons.personsPropertySet"
+    },
+    {
+        "toolName": "persons-retrieve",
+        "status": "exported",
+        "method": "persons.personsRetrieve"
+    },
+    {
+        "toolName": "persons-values-retrieve",
+        "status": "exported",
+        "method": "persons.personsValuesRetrieve"
+    },
+    {
+        "toolName": "posthog-connection-call",
+        "status": "exported",
+        "method": "integrations.posthogConnectionCall"
+    },
+    {
+        "toolName": "posthog-connection-forward",
+        "status": "exported",
+        "method": "integrations.posthogConnectionForward"
+    },
+    {
+        "toolName": "pr-lifecycle",
+        "status": "exported",
+        "method": "engineeringAnalytics.prLifecycle"
+    },
+    {
+        "toolName": "products-enable",
+        "status": "exported",
+        "method": "core.productsEnable"
+    },
+    {
+        "toolName": "project-create",
+        "status": "exported",
+        "method": "core.projectCreate"
+    },
+    {
+        "toolName": "project-get",
+        "status": "exported",
+        "method": "core.projectGet"
+    },
+    {
+        "toolName": "project-settings-update",
+        "status": "exported",
+        "method": "core.projectSettingsUpdate"
+    },
+    {
+        "toolName": "projects-get",
+        "status": "exported",
+        "method": "workspace.projectsGet"
+    },
+    {
+        "toolName": "property-definition-update",
+        "status": "exported",
+        "method": "events.propertyDefinitionUpdate"
+    },
+    {
+        "toolName": "proxy-create",
+        "status": "exported",
+        "method": "proxyRecords.proxyCreate"
+    },
+    {
+        "toolName": "proxy-delete",
+        "status": "exported",
+        "method": "proxyRecords.proxyDelete"
+    },
+    {
+        "toolName": "proxy-diagnose",
+        "status": "exported",
+        "method": "proxyRecords.proxyDiagnose"
+    },
+    {
+        "toolName": "proxy-get",
+        "status": "exported",
+        "method": "proxyRecords.proxyGet"
+    },
+    {
+        "toolName": "proxy-list",
+        "status": "exported",
+        "method": "proxyRecords.proxyList"
+    },
+    {
+        "toolName": "proxy-retry",
+        "status": "exported",
+        "method": "proxyRecords.proxyRetry"
+    },
+    {
+        "toolName": "pull-requests",
+        "status": "exported",
+        "method": "engineeringAnalytics.pullRequests"
+    },
+    {
+        "toolName": "query-apm-spans",
+        "status": "exported",
+        "method": "tracing.queryApmSpans"
+    },
+    {
+        "toolName": "query-error-tracking-issue",
+        "status": "exported",
+        "method": "errorTracking.queryErrorTrackingIssue"
+    },
+    {
+        "toolName": "query-error-tracking-issue-events",
+        "status": "exported",
+        "method": "errorTracking.queryErrorTrackingIssueEvents"
+    },
+    {
+        "toolName": "query-error-tracking-issues-list",
+        "status": "exported",
+        "method": "errorTracking.queryErrorTrackingIssuesList"
+    },
+    {
+        "toolName": "query-funnel",
+        "status": "exported",
+        "method": "queries.funnel"
+    },
+    {
+        "toolName": "query-funnel-actors",
+        "status": "exported",
+        "method": "queries.queryFunnelActors"
+    },
+    {
+        "toolName": "query-lifecycle",
+        "status": "exported",
+        "method": "queries.lifecycle"
+    },
+    {
+        "toolName": "query-lifecycle-actors",
+        "status": "exported",
+        "method": "queries.queryLifecycleActors"
+    },
+    {
+        "toolName": "query-llm-trace",
+        "status": "exported",
+        "method": "aiObservability.queryLlmTrace"
+    },
+    {
+        "toolName": "query-llm-traces-list",
+        "status": "exported",
+        "method": "aiObservability.queryLlmTracesList"
+    },
+    {
+        "toolName": "query-logs",
+        "status": "exported",
+        "method": "logs.queryLogs"
+    },
+    {
+        "toolName": "query-mcp-harness-breakdown",
+        "status": "exported",
+        "method": "mcpAnalytics.queryMcpHarnessBreakdown"
+    },
+    {
+        "toolName": "query-mcp-missing-capabilities",
+        "status": "exported",
+        "method": "mcpAnalytics.queryMcpMissingCapabilities"
+    },
+    {
+        "toolName": "query-mcp-tool-daily-stats",
+        "status": "exported",
+        "method": "mcpAnalytics.queryMcpToolDailyStats"
+    },
+    {
+        "toolName": "query-mcp-tool-descriptions",
+        "status": "exported",
+        "method": "mcpAnalytics.queryMcpToolDescriptions"
+    },
+    {
+        "toolName": "query-mcp-tool-failure-occurrences",
+        "status": "exported",
+        "method": "mcpAnalytics.queryMcpToolFailureOccurrences"
+    },
+    {
+        "toolName": "query-mcp-tool-failures",
+        "status": "exported",
+        "method": "mcpAnalytics.queryMcpToolFailures"
+    },
+    {
+        "toolName": "query-mcp-tool-neighbors",
+        "status": "exported",
+        "method": "mcpAnalytics.queryMcpToolNeighbors"
+    },
+    {
+        "toolName": "query-mcp-tool-sample-intents",
+        "status": "exported",
+        "method": "mcpAnalytics.queryMcpToolSampleIntents"
+    },
+    {
+        "toolName": "query-mcp-tool-stats",
+        "status": "exported",
+        "method": "mcpAnalytics.queryMcpToolStats"
+    },
+    {
+        "toolName": "query-mcp-tool-top-users",
+        "status": "exported",
+        "method": "mcpAnalytics.queryMcpToolTopUsers"
+    },
+    {
+        "toolName": "query-metrics",
+        "status": "exported",
+        "method": "metrics.queryMetrics"
+    },
+    {
+        "toolName": "query-paths",
+        "status": "exported",
+        "method": "queries.paths"
+    },
+    {
+        "toolName": "query-paths-actors",
+        "status": "exported",
+        "method": "queries.queryPathsActors"
+    },
+    {
+        "toolName": "query-retention",
+        "status": "exported",
+        "method": "queries.retention"
+    },
+    {
+        "toolName": "query-retention-actors",
+        "status": "exported",
+        "method": "queries.queryRetentionActors"
+    },
+    {
+        "toolName": "query-session-recordings-list",
+        "status": "exported",
+        "method": "replay.querySessionRecordingsList"
+    },
+    {
+        "toolName": "query-stickiness",
+        "status": "exported",
+        "method": "queries.stickiness"
+    },
+    {
+        "toolName": "query-stickiness-actors",
+        "status": "exported",
+        "method": "queries.queryStickinessActors"
+    },
+    {
+        "toolName": "query-trends",
+        "status": "exported",
+        "method": "queries.trends"
+    },
+    {
+        "toolName": "query-trends-actors",
+        "status": "exported",
+        "method": "queries.queryTrendsActors"
+    },
+    {
+        "toolName": "query-web-overview",
+        "status": "exported",
+        "method": "webAnalytics.queryWebOverview"
+    },
+    {
+        "toolName": "query-web-stats",
+        "status": "exported",
+        "method": "webAnalytics.queryWebStats"
+    },
+    {
+        "toolName": "query-web-vitals",
+        "status": "exported",
+        "method": "webAnalytics.queryWebVitals"
+    },
+    {
+        "toolName": "read-data-schema",
+        "status": "exported",
+        "method": "dataSchema.readDataSchema"
+    },
+    {
+        "toolName": "reminder-create",
+        "status": "exported",
+        "method": "reminders.reminderCreate"
+    },
+    {
+        "toolName": "reminder-delete",
+        "status": "exported",
+        "method": "reminders.reminderDelete"
+    },
+    {
+        "toolName": "reminder-get",
+        "status": "exported",
+        "method": "reminders.reminderGet"
+    },
+    {
+        "toolName": "reminder-update",
+        "status": "exported",
+        "method": "reminders.reminderUpdate"
+    },
+    {
+        "toolName": "reminders-list",
+        "status": "exported",
+        "method": "reminders.remindersList"
+    },
+    {
+        "toolName": "reusable-widgets-list",
+        "status": "exported",
+        "method": "notebooks.reusableWidgetsList"
+    },
+    {
+        "toolName": "reusable-widgets-retrieve",
+        "status": "exported",
+        "method": "notebooks.reusableWidgetsRetrieve"
+    },
+    {
+        "toolName": "review-hog-reviews-get",
+        "status": "exported",
+        "method": "reviewHog.reviewHogReviewsGet"
+    },
+    {
+        "toolName": "review-hog-reviews-list",
+        "status": "exported",
+        "method": "reviewHog.reviewHogReviewsList"
+    },
+    {
+        "toolName": "review-hog-reviews-pr-status",
+        "status": "exported",
+        "method": "reviewHog.reviewHogReviewsPrStatus"
+    },
+    {
+        "toolName": "review-hog-reviews-trigger",
+        "status": "exported",
+        "method": "reviewHog.reviewHogReviewsTrigger"
+    },
+    {
+        "toolName": "role-get",
+        "status": "exported",
+        "method": "platformFeatures.roleGet"
+    },
+    {
+        "toolName": "role-members-list",
+        "status": "exported",
+        "method": "platformFeatures.roleMembersList"
+    },
+    {
+        "toolName": "roles-list",
+        "status": "exported",
+        "method": "platformFeatures.rolesList"
+    },
+    {
+        "toolName": "saved-query-column-annotations-create",
+        "status": "exported",
+        "method": "dataWarehouse.savedQueryColumnAnnotationsCreate"
+    },
+    {
+        "toolName": "saved-query-column-annotations-list",
+        "status": "exported",
+        "method": "dataWarehouse.savedQueryColumnAnnotationsList"
+    },
+    {
+        "toolName": "scheduled-changes-create",
+        "status": "exported",
+        "method": "featureFlags.scheduledChangesCreate"
+    },
+    {
+        "toolName": "scheduled-changes-delete",
+        "status": "exported",
+        "method": "featureFlags.scheduledChangesDelete"
+    },
+    {
+        "toolName": "scheduled-changes-get",
+        "status": "exported",
+        "method": "featureFlags.scheduledChangesGet"
+    },
+    {
+        "toolName": "scheduled-changes-list",
+        "status": "exported",
+        "method": "featureFlags.scheduledChangesList"
+    },
+    {
+        "toolName": "scheduled-changes-update",
+        "status": "exported",
+        "method": "featureFlags.scheduledChangesUpdate"
+    },
+    {
+        "toolName": "scout-check-record-result",
+        "status": "exported",
+        "method": "signals.scoutCheckRecordResult"
+    },
+    {
+        "toolName": "scout-config-create",
+        "status": "exported",
+        "method": "signals.scoutConfigCreate"
+    },
+    {
+        "toolName": "scout-config-delete",
+        "status": "exported",
+        "method": "signals.scoutConfigDelete"
+    },
+    {
+        "toolName": "scout-config-list",
+        "status": "exported",
+        "method": "signals.scoutConfigList"
+    },
+    {
+        "toolName": "scout-config-sync",
+        "status": "exported",
+        "method": "signals.scoutConfigSync"
+    },
+    {
+        "toolName": "scout-config-update",
+        "status": "exported",
+        "method": "signals.scoutConfigUpdate"
+    },
+    {
+        "toolName": "scout-create",
+        "status": "exported",
+        "method": "signals.scoutCreate"
+    },
+    {
+        "toolName": "scout-edit-report",
+        "status": "exported",
+        "method": "signals.scoutEditReport"
+    },
+    {
+        "toolName": "scout-emit-report",
+        "status": "exported",
+        "method": "signals.scoutEmitReport"
+    },
+    {
+        "toolName": "scout-emit-signal",
+        "status": "exported",
+        "method": "signals.scoutEmitSignal"
+    },
+    {
+        "toolName": "scout-lighthouse-audit",
+        "status": "exported",
+        "method": "signals.scoutLighthouseAudit"
+    },
+    {
+        "toolName": "scout-members-list",
+        "status": "exported",
+        "method": "signals.scoutMembersList"
+    },
+    {
+        "toolName": "scout-metadata-get",
+        "status": "exported",
+        "method": "signals.scoutMetadataGet"
+    },
+    {
+        "toolName": "scout-notes-create",
+        "status": "exported",
+        "method": "signals.scoutNotesCreate"
+    },
+    {
+        "toolName": "scout-notes-delete",
+        "status": "exported",
+        "method": "signals.scoutNotesDelete"
+    },
+    {
+        "toolName": "scout-notes-list",
+        "status": "exported",
+        "method": "signals.scoutNotesList"
+    },
+    {
+        "toolName": "scout-project-profile-get",
+        "status": "exported",
+        "method": "signals.scoutProjectProfileGet"
+    },
+    {
+        "toolName": "scout-record-output",
+        "status": "exported",
+        "method": "signals.scoutRecordOutput"
+    },
+    {
+        "toolName": "scout-report-check-cancel",
+        "status": "exported",
+        "method": "signals.scoutReportCheckCancel"
+    },
+    {
+        "toolName": "scout-report-check-create",
+        "status": "exported",
+        "method": "signals.scoutReportCheckCreate"
+    },
+    {
+        "toolName": "scout-report-check-list",
+        "status": "exported",
+        "method": "signals.scoutReportCheckList"
+    },
+    {
+        "toolName": "scout-report-checks-list",
+        "status": "exported",
+        "method": "signals.scoutReportChecksList"
+    },
+    {
+        "toolName": "scout-run-now",
+        "status": "exported",
+        "method": "signals.scoutRunNow"
+    },
+    {
+        "toolName": "scout-runs-emission-reports",
+        "status": "exported",
+        "method": "signals.scoutRunsEmissionReports"
+    },
+    {
+        "toolName": "scout-runs-emissions-list",
+        "status": "exported",
+        "method": "signals.scoutRunsEmissionsList"
+    },
+    {
+        "toolName": "scout-runs-list",
+        "status": "exported",
+        "method": "signals.scoutRunsList"
+    },
+    {
+        "toolName": "scout-runs-recent-emissions",
+        "status": "exported",
+        "method": "signals.scoutRunsRecentEmissions"
+    },
+    {
+        "toolName": "scout-runs-retrieve",
+        "status": "exported",
+        "method": "signals.scoutRunsRetrieve"
+    },
+    {
+        "toolName": "scout-scratchpad-forget",
+        "status": "exported",
+        "method": "signals.scoutScratchpadForget"
+    },
+    {
+        "toolName": "scout-scratchpad-remember",
+        "status": "exported",
+        "method": "signals.scoutScratchpadRemember"
+    },
+    {
+        "toolName": "scout-scratchpad-search",
+        "status": "exported",
+        "method": "signals.scoutScratchpadSearch"
+    },
+    {
+        "toolName": "scout-trial-create",
+        "status": "exported",
+        "method": "signals.scoutTrialCreate"
+    },
+    {
+        "toolName": "scout-trial-get",
+        "status": "exported",
+        "method": "signals.scoutTrialGet"
+    },
+    {
+        "toolName": "session-recording-bulk-delete",
+        "status": "exported",
+        "method": "replay.sessionRecordingBulkDelete"
+    },
+    {
+        "toolName": "session-recording-delete",
+        "status": "exported",
+        "method": "replay.sessionRecordingDelete"
+    },
+    {
+        "toolName": "session-recording-get",
+        "status": "exported",
+        "method": "replay.sessionRecordingGet"
+    },
+    {
+        "toolName": "session-recording-playlist-create",
+        "status": "exported",
+        "method": "replay.sessionRecordingPlaylistCreate"
+    },
+    {
+        "toolName": "session-recording-playlist-get",
+        "status": "exported",
+        "method": "replay.sessionRecordingPlaylistGet"
+    },
+    {
+        "toolName": "session-recording-playlist-update",
+        "status": "exported",
+        "method": "replay.sessionRecordingPlaylistUpdate"
+    },
+    {
+        "toolName": "session-recording-playlists-list",
+        "status": "exported",
+        "method": "replay.sessionRecordingPlaylistsList"
+    },
+    {
+        "toolName": "signals-scout-config-create",
+        "status": "exported",
+        "method": "signals.signalsScoutConfigCreate"
+    },
+    {
+        "toolName": "signals-scout-config-delete",
+        "status": "exported",
+        "method": "signals.signalsScoutConfigDelete"
+    },
+    {
+        "toolName": "signals-scout-config-list",
+        "status": "exported",
+        "method": "signals.signalsScoutConfigList"
+    },
+    {
+        "toolName": "signals-scout-config-sync",
+        "status": "exported",
+        "method": "signals.signalsScoutConfigSync"
+    },
+    {
+        "toolName": "signals-scout-config-update",
+        "status": "exported",
+        "method": "signals.signalsScoutConfigUpdate"
+    },
+    {
+        "toolName": "signals-scout-edit-report",
+        "status": "exported",
+        "method": "signals.signalsScoutEditReport"
+    },
+    {
+        "toolName": "signals-scout-emit-report",
+        "status": "exported",
+        "method": "signals.signalsScoutEmitReport"
+    },
+    {
+        "toolName": "signals-scout-emit-signal",
+        "status": "exported",
+        "method": "signals.signalsScoutEmitSignal"
+    },
+    {
+        "toolName": "signals-scout-members-list",
+        "status": "exported",
+        "method": "signals.signalsScoutMembersList"
+    },
+    {
+        "toolName": "signals-scout-project-profile-get",
+        "status": "exported",
+        "method": "signals.signalsScoutProjectProfileGet"
+    },
+    {
+        "toolName": "signals-scout-run-now",
+        "status": "exported",
+        "method": "signals.signalsScoutRunNow"
+    },
+    {
+        "toolName": "signals-scout-runs-emission-reports",
+        "status": "exported",
+        "method": "signals.signalsScoutRunsEmissionReports"
+    },
+    {
+        "toolName": "signals-scout-runs-emissions-list",
+        "status": "exported",
+        "method": "signals.signalsScoutRunsEmissionsList"
+    },
+    {
+        "toolName": "signals-scout-runs-list",
+        "status": "exported",
+        "method": "signals.signalsScoutRunsList"
+    },
+    {
+        "toolName": "signals-scout-runs-recent-emissions",
+        "status": "exported",
+        "method": "signals.signalsScoutRunsRecentEmissions"
+    },
+    {
+        "toolName": "signals-scout-runs-retrieve",
+        "status": "exported",
+        "method": "signals.signalsScoutRunsRetrieve"
+    },
+    {
+        "toolName": "signals-scout-scratchpad-forget",
+        "status": "exported",
+        "method": "signals.signalsScoutScratchpadForget"
+    },
+    {
+        "toolName": "signals-scout-scratchpad-remember",
+        "status": "exported",
+        "method": "signals.signalsScoutScratchpadRemember"
+    },
+    {
+        "toolName": "signals-scout-scratchpad-search",
+        "status": "exported",
+        "method": "signals.signalsScoutScratchpadSearch"
+    },
+    {
+        "toolName": "skill-archive",
+        "status": "exported",
+        "method": "skills.skillArchive"
+    },
+    {
+        "toolName": "skill-create",
+        "status": "exported",
+        "method": "skills.skillCreate"
+    },
+    {
+        "toolName": "skill-duplicate",
+        "status": "exported",
+        "method": "skills.skillDuplicate"
+    },
+    {
+        "toolName": "skill-file-create",
+        "status": "exported",
+        "method": "skills.skillFileCreate"
+    },
+    {
+        "toolName": "skill-file-delete",
+        "status": "exported",
+        "method": "skills.skillFileDelete"
+    },
+    {
+        "toolName": "skill-file-get",
+        "status": "exported",
+        "method": "skills.skillFileGet"
+    },
+    {
+        "toolName": "skill-file-rename",
+        "status": "exported",
+        "method": "skills.skillFileRename"
+    },
+    {
+        "toolName": "skill-get",
+        "status": "exported",
+        "method": "skills.skillGet"
+    },
+    {
+        "toolName": "skill-list",
+        "status": "exported",
+        "method": "skills.skillList"
+    },
+    {
+        "toolName": "skill-rename",
+        "status": "exported",
+        "method": "skills.skillRename"
+    },
+    {
+        "toolName": "skill-store-install-command",
+        "status": "exported",
+        "method": "skills.skillStoreInstallCommand"
+    },
+    {
+        "toolName": "skill-update",
+        "status": "exported",
+        "method": "skills.skillUpdate"
+    },
+    {
+        "toolName": "sql-variables-create",
+        "status": "exported",
+        "method": "dataWarehouse.sqlVariablesCreate"
+    },
+    {
+        "toolName": "sql-variables-delete",
+        "status": "exported",
+        "method": "dataWarehouse.sqlVariablesDelete"
+    },
+    {
+        "toolName": "sql-variables-update",
+        "status": "exported",
+        "method": "dataWarehouse.sqlVariablesUpdate"
+    },
+    {
+        "toolName": "stamphog-digest-runs-list",
+        "status": "exported",
+        "method": "stamphog.stamphogDigestRunsList"
+    },
+    {
+        "toolName": "stamphog-pull-requests-get",
+        "status": "exported",
+        "method": "stamphog.stamphogPullRequestsGet"
+    },
+    {
+        "toolName": "stamphog-pull-requests-list",
+        "status": "exported",
+        "method": "stamphog.stamphogPullRequestsList"
+    },
+    {
+        "toolName": "stamphog-repo-configs-delete",
+        "status": "exported",
+        "method": "stamphog.stamphogRepoConfigsDelete"
+    },
+    {
+        "toolName": "stamphog-repo-configs-get",
+        "status": "exported",
+        "method": "stamphog.stamphogRepoConfigsGet"
+    },
+    {
+        "toolName": "stamphog-repo-configs-list",
+        "status": "exported",
+        "method": "stamphog.stamphogRepoConfigsList"
+    },
+    {
+        "toolName": "stamphog-review-runs-create",
+        "status": "exported",
+        "method": "stamphog.stamphogReviewRunsCreate"
+    },
+    {
+        "toolName": "stamphog-review-runs-get",
+        "status": "exported",
+        "method": "stamphog.stamphogReviewRunsGet"
+    },
+    {
+        "toolName": "stamphog-review-runs-list",
+        "status": "exported",
+        "method": "stamphog.stamphogReviewRunsList"
+    },
+    {
+        "toolName": "streamlit-apps-create",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsCreate"
+    },
+    {
+        "toolName": "streamlit-apps-delete",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsDelete"
+    },
+    {
+        "toolName": "streamlit-apps-edit-source",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsEditSource"
+    },
+    {
+        "toolName": "streamlit-apps-get",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsGet"
+    },
+    {
+        "toolName": "streamlit-apps-get-source",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsGetSource"
+    },
+    {
+        "toolName": "streamlit-apps-list",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsList"
+    },
+    {
+        "toolName": "streamlit-apps-set-source",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsSetSource"
+    },
+    {
+        "toolName": "streamlit-apps-start",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsStart"
+    },
+    {
+        "toolName": "streamlit-apps-status",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsStatus"
+    },
+    {
+        "toolName": "streamlit-apps-stop",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsStop"
+    },
+    {
+        "toolName": "streamlit-apps-update",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsUpdate"
+    },
+    {
+        "toolName": "streamlit-apps-versions",
+        "status": "exported",
+        "method": "streamlitApps.streamlitAppsVersions"
+    },
+    {
+        "toolName": "subscriptions-create",
+        "status": "exported",
+        "method": "subscriptions.subscriptionsCreate"
+    },
+    {
+        "toolName": "subscriptions-delete",
+        "status": "exported",
+        "method": "subscriptions.subscriptionsDelete"
+    },
+    {
+        "toolName": "subscriptions-deliveries-list",
+        "status": "exported",
+        "method": "subscriptions.subscriptionsDeliveriesList"
+    },
+    {
+        "toolName": "subscriptions-deliveries-retrieve",
+        "status": "exported",
+        "method": "subscriptions.subscriptionsDeliveriesRetrieve"
+    },
+    {
+        "toolName": "subscriptions-list",
+        "status": "exported",
+        "method": "subscriptions.subscriptionsList"
+    },
+    {
+        "toolName": "subscriptions-partial-update",
+        "status": "exported",
+        "method": "subscriptions.subscriptionsPartialUpdate"
+    },
+    {
+        "toolName": "subscriptions-retrieve",
+        "status": "exported",
+        "method": "subscriptions.subscriptionsRetrieve"
+    },
+    {
+        "toolName": "subscriptions-test-delivery-create",
+        "status": "exported",
+        "method": "subscriptions.subscriptionsTestDeliveryCreate"
+    },
+    {
+        "toolName": "survey-create",
+        "status": "exported",
+        "method": "surveys.surveyCreate"
+    },
+    {
+        "toolName": "survey-delete",
+        "status": "exported",
+        "method": "surveys.surveyDelete"
+    },
+    {
+        "toolName": "survey-get",
+        "status": "exported",
+        "method": "surveys.surveyGet"
+    },
+    {
+        "toolName": "survey-launch",
+        "status": "exported",
+        "method": "surveys.surveyLaunch"
+    },
+    {
+        "toolName": "survey-stats",
+        "status": "exported",
+        "method": "surveys.surveyStats"
+    },
+    {
+        "toolName": "survey-stop",
+        "status": "exported",
+        "method": "surveys.surveyStop"
+    },
+    {
+        "toolName": "survey-update",
+        "status": "exported",
+        "method": "surveys.surveyUpdate"
+    },
+    {
+        "toolName": "surveys-get-all",
+        "status": "exported",
+        "method": "surveys.surveysGetAll"
+    },
+    {
+        "toolName": "surveys-global-stats",
+        "status": "exported",
+        "method": "surveys.surveysGlobalStats"
+    },
+    {
+        "toolName": "surveys-responses-list",
+        "status": "exported",
+        "method": "surveys.surveysResponsesList"
+    },
+    {
+        "toolName": "surveys-summarize-responses-create",
+        "status": "exported",
+        "method": "surveys.surveysSummarizeResponsesCreate"
+    },
+    {
+        "toolName": "switch-organization",
+        "status": "exported",
+        "method": "workspace.switchOrganization"
+    },
+    {
+        "toolName": "switch-project",
+        "status": "exported",
+        "method": "workspace.switchProject"
+    },
+    {
+        "toolName": "task-context-wiki-channel-resolve",
+        "status": "exported",
+        "method": "contextLayer.taskContextWikiChannelResolve"
+    },
+    {
+        "toolName": "task-context-wiki-page-propose",
+        "status": "exported",
+        "method": "contextLayer.taskContextWikiPagePropose"
+    },
+    {
+        "toolName": "task-context-wiki-page-retrieve",
+        "status": "exported",
+        "method": "contextLayer.taskContextWikiPageRetrieve"
+    },
+    {
+        "toolName": "task-context-wiki-page-update",
+        "status": "exported",
+        "method": "contextLayer.taskContextWikiPageUpdate"
+    },
+    {
+        "toolName": "tasks-artifacts-list",
+        "status": "exported",
+        "method": "tasks.tasksArtifactsList"
+    },
+    {
+        "toolName": "tasks-comments-list",
+        "status": "exported",
+        "method": "tasks.tasksCommentsList"
+    },
+    {
+        "toolName": "tasks-comments-retrieve",
+        "status": "exported",
+        "method": "tasks.tasksCommentsRetrieve"
+    },
+    {
+        "toolName": "tasks-config-agent-instructions-create",
+        "status": "exported",
+        "method": "tasks.tasksConfigAgentInstructionsCreate"
+    },
+    {
+        "toolName": "tasks-config-create",
+        "status": "exported",
+        "method": "tasks.tasksConfigCreate"
+    },
+    {
+        "toolName": "tasks-config-list",
+        "status": "exported",
+        "method": "tasks.tasksConfigList"
+    },
+    {
+        "toolName": "tasks-create",
+        "status": "exported",
+        "method": "tasks.tasksCreate"
+    },
+    {
+        "toolName": "tasks-create-and-run",
+        "status": "exported",
+        "method": "tasks.tasksCreateAndRun"
+    },
+    {
+        "toolName": "tasks-list",
+        "status": "exported",
+        "method": "tasks.tasksList"
+    },
+    {
+        "toolName": "tasks-me-config-agent-instructions-create",
+        "status": "exported",
+        "method": "tasks.tasksMeConfigAgentInstructionsCreate"
+    },
+    {
+        "toolName": "tasks-me-config-create",
+        "status": "exported",
+        "method": "tasks.tasksMeConfigCreate"
+    },
+    {
+        "toolName": "tasks-me-config-list",
+        "status": "exported",
+        "method": "tasks.tasksMeConfigList"
+    },
+    {
+        "toolName": "tasks-models-retrieve",
+        "status": "exported",
+        "method": "tasks.tasksModelsRetrieve"
+    },
+    {
+        "toolName": "tasks-retrieve",
+        "status": "exported",
+        "method": "tasks.tasksRetrieve"
+    },
+    {
+        "toolName": "tasks-run-create",
+        "status": "exported",
+        "method": "tasks.tasksRunCreate"
+    },
+    {
+        "toolName": "tasks-runs-list",
+        "status": "exported",
+        "method": "tasks.tasksRunsList"
+    },
+    {
+        "toolName": "tasks-runs-retrieve",
+        "status": "exported",
+        "method": "tasks.tasksRunsRetrieve"
+    },
+    {
+        "toolName": "tasks-runs-session-logs-retrieve",
+        "status": "exported",
+        "method": "tasks.tasksRunsSessionLogsRetrieve"
+    },
+    {
+        "toolName": "today-briefing-get",
+        "status": "exported",
+        "method": "today.todayBriefingGet"
+    },
+    {
+        "toolName": "today-candidates-list",
+        "status": "exported",
+        "method": "today.todayCandidatesList"
+    },
+    {
+        "toolName": "update-feature-flag",
+        "status": "exported",
+        "method": "featureFlags.updateFeatureFlag"
+    },
+    {
+        "toolName": "usage-metrics-create",
+        "status": "exported",
+        "method": "customerAnalytics.usageMetricsCreate"
+    },
+    {
+        "toolName": "usage-metrics-destroy",
+        "status": "exported",
+        "method": "customerAnalytics.usageMetricsDestroy"
+    },
+    {
+        "toolName": "usage-metrics-list",
+        "status": "exported",
+        "method": "customerAnalytics.usageMetricsList"
+    },
+    {
+        "toolName": "usage-metrics-partial-update",
+        "status": "exported",
+        "method": "customerAnalytics.usageMetricsPartialUpdate"
+    },
+    {
+        "toolName": "usage-metrics-retrieve",
+        "status": "exported",
+        "method": "customerAnalytics.usageMetricsRetrieve"
+    },
+    {
+        "toolName": "user-get",
+        "status": "exported",
+        "method": "core.userGet"
+    },
+    {
+        "toolName": "user-home-settings-get",
+        "status": "exported",
+        "method": "platformFeatures.userHomeSettingsGet"
+    },
+    {
+        "toolName": "user-home-settings-update",
+        "status": "exported",
+        "method": "platformFeatures.userHomeSettingsUpdate"
+    },
+    {
+        "toolName": "user-settings-update",
+        "status": "exported",
+        "method": "core.userSettingsUpdate"
+    },
+    {
+        "toolName": "view-create",
+        "status": "exported",
+        "method": "dataWarehouse.viewCreate"
+    },
+    {
+        "toolName": "view-delete",
+        "status": "exported",
+        "method": "dataWarehouse.viewDelete"
+    },
+    {
+        "toolName": "view-get",
+        "status": "exported",
+        "method": "dataWarehouse.viewGet"
+    },
+    {
+        "toolName": "view-list",
+        "status": "exported",
+        "method": "dataWarehouse.viewList"
+    },
+    {
+        "toolName": "view-materialize",
+        "status": "exported",
+        "method": "dataWarehouse.viewMaterialize"
+    },
+    {
+        "toolName": "view-run",
+        "status": "exported",
+        "method": "dataWarehouse.viewRun"
+    },
+    {
+        "toolName": "view-run-history",
+        "status": "exported",
+        "method": "dataWarehouse.viewRunHistory"
+    },
+    {
+        "toolName": "view-unmaterialize",
+        "status": "exported",
+        "method": "dataWarehouse.viewUnmaterialize"
+    },
+    {
+        "toolName": "view-update",
+        "status": "exported",
+        "method": "dataWarehouse.viewUpdate"
+    },
+    {
+        "toolName": "vision-alerts-create",
+        "status": "exported",
+        "method": "replayVision.visionAlertsCreate"
+    },
+    {
+        "toolName": "vision-alerts-delete",
+        "status": "exported",
+        "method": "replayVision.visionAlertsDelete"
+    },
+    {
+        "toolName": "vision-alerts-destinations-create",
+        "status": "exported",
+        "method": "replayVision.visionAlertsDestinationsCreate"
+    },
+    {
+        "toolName": "vision-alerts-destinations-delete",
+        "status": "exported",
+        "method": "replayVision.visionAlertsDestinationsDelete"
+    },
+    {
+        "toolName": "vision-alerts-events-list",
+        "status": "exported",
+        "method": "replayVision.visionAlertsEventsList"
+    },
+    {
+        "toolName": "vision-alerts-get",
+        "status": "exported",
+        "method": "replayVision.visionAlertsGet"
+    },
+    {
+        "toolName": "vision-alerts-list",
+        "status": "exported",
+        "method": "replayVision.visionAlertsList"
+    },
+    {
+        "toolName": "vision-alerts-reset",
+        "status": "exported",
+        "method": "replayVision.visionAlertsReset"
+    },
+    {
+        "toolName": "vision-alerts-update",
+        "status": "exported",
+        "method": "replayVision.visionAlertsUpdate"
+    },
+    {
+        "toolName": "vision-observations-create-task",
+        "status": "exported",
+        "method": "replayVision.visionObservationsCreateTask"
+    },
+    {
+        "toolName": "vision-observations-get",
+        "status": "exported",
+        "method": "replayVision.visionObservationsGet"
+    },
+    {
+        "toolName": "vision-observations-label-create",
+        "status": "exported",
+        "method": "replayVision.visionObservationsLabelCreate"
+    },
+    {
+        "toolName": "vision-observations-label-delete",
+        "status": "exported",
+        "method": "replayVision.visionObservationsLabelDelete"
+    },
+    {
+        "toolName": "vision-observations-list",
+        "status": "exported",
+        "method": "replayVision.visionObservationsList"
+    },
+    {
+        "toolName": "vision-observations-retry",
+        "status": "exported",
+        "method": "replayVision.visionObservationsRetry"
+    },
+    {
+        "toolName": "vision-observations-search",
+        "status": "exported",
+        "method": "replayVision.visionObservationsSearch"
+    },
+    {
+        "toolName": "vision-observations-signal-reports-list",
+        "status": "exported",
+        "method": "replayVision.visionObservationsSignalReportsList"
+    },
+    {
+        "toolName": "vision-quota-get",
+        "status": "exported",
+        "method": "replayVision.visionQuotaGet"
+    },
+    {
+        "toolName": "vision-quota-spend-series-get",
+        "status": "exported",
+        "method": "replayVision.visionQuotaSpendSeriesGet"
+    },
+    {
+        "toolName": "vision-scanners-affected-cohort-create",
+        "status": "exported",
+        "method": "replayVision.visionScannersAffectedCohortCreate"
+    },
+    {
+        "toolName": "vision-scanners-backfills-cancel",
+        "status": "exported",
+        "method": "replayVision.visionScannersBackfillsCancel"
+    },
+    {
+        "toolName": "vision-scanners-backfills-create",
+        "status": "exported",
+        "method": "replayVision.visionScannersBackfillsCreate"
+    },
+    {
+        "toolName": "vision-scanners-backfills-estimate",
+        "status": "exported",
+        "method": "replayVision.visionScannersBackfillsEstimate"
+    },
+    {
+        "toolName": "vision-scanners-backfills-get",
+        "status": "exported",
+        "method": "replayVision.visionScannersBackfillsGet"
+    },
+    {
+        "toolName": "vision-scanners-backfills-list",
+        "status": "exported",
+        "method": "replayVision.visionScannersBackfillsList"
+    },
+    {
+        "toolName": "vision-scanners-backfills-resume",
+        "status": "exported",
+        "method": "replayVision.visionScannersBackfillsResume"
+    },
+    {
+        "toolName": "vision-scanners-counts",
+        "status": "exported",
+        "method": "replayVision.visionScannersCounts"
+    },
+    {
+        "toolName": "vision-scanners-create",
+        "status": "exported",
+        "method": "replayVision.visionScannersCreate"
+    },
+    {
+        "toolName": "vision-scanners-delete",
+        "status": "exported",
+        "method": "replayVision.visionScannersDelete"
+    },
+    {
+        "toolName": "vision-scanners-draft",
+        "status": "exported",
+        "method": "replayVision.visionScannersDraft"
+    },
+    {
+        "toolName": "vision-scanners-duplicate",
+        "status": "exported",
+        "method": "replayVision.visionScannersDuplicate"
+    },
+    {
+        "toolName": "vision-scanners-estimate",
+        "status": "exported",
+        "method": "replayVision.visionScannersEstimate"
+    },
+    {
+        "toolName": "vision-scanners-get",
+        "status": "exported",
+        "method": "replayVision.visionScannersGet"
+    },
+    {
+        "toolName": "vision-scanners-impact-get",
+        "status": "exported",
+        "method": "replayVision.visionScannersImpactGet"
+    },
+    {
+        "toolName": "vision-scanners-inline-scan",
+        "status": "exported",
+        "method": "replayVision.visionScannersInlineScan"
+    },
+    {
+        "toolName": "vision-scanners-list",
+        "status": "exported",
+        "method": "replayVision.visionScannersList"
+    },
+    {
+        "toolName": "vision-scanners-observations-get",
+        "status": "exported",
+        "method": "replayVision.visionScannersObservationsGet"
+    },
+    {
+        "toolName": "vision-scanners-observations-list",
+        "status": "exported",
+        "method": "replayVision.visionScannersObservationsList"
+    },
+    {
+        "toolName": "vision-scanners-observations-stats",
+        "status": "exported",
+        "method": "replayVision.visionScannersObservationsStats"
+    },
+    {
+        "toolName": "vision-scanners-scan-session",
+        "status": "exported",
+        "method": "replayVision.visionScannersScanSession"
+    },
+    {
+        "toolName": "vision-scanners-scan-sessions",
+        "status": "exported",
+        "method": "replayVision.visionScannersScanSessions"
+    },
+    {
+        "toolName": "vision-scanners-scout-reports-get",
+        "status": "exported",
+        "method": "replayVision.visionScannersScoutReportsGet"
+    },
+    {
+        "toolName": "vision-scanners-scout-reports-list",
+        "status": "exported",
+        "method": "replayVision.visionScannersScoutReportsList"
+    },
+    {
+        "toolName": "vision-scanners-scouts-create",
+        "status": "exported",
+        "method": "replayVision.visionScannersScoutsCreate"
+    },
+    {
+        "toolName": "vision-scanners-self-driving-stats",
+        "status": "exported",
+        "method": "replayVision.visionScannersSelfDrivingStats"
+    },
+    {
+        "toolName": "vision-scanners-suggest-tags",
+        "status": "exported",
+        "method": "replayVision.visionScannersSuggestTags"
+    },
+    {
+        "toolName": "vision-scanners-update",
+        "status": "exported",
+        "method": "replayVision.visionScannersUpdate"
+    },
+    {
+        "toolName": "vision-scanners-variants-list",
+        "status": "exported",
+        "method": "replayVision.visionScannersVariantsList"
+    },
+    {
+        "toolName": "vision-scanners-watch-feed",
+        "status": "exported",
+        "method": "replayVision.visionScannersWatchFeed"
+    },
+    {
+        "toolName": "visual-review-repos-flakiness-retrieve",
+        "status": "exported",
+        "method": "visualReview.visualReviewReposFlakinessRetrieve"
+    },
+    {
+        "toolName": "visual-review-repos-list",
+        "status": "exported",
+        "method": "visualReview.visualReviewReposList"
+    },
+    {
+        "toolName": "visual-review-repos-partial-update",
+        "status": "exported",
+        "method": "visualReview.visualReviewReposPartialUpdate"
+    },
+    {
+        "toolName": "visual-review-repos-quarantine-create",
+        "status": "exported",
+        "method": "visualReview.visualReviewReposQuarantineCreate"
+    },
+    {
+        "toolName": "visual-review-repos-quarantine-expire-create",
+        "status": "exported",
+        "method": "visualReview.visualReviewReposQuarantineExpireCreate"
+    },
+    {
+        "toolName": "visual-review-repos-quarantine-list",
+        "status": "exported",
+        "method": "visualReview.visualReviewReposQuarantineList"
+    },
+    {
+        "toolName": "visual-review-repos-retrieve",
+        "status": "exported",
+        "method": "visualReview.visualReviewReposRetrieve"
+    },
+    {
+        "toolName": "visual-review-repos-runs-counts-retrieve",
+        "status": "exported",
+        "method": "visualReview.visualReviewReposRunsCountsRetrieve"
+    },
+    {
+        "toolName": "visual-review-repos-runs-list",
+        "status": "exported",
+        "method": "visualReview.visualReviewReposRunsList"
+    },
+    {
+        "toolName": "visual-review-repos-toleration-pileups-retrieve",
+        "status": "exported",
+        "method": "visualReview.visualReviewReposTolerationPileupsRetrieve"
+    },
+    {
+        "toolName": "visual-review-runs-approve-create",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsApproveCreate"
+    },
+    {
+        "toolName": "visual-review-runs-counts-retrieve",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsCountsRetrieve"
+    },
+    {
+        "toolName": "visual-review-runs-finalize-create",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsFinalizeCreate"
+    },
+    {
+        "toolName": "visual-review-runs-lift-on-merge-create",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsLiftOnMergeCreate"
+    },
+    {
+        "toolName": "visual-review-runs-list",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsList"
+    },
+    {
+        "toolName": "visual-review-runs-quarantine-lifts-cancel-create",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsQuarantineLiftsCancelCreate"
+    },
+    {
+        "toolName": "visual-review-runs-quarantine-lifts-list",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsQuarantineLiftsList"
+    },
+    {
+        "toolName": "visual-review-runs-recompute-create",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsRecomputeCreate"
+    },
+    {
+        "toolName": "visual-review-runs-retrieve",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsRetrieve"
+    },
+    {
+        "toolName": "visual-review-runs-snapshot-history-list",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsSnapshotHistoryList"
+    },
+    {
+        "toolName": "visual-review-runs-snapshots-list",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsSnapshotsList"
+    },
+    {
+        "toolName": "visual-review-runs-tolerate-create",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsTolerateCreate"
+    },
+    {
+        "toolName": "visual-review-runs-tolerated-hashes-list",
+        "status": "exported",
+        "method": "visualReview.visualReviewRunsToleratedHashesList"
+    },
+    {
+        "toolName": "warehouse-column-annotations-create",
+        "status": "exported",
+        "method": "dataWarehouse.warehouseColumnAnnotationsCreate"
+    },
+    {
+        "toolName": "warehouse-column-annotations-list",
+        "status": "exported",
+        "method": "dataWarehouse.warehouseColumnAnnotationsList"
+    },
+    {
+        "toolName": "warehouse-column-annotations-partial-update",
+        "status": "exported",
+        "method": "dataWarehouse.warehouseColumnAnnotationsPartialUpdate"
+    },
+    {
+        "toolName": "warehouse-suggestions-accept-execute",
+        "status": "exported",
+        "method": "warehouseSuggestions.warehouseSuggestionsAcceptExecute"
+    },
+    {
+        "toolName": "warehouse-suggestions-accept-prepare",
+        "status": "exported",
+        "method": "warehouseSuggestions.warehouseSuggestionsAcceptPrepare"
+    },
+    {
+        "toolName": "warehouse-suggestions-dismiss",
+        "status": "exported",
+        "method": "warehouseSuggestions.warehouseSuggestionsDismiss"
+    },
+    {
+        "toolName": "warehouse-suggestions-get",
+        "status": "exported",
+        "method": "warehouseSuggestions.warehouseSuggestionsGet"
+    },
+    {
+        "toolName": "warehouse-suggestions-list",
+        "status": "exported",
+        "method": "warehouseSuggestions.warehouseSuggestionsList"
+    },
+    {
+        "toolName": "warehouse-suggestions-resume",
+        "status": "exported",
+        "method": "warehouseSuggestions.warehouseSuggestionsResume"
+    },
+    {
+        "toolName": "warehouse-suggestions-status",
+        "status": "exported",
+        "method": "warehouseSuggestions.warehouseSuggestionsStatus"
+    },
+    {
+        "toolName": "warehouse-tables-create",
+        "status": "exported",
+        "method": "dataWarehouse.warehouseTablesCreate"
+    },
+    {
+        "toolName": "warehouse-tables-refresh-schema-create",
+        "status": "exported",
+        "method": "dataWarehouse.warehouseTablesRefreshSchemaCreate"
+    },
+    {
+        "toolName": "web-analytics-bot-rules-create",
+        "status": "exported",
+        "method": "webAnalytics.webAnalyticsBotRulesCreate"
+    },
+    {
+        "toolName": "web-analytics-bot-rules-destroy",
+        "status": "exported",
+        "method": "webAnalytics.webAnalyticsBotRulesDestroy"
+    },
+    {
+        "toolName": "web-analytics-bot-rules-list",
+        "status": "exported",
+        "method": "webAnalytics.webAnalyticsBotRulesList"
+    },
+    {
+        "toolName": "web-analytics-path-cleaning-suggestions-apply",
+        "status": "exported",
+        "method": "webAnalytics.webAnalyticsPathCleaningSuggestionsApply"
+    },
+    {
+        "toolName": "web-analytics-path-cleaning-suggestions-generate",
+        "status": "exported",
+        "method": "webAnalytics.webAnalyticsPathCleaningSuggestionsGenerate"
+    },
+    {
+        "toolName": "web-analytics-weekly-digest",
+        "status": "exported",
+        "method": "webAnalytics.webAnalyticsWeeklyDigest"
+    },
+    {
+        "toolName": "workflow-health",
+        "status": "exported",
+        "method": "engineeringAnalytics.workflowHealth"
+    },
+    {
+        "toolName": "workflows-archive",
+        "status": "exported",
+        "method": "workflows.workflowsArchive"
+    },
+    {
+        "toolName": "workflows-blast-radius",
+        "status": "exported",
+        "method": "workflows.workflowsBlastRadius"
+    },
+    {
+        "toolName": "workflows-create",
+        "status": "exported",
+        "method": "workflows.workflowsCreate"
+    },
+    {
+        "toolName": "workflows-create-email-template",
+        "status": "exported",
+        "method": "emailTemplates.workflowsCreateEmailTemplate"
+    },
+    {
+        "toolName": "workflows-discard-draft",
+        "status": "exported",
+        "method": "workflows.workflowsDiscardDraft"
+    },
+    {
+        "toolName": "workflows-enable",
+        "status": "exported",
+        "method": "workflows.workflowsEnable"
+    },
+    {
+        "toolName": "workflows-get",
+        "status": "exported",
+        "method": "workflows.workflowsGet"
+    },
+    {
+        "toolName": "workflows-get-email-template",
+        "status": "exported",
+        "method": "emailTemplates.workflowsGetEmailTemplate"
+    },
+    {
+        "toolName": "workflows-get-invocation",
+        "status": "exported",
+        "method": "workflows.workflowsGetInvocation"
+    },
+    {
+        "toolName": "workflows-get-revision",
+        "status": "exported",
+        "method": "workflows.workflowsGetRevision"
+    },
+    {
+        "toolName": "workflows-global-stats",
+        "status": "exported",
+        "method": "workflows.workflowsGlobalStats"
+    },
+    {
+        "toolName": "workflows-list",
+        "status": "exported",
+        "method": "workflows.workflowsList"
+    },
+    {
+        "toolName": "workflows-list-batch-jobs",
+        "status": "exported",
+        "method": "workflows.workflowsListBatchJobs"
+    },
+    {
+        "toolName": "workflows-list-email-templates",
+        "status": "exported",
+        "method": "emailTemplates.workflowsListEmailTemplates"
+    },
+    {
+        "toolName": "workflows-list-invocations",
+        "status": "exported",
+        "method": "workflows.workflowsListInvocations"
+    },
+    {
+        "toolName": "workflows-list-proposals",
+        "status": "exported",
+        "method": "workflows.workflowsListProposals"
+    },
+    {
+        "toolName": "workflows-list-revisions",
+        "status": "exported",
+        "method": "workflows.workflowsListRevisions"
+    },
+    {
+        "toolName": "workflows-list-versions",
+        "status": "exported",
+        "method": "workflows.workflowsListVersions"
+    },
+    {
+        "toolName": "workflows-logs",
+        "status": "exported",
+        "method": "workflows.workflowsLogs"
+    },
+    {
+        "toolName": "workflows-patch-action-email",
+        "status": "exported",
+        "method": "workflows.workflowsPatchActionEmail"
+    },
+    {
+        "toolName": "workflows-patch-email-template",
+        "status": "exported",
+        "method": "emailTemplates.workflowsPatchEmailTemplate"
+    },
+    {
+        "toolName": "workflows-patch-graph",
+        "status": "exported",
+        "method": "workflows.workflowsPatchGraph"
+    },
+    {
+        "toolName": "workflows-publish",
+        "status": "exported",
+        "method": "workflows.workflowsPublish"
+    },
+    {
+        "toolName": "workflows-restore-revision",
+        "status": "exported",
+        "method": "workflows.workflowsRestoreRevision"
+    },
+    {
+        "toolName": "workflows-run-batch",
+        "status": "exported",
+        "method": "workflows.workflowsRunBatch"
+    },
+    {
+        "toolName": "workflows-schedule-create",
+        "status": "exported",
+        "method": "workflows.workflowsScheduleCreate"
+    },
+    {
+        "toolName": "workflows-show-email-template",
+        "status": "exported",
+        "method": "emailTemplates.workflowsShowEmailTemplate"
+    },
+    {
+        "toolName": "workflows-stats",
+        "status": "exported",
+        "method": "workflows.workflowsStats"
+    },
+    {
+        "toolName": "workflows-suggest",
+        "status": "exported",
+        "method": "workflows.workflowsSuggest"
+    },
+    {
+        "toolName": "workflows-test-run",
+        "status": "exported",
+        "method": "workflows.workflowsTestRun"
+    },
+    {
+        "toolName": "workflows-update",
+        "status": "exported",
+        "method": "workflows.workflowsUpdate"
+    },
+    {
+        "toolName": "workflows-update-email-template",
+        "status": "exported",
+        "method": "emailTemplates.workflowsUpdateEmailTemplate"
+    },
+    {
+        "toolName": "workflows-update-schedule",
+        "status": "exported",
+        "method": "workflows.workflowsUpdateSchedule"
+    },
+    {
+        "toolName": "workflows-version-stats",
+        "status": "exported",
+        "method": "workflows.workflowsVersionStats"
+    }
+]

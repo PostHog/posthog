@@ -1,0 +1,162 @@
+{
+    "method": "workflows.workflowsGlobalStats",
+    "toolName": "workflows-global-stats",
+    "operationId": "hog_flows_metrics_global_retrieve",
+    "title": "Workflow stats overview",
+    "category": "Workflows",
+    "description": "At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which workflows are failing, then drill into those with workflows-list-invocations (who it failed for) → workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning every workflow one at a time. For a single workflow's time-series, use workflows-stats.",
+    "requiredScopes": ["hog_flow:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/workflows/client.ts",
+    "input": {
+        "name": "WorkflowsWorkflowsGlobalStatsInput",
+        "importPath": "@posthog/sdk/workflows",
+        "source": "src/generated/workflows/workflows-global-stats.ts",
+        "declaration": "dist/generated/workflows/workflows-global-stats.d.ts"
+    },
+    "output": {
+        "name": "WorkflowsWorkflowsGlobalStatsOutput",
+        "importPath": "@posthog/sdk/workflows",
+        "source": "src/generated/workflows/workflows-global-stats.ts",
+        "declaration": "dist/generated/workflows/workflows-global-stats.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WorkflowsWorkflowsGlobalStatsRequestSchema0",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-global-stats.ts",
+            "declaration": "dist/generated/workflows/workflows-global-stats.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsGlobalStatsRequestSchema1",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-global-stats.ts",
+            "declaration": "dist/generated/workflows/workflows-global-stats.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsGlobalStatsResponseShape2",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-global-stats.ts",
+            "declaration": "dist/generated/workflows/workflows-global-stats.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsGlobalStatsData",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-global-stats.ts",
+            "declaration": "dist/generated/workflows/workflows-global-stats.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which workflows are failing, then drill into those with workflows-list-invocations (who it failed for) → workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning every workflow one at a time. For a single workflow's time-series, use workflows-stats.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/workflows/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WorkflowsWorkflowsGlobalStatsInput",
+            "field": "after",
+            "effectiveDescription": "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/metrics/global/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsGlobalStatsInput",
+            "field": "before",
+            "effectiveDescription": "End of the window. Same format as 'after'. Defaults to now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the window. Same format as 'after'. Defaults to now.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/metrics/global/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsGlobalStatsResponseShape2",
+            "field": "workflow_id",
+            "effectiveDescription": "The workflow these counts are for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The workflow these counts are for.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/workflows.ts",
+                        "pointer": "#/Shape2/properties/workflow_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsGlobalStatsResponseShape2",
+            "field": "succeeded",
+            "effectiveDescription": "Successful invocations in the window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Successful invocations in the window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/workflows.ts",
+                        "pointer": "#/Shape2/properties/succeeded"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsGlobalStatsResponseShape2",
+            "field": "failed",
+            "effectiveDescription": "Failed invocations in the window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Failed invocations in the window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/workflows.ts",
+                        "pointer": "#/Shape2/properties/failed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsGlobalStatsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,141 @@
+{
+    "method": "workflows.workflowsGetRevision",
+    "toolName": "workflows-get-revision",
+    "operationId": "hog_flows_revisions_retrieve",
+    "title": "Get workflow revision",
+    "category": "Workflows",
+    "description": "Get one revision of a workflow by version number, including its full content snapshot (actions, edges, trigger, variables). Use to inspect what was live at that version before restoring it with workflows-restore-revision.",
+    "requiredScopes": ["hog_flow:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/workflows/client.ts",
+    "input": {
+        "name": "WorkflowsWorkflowsGetRevisionInput",
+        "importPath": "@posthog/sdk/workflows",
+        "source": "src/generated/workflows/workflows-get-revision.ts",
+        "declaration": "dist/generated/workflows/workflows-get-revision.d.ts"
+    },
+    "output": {
+        "name": "WorkflowsWorkflowsGetRevisionOutput",
+        "importPath": "@posthog/sdk/workflows",
+        "source": "src/generated/workflows/workflows-get-revision.ts",
+        "declaration": "dist/generated/workflows/workflows-get-revision.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WorkflowsWorkflowsGetRevisionResponseShape3",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-get-revision.ts",
+            "declaration": "dist/generated/workflows/workflows-get-revision.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsGetRevisionResponseShape2",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-get-revision.ts",
+            "declaration": "dist/generated/workflows/workflows-get-revision.d.ts"
+        },
+        {
+            "name": "WorkflowsWorkflowsGetRevisionData",
+            "importPath": "@posthog/sdk/workflows",
+            "source": "src/generated/workflows/workflows-get-revision.ts",
+            "declaration": "dist/generated/workflows/workflows-get-revision.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Get one revision of a workflow by version number, including its full content snapshot (actions, edges, trigger, variables). Use to inspect what was live at that version before restoring it with workflows-restore-revision.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/workflows/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WorkflowsWorkflowsGetRevisionInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this hog flow.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this hog flow.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/revisions/{version}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsGetRevisionInput",
+            "field": "version",
+            "effectiveDescription": "Workflow version to fetch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Workflow version to fetch.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_flows/{id}/revisions/{version}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsGetRevisionData",
+            "field": "version",
+            "effectiveDescription": "Workflow version this snapshot was published as.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Workflow version this snapshot was published as.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/workflows.ts",
+                        "pointer": "#/Shape1/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsGetRevisionData",
+            "field": "created_at",
+            "effectiveDescription": "When this version was published.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this version was published.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/workflows.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WorkflowsWorkflowsGetRevisionData",
+            "field": "content",
+            "effectiveDescription": "Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/workflows.ts",
+                        "pointer": "#/Shape1/properties/content"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
