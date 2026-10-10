@@ -3024,6 +3024,23 @@ def _validate_scout_tags(value: list[str]) -> list[str]:
     return sorted(normalized)
 
 
+# The roster fields a caller needs to choose between scouts. The other fields carry long prose
+# (`description`) or nested objects, and on a large fleet they make the full list too big to read.
+SIGNAL_SCOUT_CONFIG_COMPACT_FIELDS = (
+    "id",
+    "skill_name",
+    "display_name",
+    "enabled",
+    "status",
+    "pause_reason",
+    "emit",
+    "run_interval_minutes",
+    "run_cron_schedule",
+    "last_run_at",
+    "tags",
+)
+
+
 class SignalScoutConfigListQuerySerializer(serializers.Serializer):
     """Query parameters for the scout config list."""
 
@@ -3042,6 +3059,36 @@ class SignalScoutConfigListQuerySerializer(serializers.Serializer):
             "Case-insensitive substring filter over a scout's display name and its skill name. A "
             "scout matches on either, so a person who knows the label and a caller who knows the "
             "identifier both find it. Omit for the whole fleet."
+        ),
+    )
+
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=500,
+        help_text=(
+            "Maximum number of scouts to return (1–500). Omit to return every matching scout. To read "
+            "a large fleet in pages, keep `limit` fixed and raise `offset` by `limit` on each call. A "
+            "page with fewer than `limit` rows is the last page."
+        ),
+    )
+
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of scouts to skip before the first returned row. Use it with `limit` to page.",
+    )
+
+    compact = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "When true, each row carries only "
+            + ", ".join(f"`{field}`" for field in SIGNAL_SCOUT_CONFIG_COMPACT_FIELDS)
+            + ". Use it to read the whole roster in a small response. Set it to false, or omit it, to "
+            "also get each scout's `description`, owners, output destinations, and the other config "
+            "details."
         ),
     )
 

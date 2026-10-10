@@ -126702,6 +126702,21 @@ export namespace Schemas {
 
     export type SignalsScoutConfigListParams = {
     /**
+     * When true, each row carries only `id`, `skill_name`, `display_name`, `enabled`, `status`, `pause_reason`, `emit`, `run_interval_minutes`, `run_cron_schedule`, `last_run_at`, `tags`. Use it to read the whole roster in a small response. Set it to false, or omit it, to also get each scout's `description`, owners, output destinations, and the other config details.
+     */
+    compact?: boolean;
+    /**
+     * Maximum number of scouts to return (1–500). Omit to return every matching scout. To read a large fleet in pages, keep `limit` fixed and raise `offset` by `limit` on each call. A page with fewer than `limit` rows is the last page.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Number of scouts to skip before the first returned row. Use it with `limit` to page.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
      * Case-insensitive substring filter over a scout's display name and its skill name. A scout matches on either, so a person who knows the label and a caller who knows the identifier both find it. Omit for the whole fleet.
      * @minLength 1
      */

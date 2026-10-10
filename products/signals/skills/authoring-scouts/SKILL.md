@@ -42,7 +42,7 @@ Ground it in the target project first — a scout is only as good as its fit to 
 1. **Read the project.** `posthog:scout-project-profile-get` returns the deterministic snapshot the scout itself cold-starts from: products in use, top events with reach/burst metrics, integrations, existing inbox counts.
    If the scout watches a specific event, confirm it exists and check its shape with `posthog:read-data-schema`.
    A scout for an event the project doesn't capture is dead on arrival.
-2. **See what already runs.** `posthog:scout-config-list` lists every existing scout on the project with its schedule, `enabled`, and `emit` posture, plus each scout's `description` (pulled from the skill's frontmatter) so you can tell what a scout watches without loading its body.
+2. **See what already runs.** `posthog:scout-config-list` lists every existing scout on the project with its schedule, `enabled`, and `emit` posture, Its rows are compact by default. Pass `"compact": false` to also get each scout's `description` (pulled from the skill's frontmatter), so you can tell what a scout watches without loading its body. On a large fleet, narrow that call with `search` or `tags`.
    Don't duplicate a surface a canonical scout already covers — adapt that one instead.
 3. **Read the closest canonical scout.** It's your template and your reference shape.
    Pull it with `posthog:skill-get {"skill_name": "signals-scout-<x>"}` (per-team rows) or read it from the repo at `products/signals/skills/signals-scout-*/`.

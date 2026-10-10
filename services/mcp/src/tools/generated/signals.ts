@@ -908,7 +908,9 @@ const scoutConfigDelete = (): ToolBase<ReturnType<typeof ScoutConfigDeleteSchema
 
 const ScoutConfigListSchema = () => {
     const SignalsScoutConfigListQueryParams = orvalSchemas.SignalsScoutConfigListQueryParams()
-    return SignalsScoutConfigListQueryParams
+    return SignalsScoutConfigListQueryParams.extend({
+        compact: SignalsScoutConfigListQueryParams.shape['compact'].default(true).optional(),
+    })
 }
 
 const scoutConfigList = (): ToolBase<
@@ -923,6 +925,9 @@ const scoutConfigList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
+                compact: params.compact,
+                limit: params.limit,
+                offset: params.offset,
                 search: params.search,
                 tags: params.tags,
             },
@@ -1972,7 +1977,9 @@ const signalsScoutConfigDelete = (): ToolBase<ReturnType<typeof SignalsScoutConf
 
 const SignalsScoutConfigListSchema = () => {
     const SignalsScoutConfigListQueryParams = orvalSchemas.SignalsScoutConfigListQueryParams()
-    return SignalsScoutConfigListQueryParams
+    return SignalsScoutConfigListQueryParams.extend({
+        compact: SignalsScoutConfigListQueryParams.shape['compact'].default(true).optional(),
+    })
 }
 
 const signalsScoutConfigList = (): ToolBase<
@@ -1987,6 +1994,9 @@ const signalsScoutConfigList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/`,
             query: {
+                compact: params.compact,
+                limit: params.limit,
+                offset: params.offset,
                 search: params.search,
                 tags: params.tags,
             },

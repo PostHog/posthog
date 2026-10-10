@@ -70,6 +70,7 @@ from products.signals.backend.scout_harness.limits import (
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
+    SIGNAL_SCOUT_CONFIG_COMPACT_FIELDS,
     SignalScoutConfigUpdateSerializer,
     SignalScoutSlackDestinationSerializer,
 )
@@ -2619,6 +2620,37 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [c["skill_name"] for c in response.json()] == expected
+
+    def test_list_pages_cover_every_scout_once(self) -> None:
+        # Shared labels force the tiebreaker: without a stable order, offset pages repeat or skip rows.
+        for index in range(5):
+            SignalScoutConfig.objects.create(
+                team=self.team, skill_name=f"signals-scout-shared-{index}", display_name="Shared label"
+            )
+
+        pages = [
+            [c["skill_name"] for c in self.client.get(self._list_url(), data={"limit": 2, "offset": offset}).json()]
+            for offset in (0, 2, 4)
+        ]
+
+        assert [len(page) for page in pages] == [2, 2, 1]
+        assert sorted(name for page in pages for name in page) == [f"signals-scout-shared-{i}" for i in range(5)]
+
+    @parameterized.expand([("compact", "true", True), ("full", "false", False)])
+    def test_list_compact_rows_drop_the_long_fields(self, _name: str, compact: str, expect_compact: bool) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha", tags=["revenue"])
+
+        response = self.client.get(self._list_url(), data={"compact": compact})
+
+        assert response.status_code == status.HTTP_200_OK
+        [row] = response.json()
+        assert row["skill_name"] == "signals-scout-alpha"
+        assert row["tags"] == ["revenue"]
+        assert row["enabled"] is True
+        if expect_compact:
+            assert set(row) == set(SIGNAL_SCOUT_CONFIG_COMPACT_FIELDS)
+        else:
+            assert {"description", "owners", "output_destinations"} <= set(row)
 
     def test_list_excludes_withheld_config(self) -> None:
         # A held-back scout that still has a row (previously seeded, then withheld) is not surfaced
