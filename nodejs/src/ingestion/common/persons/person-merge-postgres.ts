@@ -82,6 +82,11 @@ export const personMergeEventProducedCounter = new Counter({
     help: 'Number of person_merge_events messages acked by the broker (gate-on merges only).',
 })
 
+export const mergeIdentifiedSourceNewTargetCounter = new Counter({
+    name: 'person_merge_identified_source_new_target_total',
+    help: 'Identifies refused because the source is identified while the target had no person, so the merge created one for the target.',
+})
+
 export const mergeNoopMappingEmissionCounter = new Counter({
     name: 'person_merge_noop_mapping_emission_total',
     help: 'Distinct ids considered for mapping re-emission on already-satisfied merges.',
@@ -604,6 +609,8 @@ export class PostgresPersonMerge {
                 tx
             )
             // Another writer now owns the target; the retry re-reads both ids and classifies against it.
+            // A uuid held by a person that owns neither id resolves to that holder without mapping the
+            // target, as in the neither-exists branch.
             if (idOwned) {
                 throw new PersonMergeRaceConditionError(
                     `person for ${this.targetDistinctId} was created concurrently during a merge`
@@ -611,6 +618,7 @@ export class PostgresPersonMerge {
             }
             return [created, messages] as const
         })
+        mergeIdentifiedSourceNewTargetCounter.inc()
         const kafkaAck = this.produceMessages(kafkaMessages)
         return {
             survivor: person,

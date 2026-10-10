@@ -10,6 +10,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { InternalPerson } from '~/types'
 
 import { BatchWritingPersonsStore } from './batch-writing-person-store'
+import { mergeIdentifiedSourceNewTargetCounter } from './person-merge-postgres'
 import { createDefaultSyncMergeMode } from './person-merge-types'
 import { EventOps } from './person-update'
 import { MergePersonsRequest } from './persons-store'
@@ -364,10 +365,13 @@ describe('BatchWritingPersonsStore merging through PostgresPersonMerge', () => {
         )
         fake.addPerson('E', [existingId], {})
         fake.rows.get('E')!.is_identified = identified
+        const countedBefore = (await mergeIdentifiedSourceNewTargetCounter.get()).values[0]?.value ?? 0
 
         const result = await store.mergePersons({ ...mergeRequest('t', 's'), allowIdentifiedSources: false }, 0)
 
         expect(result.results[0].outcome).toBe(outcome)
+        const countedAfter = (await mergeIdentifiedSourceNewTargetCounter.get()).values[0]?.value ?? 0
+        expect(countedAfter - countedBefore).toBe(outcome === 'skipped_already_identified' ? 1 : 0)
         if (outcome === 'skipped_already_identified') {
             expect(result.survivor!.uuid).not.toBe('E')
             expect(fake.distinctToUuid.get('1:t')).toBe(result.survivor!.uuid)
