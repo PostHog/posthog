@@ -2,6 +2,8 @@ import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -13,6 +15,7 @@ import { ReportTaskPurpose } from '../components/detail/artefactTypes'
 import { INBOX_EVENTS } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { EnrichedReviewer, SignalReport } from '../types'
+import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { ReportTaskEntry, implementationSlotClaim, inboxReportDetailLogic } from './inboxReportDetailLogic'
 
 const REPORT = { id: 'report-1', status: 'ready', title: 'Checkout errors spiked' } as unknown as SignalReport
@@ -44,7 +47,56 @@ describe('inboxReportDetailLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
-        afterEach(() => logic.unmount())
+        afterEach(() => {
+            if (logic.isMounted()) {
+                logic.unmount()
+            }
+        })
+
+        it('refreshes the inbox after a successful save when the detail has unmounted', async () => {
+            const bulkLogic = inboxBulkActionsLogic()
+            bulkLogic.mount()
+            const refresh = jest.spyOn(bulkLogic.actions, 'reportStateChanged')
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            let completeSave: () => void = () => {}
+            const pendingSave = new Promise<void>((resolve) => {
+                completeSave = resolve
+            })
+            const save = jest.fn(async () => {
+                await pendingSave
+                return [200, { ...REPORT, priority: 'P2' }]
+            })
+            useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': save } })
+            try {
+                logic.actions.updatePriority('P2')
+                await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+                logic.unmount()
+                completeSave()
+                await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1))
+                expect(errorToast).not.toHaveBeenCalled()
+            } finally {
+                refresh.mockRestore()
+                errorToast.mockRestore()
+                bulkLogic.unmount()
+            }
+        })
+
+        it('preserves review drafts on priority saves and refreshed props, but clears them for another report', async () => {
+            const draft = { path: 'src/example.ts', line: 12, side: 'RIGHT' as const }
+            logic.actions.openDraftThread(draft)
+            logic.actions.setEditingCommentId('comment-1')
+            useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': { ...REPORT, priority: 'P2' } } })
+            logic.actions.updatePriority('P2')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.draftThread).toEqual(draft)
+            expect(logic.values.editingCommentId).toBe('comment-1')
+            inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT, priority: 'P2' } })
+            expect(logic.values.draftThread).toEqual(draft)
+            expect(logic.values.editingCommentId).toBe('comment-1')
+            logic.actions.setReport({ ...REPORT, id: 'another-report' })
+            expect(logic.values.draftThread).toBeNull()
+            expect(logic.values.editingCommentId).toBeNull()
+        })
 
         it('saves the priority and ignores another edit while the request is in flight', async () => {
             let completeSave: () => void = () => {}

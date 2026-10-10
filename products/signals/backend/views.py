@@ -1338,6 +1338,7 @@ class SignalReportViewSet(
             "pr_checks",
             "pr_comments",
             "claim",
+            "priority",
         }
     )
 

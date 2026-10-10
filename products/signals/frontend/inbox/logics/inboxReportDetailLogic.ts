@@ -50,6 +50,7 @@ import type {
     ReportChartApi,
     ReportPriorityApi,
     SignalReportCheckApi,
+    SignalReportApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -939,7 +940,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         ],
     })),
 
-    reducers({
+    reducers(({ props }) => ({
         selectedPullRequestUrl: [null as string | null, { selectPullRequest: (_, { url }) => url }],
         // Checks whose cancel request is in flight, so each row's Stop button disables itself
         // without blocking a second row.
@@ -1102,7 +1103,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 openDraftThread: (_, { draft }) => draft,
                 closeDraftThread: () => null,
-                setReport: () => null,
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : null),
             },
         ],
         // Which thread's composer has a post in flight — gates its submit button and textarea.
@@ -1118,10 +1119,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as string | null,
             {
                 setEditingCommentId: (_, { commentId }) => commentId,
-                setReport: () => null,
+                setReport: (state, { report }) => (report?.id === props.reportId ? state : null),
             },
         ],
-    }),
+    })),
 
     selectors({
         // Mirrors the optimistic override lifecycle: an update is in flight exactly while the
@@ -1419,29 +1420,32 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 return
             }
             actions.setPrioritySaving(true)
-            let saved = false
+            let updated: SignalReportApi
             try {
-                const updated = await signalsReportsPriorityUpdate(String(teamId), props.reportId, { priority })
-                const report: SignalReport = {
-                    ...(values.report ?? currentReport),
-                    priority,
-                    updated_at: updated.updated_at,
-                }
-                actions.setReport(report)
-                const scene = inboxSceneLogic.findMounted()
-                if (scene?.values.selectedReportId === props.reportId) {
-                    scene.actions.seedSelectedReport(report)
-                }
-                saved = true
-                actions.loadReportArtefacts()
+                updated = await signalsReportsPriorityUpdate(String(teamId), props.reportId, { priority })
             } catch {
-                lemonToast.error("Couldn't save the priority. Try again.")
-            } finally {
-                actions.setPrioritySaving(false)
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setPrioritySaving(false)
+                    lemonToast.error("Couldn't save the priority. Try again.")
+                }
+                return
             }
-            if (saved) {
-                inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            if (!inboxReportDetailLogic.isMounted(props)) {
+                return
             }
+            const report: SignalReport = {
+                ...(values.report ?? currentReport),
+                priority,
+                updated_at: updated.updated_at,
+            }
+            actions.setReport(report)
+            const scene = inboxSceneLogic.findMounted()
+            if (scene?.values.selectedReportId === props.reportId) {
+                scene.actions.seedSelectedReport(report)
+            }
+            actions.loadReportArtefacts()
+            actions.setPrioritySaving(false)
         },
         approveReportCheck: async ({ checkId }) => {
             const teamId = teamLogic.values.currentTeamId

@@ -168,6 +168,7 @@ class PriorityAssessment(BaseModel):
     priority: Priority = Field(description="Priority (P0-P4)")
     adjustment: PriorityAdjustment | None = Field(
         default=None,
+        exclude_if=lambda adjustment: adjustment is None,
         description="Correction metadata recorded when a person changes the priority in the inbox.",
     )
     dollar_value: float | None = Field(

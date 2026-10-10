@@ -4057,6 +4057,14 @@ class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
 
 
 class TestSignalReportContentUpdateAPI(APIBaseTest):
+    def test_priority_edit_keeps_dismissed_report_suppressed(self) -> None:
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.put(self._url(str(report.id)) + "priority/", {"priority": "P2"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["priority"] == "P2"
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
     @parameterized.expand([(priority,) for priority in ReportPriority])
     def test_priority_edit_preserves_prediction_and_records_correction(self, priority: ReportPriority) -> None:
         report = self._create_report()
