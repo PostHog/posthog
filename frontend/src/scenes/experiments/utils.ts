@@ -9,6 +9,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    Breakdown,
     CachedNewExperimentQueryResponse,
     EventsNode,
     ExperimentEventExposureConfig,
@@ -31,6 +32,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isNodeWithSource, isTrendsQuery, isValidQueryForExperiment } from '~/queries/utils'
 import {
+    BreakdownAttributionType,
     ChartDisplayType,
     Experiment,
     ExperimentMetricGoal,
@@ -51,6 +53,7 @@ import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/const
 import type {
     ExperimentFeatureFlagFiltersApi,
     ExperimentFeatureFlagInputApi,
+    ExperimentToSavedMetricApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import {
@@ -970,42 +973,6 @@ export function getEventCountQuery(metric: ExperimentMetric, filterTestAccounts:
 }
 
 /**
- * Initialize ordering arrays for metrics if they're null
- * Returns a new experiment object with initialized ordering arrays
- */
-export function initializeMetricOrdering(experiment: Experiment): Experiment {
-    const newExperiment = { ...experiment }
-
-    // Initialize primary_metrics_ordered_uuids if it's null
-    if (newExperiment.primary_metrics_ordered_uuids === null) {
-        const primaryMetrics = newExperiment.metrics || []
-        const sharedPrimaryMetrics = (newExperiment.saved_metrics || []).filter(
-            (sharedMetric: any) => sharedMetric.metadata.type === 'primary'
-        )
-
-        const allMetrics = [...primaryMetrics, ...sharedPrimaryMetrics]
-        newExperiment.primary_metrics_ordered_uuids = allMetrics
-            .map((metric: any) => metric.uuid || metric.query?.uuid)
-            .filter(Boolean)
-    }
-
-    // Initialize secondary_metrics_ordered_uuids if it's null
-    if (newExperiment.secondary_metrics_ordered_uuids === null) {
-        const secondaryMetrics = newExperiment.metrics_secondary || []
-        const sharedSecondaryMetrics = (newExperiment.saved_metrics || []).filter(
-            (sharedMetric: any) => sharedMetric.metadata.type === 'secondary'
-        )
-
-        const allMetrics = [...secondaryMetrics, ...sharedSecondaryMetrics]
-        newExperiment.secondary_metrics_ordered_uuids = allMetrics
-            .map((metric: any) => metric.uuid || metric.query?.uuid)
-            .filter(Boolean)
-    }
-
-    return newExperiment
-}
-
-/**
  * Returns metric indices in display order. Metrics whose UUID appears in
  * orderedUuids come first (in that order), followed by any remaining metrics
  * in their original array position. Each entry is the original index into the
@@ -1052,26 +1019,46 @@ export function getDisplayOrderedIndices(
 }
 
 /**
- * Reshape a saved/shared metric into the inline ExperimentMetric shape, merging the
- * per-experiment link metadata (breakdown attribution, breakdowns) into the query.
+ * A shared metric's link to an experiment, as the experiment API returns it. The generated type leaves
+ * `query` and `metadata` untyped, so this narrows them to the shapes the experiment scene reads and edits.
  */
-function enrichSharedMetric(sharedMetric: Experiment['saved_metrics'][number]): ExperimentMetric {
+export type ExperimentSavedMetric = Omit<ExperimentToSavedMetricApi, 'metadata' | 'query' | 'effective_query'> & {
+    metadata: {
+        type: 'primary' | 'secondary'
+        breakdowns?: Breakdown[]
+        breakdownAttributionType?: BreakdownAttributionType
+        breakdownAttributionValue?: number
+        breakdown_limit?: number
+    }
+    query: ExperimentMetric
+    // Optional because a new frontend can briefly receive a response from an API server that predates the field.
+    effective_query?: ExperimentMetric | null
+}
+
+/**
+ * The backend applies the link overrides to the saved query and serves the result as `effective_query`.
+ * A legacy shared metric takes no overrides and has no effective query, so its saved query applies as is.
+ * A link that carries no query gets an empty metric. Results map to metrics by position, and the callers
+ * read fields of every metric, so the link must keep its position.
+ */
+export const sharedMetricEffectiveQuery = ({
+    query,
+    effective_query,
+}: Pick<ExperimentSavedMetric, 'query' | 'effective_query'>): ExperimentMetric =>
+    effective_query ?? query ?? ({} as ExperimentMetric)
+
+export const sharedMetricsToExperimentMetrics = (
+    sharedMetrics: ExperimentSavedMetric[] | undefined,
+    type: 'primary' | 'secondary'
+): ExperimentMetric[] =>
+    (sharedMetrics || []).filter(({ metadata }) => metadata.type === type).map(sharedMetricEffectiveQuery)
+
+function enrichSharedMetric(sharedMetric: ExperimentSavedMetric): ExperimentMetric {
     return {
-        ...sharedMetric.query,
+        ...sharedMetricEffectiveQuery(sharedMetric),
         name: sharedMetric.name,
         sharedMetricId: sharedMetric.saved_metric,
         isSharedMetric: true,
-        ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
-            breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
-            breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
-        }),
-        breakdownFilter: {
-            ...sharedMetric.query?.breakdownFilter,
-            breakdowns: sharedMetric.metadata?.breakdowns || [],
-            ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
-                breakdown_limit: sharedMetric.metadata.breakdown_limit,
-            }),
-        },
     } as ExperimentMetric
 }
 
@@ -1100,6 +1087,15 @@ export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> 
     feature_flag?: ExperimentFeatureFlagInputApi | Experiment['feature_flag']
     update_feature_flag_params?: boolean
     original_experiment?: Record<string, any>
+}
+
+export type ExperimentUpdateRequest = ExperimentUpdatePayload & {
+    /**
+     * After a 409 conflict, show the server's copy of the sent fields instead of keeping the rejected values for
+     * review. A control that applies its value at once sets this. A kept value would look saved there, and the
+     * next save would send it over the change that caused the conflict.
+     */
+    discardOnConflict?: boolean
 }
 
 /** The scalar fields experiment surfaces PATCH, sent as base values so the server can three-way

@@ -41,7 +41,7 @@ Before changing code, get the baseline:
 
 ```bash
 hogli product:maturity <name>       # scores models, facade, presentation, boundaries, codegen
-hogli product:lint <name>           # structural lint + isolation chain (strict if facade/contracts.py exists)
+hogli product:lint <name>           # structural lint + isolation chain, prints the rung: Lenient → Strict → Sealed → Isolated
 hogli product:isolate:scan <name>   # the recon: import map, coupling gate, preflight (see below)
 ```
 
@@ -270,6 +270,7 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
 
 - Keep facades thin; put business rules behind the facade, in `logic/` by default. Other internal packages (`services/`, `reviewer/`, …) are fine as long as they stay behind the facade.
 - Transaction boundaries belong in the facade (or logic), not in views.
+- A view that serves a contract checks object RBAC through an `ObjectAccessRef`: return one from `safely_get_object()`, or pass one to `self.check_object_permissions(request, ref)`. Never check by hand or in the facade. See `products/architecture.md` § Who owns RBAC?
 - Never return ORM models across product boundaries.
 - `hogli product:lint` reads the facade signatures, in the kinds `facade-returns`,
   `facade-accepts(<parameter>)` and `facade-logic`. The matching lines of
@@ -280,7 +281,7 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
   `related_name="+"` — the reverse-accessor ratchet blocks new unsealed ones.
 - Do not register a signal receiver on another boundary's sender; use the moves
   in "Signal coupling" above.
-- Keep contracts pure (no Django/DRF imports).
+- Keep contract files pure (no Django/DRF imports in `facade/contracts.py` or `facade/enums.py`). A choices enum there is a `LabeledStrEnum` / `LabeledIntEnum` from `posthog/enums.py`.
 - Filter by `team_id` in querysets.
 - Do not add product-specific fields to `Team`; use a Team Extension model.
 - Add request/response schema annotations on viewset endpoints (`@validated_request` or `@extend_schema`).

@@ -132,6 +132,9 @@ STRIPE_CHUNK_SIZE = 1000
 # nothing, so thousands of parents can pass between chunks — and every pod death throws that walk
 # away. Counting parents bounds the work a restart repeats no matter how sparse the data is.
 NESTED_SWEEP_CHECKPOINT_PARENTS = 5000
+# The same checkpoint also fires after this much time, because 5000 parents at one API call each can
+# take long enough that a worker shutdown waits on the sweep instead of handing it off.
+NESTED_SWEEP_CHECKPOINT_SECONDS = 60.0
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
@@ -975,6 +978,7 @@ def get_rows(
             skipped_parents = 0
             parents_consumed = 0
             parents_since_checkpoint = 0
+            last_checkpoint_at = time.monotonic()
             # Seeded from where this run started, so an interruption before any parent finishes
             # checkpoints there rather than back at the first parent.
             last_finished_parent: Optional[str] = resume_config.starting_after if resume_config else None
@@ -1008,14 +1012,21 @@ def get_rows(
                 # position is staged right before the last table of the flush and the pipeline commits
                 # it once that table is written. With nothing buffered there is nothing to wait for,
                 # and a sparse sweep that never writes a row would otherwise never record progress.
-                if parents_since_checkpoint >= NESTED_SWEEP_CHECKPOINT_PARENTS and last_finished_parent is not None:
+                checkpoint_due = (
+                    parents_since_checkpoint >= NESTED_SWEEP_CHECKPOINT_PARENTS
+                    or time.monotonic() - last_checkpoint_at >= NESTED_SWEEP_CHECKPOINT_SECONDS
+                )
+                if checkpoint_due and last_finished_parent is not None:
                     position = _resume_state(last_finished_position, last_finished_parent)
                     if batcher.should_yield(include_incomplete_chunk=True):
                         yield from _flush_staging_state(batcher, resumable_source_manager, _fixed_state(position))
                     else:
-                        with resumable_source_manager.committing():
-                            resumable_source_manager.save_state(position)
+                        resumable_source_manager.save_state(position)
+                        # Nothing is buffered in the source, so this is where a sparse sweep can hand
+                        # off. The pipeline still guards the commit until no queue row is held.
+                        resumable_source_manager.safe_point()
                     parents_since_checkpoint = 0
+                    last_checkpoint_at = time.monotonic()
                     report_parent_rows_consumed()
 
                 parent_obj_id = obj[resource.parent_id]
@@ -1146,6 +1157,16 @@ def get_rows(
         )
 
 
+# How far an invoice is through its lifecycle. An uncollectible invoice can still be paid or voided.
+_INVOICE_STATUS_STAGE = {"draft": 1, "open": 2, "uncollectible": 3, "paid": 4, "void": 4}
+
+
+def _webhook_tie_break(obj: dict) -> int:
+    if obj.get("object") != "invoice":
+        return 0
+    return _INVOICE_STATUS_STAGE.get(obj.get("status") or "", 0)
+
+
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     data_col = table.column("data").to_pylist()
     created_col = table.column("created").to_pylist()
@@ -1153,7 +1174,7 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
     # Deduplicate by object id, keeping the event with the latest created timestamp.
     # Multiple webhook events (e.g. customer.created then customer.updated) can reference
     # the same object, and delta merge doesn't deduplicate within the source batch.
-    best_by_id: dict[str, tuple[int, dict]] = {}
+    best_by_id: dict[str, tuple[tuple[int, int], dict]] = {}
     for data_str, event_created in zip(data_col, created_col):
         if data_str is None:
             continue
@@ -1163,13 +1184,16 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
             continue
 
         ts = event_created if isinstance(event_created, int) else 0
+        # `created` is a whole second and one Stripe operation emits several events for an object
+        # inside it. Stripe does not deliver those events in order, so on a tie the row order can
+        # put a pre-payment snapshot after the payment event. The further invoice status wins the
+        # tie, because an invoice does not move back to an earlier status.
+        rank = (ts, _webhook_tie_break(obj))
         existing = best_by_id.get(obj_id)
-        # Later rows win ties. `created` is a whole second and one Stripe operation emits several
-        # events for an object inside it, so the only finer order the batch holds is the row order,
-        # a best-effort proxy for arrival order. Keeping the first row let a pre-payment snapshot
-        # outrank the payment event that followed it in the same second.
-        if existing is None or ts >= existing[0]:
-            best_by_id[obj_id] = (ts, obj)
+        # Later rows win full ties. Row order is a best-effort proxy for arrival order, and it is
+        # the only finer order the batch holds for objects without a ranked status.
+        if existing is None or rank >= existing[0]:
+            best_by_id[obj_id] = (rank, obj)
 
     rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
     return table_from_py_list(rows)
@@ -1652,7 +1676,10 @@ def create_webhook(
                 )
             return WebhookCreationResult(
                 success=False,
-                error="Your Stripe API key doesn't have permission to create webhooks. Please add the 'Write' permission for 'Webhook endpoints' to your API key, or create the webhook manually.",
+                error=(
+                    "Your Stripe API key can't create webhooks. Give it Write access on Webhook endpoints in "
+                    "Stripe, then select Try again, or set up the webhook manually below."
+                ),
             )
 
         return WebhookCreationResult(success=False, error=f"Failed to create webhook automatically: {error_str}")

@@ -91,6 +91,8 @@ class NodeSerializer(serializers.ModelSerializer):
     sync_interval = serializers.SerializerMethodField(read_only=True)
     dag_name = serializers.SerializerMethodField(read_only=True)
     lineage_issue = serializers.SerializerMethodField(read_only=True)
+    origin = serializers.SerializerMethodField(read_only=True)
+    warehouse_table_id = serializers.SerializerMethodField(read_only=True)
     dag = TeamScopedPrimaryKeyRelatedField(queryset=DAG.objects.all())
 
     class Meta:
@@ -105,6 +107,8 @@ class NodeSerializer(serializers.ModelSerializer):
             "saved_query_id",
             "metric_id",
             "lineage_issue",
+            "origin",
+            "warehouse_table_id",
             "created_at",
             "updated_at",
             "upstream_count",
@@ -130,6 +134,8 @@ class NodeSerializer(serializers.ModelSerializer):
             "saved_query_id",
             "metric_id",
             "lineage_issue",
+            "origin",
+            "warehouse_table_id",
         ]
 
     @extend_schema_field(
@@ -204,6 +210,32 @@ class NodeSerializer(serializers.ModelSerializer):
     def get_lineage_issue(self, node: Node) -> dict[str, Any] | None:
         return node.lineage_issue
 
+    @extend_schema_field(
+        serializers.ChoiceField(
+            choices=["posthog", "warehouse"],
+            allow_null=True,
+            help_text="Where a table originates, or null for legacy and unrecognized nodes.",
+        )
+    )
+    def get_origin(self, node: Node) -> str | None:
+        origin = node.properties.get("origin") if isinstance(node.properties, dict) else None
+        return origin if origin in {"posthog", "warehouse"} else None
+
+    @extend_schema_field(
+        serializers.UUIDField(
+            allow_null=True,
+            help_text="Warehouse table identifier for an imported table, or null when unavailable.",
+        )
+    )
+    def get_warehouse_table_id(self, node: Node) -> str | None:
+        table_id = node.properties.get("warehouse_table_id") if isinstance(node.properties, dict) else None
+        if not isinstance(table_id, str):
+            return None
+        try:
+            return str(UUID(table_id))
+        except ValueError:
+            return None
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
         # maintains them directly via the ORM and bypasses this serializer. Block users from
@@ -253,7 +285,7 @@ def _get_upstream_nodes(
             team_id=node.team_id,
             dag=node.dag,
             target_id__in=current,
-        )
+        ).exclude(models.Q(source__saved_query__deleted=True) | models.Q(target__saved_query__deleted=True))
         if not include_tables:
             qs = qs.exclude(source__type=NodeType.TABLE)
         if hidden_types:
@@ -268,10 +300,14 @@ def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()
     nodes: set[str] = set()
     current = [node.id]
     while current:
-        qs = Edge.objects.exclude(target__type=NodeType.TABLE).filter(
-            team_id=node.team_id,
-            dag=node.dag,
-            source_id__in=current,
+        qs = (
+            Edge.objects.exclude(target__type=NodeType.TABLE)
+            .filter(
+                team_id=node.team_id,
+                dag=node.dag,
+                source_id__in=current,
+            )
+            .exclude(models.Q(source__saved_query__deleted=True) | models.Q(target__saved_query__deleted=True))
         )
         if hidden_types:
             qs = qs.exclude(target__type__in=hidden_types)

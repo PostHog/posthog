@@ -1,7 +1,8 @@
 name: Auto Assign Labels
 
 # Adds team/feature labels to a PR based on its conventional-commit scope, e.g.
-# `feat(flags): …` -> `feature/feature-flags` + `team/feature-flags`. The
+# `feat(flags): …` -> `feature/feature-flags` + `team/feature-flags`. Small
+# feature flags PRs from the PostHog AI app also get `review/low-hanging-fruit`. The
 # scope -> label mappings live in .github/auto-assign-labels.json so the owning
 # team can change them without editing this workflow or the script.
 #

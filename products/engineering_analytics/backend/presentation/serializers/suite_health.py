@@ -165,6 +165,7 @@ class BrokenTestRowSerializer(DataclassSerializer):
     class Meta:
         dataclass = BrokenTestRow
         extra_kwargs = {
+            "latest_ci_engine": {"help_text": "CI execution engine; null when unknown."},
             "fingerprint": {
                 "help_text": "Stable identity of this distinct failure: the failing test's node id plus a "
                 "normalized error signature, so the same failure across runs groups into one row.",

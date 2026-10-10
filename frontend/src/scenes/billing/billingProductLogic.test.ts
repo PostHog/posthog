@@ -16,14 +16,30 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { BillingPlan, BillingProductV2AddonType, BillingProductV2Type, BillingType, SurveyEventName } from '~/types'
 
+import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
+
 const productByType = (type: string): BillingProductV2Type =>
     billingJson.products.find((p) => p.type === type) as BillingProductV2Type
 
 describe('billingProductLogic', () => {
     const mounted: ReturnType<typeof billingProductLogic.build>[] = []
 
-    const seedBilling = async (customLimits: BillingType['custom_limits_usd']): Promise<void> => {
-        useMocks({ get: { '/api/billing': () => [200, { ...billingJson, custom_limits_usd: customLimits }] } })
+    const seedBilling = async (
+        customLimits: BillingType['custom_limits_usd'],
+        nextPeriodLimits?: BillingType['next_period_custom_limits_usd']
+    ): Promise<void> => {
+        useMocks({
+            get: {
+                '/api/billing': () => [
+                    200,
+                    {
+                        ...billingJson,
+                        custom_limits_usd: customLimits,
+                        next_period_custom_limits_usd: nextPeriodLimits,
+                    },
+                ],
+            },
+        })
         billingLogic.mount()
         await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
     }
@@ -91,6 +107,60 @@ describe('billingProductLogic', () => {
             expect(logic.values.customLimitUsd).toBe(expectedLimit)
             expect(logic.values.hasCustomLimitSet).toBe(expectedHasSet)
         })
+
+        // Billing refuses limits for a product flagged `no_billing_limit`. A stale limit in the
+        // response must still not reach the limit control or draw a limit marker on either gauge.
+        it.each([
+            ['keeps every limit of a product that allows one', false, 500, 400, true],
+            ['drops every limit of a product without billing limits', true, null, null, false],
+        ] as const)('%s', async (_name, noBillingLimit, expectedLimit, expectedNextPeriodLimit, expectLimitShown) => {
+            await seedBilling({ product_analytics: 500 }, { product_analytics: 400 })
+            const product: BillingProductV2Type = {
+                ...productByType('product_analytics'),
+                no_billing_limit: noBillingLimit,
+            }
+            const logic = billingProductLogic({ product })
+            logic.mount()
+            mounted.push(logic)
+
+            const hasLimitMarker = (items: BillingGaugeItemType[]): boolean =>
+                items.some((item) => item.type === BillingGaugeItemKind.BillingLimit)
+            expect(logic.values).toMatchObject({
+                customLimitUsd: expectedLimit,
+                hasCustomLimitSet: expectLimitShown,
+                billingLimitNextPeriod: expectedNextPeriodLimit,
+            })
+            expect(logic.values.billingLimitAsUsage > 0).toBe(expectLimitShown)
+            expect(hasLimitMarker(logic.values.billingGaugeItems)).toBe(expectLimitShown)
+            expect(hasLimitMarker(logic.values.combinedMonetaryGaugeItems)).toBe(expectLimitShown)
+        })
+    })
+
+    describe('product variants', () => {
+        // No Logs fixture exists, so reuse replay's shape: a variant product with a usage-based add-on.
+        const replay = productByType('session_replay')
+        const addonFixture = replay.addons[0]
+        const noCurrentPlan = addonFixture.plans.map((plan) => ({ ...plan, current_plan: false }))
+
+        it.each([
+            ['lists a subscribed add-on', { subscribed: true, plans: noCurrentPlan }, true],
+            ['lists an add-on on a current plan', { subscribed: false, plans: addonFixture.plans }, true],
+            ['skips an add-on the customer does not hold', { subscribed: false, plans: noCurrentPlan }, false],
+        ])('%s', (_name, addonState, listed) => {
+            const logs: BillingProductV2Type = {
+                ...replay,
+                type: 'logs',
+                addons: [{ ...addonFixture, type: 'logs_retention_custom', ...addonState }],
+            }
+            const logic = billingProductLogic({ product: logs })
+            logic.mount()
+            mounted.push(logic)
+
+            expect(logic.values.productVariants?.map(({ key, displayName }) => ({ key, displayName }))).toEqual([
+                { key: 'logs', displayName: 'Logs ingestion (14-day retention)' },
+                ...(listed ? [{ key: 'logs_retention_custom', displayName: 'Custom retention' }] : []),
+            ])
+        })
     })
 
     describe('unsubscribe survey state', () => {
@@ -144,9 +214,10 @@ describe('billingProductLogic', () => {
                     'reportSurveySent',
                     'setSurveyID',
                 ])
-                // Enough to fire the loader's breakpoint(2000) but not the post-report
-                // breakpoint(400), so the jsdom-unsupported scrollIntoView is never reached.
-                await jest.advanceTimersByTimeAsync(2100)
+                // Run past the post-report breakpoint(400) so the scroll runs. The scene element
+                // is absent in jsdom, so this also guards that indexing it stays safe: without the
+                // optional-chain guard, scrollIntoView on the missing element throws a TypeError.
+                await jest.advanceTimersByTimeAsync(2500)
                 await expectation
 
                 expect(deactivateBody).toEqual({ products: 'product_analytics' })

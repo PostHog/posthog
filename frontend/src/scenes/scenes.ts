@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { tryDecodeURIComponent } from 'lib/utils/url'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { getEventLookupQuery } from 'scenes/activity/explore/defaults'
 import { Params, Scene, SceneConfig, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -14,7 +14,7 @@ import { ErrorProjectAccessDenied as ErrorProjectAccessDeniedComponent } from '~
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { productConfiguration, productRedirects, productRoutes } from '~/products'
 import { EventsQuery } from '~/queries/schema/schema-general'
-import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayTabs } from '~/types'
+import { ActivityScope, ActivityTab, InsightShortId, ReplayTabs } from '~/types'
 
 import { BillingSectionId } from './billing/types'
 
@@ -140,7 +140,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         activityScope: ActivityScope.HOG_FUNCTION,
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
-    [Scene.ExperimentsStaffTools]: { instanceLevel: true, name: 'Experiments staff tools' },
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
@@ -254,17 +253,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
     [Scene.Coupons]: { name: 'Coupons', organizationBased: true, layout: 'app-container' },
-    [Scene.Link]: { projectBased: true },
-    [Scene.Links]: { projectBased: true, name: 'Links' },
     [Scene.LiveEvents]: {
         projectBased: true,
         name: 'Live events',
         description: 'Real-time events from your app or website.',
         iconType: 'live',
     },
-    [Scene.LiveDebugger]: { projectBased: true, name: 'Live debugger' },
     [Scene.Login2FA]: { onlyUnauthenticated: true, name: 'Login 2FA', layout: 'plain' },
-    [Scene.Login]: { onlyUnauthenticated: true, layout: 'plain' },
+    [Scene.Login]: { onlyUnauthenticated: true, name: 'Log in', layout: 'plain' },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw-no-header', hideProjectNotice: true },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
     [Scene.NewTab]: {
@@ -332,6 +328,22 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: true,
         name: 'Homepage',
         layout: 'app-raw-no-header',
+    },
+    [Scene.Library]: {
+        projectBased: true,
+        name: 'Library',
+    },
+    [Scene.Views]: {
+        projectBased: true,
+        name: 'Views',
+    },
+    [Scene.ViewsNew]: {
+        projectBased: true,
+        name: 'New view',
+    },
+    [Scene.Tools]: {
+        projectBased: true,
+        name: 'Tools',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
@@ -467,7 +479,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.IdentityProviderConfig]: { projectBased: true, name: 'Configure identity provider' },
-    [Scene.Signup]: { onlyUnauthenticated: true, layout: 'plain' },
+    [Scene.Signup]: { onlyUnauthenticated: true, name: 'Sign up', layout: 'plain' },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'plain' },
     [Scene.SurveyWizard]: {
@@ -611,6 +623,8 @@ export const redirects: Record<
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
+    '/activity/explore': (_params, searchParams, hashParams) =>
+        combineUrl(urls.activity(ActivityTab.ExploreEvents), searchParams, hashParams).url,
     '/annotations': () => urls.annotations(),
     '/annotations/:id': ({ id }) => urls.annotation(id),
     '/batch_exports/:id': ({ id }) => urls.batchExport(id),
@@ -637,19 +651,18 @@ export const redirects: Record<
     '/web/ai-search': urls.webAnalyticsPagePerformance(),
 
     '/events': urls.activity(),
-    '/events/:id/*': ({ id, _ }) => {
-        const query = getDefaultEventsSceneQuery([
-            {
-                type: PropertyFilterType.HogQL,
-                key: `uuid = '${id.replaceAll(/[^a-f0-9-]/g, '')}'`,
-                value: null,
-            },
-        ])
+    '/events/:id/*': ({ id, _ }, { event }) => {
+        const query = getEventLookupQuery(id)
+        const source = query.source as EventsQuery
+        if (typeof event === 'string' && event) {
+            // The events query reads some events, such as flag calls, from their own table.
+            // It picks that table only when the query filters to the event name, so a uuid filter alone misses the row.
+            source.event = event
+        }
         try {
             const timestamp = decodeURIComponent(_)
-            const after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
-            const before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
-            Object.assign(query.source as EventsQuery, { before, after })
+            source.after = dayjs(timestamp).subtract(15, 'second').startOf('second').toISOString()
+            source.before = dayjs(timestamp).add(15, 'second').startOf('second').toISOString()
         } catch {
             lemonToast.error('Invalid event timestamp')
         }
@@ -669,7 +682,6 @@ export const redirects: Record<
     '/instance/query_performance': urls.experimentsStaffTools(),
     '/me/settings': urls.settings('user'),
     '/new': urls.newTab(),
-    '/live-debugger': urls.liveDebugger(),
     // Only billing, confirm-creation and create-project have an `/organization*` scene. Every other
     // path here is guessed or bookmarked, matched no route, and rendered the 404 screen.
     '/organization': urls.settings('organization'),
@@ -718,6 +730,8 @@ export const redirects: Record<
     '/replay': urls.replay(),
     '/replay/recent': (_params, searchParams) =>
         urls.replay(undefined, searchParams.filters, searchParams.sessionRecordingId),
+    '/replay/templates': (_params, searchParams, hashParams) =>
+        combineUrl(urls.replay(), { ...searchParams, showFilters: true, filtersTab: 'templates' }, hashParams).url,
     '/saved_insights': urls.savedInsights(),
     '/settings': urls.settings(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
@@ -802,7 +816,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.cohorts()]: [Scene.Cohorts, 'cohorts'],
     [urls.experiments()]: [Scene.Experiments, 'experiments'],
     // Must come before the parameterized /experiments/:id route
-    [urls.experimentsStaffTools()]: [Scene.ExperimentsStaffTools, 'experimentsStaffTools'],
+    [urls.experimentsStaffTools()]: ['ExperimentsStaffTools' as Scene, 'experimentsStaffTools'],
     [urls.experimentsSharedMetrics()]: [Scene.ExperimentsSharedMetrics, 'experimentsSharedMetrics'],
     [urls.experimentsSharedMetric(':id')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
     [urls.experimentsSharedMetric(':id', ':action')]: [Scene.ExperimentsSharedMetric, 'experimentsSharedMetric'],
@@ -824,6 +838,12 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.variables()]: [Scene.DataManagement, 'variables'],
     [urls.variableEdit(':id')]: [Scene.SqlVariableEdit, 'sqlVariableEdit'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
+    [urls.todayReport(':reportId')]: [Scene.ProjectHomepage, 'todayReport'],
+    [urls.library()]: [Scene.Library, 'library'],
+    [urls.library(':objectType')]: [Scene.Library, 'libraryObjectType'],
+    [urls.views()]: [Scene.Views, 'views'],
+    [urls.viewsNew()]: [Scene.ViewsNew, 'viewsNew'],
+    [urls.tools()]: [Scene.Tools, 'tools'],
     [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
     [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
@@ -896,9 +916,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.settings(':section' as any)]: [Scene.Settings, 'settings'],
     [urls.moveToPostHogCloud()]: [Scene.MoveToPostHogCloud, 'moveToPostHogCloud'],
     [urls.advancedActivityLogs()]: [Scene.AdvancedActivityLogs, 'advancedActivityLogs'],
-    [urls.liveDebugger()]: [Scene.LiveDebugger, 'liveDebugger'],
-    [urls.links()]: [Scene.Links, 'links'],
-    [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],

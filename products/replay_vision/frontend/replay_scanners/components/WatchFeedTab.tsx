@@ -11,7 +11,8 @@ import { FilterPill } from '../../components/FilterPill'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { SCANNER_TYPE_OPTIONS, ScannerType } from '../types'
 import { watchFeedLogic } from '../watchFeedLogic'
-import { FILLER_REASON_KINDS, WatchFeedCard } from './WatchFeedCard'
+import { FILLER_REASON_KINDS, WatchFeedRow } from './WatchFeedCard'
+import { WatchFeedEmptyState } from './WatchFeedEmptyState'
 
 const TYPE_OPTIONS: { value: ScannerType; label: string }[] = SCANNER_TYPE_OPTIONS.map(({ value, label }) => ({
     value,
@@ -30,6 +31,16 @@ const FEED_DATE_OPTION_KEYS = new Set([
 ])
 const FEED_DATE_OPTIONS = dateMapping.filter((option) => FEED_DATE_OPTION_KEYS.has(option.key))
 
+function FeedSkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3" aria-busy>
+            {[0, 1, 2].map((i) => (
+                <LemonSkeleton key={i} className="h-32 rounded" />
+            ))}
+        </div>
+    )
+}
+
 export function WatchFeedTab(): JSX.Element {
     const {
         feedItems,
@@ -43,6 +54,7 @@ export function WatchFeedTab(): JSX.Element {
         tagOptions,
         search,
         hasFeedFilters,
+        emptyReason,
     } = useValues(watchFeedLogic)
     const {
         setDateRange,
@@ -68,25 +80,25 @@ export function WatchFeedTab(): JSX.Element {
     const onlyFiller = items.length > 0 && items.every((item) => FILLER_REASON_KINDS.has(item.reason.kind))
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container flex flex-col gap-4">
             <div className="flex flex-wrap items-end justify-between gap-2">
                 <div className="flex flex-col gap-1">
                     <h2 className="text-xl font-semibold m-0">
-                        {items.length > 0 ? pluralize(items.length, 'clip') : 'What to watch'}
+                        {items.length === 0 ? 'What to watch' : `Top ${pluralize(items.length, 'session')}`}
                     </h2>
                     <p className="text-muted text-sm m-0">
                         {narrowedToScanners > 0
                             ? `Following ${pluralize(narrowedToScanners, 'scanner')} of ${allScanners.length}. `
                             : ''}
                         {items.length > 0
-                            ? `Picked from ${pluralize(scannerCount, 'scanner')} in this window. Each clip is the moment an observation cites.`
+                            ? `Picked from ${pluralize(scannerCount, 'scanner')} in this window. Each session opens at the moment its scan cites.`
                             : 'The observations most worth a look, picked across your scanners.'}
                     </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <LemonInput
                         type="search"
-                        placeholder="Search clips..."
+                        placeholder="Search sessions..."
                         value={search}
                         onChange={setSearch}
                         prefix={<IconSearch />}
@@ -95,6 +107,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<string>
                         label="Scanners"
+                        dataAttr="vision-watch-feed-scanners-filter"
                         searchable
                         searchPlaceholder="Search scanners..."
                         options={scannerOptions}
@@ -103,6 +116,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<string>
                         label="Tags"
+                        dataAttr="vision-watch-feed-tags-filter"
                         searchable
                         options={tagOptions}
                         value={tagsFilter}
@@ -110,6 +124,7 @@ export function WatchFeedTab(): JSX.Element {
                     />
                     <FilterPill<ScannerType>
                         label="Type"
+                        dataAttr="vision-watch-feed-type-filter"
                         options={TYPE_OPTIONS}
                         value={scannerTypeFilter ? [scannerTypeFilter] : []}
                         onChange={(values) => setScannerTypeFilter(values[values.length - 1] ?? null)}
@@ -130,11 +145,7 @@ export function WatchFeedTab(): JSX.Element {
             </div>
 
             {feedItemsLoading && feedItems === null ? (
-                <div className="flex flex-col gap-3">
-                    {[0, 1, 2].map((i) => (
-                        <LemonSkeleton key={i} className="h-32 rounded" />
-                    ))}
-                </div>
+                <FeedSkeleton />
             ) : (
                 <div className="flex flex-col gap-3">
                     {/* kea-loaders keeps the last value on failure, so a later filter or date change can fail
@@ -155,31 +166,22 @@ export function WatchFeedTab(): JSX.Element {
                         rather than leaving the reader to infer it from three identical reason lines. */}
                     {onlyFiller && (
                         <p className="text-sm text-secondary m-0">
-                            Nothing stood out in this window. These are the newest clips. Try a longer date range to see
-                            more.
+                            Nothing stood out in this window. These are the newest sessions. Try a longer date range to
+                            see more.
                         </p>
                     )}
                     {items.length > 0 ? (
                         items.map((item, index) => (
-                            <WatchFeedCard key={item.observation.id} item={item} position={index} />
+                            <WatchFeedRow key={item.observation.id} item={item} position={index} />
                         ))
-                    ) : !feedFailed ? (
-                        <div className="flex flex-col items-center gap-2 text-sm text-secondary border border-dashed rounded p-6 text-center">
-                            {hasFeedFilters ? (
-                                <>
-                                    <span>No clips match these filters in this window.</span>
-                                    <LemonButton type="secondary" size="small" onClick={() => clearFeedFilters()}>
-                                        Clear filters
-                                    </LemonButton>
-                                </>
-                            ) : (
-                                <span>
-                                    Nothing worth watching in this window yet. Observations appear here as your scanners
-                                    run.
-                                </span>
-                            )}
-                        </div>
-                    ) : null}
+                    ) : feedFailed ? null : emptyReason ? (
+                        <WatchFeedEmptyState reason={emptyReason} />
+                    ) : (
+                        // Still resolving why the feed is empty. The scanner list defaults to empty while
+                        // it loads, so naming a reason now would show the no-scanners screen to a reader
+                        // who has scanners.
+                        <LemonSkeleton className="h-32 rounded" />
+                    )}
                 </div>
             )}
         </div>

@@ -44,6 +44,7 @@ from django.db import transaction
 from django.db.models.signals import post_save
 
 from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.preferences import ReviewPreferences
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.models import SignalReportArtefact
 from products.signals.backend.report_generation.priority import persisted_report_priority
@@ -106,11 +107,11 @@ def handle_task_run_saved(sender: type, instance: Any, created: bool, **kwargs: 
         if (instance.state or {}).get("ai_stage") != "implementation":
             return
         repository = (task.repository or "").strip() or None
-        resolved = _resolve_assigned_reviewers(instance.team_id, task.signal_report_id)
+        resolved = resolve_assigned_reviewers(instance.team_id, task.signal_report_id)
         if not resolved:
             return
-        settings_by_user = ReviewUserSettings.load_many(instance.team_id, [user.id for user in resolved])
-        acting_user_id = _pick_reviewer(resolved, task.created_by_id)
+        settings_by_user = ReviewUserSettings.load_preferences_many(instance.team_id, [user.id for user in resolved])
+        acting_user_id = pick_reviewer(resolved, task.created_by_id)
         stamphog_user_id = _pick_stamphog_reviewer(resolved, settings_by_user, task.created_by_id)
         # robust=True on both: the two dispatches are independent but share one commit-hook queue, so
         # a failure in one must not cancel the other. Django logs the failing hook and runs the rest.
@@ -160,15 +161,15 @@ def resolve_stamphog_acting_reviewer(team_id: int, signal_report_id: str, prefer
     approval while somebody is still opted in. ``preferred_user_id`` (the task's creator, or the
     reviewer a queued job was attributed to) wins while still opted in, keeping attribution stable.
     """
-    resolved = _resolve_assigned_reviewers(team_id, signal_report_id)
+    resolved = resolve_assigned_reviewers(team_id, signal_report_id)
     if not resolved:
         return None
-    settings_by_user = ReviewUserSettings.load_many(team_id, [user.id for user in resolved])
+    settings_by_user = ReviewUserSettings.load_preferences_many(team_id, [user.id for user in resolved])
     return _pick_stamphog_reviewer(resolved, settings_by_user, preferred_user_id)
 
 
 def _pick_stamphog_reviewer(
-    resolved: list[Any], settings_by_user: dict[int, ReviewUserSettings], preferred_user_id: int | None
+    resolved: list[Any], settings_by_user: dict[int, ReviewPreferences], preferred_user_id: int | None
 ) -> int | None:
     """The user id to attribute a stamphog inbox review to, or None when nobody is opted in.
 
@@ -180,10 +181,10 @@ def _pick_stamphog_reviewer(
     returns a single id however many are opted in, and stamphog dedupes on (pull request, head sha).
     """
     opted_in = [user for user in resolved if settings_by_user[user.id].stamphog_review_inbox_prs]
-    return _pick_reviewer(opted_in, preferred_user_id) if opted_in else None
+    return pick_reviewer(opted_in, preferred_user_id) if opted_in else None
 
 
-def _pick_reviewer(resolved: list[Any], task_created_by_id: int | None) -> int:
+def pick_reviewer(resolved: list[Any], task_created_by_id: int | None) -> int:
     """The canonical reviewer out of a non-empty resolved list: the task's own user, else the first.
 
     The task's user (`created_by`: the auto-start assignee, or whoever clicked "Create PR") wins when
@@ -195,13 +196,13 @@ def _pick_reviewer(resolved: list[Any], task_created_by_id: int | None) -> int:
     return next((user.id for user in resolved if user.id == task_created_by_id), resolved[0].id)
 
 
-def _resolve_assigned_reviewers(team_id: int, signal_report_id: Any) -> list[Any]:
+def resolve_assigned_reviewers(team_id: int, signal_report_id: Any) -> list[Any]:
     """The report's assigned reviewers, in assignment order (no opt-in toggles checked here).
 
     Assignment means the report's latest `suggested_reviewers` artefact, the same set the Inbox "For
     you" filter matches and Slack notifications fan out to, with logins resolved to org members the
     same way those surfaces resolve them. Callers decide which of them gates what: ReviewHog runs
-    under the canonical reviewer (`_pick_reviewer`, whose perspectives, blind spots, validator, and
+    under the canonical reviewer (`pick_reviewer`, whose perspectives, blind spots, validator, and
     urgency threshold drive the review), stamphog under any who opted in (`_pick_stamphog_reviewer`).
     Empty when the report has no reviewers or none resolve to an org member.
     """

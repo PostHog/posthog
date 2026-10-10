@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import nullcontext
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NoReturn, Optional, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -38,7 +38,7 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductKey
 
-from posthog.hogql.constants import FEATURE_FLAG_FALSE_VARIANT_SENTINEL
+from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
@@ -67,9 +67,8 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, first_error_message
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
@@ -119,11 +118,7 @@ from products.feature_flags.backend.api.filters_schema import (
     FinitePercentageField,
 )
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
-from products.feature_flags.backend.dependency_formats import (
-    DependencyConfigFormatError,
-    require_v1_config,
-    validate_dependency_formats,
-)
+from products.feature_flags.backend.dependency_formats import DependencyConfigFormatError, validate_dependency_formats
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     apply_approved_encrypted_payloads,
@@ -135,12 +130,21 @@ from products.feature_flags.backend.facade import (
     config_writes,
     filters as flag_filters,
 )
-from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
+from products.feature_flags.backend.facade.config import (
+    ConfigFormatError,
+    ConfigV1,
+    UnsupportedConfig,
+    decode_config,
+    detect_config_format,
+    require_v1_config,
+)
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
+from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
+    STALE_ACTIVE_PARAM_DESCRIPTION,
     FeatureFlagStatusChecker,
     exclude_archived_unless_requested,
     filter_flags_by_active_param,
@@ -182,8 +186,6 @@ scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 # Dedicated name for the same startup-ordering reason as scope_audit_logger above. Emits
 # the violations that would have been 400s while the #50084 enforcement kill switch is off.
 filters_enforcement_logger = structlog.get_logger("posthog.feature_flag_filters_enforcement")
-
-FEATURE_FLAG_USAGE_DASHBOARD_SUNSET = "Fri, 25 Sep 2026 00:00:00 GMT"
 
 # DRF error messages echo caller-controlled input (a ChoiceField repeats the rejected value)
 # and bodies up to 20MB reach validation before the filter-size check runs, so an unbounded
@@ -930,20 +932,28 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
 
 
-def _uses_reserved_variant_key(filters: dict) -> bool:
-    """Whether a `multivariate.variants[].key` is the sentinel the ingest cleaner stores a variant named "false" under.
+def _reserved_variant_key(filters: dict) -> str | None:
+    """The first `multivariate.variants[].key` that is a sentinel the ingest cleaner stores a variant named "false" or
+    "true" under, if any.
 
     Checked on the raw request shape ahead of every validation tier, so the rejection does not depend on the #50084
     rollout switch.
     """
     multivariate = filters.get("multivariate")
     if not isinstance(multivariate, dict):
-        return False
+        return None
     variants = multivariate.get("variants")
     if not isinstance(variants, list):
-        return False
-    return any(
-        isinstance(variant, dict) and variant.get("key") == FEATURE_FLAG_FALSE_VARIANT_SENTINEL for variant in variants
+        return None
+    return next(
+        (
+            variant["key"]
+            for variant in variants
+            if isinstance(variant, dict)
+            and isinstance(variant.get("key"), str)
+            and variant["key"] in FEATURE_FLAG_VARIANT_SENTINELS
+        ),
+        None,
     )
 
 
@@ -1284,14 +1294,6 @@ class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
     )
 
 
-class FeatureFlagUsageDashboardSuccessSerializer(serializers.Serializer):
-    success = serializers.BooleanField(help_text="Whether the usage dashboard operation completed successfully.")
-
-
-class FeatureFlagUsageDashboardErrorSerializer(FeatureFlagUsageDashboardSuccessSerializer):
-    error = serializers.CharField(help_text="Why the usage dashboard operation failed.")
-
-
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1304,7 +1306,13 @@ class FeatureFlagSerializer(
 
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
-    status = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField(
+        help_text=(
+            "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the "
+            "serving state. Read the `active` field for that. A disabled flag that is not archived or "
+            "deleted reports ACTIVE, because disabled flags are not evaluated for staleness."
+        )
+    )
 
     ensure_experience_continuity = ClassicBehaviorBooleanFieldSerializer()
     has_enriched_analytics = ClassicBehaviorBooleanFieldSerializer()
@@ -1323,8 +1331,7 @@ class FeatureFlagSerializer(
         allow_null=True,
         help_text=(
             "Legacy dashboard of saved usage insights for this flag, or null if it has none. "
-            "New flags show usage charts inline instead. The dashboard creation endpoint is deprecated "
-            "and will be removed after September 25, 2026."
+            "Usage charts are on the flag's Usage tab. The API does not create these dashboards."
         ),
     )
     analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
@@ -1506,6 +1513,11 @@ class FeatureFlagSerializer(
 
         team = get_team()
         if not team:
+            return attrs
+
+        # A copy between projects carries the source flag's fields only, so the target's own
+        # requirements cannot be met by the payload. The copy endpoint has always skipped them.
+        if self.context.get("skip_team_flag_requirements"):
             return attrs
 
         self._validate_evaluation_contexts_requirement(attrs, request, team, creation_context)
@@ -1830,8 +1842,9 @@ class FeatureFlagSerializer(
     def _drop_echoed_v2_fields(self, attrs: dict) -> set[str]:
         """Remove every submitted value equal to the stored one and return their names.
 
-        An echo is neither judged nor written: PUT must repeat `key`, and a bulk delete does not
-        bump `version`, so a written `deleted: false` could undo one.
+        An echo is neither judged nor written: PUT must repeat `key`, and a soft delete from outside
+        this serializer (the file-system trash) does not bump `version`, so a written
+        `deleted: false` could undo one.
         """
         assert isinstance(self.instance, FeatureFlag)
         echoed = {
@@ -1954,9 +1967,10 @@ class FeatureFlagSerializer(
                 raise self._v2_validation_error(exc) from exc
 
     def _validate_filters_inner(self, filters, operation: str):
-        if _uses_reserved_variant_key(filters):
+        reserved_variant_key = _reserved_variant_key(filters)
+        if reserved_variant_key is not None:
             raise serializers.ValidationError(
-                f"The variant key {FEATURE_FLAG_FALSE_VARIANT_SENTINEL} is reserved. Choose another key.",
+                f"The variant key {reserved_variant_key} is reserved. Choose another key.",
                 code="reserved_variant_key",
             )
 
@@ -2687,8 +2701,9 @@ class FeatureFlagSerializer(
                 # Every read and the save below use the locked row, not the instance loaded
                 # before the lock. `save()` writes every field, so applying this request to the
                 # stale copy would restore whatever another writer changed in the meantime for
-                # a field this request never sent. A bulk delete leaves `version` untouched, so
-                # the version check above cannot catch it and the flag came back undeleted.
+                # a field this request never sent. A soft delete from outside this serializer (the
+                # file-system trash, or a bulk delete of a config version 1 flag) leaves `version`
+                # untouched, so the version check above cannot catch it and the flag came back undeleted.
                 old_key = locked_instance.key
 
                 # Clear any soft-deleted tombstone on `new_key` so the (team, key)
@@ -2734,7 +2749,8 @@ class FeatureFlagSerializer(
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
-            if instance.has_feature_enrollment:
+            # Enrollment lives in the v1 document; a v2 flag cannot back an early access feature.
+            if detect_config_format(instance.filters).kind == "v1" and instance.has_feature_enrollment:
                 from products.feature_flags.backend.tasks import migrate_feature_enrollment_on_key_change
 
                 migrate_feature_enrollment_on_key_change.delay(instance.team_id, old_key, instance.id)
@@ -2809,15 +2825,15 @@ class FeatureFlagSerializer(
 
     def _find_disabled_dependencies(self, flag_to_check: FeatureFlag) -> list[FeatureFlag]:
         """Find all disabled flags that the given flag depends on."""
-        dependency_ids = []
-
-        # Extract flag dependencies from filters
-        filters = flag_to_check.filters or {}
-        for group in filters.get("groups", []):
-            for prop in group.get("properties", []):
-                if prop.get("type") == "flag":
-                    dependency_ids.append(int(prop.get("key")))
-
+        config = decode_config(flag_to_check.filters)
+        if isinstance(config, UnsupportedConfig):
+            # validate() rejected every other unsupported format, so this is a v2 document parse_v2_config
+            # cannot read. Under the row lock _apply_v2_update rejects it through config_writes.validate_stored,
+            # or, when the request also sends filters, _resolve_v2_document validates the replacement.
+            return []
+        # A non-integer flag id raises in v1, as it always did; v2 skips it and leaves the 400 to the validator.
+        invalid_ids: InvalidIds = "raise" if isinstance(config, ConfigV1) else "skip"
+        dependency_ids = references(config, invalid_flag_ids=invalid_ids).flag_ids
         if not dependency_ids:
             return []
 
@@ -3180,9 +3196,12 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
         help_text=(
             "True if the flag is effectively rolled out to everyone, independent of recent evaluation. "
             "For boolean flags this means at least one release condition targets 100% with no property "
-            "filters (or there are no release conditions); for multivariate flags it means a single variant "
-            "is served to 100% via a fully rolled out release condition. This is the signal for "
-            "'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation."
+            "filters, or there are no release conditions. For multivariate flags it means every release "
+            "condition a user can reach, up to the first one at 100% with no property filters, serves the "
+            "same variant. In a flag of either type that mixes person and group aggregation, only a "
+            "person-level condition counts as that 100% condition. This is the signal for "
+            "'fully rolled out' / GA, unlike `status`, "
+            "which only reflects recent evaluation."
         )
     )
     has_targeting_conditions = serializers.BooleanField(
@@ -3210,9 +3229,11 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
 class FeatureFlagStatusResponseSerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text=(
-            "Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag "
-            "was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled "
-            "out. Use the `rollout` object to determine rollout completeness."
+            "Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving "
+            "state, and this response carries no serving-state field: read the `active` field of the flag "
+            "itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted "
+            "reports 'active', because disabled flags are not evaluated for staleness. 'active' also does "
+            "NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness."
         )
     )
     reason = serializers.CharField(help_text="Human-readable explanation of the status")
@@ -3259,6 +3280,11 @@ class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
         help_text="Groups for feature flag evaluation (JSON object, defaults to empty dict)",
     )
 
+    def validate_groups(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("groups must be a JSON object")
+        return value
+
     def validate(self, attrs):
         distinct_id = attrs.get("distinct_id")
         person_id = attrs.get("person_id")
@@ -3304,7 +3330,11 @@ class FeatureFlagConditionAnalysisSerializer(serializers.Serializer):
     rollout_excluded = serializers.BooleanField(
         help_text="Whether this condition matched properties but was excluded due to rollout"
     )
-    variant = serializers.CharField(allow_null=True, help_text="Variant associated with this condition")
+    variant = serializers.CharField(
+        allow_null=True,
+        allow_blank=True,
+        help_text="Variant associated with this condition. Empty or null when the condition has no variant override.",
+    )
     properties = FeatureFlagConditionPropertyAnalysisSerializer(
         many=True, help_text="Analysis of each property in this condition"
     )
@@ -3517,7 +3547,7 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
     active = serializers.ChoiceField(
         choices=["true", "false", "STALE"],
         required=False,
-        help_text="Filter by active state.",
+        help_text=STALE_ACTIVE_PARAM_DESCRIPTION,
     )
     created_by_id = serializers.IntegerField(
         required=False,
@@ -3525,7 +3555,10 @@ class BulkDeleteFiltersSerializer(serializers.Serializer):
     )
     search = serializers.CharField(
         required=False,
-        help_text="Search by feature flag key or name (case-insensitive).",
+        help_text=(
+            "Search by feature flag key or name (case-insensitive). "
+            "Spaces, underscores, and hyphens count as the same separator."
+        ),
     )
     type = serializers.ChoiceField(
         choices=["boolean", "multivariant", "experiment", "remote_config"],
@@ -4062,6 +4095,7 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["true", "false", "STALE"],
+                description=STALE_ACTIVE_PARAM_DESCRIPTION,
             ),
             OpenApiParameter(
                 "created_by_id",
@@ -4078,7 +4112,10 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Search by feature flag key or name. Case insensitive.",
+                description=(
+                    "Search by feature flag key or name. Case insensitive. "
+                    "Spaces, underscores, and hyphens count as the same separator."
+                ),
             ),
             OpenApiParameter(
                 "key",
@@ -4184,10 +4221,9 @@ class FeatureFlagViewSet(
     def _deleted_flag_rejection(feature_flag: FeatureFlag, restore_hint: str) -> Response | None:
         """Refuse a soft-deleted flag.
 
-        Dashboard-generating actions use this because they would recreate the auto-generated
-        insights that the delete_feature_flag_usage_insights sweep deletes. The lifecycle
-        actions use it because evaluation reads through a manager that excludes deleted rows,
-        so reporting a state change on one would be a success for a flag that serves nobody.
+        The lifecycle actions use this because evaluation reads through a manager that excludes
+        deleted rows, so reporting a state change on one would be a success for a flag that serves nobody.
+        The rollout actions use it because a filters write on a deleted flag takes effect when it is restored.
         """
         if not feature_flag.deleted:
             return None
@@ -4197,176 +4233,6 @@ class FeatureFlagViewSet(
                 "error": f"This feature flag has been deleted. Restore it before {restore_hint}.",
             },
             status=400,
-        )
-
-    @staticmethod
-    def _with_usage_dashboard_deprecation_headers(response: Response, *, include_sunset: bool = True) -> Response:
-        response["Deprecation"] = "true"
-        if include_sunset:
-            response["Sunset"] = FEATURE_FLAG_USAGE_DASHBOARD_SUNSET
-        return response
-
-    def _report_usage_dashboard_endpoint_call(
-        self,
-        request: request.Request,
-        endpoint: Literal["dashboard", "enrich_usage_dashboard"],
-        outcome: Literal["created", "existing", "success", "error"],
-    ) -> None:
-        try:
-            report_user_action(
-                request.user,
-                "deprecated feature flag usage dashboard endpoint called",
-                {"endpoint": endpoint, "outcome": outcome},
-                team=self.team,
-                organization=self.team.organization,
-            )
-        except Exception:
-            logger.exception("Failed to report deprecated feature flag usage dashboard endpoint call")
-
-    # No UI surface calls this, since the Usage tab renders its charts inline.
-    # Without required_scopes, APIScopePermission rejects every personal API key, OAuth, and
-    # project secret key caller, so only a session-authenticated request reaches this action.
-    # It remains functional until the announced sunset.
-    @extend_schema(
-        request=None,
-        responses={
-            status.HTTP_200_OK: FeatureFlagUsageDashboardSuccessSerializer,
-            status.HTTP_400_BAD_REQUEST: FeatureFlagUsageDashboardErrorSerializer,
-        },
-        deprecated=True,
-        description=(
-            "Deprecated. Ensures a saved usage dashboard exists for a feature flag. "
-            "This endpoint will be removed after September 25, 2026; usage charts remain available "
-            "on the feature flag Usage tab."
-        ),
-    )
-    @action(methods=["POST"], detail=True)
-    def dashboard(self, request: request.Request, **kwargs: Any) -> Response:
-        from products.dashboards.backend.models.dashboard import Dashboard
-
-        feature_flag: FeatureFlag = self.get_object()
-        rejection = self._deleted_flag_rejection(feature_flag, "generating a usage dashboard")
-        if rejection is not None:
-            self._report_usage_dashboard_endpoint_call(request, "dashboard", "error")
-            return self._with_usage_dashboard_deprecation_headers(rejection)
-        try:
-            # The FK on the flag isn't cleared by a dashboard soft-delete, so look the id up
-            # through the manager that excludes deleted rows rather than via the FK accessor,
-            # which would happily return a deleted dashboard and skip regenerating it.
-            usage_dashboard = (
-                Dashboard.objects.filter(
-                    id=feature_flag.usage_dashboard_id, team__project_id=self.team.project_id
-                ).first()
-                if feature_flag.usage_dashboard_id
-                else None
-            )
-            if usage_dashboard is None:
-                usage_dashboard = _create_usage_dashboard(feature_flag, request.user)
-                outcome: Literal["created", "existing"] = "created"
-            else:
-                outcome = "existing"
-
-            if feature_flag.has_enriched_analytics and not feature_flag.usage_dashboard_has_enriched_insights:
-                add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
-
-        except Exception as e:
-            capture_exception(e)
-            self._report_usage_dashboard_endpoint_call(request, "dashboard", "error")
-            return self._with_usage_dashboard_deprecation_headers(
-                Response(
-                    {
-                        "success": False,
-                        "error": "Unable to generate usage dashboard",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            )
-
-        self._report_usage_dashboard_endpoint_call(request, "dashboard", outcome)
-        return self._with_usage_dashboard_deprecation_headers(Response({"success": True}, status=status.HTTP_200_OK))
-
-    # Unlike `dashboard` above, the main app does call this: featureFlagLogic.ts's
-    # enrichUsageDashboard listener calls it automatically once a flag gains enriched
-    # analytics. As with `dashboard`, token callers are rejected before reaching this
-    # action, so nearly every call the telemetry below sees is that automatic one.
-    @extend_schema(
-        request=None,
-        responses={
-            status.HTTP_200_OK: FeatureFlagUsageDashboardSuccessSerializer,
-            status.HTTP_400_BAD_REQUEST: FeatureFlagUsageDashboardErrorSerializer,
-        },
-        deprecated=True,
-        description=(
-            "Deprecated. Adds enriched insights to an existing legacy feature flag usage dashboard. "
-            "No removal date has been set; usage charts remain available on the feature flag Usage tab."
-        ),
-    )
-    @action(methods=["POST"], detail=True)
-    def enrich_usage_dashboard(self, request: request.Request, **kwargs: Any) -> Response:
-        feature_flag: FeatureFlag = self.get_object()
-        rejection = self._deleted_flag_rejection(feature_flag, "enriching its usage dashboard")
-        if rejection is not None:
-            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
-            return self._with_usage_dashboard_deprecation_headers(rejection, include_sunset=False)
-        usage_dashboard = feature_flag.usage_dashboard
-
-        if not usage_dashboard:
-            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
-            return self._with_usage_dashboard_deprecation_headers(
-                Response(
-                    {
-                        "success": False,
-                        "error": "Usage dashboard not found. Usage charts are available on the feature flag Usage tab.",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                ),
-                include_sunset=False,
-            )
-
-        if feature_flag.usage_dashboard_has_enriched_insights:
-            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
-            return self._with_usage_dashboard_deprecation_headers(
-                Response(
-                    {
-                        "success": False,
-                        "error": "Usage dashboard already has enriched data",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                ),
-                include_sunset=False,
-            )
-
-        if not feature_flag.has_enriched_analytics:
-            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
-            return self._with_usage_dashboard_deprecation_headers(
-                Response(
-                    {
-                        "success": False,
-                        "error": "No enriched analytics available for this feature flag",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                ),
-                include_sunset=False,
-            )
-        try:
-            add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
-        except Exception as e:
-            capture_exception(e)
-            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
-            return self._with_usage_dashboard_deprecation_headers(
-                Response(
-                    {
-                        "success": False,
-                        "error": "Unable to enrich usage dashboard",
-                    },
-                    status=status.HTTP_400_BAD_REQUEST,
-                ),
-                include_sunset=False,
-            )
-
-        self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "success")
-        return self._with_usage_dashboard_deprecation_headers(
-            Response({"success": True}, status=status.HTTP_200_OK), include_sunset=False
         )
 
     @extend_schema(
@@ -4566,6 +4432,12 @@ class FeatureFlagViewSet(
         rejection = self._deleted_flag_rejection(feature_flag, deleted_hint)
         if rejection is not None:
             return rejection
+        # A format change bumps `version`, so the locked precondition refuses one landing after this.
+        if detect_config_format(feature_flag.filters).kind != "v1":
+            raise exceptions.ValidationError(
+                "This flag uses a configuration format that rollout actions cannot modify yet.",
+                code="unsupported_config_version",
+            )
 
         # A flag written before versioning reads as null; the precondition normalises the stored
         # side the same way, so a caller can send back exactly what the read returned.
@@ -5036,8 +4908,9 @@ class FeatureFlagViewSet(
 
         Returns same format as bulk_delete for UI compatibility.
 
-        Uses bulk operations for efficiency: database updates are batched and cache
-        invalidation happens once at the end rather than per-flag.
+        Config version 1 flags are deleted with batched updates, and cache invalidation
+        runs once at the end. Config version 2 flags are deleted one at a time through
+        ``update_flag``. Each one bumps its ``version`` and commits on its own.
         """
         from django.utils import timezone
 
@@ -5154,6 +5027,7 @@ class FeatureFlagViewSet(
         # Also track which need key renames (have deleted experiments)
         flags_to_delete_normal: list[FeatureFlag] = []
         flags_to_delete_with_rename: list[FeatureFlag] = []
+        v2_flags: list[tuple[FeatureFlag, dict]] = []
         activity_log_entries: list[LogActivityEntry] = []
 
         current_user = request.user if request.user.is_authenticated else None
@@ -5219,6 +5093,11 @@ class FeatureFlagViewSet(
             checker = FeatureFlagStatusChecker(feature_flag=flag)
             rollout_info = _get_flag_rollout_info(flag, checker)
             old_key = flag.key
+            entry = {"id": flag_id, "key": old_key, **rollout_info}
+
+            if detect_config_format(flag.filters).kind == "v2":
+                v2_flags.append((flag, entry))
+                continue
 
             # Rename the key if the flag is linked to any experiment, to free it up.
             # Use the prefetched experiment_set cache (see queryset above) rather than
@@ -5243,7 +5122,7 @@ class FeatureFlagViewSet(
                 )
             )
 
-            deleted.append({"id": flag_id, "key": old_key, **rollout_info})
+            deleted.append(entry)
 
         # Perform bulk database updates
         # Using queryset.update() instead of individual saves means Django signals don't fire.
@@ -5289,6 +5168,26 @@ class FeatureFlagViewSet(
 
                 transaction.on_commit(invalidate_caches)
 
+        # Outside the transaction above: the facade requires gated writes like `update_flag` to run
+        # outside any transaction, so each config version 2 flag commits on its own.
+        if v2_flags:
+            from products.feature_flags.backend.facade.api import update_flag
+
+            for flag, entry in v2_flags:
+                try:
+                    update_flag(
+                        flag,
+                        {"deleted": True, "version": flag.version or 0},
+                        team=flag.team,
+                        user=request.user,
+                        request=FlagLifecycleWriteRequest(request),
+                        serializer_context=self.get_serializer_context(),
+                    )
+                except exceptions.APIException as exc:
+                    errors.append({"id": flag.id, "key": flag.key, "reason": first_error_message(exc.detail)})
+                else:
+                    deleted.append(entry)
+
         return Response(
             {
                 "deleted": deleted,
@@ -5321,9 +5220,19 @@ class FeatureFlagViewSet(
                         if len(value) > 200:
                             raise serializers.ValidationError("Search term cannot exceed 200 characters")
 
-                        # Escape regex metacharacters first, then replace spaces with word boundary pattern
-                        escaped_value = re.escape(value)
-                        regex_pattern = escaped_value.replace(r"\ ", r"[\s\-_]*")
+                        # Treat spaces, hyphens, and underscores as one separator class, so a pasted
+                        # MY_FLAG_KEY finds my-flag-key. A query of only separators has no parts, and an empty
+                        # join matches every flag, which bulk_delete would then delete, so match it literally.
+                        # A leading or trailing separator stays required, so _prod does not find production.
+                        parts = [part for part in re.split(r"[\s\-_]+", value) if part]
+                        if parts:
+                            regex_pattern = r"[\s\-_]*".join(re.escape(part) for part in parts)
+                            if re.match(r"[\s\-_]", value):
+                                regex_pattern = r"[\s\-_]" + regex_pattern
+                            if re.search(r"[\s\-_]$", value):
+                                regex_pattern += r"[\s\-_]"
+                        else:
+                            regex_pattern = re.escape(value)
                         queryset = queryset.filter(
                             Q(key__iregex=regex_pattern)
                             | Q(name__iregex=regex_pattern)
@@ -5835,6 +5744,9 @@ class FeatureFlagViewSet(
                 flag_keys=[feature_flag.key],
                 internal_request_token=internal_token,
                 override_flags_definitions=override_definitions,
+                # A pooled connection that the service closed fails once with a reset, so retry it.
+                # The retry also covers a timeout, which doubles the worst-case wait to about 2x the proxy timeout.
+                max_retries=1,
             )
 
             # Extract the flag result from the Rust response
@@ -5929,9 +5841,75 @@ class FeatureFlagViewSet(
             }
 
             response_serializer = FeatureFlagTestEvaluationResponseSerializer(data=response_data)
-            response_serializer.is_valid(raise_exception=True)
+            if not response_serializer.is_valid():
+                logger.error(
+                    "Flag evaluation service response failed validation in test_evaluation",
+                    extra={**log_context, "flag_key": feature_flag.key, "errors": response_serializer.errors},
+                )
+                capture_exception(serializers.ValidationError(response_serializer.errors))
+                return Response(
+                    {"error": "Unexpected response format from flag evaluation service"},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
             return Response(response_serializer.data)
 
+        except RETRYABLE_FLAGS_SERVICE_EXCEPTIONS as e:
+            logger.warning(
+                "Flag evaluation service unreachable for flag %s: %s", feature_flag.key, e, extra=log_context
+            )
+            return Response(
+                {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except requests.exceptions.HTTPError as e:
+            service_status = e.response.status_code if e.response is not None else None
+            if service_status in (
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                status.HTTP_504_GATEWAY_TIMEOUT,
+            ):
+                # The service sends these statuses when it is overloaded or a dependency is down.
+                # They clear on retry like a connection error, so they are not captured as exceptions.
+                logger.warning(
+                    "Flag evaluation service busy for flag %s: HTTP %s",
+                    feature_flag.key,
+                    service_status,
+                    extra=log_context,
+                )
+                return Response(
+                    {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+            # Django builds the request body and the request serializer validates the user input,
+            # so any other error status, a 400 included, is a fault on our side or in the service.
+            logger.exception(
+                "Flag evaluation service returned an error for flag %s", feature_flag.key, extra=log_context
+            )
+            capture_exception(e)
+            return Response(
+                {"error": f"Flag evaluation service returned HTTP {service_status}. Please retry."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.JSONDecodeError as e:
+            logger.exception(
+                "Flag evaluation service returned a body that is not JSON for flag %s",
+                feature_flag.key,
+                extra=log_context,
+            )
+            capture_exception(e)
+            return Response(
+                {"error": "Unexpected response format from flag evaluation service"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        except requests.exceptions.RequestException as e:
+            logger.warning(
+                "Flag evaluation service call failed for flag %s: %s", feature_flag.key, e, extra=log_context
+            )
+            capture_exception(e)
+            return Response(
+                {"error": "Flag evaluation service temporarily unavailable. Please retry."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         except Exception as e:
             logger.exception(
                 "Error evaluating flag '%s' for distinct_id='%s' person_id='%s' timestamp='%s': %s",

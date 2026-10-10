@@ -37,6 +37,7 @@ from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.slack.markdown import opens_with_line_anchored_markdown
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
@@ -200,6 +201,18 @@ def normalize_labeled_mentions_to_bare(text: str) -> str:
 def mentions_slack_user(text: str, slack_user_id: str) -> bool:
     """Whether `text` already mentions this user, in the bare `<@U…>` or labeled `<@U…|name>` form."""
     return re.search(rf"<@{re.escape(slack_user_id)}(\|[^>]*)?>", text) is not None
+
+
+def leading_mention_prefix(text: str, slack_user_id: str | None) -> str:
+    """The mention that opens a reply, or "" when nobody is tagged or `text` already tags them.
+
+    A heading, list, quote, table or fence must start its line, or Slack shows the markup as text,
+    so before one of those the mention takes a line of its own.
+    """
+    if not slack_user_id or mentions_slack_user(text, slack_user_id):
+        return ""
+    separator = "\n\n" if opens_with_line_anchored_markdown(text) else " "
+    return f"<@{slack_user_id}>{separator}"
 
 
 def flatten_block_text(node: Any) -> list[str]:
@@ -676,7 +689,6 @@ class RunFooter:
     """
 
     task_url: str | None = None
-    desktop_url: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
     run_id: str | None = None
@@ -693,7 +705,7 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.desktop_url, self.model, self.project))
+        return any((self.task_url, self.model, self.project))
 
 
 def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
@@ -746,9 +758,8 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
     Never raises: the footer is the last thing added to an answer that is already
     written, so failing to describe the run must not cost the reader the answer.
 
-    Describes the run in full, links included. Whether the reader gets the desktop link
-    is ``viewer_has_code_access``'s question, asked where the reader is known; the web
-    link is for everyone, since the task page enforces access itself.
+    The task link is for everyone, since the task page enforces access itself. It is the
+    only link: the task page carries its own link into PostHog Desktop.
 
     ``integration_id`` is the install the reply is posted through, and the workspace
     behind it is what the project segment is judged against. Required rather than
@@ -770,11 +781,6 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
             run_id=str(run.id),
             task_id=str(run.task_id),
             task_url=_task_url(run.team_id, run.task_id, run.id),
-            # The web bridge page, not the raw `posthog-code://` scheme: it redirects into the
-            # desktop app when installed and offers a download when not, so a reader without
-            # the app lands somewhere useful instead of a dead link. It also picks the right
-            # scheme (prod vs dev) client-side, which a server-minted scheme link can't.
-            desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
             project=_project_name(
@@ -789,19 +795,19 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
 
 
 def _run_context_segments(footer: RunFooter) -> list[str]:
-    """What the run is, as footer segments: the project it answered from, then the model.
+    """What the run is, as footer segments: the model, then the project it answered from.
 
     Shared by the reply footer and the progress message so the two cannot describe one
     run differently, and so the escaping below has a single home.
     """
     segments: list[str] = []
+    if footer.model:
+        segments.append(describe_run_model(footer.model, footer.reasoning_effort))
     if footer.project:
         # A project name is tenant text in a `mrkdwn` block, so `<!channel>` broadcasts
         # and `<url|label>` renders a link the reader reads as the bot's. Escaped here
         # rather than on the way in, so `RunFooter.project` stays the plain name.
         segments.append(f"Project: *{escape_slack_mrkdwn(footer.project)}*")
-    if footer.model:
-        segments.append(describe_run_model(footer.model, footer.reasoning_effort))
     return segments
 
 
@@ -825,9 +831,7 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     """
     segments: list[str] = []
     if footer.task_url:
-        segments.append(f"<{footer.task_url}|View on web>")
-    if footer.desktop_url:
-        segments.append(f"<{footer.desktop_url}|View on desktop>")
+        segments.append(f"<{footer.task_url}|View session>")
     segments.extend(_run_context_segments(footer))
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
@@ -990,13 +994,6 @@ def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
     # says what the card would, right next to the link.
     return _public_url(f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false")
-
-
-def _desktop_bridge_url(task_id: UUID) -> str:
-    # `/code/task/<id>` is the public bridge scene (see `CodeTaskLink`), not the desktop
-    # app's own route. `unfurl=false` keeps our unfurler off it — the footer already names
-    # the run right beside the link.
-    return _public_url(f"/code/task/{task_id}?{UNFURL_OPT_OUT_PARAM}=false")
 
 
 def _public_url(path: str) -> str:

@@ -2,7 +2,7 @@ import uuid
 import logging
 from typing import Any, cast, get_args
 
-from django.conf import settings
+from django.db import models
 from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
@@ -11,17 +11,28 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.integration import github_rate_limited_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.github.transport import GitHubRateLimitError
-from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.requested_reviews import (
+    RUN_MODE_FLASH,
+    RUN_MODE_RESOLVE_ONLY,
+    RUN_MODE_REVIEW,
+    RUN_MODE_REVIEW_ONLY,
+    PRReviewRequestStatus,
+    ResolveSkipReason,
+    request_pr_review,
+)
+from products.review_hog.backend.review_request_rules import ReviewRequestRefusal
 from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueCategory,
     ReviewIssueFinding,
@@ -30,12 +41,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL, effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.persistence import (
-    lift_review_tier_for_joined_trigger,
-    load_chunk_set,
-    load_findings_bundle,
-    load_turn_findings,
-)
+from products.review_hog.backend.reviewer.persistence import load_chunk_set, load_findings_bundle, load_turn_findings
 from products.review_hog.backend.reviewer.progress import (
     IN_PROGRESS_STALE_AFTER,
     RESOLUTION_RESOLVING,
@@ -49,15 +55,8 @@ from products.review_hog.backend.reviewer.progress import (
     snapshot_stats,
     turn_stats,
 )
-from products.review_hog.backend.reviewer.review_state import review_already_published
-from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
-from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRMetadata, PRParser
-from products.review_hog.backend.temporal.client import (
-    start_resolution_workflow,
-    start_review_pr_workflow,
-    workflow_running,
-)
-from products.review_hog.backend.temporal.types import TRIGGER_UI, resolve_pr_workflow_id, review_pr_workflow_id
+from products.review_hog.backend.reviewer.review_state import completed_turn_review_mode
+from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +66,7 @@ MAX_REVIEWS_LIMIT = 100
 
 # Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
 PERSPECTIVE_STATS_REPORT_LIMIT = 50
+OWN_DEEP_STATS_REVIEW_LIMIT = 10
 
 _PRIORITY_CHOICES = [priority.value for priority in IssuePriority]
 # Display order for the detail view: most urgent first.
@@ -93,13 +93,21 @@ class ReviewsListParamsSerializer(serializers.Serializer):
     )
 
 
+class PerspectiveStatsScope(models.TextChoices):
+    MINE = SCOPE_MINE, "Mine"
+    EVERYONE = SCOPE_EVERYONE, "Everyone"
+    OWN_DEEP = "own_deep", "Own Deep reviews"
+
+
 class PerspectiveStatsParamsSerializer(serializers.Serializer):
     scope = serializers.ChoiceField(
-        choices=[SCOPE_MINE, SCOPE_EVERYONE],
-        default=SCOPE_MINE,
+        choices=PerspectiveStatsScope.choices,
+        default=PerspectiveStatsScope.MINE,
         help_text="Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran "
         "plus reviews of pull requests they authored (matched via their linked GitHub login), "
-        "`everyone` for every review on this project.",
+        "`everyone` for every review on this project, `own_deep` for the last "
+        f"{OWN_DEEP_STATS_REVIEW_LIMIT} Deep reviews the requesting user started. The review skills "
+        "in the settings use `own_deep`, because only the person who starts a Deep review picks its skills.",
     )
 
 
@@ -108,7 +116,9 @@ class ReviewProgressSerializer(serializers.Serializer):
         choices=REVIEW_STAGES,
         help_text="How far the in-flight review turn has come: fetching the diff, chunking, picking "
         "each chunk's perspectives, reviewing chunks, merging overlapping findings, validating them, "
-        "or finalizing (building and publishing the review).",
+        "or finalizing (building and publishing the review). A single-agent Standard turn reports its "
+        "own `single_agent_*` stages instead: preparing, reviewing (main and lens sessions), and "
+        "finalizing (merging, capping, and publishing the findings).",
     )
     done = serializers.IntegerField(
         allow_null=True, help_text="Work units finished within the stage; null when the stage has no counter."
@@ -186,6 +196,9 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
         allow_null=True, help_text="When the latest review turn completed; null while the first is in flight."
     )
     published = serializers.BooleanField(help_text="Whether a review has been published back to GitHub.")
+    full_review_published = serializers.BooleanField(
+        help_text="Whether a Deep review of this pull request has been published. No Standard review runs after one."
+    )
     in_progress = serializers.BooleanField(
         help_text="Whether a run is on this report right now: a review turn or a resolution run "
         "(activity within the last 30 minutes)."
@@ -246,13 +259,21 @@ class ReviewRecentReviewsPageSerializer(serializers.Serializer):
     )
 
 
-# What the trigger runs. The default 'review' includes the resolution stage when the requesting
-# user's `resolve_comments` setting is on; the others are the split button's explicit variants.
-# Flash never resolves comments because it must not write code.
-RUN_MODE_REVIEW = "review"
-RUN_MODE_REVIEW_ONLY = "review_only"
-RUN_MODE_RESOLVE_ONLY = "resolve_only"
-RUN_MODE_FLASH = "flash"
+_TRIGGER_REFUSAL_STATUS = {
+    PRReviewRequestStatus.INVALID: status.HTTP_400_BAD_REQUEST,
+    PRReviewRequestStatus.NOT_ALLOWED: status.HTTP_403_FORBIDDEN,
+    PRReviewRequestStatus.BUSY: status.HTTP_409_CONFLICT,
+    PRReviewRequestStatus.REFUSED: status.HTTP_409_CONFLICT,
+}
+
+
+# Values come from `requested_reviews`, so the API and the comment trigger name the same modes. A
+# class (not an inline list) pins the generated enum name.
+class ReviewTriggerRequestRunMode(models.TextChoices):
+    REVIEW = RUN_MODE_REVIEW, "Review"
+    REVIEW_ONLY = RUN_MODE_REVIEW_ONLY, "Review only"
+    RESOLVE_ONLY = RUN_MODE_RESOLVE_ONLY, "Resolve only"
+    FLASH = RUN_MODE_FLASH, "Standard"
 
 
 class ReviewTriggerRequestSerializer(serializers.Serializer):
@@ -262,15 +283,21 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
     )
     run_mode = serializers.ChoiceField(
         required=False,
-        default=RUN_MODE_REVIEW,
-        choices=[RUN_MODE_REVIEW, RUN_MODE_REVIEW_ONLY, RUN_MODE_RESOLVE_ONLY, RUN_MODE_FLASH],
-        help_text="What to run on the pull request. 'review' (default) reviews it and, when the "
-        "requesting user's resolve_comments setting is on, chains the resolution stage; "
-        "'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips "
-        "the review and only runs the resolution stage on the PR's existing unresolved review "
-        "threads; 'flash' uses a lower-cost model for the review passes and validation, and never "
-        "resolves comments.",
+        default=ReviewTriggerRequestRunMode.REVIEW,
+        choices=ReviewTriggerRequestRunMode.choices,
+        help_text="What to run on the pull request. 'review' (default) reviews it and, when the pull "
+        "request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' "
+        "reviews without resolving regardless of that setting; 'resolve_only' skips the review and only "
+        "runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's "
+        "opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves "
+        "comments, and is refused once the PR has a published Deep review. The owner is the PR's author, "
+        "or the Inbox reviewer of a pull request the PostHog app opened.",
     )
+
+
+class ReviewTriggerReviewMode(models.TextChoices):
+    FULL = REVIEW_MODE_FULL, "Deep"
+    FLASH = REVIEW_MODE_FLASH, "Standard"
 
 
 class ReviewTriggerResponseSerializer(serializers.Serializer):
@@ -280,13 +307,48 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text="Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the "
         "pull request's current commit already has a published review in the requested mode, "
-        "'joined_running_review' when a review was already in flight and the request joined its queue. "
-        "A requested Full review waits for an active Flash review."
+        "'joined_running_review' when a review was already running and the request was queued on that "
+        "pull request's run, to start after the running turn. "
+        "A requested Deep review waits for an active Standard review."
+    )
+    repository = serializers.CharField(help_text="The pull request's repository as 'owner/repo'.")
+    pr_number = serializers.IntegerField(help_text="The pull request number.")
+    head_sha = serializers.CharField(
+        allow_null=True, help_text="The pull request's head commit when the request was accepted."
+    )
+    review_mode = serializers.ChoiceField(
+        choices=ReviewTriggerReviewMode.choices,
+        allow_null=True,
+        help_text="The review this request runs: 'full' (Deep) or 'flash' (Standard). Null for 'resolve_only', "
+        "which runs no review.",
+    )
+    report_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Id of the pull request's existing review, for `review-hog-reviews-get`. Null on the pull "
+        "request's first run, which creates the review later.",
+    )
+    requested_at = serializers.DateTimeField(help_text="Server time when the request was accepted.")
+    resolve_will_run = serializers.BooleanField(
+        help_text="Whether this request runs the resolution stage, which can push fix commits to the pull request."
+    )
+    resolve_skip_reason = serializers.ChoiceField(
+        choices=ResolveSkipReason.choices,
+        allow_null=True,
+        help_text="Why the resolution stage does not run: 'run_mode_excludes_resolve' ('review_only' and "
+        "'flash' never resolve), 'owner_not_opted_in' (the pull request owner has not turned on resolving "
+        "comments), 'already_reviewed' (no run starts). Null when it runs.",
     )
 
 
 class ReviewTriggerErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Human-readable explanation of why the trigger was rejected.")
+    code = serializers.ChoiceField(
+        required=False,
+        choices=ReviewRequestRefusal.choices,
+        help_text="Why the request was refused, for a client that shows its own reason: 'flash_after_full' "
+        "(the PR already has a published Deep review), 'resolution_not_opted_in' (the PR owner has not "
+        "turned on resolving comments). Absent for other errors.",
+    )
 
 
 class ReviewFindingLineRangeSerializer(serializers.Serializer):
@@ -383,27 +445,11 @@ class _PageEnvelopeSchema(AutoSchema):
         return operation_id
 
 
-def _fetch_pr_metadata(github: GitHubIntegration, owner: str, repo: str, pr_number: int) -> PRMetadata:
-    """One `GET /pulls/{n}` with the installation token — enough to answer the trigger honestly.
-
-    Raises `GitHubAPIError` (404 for a nonexistent PR); the caller maps it to a clear response.
-    """
-    token, installation_id = github.get_access_token(), github.github_installation_id
-    pr = github_api_request(
-        "GET",
-        f"/repos/{owner}/{repo}/pulls/{pr_number}",
-        token=token,
-        installation_id=installation_id,
-        endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
-    ).json()
-    return PRFetcher(owner=owner, repo=repo, pr_number=pr_number, token=token).fetch_pr_metadata(pr)
-
-
 def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str]:
     """Which ACTIVE reports are visibly running: artefact or report activity within the staleness window.
 
-    Artefacts stream in throughout a run (snapshot, chunk set, per-chunk results, verdicts), so the
-    newest artefact is the liveness signal; a crashed run goes quiet and ages out instead of showing
+    Artefacts mark persisted progress, and long review activities refresh the report timestamp while
+    their sandbox runs. Both stop when a worker dies, so a crashed run ages out instead of showing
     a stuck spinner forever.
 
     `finding_outcome` is excluded because it is the one artefact type not written by a turn: the
@@ -502,6 +548,8 @@ def _review_payload(
         "run_count": report.run_count,
         "last_run_at": report.last_run_at,
         "published": report.published_head_sha is not None,
+        # Reads only the per-mode marker, so the list never loads findings to tell older reports apart.
+        "full_review_published": REVIEW_MODE_FULL in (report.published_heads_by_mode or {}),
         "in_progress": progress is not None or (resolution is not None and resolution.status == RESOLUTION_RESOLVING),
         "progress": progress,
         "resolution": {
@@ -526,6 +574,19 @@ def _review_payload(
     }
 
 
+class EffectiveTeamScopedKeyPermission(BasePermission):
+    """Reviews live on the root project, and the API scope check covers only the URL project.
+
+    So a key scoped to an environment must not reach its parent project through an environment URL.
+    """
+
+    message = "This key is not scoped to the project that holds the reviews."
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        scoped_teams = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        return scoped_teams is None or resolve_effective_team_id(view.team_id) in scoped_teams
+
+
 class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Recent ReviewHog reviews on this project.
 
@@ -544,6 +605,8 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     # reachable with a personal API key or OAuth token, which is how MCP tools authenticate. Session
     # UI access is unchanged; this only adds token access, gated by review_hog:read / review_hog:write.
     scope_object = "review_hog"
+    permission_classes = [PostHogFeatureFlagPermission, EffectiveTeamScopedKeyPermission]
+    posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewReport.objects.unscoped()
     serializer_class = ReviewRecentReviewSerializer
@@ -589,9 +652,11 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         probe_limit = limit + 1
         team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
         completed = list(queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:probe_limit])
-        # First-turn runs have no completed turn yet; they only surface while visibly running.
+        # First-turn runs have no completed turn yet; they only surface while visibly running. A crashed
+        # run stays ACTIVE, so rank by report activity: ranked by creation, newer crashed runs fill the
+        # slice and hide an older live run.
         running_first_turn = list(
-            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-created_at")[
+            queryset.filter(status=ReviewReport.Status.ACTIVE, last_run_at__isnull=True).order_by("-updated_at")[
                 :probe_limit
             ]
         )
@@ -664,20 +729,40 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         summary="Perspective effectiveness stats",
         description="How many findings each review skill (perspective or blind-spot sweep) raised across the "
         "recent completed reviews in scope — the requesting user's by default, every review on this project "
-        "with `scope=everyone` — and how many of those the validator kept vs dismissed.",
+        "with `scope=everyone`, the user's own last Deep reviews with `scope=own_deep` — and how many of those "
+        "the validator kept vs dismissed.",
     )
     @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
     def perspective_stats(self, request: Request, **kwargs) -> Response:
         params = PerspectiveStatsParamsSerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        team_id, queryset = self._reports(request, scope=params.validated_data["scope"])
+        scope = params.validated_data["scope"]
+        queryset: QuerySet[ReviewReport]
+        if scope == PerspectiveStatsScope.OWN_DEEP:
+            team_id = resolve_effective_team_id(self.team_id)
+            # Filter before the report limit, so newer Standard reports cannot push Deep ones out of the window.
+            # Rows from before the per-mode watermark predate Standard reviews.
+            queryset = ReviewReport.objects.for_team(team_id, canonical=True).filter(
+                Q(published_heads_by_mode__has_key=REVIEW_MODE_FULL) | Q(published_heads_by_mode__isnull=True),
+                acting_user_id=request.user.id,
+            )
+        else:
+            team_id, queryset = self._reports(request, scope=scope)
         reports = list(
             queryset.filter(last_run_at__isnull=False).order_by("-last_run_at")[:PERSPECTIVE_STATS_REPORT_LIMIT]
         )
-        stats: dict[str, dict[str, int]] = {}
         bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id) for report in reports])
-        for report in reports:
-            pairs = bundle.turn(str(report.id), report.run_count)
+        turns = [bundle.turn(str(report.id), report.run_count) for report in reports]
+        if scope == PerspectiveStatsScope.OWN_DEEP:
+            # Standard turns read none of the user's skills, so they would dilute the kept counts.
+            turns = [
+                pairs
+                for report, pairs in zip(reports, turns)
+                if completed_turn_review_mode(report, pairs) == REVIEW_MODE_FULL
+            ]
+            turns = turns[:OWN_DEEP_STATS_REVIEW_LIMIT]
+        stats: dict[str, dict[str, int]] = {}
+        for pairs in turns:
             for finding, verdict in pairs:
                 entry = stats.setdefault(
                     finding.source_perspective or "unknown", {"raised": 0, "kept": 0, "dismissed": 0}
@@ -687,7 +772,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                     entry["kept" if verdict.is_valid else "dismissed"] += 1
         items: list[dict[str, Any]] = [{"skill_name": skill_name, **counts} for skill_name, counts in stats.items()]
         items.sort(key=lambda item: (-item["kept"], -item["raised"], item["skill_name"]))
-        payload = {"report_count": len(reports), "perspectives": items}
+        payload = {"report_count": len(turns), "perspectives": items}
         return Response(ReviewPerspectiveStatsSerializer(payload).data)
 
     @extend_schema(
@@ -704,39 +789,36 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="The ReviewHog UI trigger is not enabled for this project.",
+                description="The review-hog feature flag is off for this project.",
             ),
             409: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
                 description="The pull request's cycle is busy (busy-guard): reviews are blocked while its "
-                "comments are being resolved, and resolve-only runs are blocked while a review is running.",
+                "comments are being resolved, and resolve-only runs are blocked while a review is running. "
+                "Also returned with a code when a Standard review follows a published Deep review ('flash_after_full') "
+                "or the PR owner has not opted in to resolution ('resolution_not_opted_in').",
             ),
             429: OpenApiResponse(description="GitHub rate-limited the App's token; retry after the Retry-After delay."),
         },
         summary="Start a review of a pull request",
         description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
-        "access, and publish it back to the PR. The requesting user is the review's acting user: their "
-        "enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria "
-        "drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review "
-        "(which chains the resolution stage per the user's resolve_comments setting), a review without "
-        "resolving, resolution only, or a lower-cost Flash review that never resolves comments. "
-        "Nonexistent, closed, and fork PRs are rejected synchronously; "
-        "a PR whose current commit already has a published review returns 'already_reviewed' without "
-        "starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole "
-        "point), and triggering a PR whose run is currently in flight joins that run. "
-        "Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in "
-        "the worker.",
+        "access, and publish it back to the PR. The run appears under the requesting user's recent reviews. "
+        "A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency "
+        "threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull "
+        "request owner opted in, whoever asks. `run_mode` picks the variant: 'review' is a Deep review that "
+        "chains the resolution stage per the owner's resolve_comments setting, 'review_only' is a Deep review "
+        "without resolving, 'resolve_only' runs resolution only, and 'flash' is a lower-cost Standard review "
+        "that never resolves comments and is refused after a published Deep review. "
+        "Nonexistent, closed, and fork PRs are rejected synchronously. "
+        "A PR whose current commit already has a published review in the requested mode returns "
+        "'already_reviewed' without starting a run (resolve_only skips that check, because settling threads "
+        "on a reviewed head is its whole point). A request while a review runs is queued on that PR's run. "
+        "Otherwise non-blocking: returns immediately with the PR's head, the review's id when one exists, and "
+        "whether resolution will run, while the run executes in the worker.",
     )
     @action(methods=["POST"], detail=False, required_scopes=["review_hog:write"])
     def trigger(self, request: Request, **kwargs) -> Response:
         team_id = resolve_effective_team_id(self.team_id)
-        # Dogfood gate: the UI trigger only runs on the designated ReviewHog team for now — reviews are
-        # expensive, so widening beyond it is a deliberate later decision, not a default.
-        if team_id not in settings.REVIEWHOG_TEAM_IDS:
-            return Response(
-                {"error": "PostHog Review can't start reviews from this project yet"},
-                status=status.HTTP_403_FORBIDDEN,
-            )
         serializer = ReviewTriggerRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
@@ -748,138 +830,44 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        repository = f"{pr_info['owner']}/{pr_info['repo']}"
-        # Checked synchronously (one GitHub API call) so an inaccessible repo errors here, in the UI —
-        # asynchronously the fetch activity would fail before the report row exists, showing nothing.
+        requested_at = timezone.now()
         try:
-            github = GitHubIntegration.first_for_team_repository(team_id, repository)
-        except GitHubRateLimitError as e:
-            return github_rate_limited_response(e)
-        if github is None:
-            return Response(
-                {
-                    "error": f"PostHog Review's GitHub App can't access {repository}. It reviews repositories covered by this project's GitHub integration."
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        pr_number = int(pr_info["pr_number"])
-        # One PR fetch so the answer is honest: without it a typo'd number or fork dies async (before
-        # the report row exists — nothing appears), and an already-reviewed head silently no-ops while
-        # the response still claims "started". Fork/closed rejection here is UX; the fetch activity
-        # keeps the authoritative fork gate.
-        try:
-            pr_meta = _fetch_pr_metadata(github, str(pr_info["owner"]), str(pr_info["repo"]), pr_number)
-        except GitHubRateLimitError as e:
-            return github_rate_limited_response(e)
-        except GitHubAPIError as e:
-            if e.status == 404:
-                return Response(
-                    {"error": f"No pull request #{pr_number} found in {repository}"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            raise
-        if pr_meta.is_fork:
-            return Response(
-                {"error": "PostHog Review doesn't review fork pull requests (a fork's head can't be trusted)"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if pr_meta.state != "open":
-            return Response(
-                {
-                    "error": f"Pull request #{pr_number} is {pr_meta.state}; PostHog Review only reviews open pull requests"
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        run_mode: str = serializer.validated_data["run_mode"]
-        # The busy-guard (CONTEXT.md): Temporal joins same-id starts on its own, but a review and
-        # this PR's resolution run under different workflow ids, so the cross-stage check is
-        # explicit — and the answer is a refusal, not a queue.
-        pr_owner, pr_repo = str(pr_info["owner"]), str(pr_info["repo"])
-        if run_mode == RUN_MODE_RESOLVE_ONLY:
-            if workflow_running(
-                review_pr_workflow_id(team_id=team_id, owner=pr_owner, repo=pr_repo, pr_number=pr_number)
-            ):
-                return Response(
-                    {
-                        "error": "A review is already running on this pull request. It resolves comments when it finishes."
-                    },
-                    status=status.HTTP_409_CONFLICT,
-                )
-        elif workflow_running(
-            resolve_pr_workflow_id(team_id=team_id, owner=pr_owner, repo=pr_repo, pr_number=pr_number)
-        ):
-            return Response(
-                {"error": "Still resolving comments from the last review. Try again when it finishes."},
-                status=status.HTTP_409_CONFLICT,
-            )
-        # Rebuilt canonical URL: the parser accepts trailing paths (e.g. …/pull/123/files).
-        pr_url = f"https://github.com/{pr_info['owner']}/{pr_info['repo']}/pull/{pr_info['pr_number']}"
-        # The requester is both the run user (sandbox identity) and the acting user (whose
-        # perspectives/validator/threshold/criteria apply). The route is authenticated, so never anonymous.
-        requester_id = cast(User, request.user).id
-
-        if run_mode == RUN_MODE_RESOLVE_ONLY:
-            # No already-reviewed early-return here: an already-reviewed head is exactly when a
-            # standalone resolution run is useful (the threads exist, the review won't re-run).
-            workflow_id = start_resolution_workflow(
-                pr_url=pr_url,
+            outcome = request_pr_review(
                 team_id=team_id,
-                user_id=requester_id,
-                acting_user_id=requester_id,
-                trigger_source=TRIGGER_UI,
+                # The route is authenticated, so never anonymous.
+                requester_id=cast(User, request.user).id,
+                owner=str(pr_info["owner"]),
+                repo=str(pr_info["repo"]),
+                pr_number=int(pr_info["pr_number"]),
+                run_mode=serializer.validated_data["run_mode"],
             )
-            logger.info(f"ReviewHog UI trigger started resolution {workflow_id} for {pr_url} by user {requester_id}")
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
+        if outcome.error:
             return Response(
-                ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
-                status=status.HTTP_202_ACCEPTED,
+                ReviewTriggerErrorSerializer({"error": outcome.error, "code": outcome.refusal}).data
+                if outcome.refusal
+                else {"error": outcome.error},
+                status=_TRIGGER_REFUSAL_STATUS[outcome.status],
             )
-
-        # Repository casing can differ per trigger (the report stores whatever its trigger carried).
-        report = (
-            ReviewReport.objects.for_team(team_id).filter(repository__iexact=repository, pr_number=pr_number).first()
-        )
-        review_mode = REVIEW_MODE_FLASH if run_mode == RUN_MODE_FLASH else REVIEW_MODE_FULL
-        if report is not None and review_already_published(report, pr_meta.head_sha or "", review_mode):
-            # The workflow would early-exit before resolving the acting user anyway — say so instead
-            # of answering "started" for a run that will do nothing.
-            return Response(
-                ReviewTriggerResponseSerializer({"workflow_id": "", "status": "already_reviewed"}).data,
-                status=status.HTTP_200_OK,
-            )
-        # Probed before the start: a same-id start joins the running turn, whose inputs keep the
-        # original trigger, so the requester's tier lift has to be written here (see the helper).
-        joins_running_review = workflow_running(
-            review_pr_workflow_id(team_id=team_id, owner=pr_owner, repo=pr_repo, pr_number=pr_number)
-        )
-        workflow_id = start_review_pr_workflow(
-            pr_url=pr_url,
-            team_id=team_id,
-            user_id=requester_id,
-            publish=True,
-            acting_user_id=requester_id,
-            trigger_source=TRIGGER_UI,
-            # None = the requester's resolve_comments setting decides; review_only and flash pin it off.
-            resolve_comments=False if run_mode in (RUN_MODE_REVIEW_ONLY, RUN_MODE_FLASH) else None,
-            review_mode=review_mode,
-            requested_head_sha=pr_meta.head_sha,
-        )
-        if joins_running_review:
-            # Flash is excluded for the same reason the fetch upsert excludes it: the lift rewrites
-            # the persisted arm, so the cheapest request must not raise what later turns cost.
-            lifted = run_mode != RUN_MODE_FLASH and lift_review_tier_for_joined_trigger(
-                team_id=team_id, repository=repository, pr_number=pr_number
-            )
-            logger.info(
-                f"ReviewHog UI trigger joined running workflow {workflow_id} for {pr_url} (tier lifted={lifted})"
-            )
-            return Response(
-                ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "joined_running_review"}).data,
-                status=status.HTTP_202_ACCEPTED,
-            )
-        logger.info(f"ReviewHog UI trigger started workflow {workflow_id} for {pr_url} by user {requester_id}")
         return Response(
-            ReviewTriggerResponseSerializer({"workflow_id": workflow_id, "status": "started"}).data,
-            status=status.HTTP_202_ACCEPTED,
+            ReviewTriggerResponseSerializer(
+                {
+                    "workflow_id": outcome.workflow_id,
+                    "status": outcome.status.value,
+                    "repository": outcome.repository,
+                    "pr_number": outcome.pr_number,
+                    "head_sha": outcome.head_sha,
+                    "review_mode": outcome.review_mode,
+                    "report_id": outcome.report_id,
+                    "requested_at": requested_at,
+                    "resolve_will_run": outcome.resolve_will_run,
+                    "resolve_skip_reason": outcome.resolve_skip_reason,
+                }
+            ).data,
+            status=status.HTTP_200_OK
+            if outcome.status == PRReviewRequestStatus.ALREADY_REVIEWED
+            else status.HTTP_202_ACCEPTED,
         )
 
     @extend_schema(

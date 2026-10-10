@@ -37,6 +37,12 @@ RESEND_APP_CLIENT_SECRET = get_from_env("RESEND_APP_CLIENT_SECRET", "")
 Then wire the `oauth_config_for_kind()` branch (raise `NotImplementedError("<Source> app not configured")`
 when either is empty — that's the fail-closed message users see).
 
+A provider that issues no static secret needs more than two vars, and the rest of this page still
+applies to each of them. Apple Ads is the worked example: the registration is a key pair, so it
+declares `APPLE_ADS_APP_CLIENT_ID`, `APPLE_ADS_APP_TEAM_ID`, `APPLE_ADS_APP_KEY_ID` and
+`APPLE_ADS_APP_PRIVATE_KEY`, and `posthog/models/integration/apple_ads.py` signs a short-lived
+assertion from them on every config build. Treat all four as secrets in steps 3 and 4.
+
 ## 3. Charts — map env var → secret key (PostHog/charts PR)
 
 Add the two vars in **both** stores, mirroring the existing OAuth apps (Stripe, Salesforce, HubSpot…).

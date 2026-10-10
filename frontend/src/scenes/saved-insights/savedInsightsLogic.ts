@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -114,6 +115,7 @@ function insightsListParams(filters: SavedInsightFilters): Record<string, any> {
         saved: true,
         // PostHog no longer generates these, and the flag Usage tab still shows the same charts
         hide_feature_flag_insights: true,
+        exclude_bi: true,
         ...(filters.favorited && { favorited: true }),
         ...(filters.search && { search: filters.search }),
         ...(filters.insightType?.toLowerCase() !== 'all types' && {
@@ -147,7 +149,15 @@ function insightsListParams(filters: SavedInsightFilters): Record<string, any> {
 }
 
 /** Params that scope, page, or sort the list rather than filter it. */
-const NON_NARROWING_PARAM_KEYS = ['order', 'limit', 'offset', 'saved', 'user', 'hide_feature_flag_insights']
+const NON_NARROWING_PARAM_KEYS = [
+    'order',
+    'limit',
+    'offset',
+    'saved',
+    'user',
+    'hide_feature_flag_insights',
+    'exclude_bi',
+]
 
 /**
  * Whether any filter that narrows the insights list is active, i.e. the API request would carry a
@@ -641,10 +651,10 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 let keys = Object.keys(objectDiffShallow(oldFilters, filters))
                 if (keys.includes('tab')) {
                     keys = keys.filter((k) => k !== 'tab')
-                    eventUsageLogic.actions.reportSavedInsightTabChanged(filters.tab)
+                    posthog.capture('saved insights list page tab changed', { tab: filters.tab })
                 }
                 if (keys.length > 0) {
-                    eventUsageLogic.actions.reportSavedInsightFilterUsed(keys)
+                    posthog.capture('saved insights list page filter used', { filter_keys: keys })
                 }
             }
         },

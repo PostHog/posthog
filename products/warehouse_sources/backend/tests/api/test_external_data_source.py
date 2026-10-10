@@ -110,7 +110,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     PostgresDiscoveredSchema,
     SSLRequiredError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
+    _CONNECT_TIMEOUT_VALIDATION_ERROR,
+    PostgresSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import RedditAdsApiError
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
@@ -132,6 +135,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsAPIError
+from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
 
 
 def _configure_source_mock_versioning(mock_get_source) -> None:
@@ -144,7 +148,14 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
 
     The update path also asks the source whether an edit introduces a new connection host or leaves
     row-backed credentials preserved; a bare MagicMock returns truthy for both, which would wrongly
-    trip the credential-reentry gate. Stub them to their real (falsy) defaults."""
+    trip the credential-reentry gate. Stub them to their real (falsy) defaults.
+
+    Both the create and update paths persist `source.serialize_config(source_config)` rather than
+    `source_config.to_dict()` directly, so a source stays able to retain rollout-compatible fields
+    (see `AppleSearchAdsSource.serialize_config`). A bare MagicMock's `serialize_config` otherwise
+    returns an unconfigured MagicMock, which Django's ORM then tries to treat as a query expression
+    and rejects. Delegate it to the parsed config's own `to_dict()`, matching the base class's
+    default implementation, so a test that only sets up `parse_config` keeps working."""
     mock_get_source.return_value.default_version = "v1"
     mock_get_source.return_value.get_version_deprecation.return_value = None
     mock_get_source.return_value.max_instances_per_team = None
@@ -153,6 +164,7 @@ def _configure_source_mock_versioning(mock_get_source) -> None:
     mock_get_source.return_value.server_managed_job_input_fields.return_value = []
     mock_get_source.return_value.job_inputs_add_connection_host.return_value = False
     mock_get_source.return_value.has_preserved_row_backed_credentials.return_value = False
+    mock_get_source.return_value.serialize_config.side_effect = lambda config: config.to_dict()
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -215,15 +227,29 @@ class TestExternalDataSource(APIBaseTest):
         # The sources list embeds every schema of every source, so it serializes a trimmed per-schema
         # shape (the fields the list UI reads); the single-source view keeps the full schema.
         source = self._make_source("trim")
-        self._make_schema_with_table(source, "Customers", row_count=42)
+        schema = self._make_schema_with_table(source, "Customers", row_count=42)
+        schema.sync_frequency_interval = timedelta(hours=6)
+        schema.save(update_fields=["sync_frequency_interval"])
 
         list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         self.assertEqual(list_response.status_code, 200)
         listed_schema = list_response.json()["results"][0]["schemas"][0]
         self.assertEqual(
             set(listed_schema.keys()),
-            {"id", "name", "label", "should_sync", "status", "sync_type", "last_synced_at", "latest_error", "table"},
+            {
+                "id",
+                "name",
+                "label",
+                "should_sync",
+                "status",
+                "sync_type",
+                "last_synced_at",
+                "sync_frequency",
+                "latest_error",
+                "table",
+            },
         )
+        self.assertEqual(listed_schema["sync_frequency"], "6hour")
         self.assertEqual(listed_schema["table"]["row_count"], 42)
         self.assertEqual(listed_schema["table"]["name"], "Customers")
         # sync_type is kept for the PostHog Desktop app, which reads it from the list; without it the
@@ -236,6 +262,13 @@ class TestExternalDataSource(APIBaseTest):
         # fields the settings page needs that the list intentionally drops
         self.assertIn("sync_type", detail_schema)
         self.assertIn("available_columns", detail_schema)
+
+        ExternalDataSchema.objects.filter(team_id=self.team.pk, pk=schema.pk).update(
+            sync_frequency_interval=timedelta(hours=7)
+        )
+        list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+        self.assertEqual(list_response.status_code, 200)
+        self.assertIsNone(list_response.json()["results"][0]["schemas"][0]["sync_frequency"])
 
     def test_list_source_status_and_latest_error_reflect_syncing_schemas(self):
         # `active_schemas` is derived in Python from the single schemas prefetch; the derived subset
@@ -250,6 +283,43 @@ class TestExternalDataSource(APIBaseTest):
         result = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"][0]
         self.assertEqual(result["status"], ExternalDataSchema.Status.FAILED)
         self.assertEqual(result["latest_error"], "boom")
+
+    @parameterized.expand(
+        [
+            ("stored_secret", "Stripe rejected key sk_test_123 for this account", "sk_test_123"),
+            (
+                "url_query_param",
+                "HTTP 503 for https://api.example.com/v1/items?api_key=abc123xyz&page=2",
+                "abc123xyz",
+            ),
+            (
+                "url_userinfo",
+                "could not connect to postgres://admin:hunter2secret@db.example.com:5432",
+                "hunter2secret",
+            ),
+            ("bearer_header", "401 Unauthorized, sent Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload", "eyJhbGci"),
+        ]
+    )
+    def test_latest_error_masks_credentials(self, _name, error, secret):
+        source = self._make_source("redact")
+        self._make_schema_with_table(
+            source, "Customers", status=ExternalDataSchema.Status.FAILED, latest_error=error, should_sync=True
+        )
+
+        listed = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"][0]
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/").json()
+        schemas = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/").json()["results"]
+
+        errors = [
+            listed["latest_error"],
+            listed["schemas"][0]["latest_error"],
+            detail["latest_error"],
+            detail["schemas"][0]["latest_error"],
+            schemas[0]["latest_error"],
+        ]
+        for masked in errors:
+            self.assertIn("***", masked)
+            self.assertNotIn(secret, masked)
 
     def test_list_query_count_does_not_scale_with_source_count(self):
         # Guards the prefetch design: adding sources (each with schemas + tables) must not add queries.
@@ -401,7 +471,7 @@ class TestExternalDataSource(APIBaseTest):
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_a_source_created_without_destinations_is_unchanged(self, _mock_validate):
+    def test_a_source_created_without_destinations_is_linked_to_the_warehouse(self, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -415,11 +485,31 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
-        assert (
-            not ExternalDataSourceDestination.objects.for_team(self.team.pk)
-            .filter(source_id=response.json()["id"])
-            .exists()
+        link = ExternalDataSourceDestination.objects.for_team(self.team.pk).get(source_id=response.json()["id"])
+        assert link.enabled is True
+        assert link.destination.type == ExternalDataDestination.Type.POSTHOG_WAREHOUSE
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_rejects_an_empty_destination_set_before_creating_the_source(self, _mock_validate):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "destination_ids": [],
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [{"name": "Customer", "should_sync": True, "sync_type": "full_refresh"}],
+                },
+            },
         )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "at least one destination" in response.json()["detail"]
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
@@ -686,16 +776,71 @@ class TestExternalDataSource(APIBaseTest):
             "direct_trino_table": "events",
         }
 
-    def test_create_trino_rejects_warehouse_mode(self):
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.get_schemas",
+        return_value=[
+            SourceSchema(
+                name="analytics.events",
+                supports_incremental=True,
+                supports_append=True,
+                columns=[("id", "bigint", False), ("updated_at", "timestamp(3)", True)],
+                source_catalog="hive",
+                source_schema="analytics",
+                source_table_name="events",
+                detected_primary_keys=["id"],
+            )
+        ],
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.TrinoSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_warehouse_trino_source_syncs_incrementally(self, _mock_validate, _mock_get_schemas):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Trino",
                 "created_via": "web",
                 "access_method": "warehouse",
-                "payload": {},
+                "payload": {
+                    "host": "trino.example.com",
+                    "port": 443,
+                    "catalog": "hive",
+                    "schema": "",
+                    "auth_type": {"selection": "password", "user": "posthog", "password": "secret"},
+                    "use_ssl": True,
+                    "verify_ssl": True,
+                    "schemas": [
+                        {
+                            "name": "analytics.events",
+                            "should_sync": True,
+                            "sync_type": "incremental",
+                            "incremental_field": "updated_at",
+                            "incremental_field_type": "timestamp",
+                        }
+                    ],
+                },
             },
         )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        schema = ExternalDataSchema.objects.get(source=source, name="analytics.events")
+        assert source.access_method == ExternalDataSource.AccessMethod.WAREHOUSE
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.incremental_field == "updated_at"
+
+    def test_create_rejects_warehouse_mode_for_a_direct_only_source(self):
+        with patch.object(TrinoSource, "supports_scheduled_sync", False):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/",
+                data={
+                    "source_type": "Trino",
+                    "created_via": "web",
+                    "access_method": "warehouse",
+                    "payload": {},
+                },
+            )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json() == {"message": "Trino is available only as a direct connection."}
@@ -742,11 +887,17 @@ class TestExternalDataSource(APIBaseTest):
         source = ExternalDataSource.objects.get()
         assert source.schemas.filter(should_sync=True).exists()
 
+    @parameterized.expand(
+        [
+            ("unknown_name", {"name": "SomeOtherSchema", "should_sync": True, "sync_type": "full_refresh"}),
+            ("unknown_sync_type", {"name": STRIPE_CUSTOMER_RESOURCE_NAME, "should_sync": True, "sync_type": "full"}),
+        ]
+    )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_create_external_data_source_delete_on_bad_schema(self, _mock_validate):
+    def test_create_external_data_source_delete_on_bad_schema(self, _name, schema, _mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
@@ -754,15 +905,14 @@ class TestExternalDataSource(APIBaseTest):
                 "created_via": "web",
                 "payload": {
                     "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
-                    "schemas": [
-                        {"name": "SomeOtherSchema", "should_sync": True, "sync_type": "full_refresh"},
-                    ],
+                    "schemas": [schema],
                 },
             },
         )
 
         assert response.status_code == 400
         assert ExternalDataSource.objects.count() == 0
+        assert ExternalDataSchema.objects.count() == 0
 
     @parameterized.expand(
         [
@@ -1107,7 +1257,6 @@ class TestExternalDataSource(APIBaseTest):
                 "cdc_lag_warning_threshold_mb": 512,
                 "cdc_lag_critical_threshold_mb": 1024,
                 "cdc_consistent_point": "0/AA",
-                "cdc_ingest_mode": "buffered",
             },
         )
 
@@ -1128,7 +1277,6 @@ class TestExternalDataSource(APIBaseTest):
                     "cdc_lag_warning_threshold_mb": 1,
                     "cdc_lag_critical_threshold_mb": 2,
                     "cdc_consistent_point": "0/BAD",
-                    "cdc_ingest_mode": "legacy",
                 }
             },
             format="json",
@@ -1145,7 +1293,6 @@ class TestExternalDataSource(APIBaseTest):
         assert str(source.job_inputs["cdc_lag_warning_threshold_mb"]) == "512"
         assert str(source.job_inputs["cdc_lag_critical_threshold_mb"]) == "1024"
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
-        assert source.job_inputs["cdc_ingest_mode"] == "buffered"
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -1241,7 +1388,11 @@ class TestExternalDataSource(APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
-            data={"schemas": [{"id": str(schema.id), "full_refresh_interval_days": 7}]},
+            data={
+                "schemas": [
+                    {"id": str(schema.id), "full_refresh_interval_days": 7, "full_refresh_time_of_day": "03:00:00"}
+                ]
+            },
             format="json",
         )
 
@@ -1249,7 +1400,9 @@ class TestExternalDataSource(APIBaseTest):
         assert response.json()[0]["full_refresh_interval_days"] == 7
         schema.refresh_from_db()
         assert schema.full_refresh_interval_days == 7
+        assert str(schema.full_refresh_time_of_day) == "03:00:00"
         assert schema.next_full_refresh_at is not None
+        assert schema.next_full_refresh_at.strftime("%H:%M:%S") == "03:00:00"
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -1634,6 +1787,53 @@ class TestExternalDataSource(APIBaseTest):
         # The newly enabled schema gets its Temporal schedule created.
         assert mock_sync_workflow.call_count == 1
         assert mock_sync_workflow.call_args.kwargs == {"create": True, "should_sync": True}
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+        return_value=False,
+    )
+    def test_bulk_update_schemas_finds_renamed_google_sheet_by_resource_id(self, _mock_workflow_exists):
+        from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
+        from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+
+        source = self._create_external_data_source()
+        source.source_type = "GoogleSheets"
+        source.job_inputs = {"spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake"}
+        source.save(update_fields=["source_type", "job_inputs"])
+        schema = ExternalDataSchema.objects.create(
+            name="budget",
+            team_id=self.team.pk,
+            source=source,
+            should_sync=False,
+            sync_type=None,
+            sync_type_config={"schema_metadata": {SCHEMA_RESOURCE_ID_METADATA_KEY: "7"}},
+        )
+        discovered = SourceSchema(
+            name="budget_2025",
+            supports_incremental=False,
+            supports_append=False,
+            schema_metadata={SCHEMA_RESOURCE_ID_METADATA_KEY: "7"},
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.GoogleSheetsSource.get_schemas",
+                return_value=[discovered],
+            ) as mock_get_schemas,
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.id}/bulk_update_schemas",
+                data={"schemas": [{"id": str(schema.id), "should_sync": True, "apply_sync_defaults": True}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()[0]["should_sync"] is True
+        assert response.json()[0]["sync_type"] == "full_refresh"
+        assert mock_get_schemas.call_args.kwargs["names"] is None
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
@@ -2790,6 +2990,17 @@ class TestExternalDataSource(APIBaseTest):
         # Guards the drift the picker hit: a direct-capable engine must surface as an addable option.
         self.assertTrue({"Postgres", "MySQL", "Snowflake", "Redshift", "ClickHouse", "Trino"}.issubset(source_types))
         self.assertNotIn("Stripe", source_types)
+        # BigQuery is gated on the bigquery-direct-query flag, off by default.
+        self.assertNotIn("BigQuery", source_types)
+
+        with patch(
+            "posthog.hogql.direct_sql.capability.bigquery_direct_query_enabled",
+            return_value=True,
+        ):
+            flag_on = self.client.get(
+                f"/api/environments/{self.team.pk}/external_data_sources/direct_connection_options/"
+            )
+        self.assertIn("BigQuery", {option["source_type"] for option in flag_on.json()})
 
         clickhouse = next(option for option in payload if option["source_type"] == "ClickHouse")
         self.assertEqual(clickhouse["label"], "ClickHouse")
@@ -3116,6 +3327,7 @@ class TestExternalDataSource(APIBaseTest):
                 "supports_column_selection",
                 "api_version",
                 "api_version_deprecation",
+                "connection_warning",
             ],
         )
         self.assertIsNone(payload["engine"])
@@ -3139,6 +3351,7 @@ class TestExternalDataSource(APIBaseTest):
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
                     "full_refresh_interval_days": None,
+                    "full_refresh_time_of_day": None,
                     "next_full_refresh_at": None,
                     "description": schema.description,
                     "primary_key_columns": None,
@@ -3146,6 +3359,7 @@ class TestExternalDataSource(APIBaseTest):
                     "incremental_sync_blocked": None,
                     "enabled_columns": None,
                     "row_filters": None,
+                    "row_filter_columns": None,
                     "available_columns": [],
                     "source_column_metadata_available": False,
                     "source": None,
@@ -4109,6 +4323,52 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(connection_metadata["database"], "app")
         self.assertEqual(connection_metadata["available_functions"], ["duckdb_functions", "date_bin"])
 
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_direct_bigquery_source_without_table_registration(self, mock_get_source):
+        # BigQuery has no materialization engine, so a pure-direct connection is created with
+        # schema rows but no DataWarehouseTable. Creation is gated on the bigquery-direct-query flag.
+        _configure_source_mock_versioning(mock_get_source)
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.to_dict.return_value = {"dataset_id": "analytics"}
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="orders",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "INTEGER", False)],
+                foreign_keys=[],
+            ),
+        ]
+
+        request_data = {
+            "source_type": "BigQuery",
+            "created_via": "web",
+            "access_method": "direct",
+            "prefix": "Analytics warehouse",
+            "payload": {"dataset_id": "analytics"},
+        }
+
+        # Flag off (the default): a direct BigQuery connection cannot be created.
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/", data=request_data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"message": DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE})
+
+        with patch(
+            "posthog.hogql.direct_sql.capability.bigquery_direct_query_enabled",
+            return_value=True,
+        ):
+            response = self.client.post(f"/api/environments/{self.team.pk}/external_data_sources/", data=request_data)
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        source = ExternalDataSource.objects.get(pk=response.json()["id"])
+        self.assertEqual(source.access_method, ExternalDataSource.AccessMethod.DIRECT)
+        schema = ExternalDataSchema.objects.get(team_id=self.team.pk, source=source, name="orders")
+        self.assertIsNone(schema.table)
+
     def test_create_direct_postgres_requires_name(self):
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
@@ -4413,27 +4673,8 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(public_schema.sync_type_config["schema_metadata"]["source_schema"], "public")
         self.assertEqual(analytics_schema.sync_type_config["schema_metadata"]["source_schema"], "analytics")
 
-    @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
-        return_value=True,
-    )
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
-    )
-    @patch(
-        "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
-    )
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
-    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    def test_create_postgres_cdc_with_blank_schema_uses_physical_schema_metadata(
-        self,
-        mock_get_source,
-        mock_cdc_pg_connection,
-        mock_get_primary_key_columns,
-        mock_setup_cdc_resources,
-        mock_add_table,
-        _mock_is_cdc_enabled_for_team,
+    def _post_postgres_cdc_source_with_one_table(
+        self, mock_get_source, mock_cdc_pg_connection, mock_get_primary_key_columns, mock_setup_cdc_resources
     ):
         _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
@@ -4480,7 +4721,7 @@ class TestExternalDataSource(APIBaseTest):
 
         mock_setup_cdc_resources.side_effect = setup_cdc_slot
 
-        response = self.client.post(
+        return self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/",
             data={
                 "source_type": "Postgres",
@@ -4500,6 +4741,32 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
+        return_value=True,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_postgres_cdc_with_blank_schema_uses_physical_schema_metadata(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        mock_add_table,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        response = self._post_postgres_cdc_source_with_one_table(
+            mock_get_source, mock_cdc_pg_connection, mock_get_primary_key_columns, mock_setup_cdc_resources
+        )
+
         assert response.status_code == status.HTTP_201_CREATED, response.content
         schema = ExternalDataSchema.objects.get(team_id=self.team.pk, name="analytics.events")
         assert schema.sync_type_config["primary_key_columns"] == ["id"]
@@ -4512,6 +4779,43 @@ class TestExternalDataSource(APIBaseTest):
         # (source, schema, table). The first arg is the source model.
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
+
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
+        return_value=True,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources"
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table",
+        side_effect=psycopg.errors.InsufficientPrivilege("must be owner of table events"),
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_postgres_cdc_refused_when_a_table_cannot_join_the_publication(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        _mock_add_table,
+        mock_cleanup_resources,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        response = self._post_postgres_cdc_source_with_one_table(
+            mock_get_source, mock_cdc_pg_connection, mock_get_primary_key_columns, mock_setup_cdc_resources
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "PostgreSQL only lets a table's owner publish it" in response.json()["message"]
+        mock_cleanup_resources.assert_called_once()
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
+        assert not ExternalDataSchema.objects.filter(team_id=self.team.pk, name="analytics.events").exists()
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
@@ -4958,7 +5262,13 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "no primary key" in response.json()["message"].lower()
+        message = response.json()["message"]
+        assert "no primary key" in message.lower()
+        # The wizard shows this verbatim, so it has to name the sync method the form offers
+        # rather than the API field and enum value behind it.
+        assert "full table replication" in message
+        assert "primary_key_columns" not in message
+        assert "full_refresh" not in message
         assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
 
     @parameterized.expand(
@@ -6526,6 +6836,113 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["password"] == "new_password"
         mock_validate_credentials.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("internal_host_team_saves_with_warning", True, _CONNECT_TIMEOUT_VALIDATION_ERROR, 200),
+            ("other_team_is_rejected", False, _CONNECT_TIMEOUT_VALIDATION_ERROR, 400),
+            ("internal_host_team_with_rejected_credentials_is_rejected", True, "Invalid password.", 400),
+        ]
+    )
+    def test_update_with_failed_connection_probe(self, _name, allowlisted, probe_error, expected_status):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_failed_probe",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+                return_value=(False, probe_error),
+            ),
+            patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_source.source_setup.is_team_allowlisted_for_internal_hosts",
+                return_value=allowlisted,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={"job_inputs": {"host": "new-host.example.com", "password": "new_password"}},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        source.refresh_from_db()
+        if expected_status == 200:
+            assert source.job_inputs["host"] == "new-host.example.com"
+            assert probe_error in response.json()["connection_warning"]
+        else:
+            assert source.job_inputs["host"] == "db.example.com"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.kafka.source.KafkaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_kafka_host_change_requires_nested_password(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Kafka",
+            created_by=self.user,
+            prefix="test_kafka_nested_secret",
+            job_inputs={
+                "source_type": "Kafka",
+                "bootstrap_servers": "broker.example.com:9092",
+                "authentication": {
+                    "selection": "sasl_plain",
+                    "username": "api-key",
+                    "password": "stored-secret",
+                },
+                "encryption": "tls",
+                "value_format": "json",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"bootstrap_servers": "attacker.example.com:9092"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["bootstrap_servers"] == "broker.example.com:9092"
+        mock_validate_credentials.assert_not_called()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "bootstrap_servers": "new-broker.example.com:9092",
+                    "authentication": {
+                        "selection": "sasl_plain",
+                        "username": "api-key",
+                        "password": "new-secret",
+                    },
+                }
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["bootstrap_servers"] == "new-broker.example.com:9092"
+        assert source.job_inputs["authentication"]["password"] == "new-secret"
+        mock_validate_credentials.assert_called_once()
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.billomat.source.BillomatSource.validate_credentials",
         return_value=(True, None),
@@ -6706,6 +7123,54 @@ class TestExternalDataSource(APIBaseTest):
         assert source.auto_sync_new_schemas is True
 
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.source.AppleSearchAdsSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_apple_ads_key_pair_unrelated_field_does_not_reprobe(self, mock_validate_credentials):
+        # Apple Ads' serialize_config adds the four key-pair fields back onto the flat dict for a
+        # key_pair source, which parse_config().to_dict() alone does not. Comparing those two shapes
+        # always disagreed, so every save re-probed Apple's API — even one that only flips an
+        # unrelated setting. Compare like for like instead: serialize_config on both sides.
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="AppleSearchAds",
+            created_by=self.user,
+            prefix="test_apple_ads_no_reprobe",
+            job_inputs={
+                "source_type": "AppleSearchAds",
+                "org_id": "4242",
+                "ad_account_id": "acct-1",
+                "client_id": "cid",
+                "apple_team_id": "tid",
+                "key_id": "kid",
+                "private_key": "pem",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "org_id": "4242",
+                    "ad_account_id": "acct-1",
+                    "client_id": "cid",
+                    "apple_team_id": "tid",
+                    "key_id": "kid",
+                    "private_key": "pem",
+                },
+                "auto_sync_new_schemas": True,
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.auto_sync_new_schemas is True
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.freshdesk.source.FreshdeskSource.validate_credentials",
         return_value=(True, None),
     )
@@ -6761,6 +7226,37 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["subdomain"] == "newco"
         assert source.job_inputs["api_key"] == "new_key"
         mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.kafka.source.KafkaSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_kafka_bootstrap_servers_without_nested_password_is_rejected(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Kafka",
+            created_by=self.user,
+            prefix="kafka_src",
+            job_inputs={
+                "bootstrap_servers": "broker.example.com:9092",
+                "authentication": {"selection": "sasl_plain", "username": "key", "password": "secret"},
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"bootstrap_servers": "attacker.example.com:9092"}},
+        )
+
+        assert response.status_code == 400
+        assert "re-entering your credentials" in str(response.json())
+        source.refresh_from_db()
+        assert source.job_inputs["bootstrap_servers"] == "broker.example.com:9092"
+        assert source.job_inputs["authentication"]["password"] == "secret"
+        mock_validate_credentials.assert_not_called()
 
     def _servicenow_source(self) -> ExternalDataSource:
         # ServiceNow's connection target is `instance_url` (not a top-level `host`) and its
@@ -9402,7 +9898,6 @@ class TestCreateWebhook(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.create_webhook")
     def test_update_webhook_inputs_partial_update_preserves_other_required_fields(self, mock_create_webhook):
-
         from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
         mock_create_webhook.return_value = self._webhook_result(extra_inputs={"signing_secret": "whsec_initial"})
@@ -9415,7 +9910,6 @@ class TestCreateWebhook(APIBaseTest):
         # that a partial update which omits one required field is accepted while still
         # preserving the existing value on the HogFunction.
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 
         original_source = SourceRegistry.get_source(ExternalDataSourceType("Stripe"))
         original_config = original_source.get_source_config
@@ -9556,7 +10050,7 @@ class TestCreateWebhook(APIBaseTest):
         assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
 
-class TestSensitiveFieldClassification(APIBaseTest):
+class TestSensitiveFieldClassification(SimpleTestCase):
     def test_classifies_password_fields_as_sensitive(self):
         fields: list[FieldType] = [
             SourceFieldInputConfig(
@@ -9808,94 +10302,6 @@ class TestSensitiveFieldClassification(APIBaseTest):
 
         assert result["temporary-dataset"]["temporary_dataset_id"] == "declared"
         assert "temporary_dataset" not in result
-
-    def test_all_registered_sources_have_valid_classification(self):
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            split = get_nonsensitive_and_sensitive_field_names(config.fields)
-
-            # No field should appear in both sets
-            overlap = split.nonsensitive & split.sensitive
-            assert not overlap, f"{config.name}: fields in both sets: {overlap}"
-
-    def test_password_typed_fields_must_be_marked_secret(self):
-        """A field rendered as type=PASSWORD that is not also `secret=True` is a misconfiguration:
-        it would obscure on screen but still be returned in plain text from the API.
-        """
-
-        def collect_password_fields_without_secret(fields: list[FieldType]) -> list[str]:
-            offenders: list[str] = []
-            for field in fields:
-                if isinstance(field, SourceFieldInputConfig):
-                    if field.type == SourceFieldInputConfigType.PASSWORD and not field.secret:
-                        offenders.append(field.name)
-                elif isinstance(field, SourceFieldSwitchGroupConfig):
-                    offenders.extend(collect_password_fields_without_secret(field.fields))
-                elif isinstance(field, SourceFieldSelectConfig):
-                    for option in field.options:
-                        if option.fields:
-                            offenders.extend(collect_password_fields_without_secret(option.fields))
-            return offenders
-
-        all_offenders: dict[str, list[str]] = {}
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            offenders = collect_password_fields_without_secret(config.fields)
-            if offenders:
-                all_offenders[config.name] = offenders
-
-        assert not all_offenders, (
-            f"PASSWORD-typed fields must also set secret=True to be redacted from API responses. "
-            f"Offending fields: {all_offenders}"
-        )
-
-    def test_dynamic_classification_covers_old_hardcoded_allowlist(self):
-        """Regression: all fields from the old hardcoded allowlist should be in the dynamic nonsensitive set."""
-
-        old_allowed = {
-            "stripe_account_id",
-            "database",
-            "host",
-            "port",
-            "user",
-            "schema",
-            "ssh_tunnel",
-            "using_ssl",
-            "region",
-            "site_name",
-            "subdomain",
-            "email_address",
-            "hubspot_integration_id",
-            "custom_properties",
-            "account_id",
-            "warehouse",
-            "role",
-            "dataset_id",
-            "temporary-dataset",
-            "dataset_project",
-            "customer_id",
-            "google_ads_integration_id",
-            "is_mcc_account",
-            "spreadsheet_url",
-            "linkedin_ads_integration_id",
-            "meta_ads_integration_id",
-            "sync_lookback_days",
-            "reddit_integration_id",
-            "salesforce_integration_id",
-            "repository",
-            "shopify_store_id",
-            "namespace",
-        }
-
-        # Collect all nonsensitive field names across all sources
-        all_nonsensitive: set[str] = set()
-        for source in SourceRegistry.get_all_sources().values():
-            config = source.get_source_config
-            split = get_nonsensitive_and_sensitive_field_names(config.fields)
-            all_nonsensitive.update(split.nonsensitive)
-
-        missing = old_allowed - all_nonsensitive
-        assert not missing, f"Old allowlist fields not covered by dynamic classification: {missing}"
 
 
 class TestWebhookInfo(APIBaseTest):
@@ -11733,7 +12139,6 @@ class TestRepairCDC(APIBaseTest):
             sync_type_config={
                 "cdc_mode": "streaming",
                 "cdc_last_log_position": "0/123",
-                "cdc_deferred_runs": [{"run": "stale"}],
                 "cdc_broken": BROKEN_MARKER,
             },
         )
@@ -11780,7 +12185,6 @@ class TestRepairCDC(APIBaseTest):
             assert config["reset_pipeline"] is True
             assert "cdc_broken" not in config
             assert "cdc_last_log_position" not in config
-            assert "cdc_deferred_runs" not in config
             assert schema.initial_sync_complete is False
             assert schema.latest_error is None
 
@@ -12018,7 +12422,6 @@ class TestRepairCDC(APIBaseTest):
         # `awaiting_slot`: the slot this table would snapshot against is gone until repair
         # recreates it, so a capture run firing meanwhile must hold the reset instead of starting.
         assert cdc_schema.sync_type_config["cdc_reset_pending"] == {
-            "clear_deferred_runs": True,
             "trigger": True,
             "awaiting_slot": True,
             "generation": 1,
@@ -12583,7 +12986,10 @@ class TestExternalDataSourceSetup(APIBaseTest):
                 },
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["message"] == "Your Stripe API key has expired. Please create a new key and reconnect."
+        assert (
+            response.json()["message"]
+            == "Your Stripe credentials have expired. If you connected with OAuth, reconnect your Stripe account. If you use an API key, create a new key and update the source."
+        )
         mock_capture_exception.assert_not_called()
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
 

@@ -38,6 +38,7 @@ from posthog.helpers.oauth_pending_connection import (
     PENDING_OAUTH_CONNECTION_MAX_AGE_SECONDS,
     PendingOAuthConnection,
 )
+from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models.oauth import (
     OAuthAccessToken,
     OAuthApplication,
@@ -512,7 +513,7 @@ class TestOAuthAPI(APIBaseTest):
             self.base_authorization_post_body,
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_authorize_post_authorization_granted(self):
@@ -3500,20 +3501,34 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(mock_blocked.call_args.kwargs["surface"], "oauth_authorize")
         self.assertEqual(mock_blocked.call_args.kwargs["email"], self.user.email)
 
-    @patch("posthog.api.oauth.views.security_shadow_check")
-    def test_authorize_records_a_shadow_access_check_for_the_gateway_scope(self, shadow: MagicMock) -> None:
+    @patch("posthog.api.oauth.views.security_access_refused", return_value=False)
+    def test_authorize_asks_the_access_rules_for_the_gateway_scope(self, check: MagicMock) -> None:
         app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
 
         self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
 
-        shadow.assert_called_once()
-        subject, surface = shadow.call_args.args
+        check.assert_called_once()
+        subject, surface = check.call_args.args
         self.assertEqual(surface, SecuritySurface.AI_GATEWAY)
         self.assertEqual(subject.user_uuid, str(self.user.uuid))
-        self.assertEqual(shadow.call_args.kwargs, {"call_site": "oauth_authorize"})
+        self.assertEqual(check.call_args.kwargs, {"call_site": "oauth_authorize"})
 
-    @patch("posthog.api.oauth.views.security_shadow_check", side_effect=RuntimeError("boom"))
-    def test_authorize_grants_the_gateway_scope_when_the_shadow_check_raises(self, shadow: MagicMock) -> None:
+    @patch("posthog.api.oauth.views.wizard_identity_blocked", return_value=False)
+    @patch("posthog.api.oauth.views.security_access_refused", return_value=True)
+    def test_authorize_refuses_the_gateway_scope_when_an_access_rule_refuses(
+        self, check: MagicMock, mock_blocked: MagicMock
+    ) -> None:
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+        url = self.replace_param_in_url(self.base_authorization_url, "client_id", app.client_id)
+
+        response = self.client.get(f"{url}&scope=insight:read llm_gateway:read")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["error_description"], WIZARD_BLOCKED_DETAIL)
+        self.assertFalse(OAuthGrant.objects.filter(application=app).exists())
+
+    @patch("posthog.api.oauth.views.security_access_refused", side_effect=RuntimeError("boom"))
+    def test_authorize_grants_the_gateway_scope_when_the_access_check_raises(self, shadow: MagicMock) -> None:
         app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
 
         grant = self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
@@ -3728,6 +3743,46 @@ class TestOAuthAPI(APIBaseTest):
             response = self.client.get(f"{self.base_authorization_url}&scope=dashboard:read&approval_prompt=auto")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_render.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("team", None, None),
+            ("team", "{ }", "{ }"),
+            ("organization", "invalid", "invalid"),
+        ]
+    )
+    @time_machine.travel("2026-01-01 00:00:00", tick=False)
+    def test_auto_approval_inherits_token_access_instead_of_query_parameters(
+        self, access_level: str, teams_param: str | None, orgs_param: str | None
+    ) -> None:
+        scoped_teams = [self.team.id] if access_level == "team" else []
+        scoped_organizations = [str(self.organization.id)] if access_level == "organization" else []
+        self._set_scope_split(["experiment:read"], [])
+        OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token=f"existing_{access_level}_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="experiment:read",
+            scoped_teams=scoped_teams,
+            scoped_organizations=scoped_organizations,
+        )
+
+        url = f"{self.base_authorization_url}&scope=experiment:read&approval_prompt=auto"
+        if teams_param is not None and orgs_param is not None:
+            url += f"&scoped_teams={quote(teams_param)}&scoped_organizations={quote(orgs_param)}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        code = parse_qs(urlparse(response["Location"]).query)["code"][0]
+        grant = OAuthGrant.objects.get(code=code)
+        self.assertEqual(grant.scoped_teams, scoped_teams)
+        self.assertEqual(grant.scoped_organizations, scoped_organizations)
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        token_data = token_response.json()
+        self.assertEqual(token_data["scoped_teams"], scoped_teams)
+        self.assertEqual(token_data["scoped_organizations"], scoped_organizations)
 
     def test_authorize_get_passes_required_scopes_to_consent_page(self):
         self._set_scope_split(["experiment:read"], ["dashboard:read"])

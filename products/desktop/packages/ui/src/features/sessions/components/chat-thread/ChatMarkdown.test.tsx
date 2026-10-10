@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("mermaid", () => ({
   default: {
@@ -79,6 +79,10 @@ vi.mock("@posthog/ui/features/code-editor/hooks/useFileContent", () => ({
   useWorkspaceFileAsBase64,
 }));
 
+import {
+  ANONYMOUS_AUTH_STATE,
+  useAuthStore,
+} from "@posthog/ui/features/auth/store";
 import { SessionTaskIdProvider } from "@posthog/ui/features/sessions/useSessionTaskId";
 import {
   ChatMarkdown,
@@ -191,6 +195,10 @@ describe("resolveLocalImage", () => {
 });
 
 describe("ChatMarkdown object tags", () => {
+  afterEach(() => {
+    useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
+  });
+
   // The chat thread has its own sanitized renderer, which silently dropped
   // object tags while the session view rendered them; these lock the thread
   // to the same tag support.
@@ -219,6 +227,36 @@ describe("ChatMarkdown object tags", () => {
     expect(html).toContain("report-chart");
     expect(html).toContain("DAU, last 7 days");
     expect(html).not.toContain("SELECT 1");
+  });
+
+  it.each([
+    [
+      "an inline link as a chip that opens the cited page",
+      "The [checkout funnel](https://us.posthog.com/project/2/replay/s1?t=30) dropped.",
+      'href="https://us.posthog.com/project/2/replay/s1?t=30"',
+    ],
+    [
+      "a SQL link alone in its paragraph as a chart card",
+      "[DAU, last 7 days](https://us.posthog.com/project/2/sql?open_query=SELECT%201)",
+      "report-chart",
+    ],
+  ])("renders %s", (_what, content, expected) => {
+    useAuthStore.setState({
+      authState: {
+        ...ANONYMOUS_AUTH_STATE,
+        cloudRegion: "us",
+        currentProjectId: 2,
+      },
+    });
+    const { container, unmount } = render(
+      <QueryClientProvider client={queryClient}>
+        <ChatMarkdown content={content} renderObjectTags />
+      </QueryClientProvider>,
+    );
+    const html = container.innerHTML;
+    unmount();
+    expect(html).toContain(expected);
+    expect(html).not.toContain('target="_blank"');
   });
 
   it("does not run object tags in untrusted content by default", () => {

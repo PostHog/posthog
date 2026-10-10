@@ -9,8 +9,7 @@ import { discoverApps } from './scripts/utils'
 const POSTHOG_UI_APPS_TOKEN = process.env.POSTHOG_UI_APPS_TOKEN || ''
 
 // For local development, set to http://localhost:8010
-const POSTHOG_MCP_APPS_ANALYTICS_BASE_URL =
-    process.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL || 'https://us.i.posthog.com'
+const POSTHOG_MCP_APPS_ANALYTICS_BASE_URL = process.env.POSTHOG_MCP_APPS_ANALYTICS_BASE_URL || ''
 
 const APPS_DIR = resolve(__dirname, 'src/ui-apps/apps')
 

@@ -73,7 +73,7 @@ class PandaDocSource(ResumableSource[PandaDocSourceConfig, PandaDocResumeConfig]
 You can find your API key in the [PandaDoc developer dashboard](https://app.pandadoc.com/a/#/settings/api-dashboard/configuration). Use a production key — sandbox keys are heavily rate limited.""",
             iconPath="/static/services/pandadoc.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pandadoc",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

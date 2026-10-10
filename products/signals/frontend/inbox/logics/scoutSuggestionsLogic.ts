@@ -19,6 +19,7 @@ import {
 import type { ScoutSuggestionItemApi, ScoutSuggestionSetApi } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameRetrieve } from 'products/skills/frontend/generated/api'
 
+import type { SignalScoutConfigApi } from '../../generated/api.schemas'
 import {
     captureScoutSuggestionClicked,
     captureScoutSuggestionCreated,
@@ -26,6 +27,7 @@ import {
     captureScoutSuggestionsChatOpened,
     captureScoutSuggestionsRefreshed,
     captureScoutSuggestionsShown,
+    captureScoutSuggestionsStripClicked,
     ScoutSuggestionKind,
     ScoutSuggestionSurface,
 } from '../inboxAnalytics'
@@ -218,8 +220,10 @@ export interface scoutSuggestionsLogicActions {
     }
     suggestionCreated: (
         item: ScoutSuggestionItemApi,
-        surface: ScoutSuggestionSurface
+        surface: ScoutSuggestionSurface,
+        config: SignalScoutConfig
     ) => {
+        config: SignalScoutConfigApi
         item: ScoutSuggestionItemApi
         surface: ScoutSuggestionSurface
     }
@@ -231,7 +235,7 @@ export interface scoutSuggestionsLogicMeta {
         suggestions: (
             suggestionSet: ScoutSuggestionSetApi | null,
             hiddenSuggestionIds: string[],
-            scoutConfigs: import('products/signals/frontend/generated/api.schemas').SignalScoutConfigApi[] | null
+            scoutConfigs: SignalScoutConfigApi[] | null
         ) => ScoutSuggestionItemApi[]
         batchStatus: (suggestionSet: ScoutSuggestionSetApi | null) => string
         batchAgeHours: (suggestionSet: ScoutSuggestionSetApi | null) => number | null
@@ -309,7 +313,15 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         ) => ({ item, surface, via }),
         closeCreateFromSuggestion: true,
         askForSuggestions: true,
-        suggestionCreated: (item: ScoutSuggestionItemApi, surface: ScoutSuggestionSurface) => ({ item, surface }),
+        suggestionCreated: (
+            item: ScoutSuggestionItemApi,
+            surface: ScoutSuggestionSurface,
+            config: SignalScoutConfig
+        ) => ({
+            item,
+            surface,
+            config,
+        }),
         requestRefresh: (source: ScoutSuggestionsRefreshSource) => ({ source }),
         refreshRequestRefused: true,
         refreshFinished: true,
@@ -321,7 +333,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         reportSuggestionsShown: (surface: ScoutSuggestionSurface) => ({ surface }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         suggestionSet: [
             null as ScoutSuggestionSetApi | null,
             {
@@ -331,9 +343,30 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                     if (!teamId || !values.suggestionsEnabled) {
                         return values.suggestionSet
                     }
-                    const set = await signalsScoutSuggestionsList(String(teamId))
-                    breakpoint()
-                    return set
+                    try {
+                        const set = await signalsScoutSuggestionsList(String(teamId))
+                        breakpoint()
+                        return set
+                    } catch (error) {
+                        // A member without resource-level scout access, or a stale project id left
+                        // by a project switch, are expected — degrade to the empty batch instead of
+                        // reporting them. Keeping the picks an earlier read returned would leave a
+                        // strip whose every button is refused. Anything else, notably a 5xx, still
+                        // throws so a real backend failure reaches error tracking.
+                        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                            // The strip can unmount before the refusal lands, and a loader that
+                            // resolves into a dead store is what reports next.
+                            breakpoint()
+                            // Without access the scan's batch can never be read. End the wait here,
+                            // because the success listener would read the empty batch as the scan's
+                            // result and show a false toast, or poll until the timeout.
+                            if (values.isRefreshing) {
+                                actions.refreshFinished()
+                            }
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -519,6 +552,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 await signalsScoutSuggestionsDismiss(String(teamId), item.id)
                 // Reported once the server holds it, so a failed dismissal is not counted as one.
                 captureScoutSuggestionDismissed({
+                    suggestionId: item.id,
                     kind: suggestionKind(item),
                     skillName: item.skill_name,
                     surface,
@@ -536,6 +570,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         },
         refineSuggestionWithAi: async ({ item, surface }) => {
             captureScoutSuggestionClicked({
+                suggestionId: item.id,
                 kind: suggestionKind(item),
                 skillName: item.skill_name,
                 target: 'refine_with_ai',
@@ -562,6 +597,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         },
         openCreateFromSuggestion: async ({ item, surface, via }) => {
             captureScoutSuggestionClicked({
+                suggestionId: item.id,
                 kind: suggestionKind(item),
                 skillName: item.skill_name,
                 target: item.kind === 'canonical' ? 'turn_on' : 'create',
@@ -600,17 +636,35 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                 actions.suggestionActionFinished(item.id)
             }
         },
-        suggestionCreated: ({ item, surface }) => {
+        suggestionCreated: ({ item, surface, config }) => {
             // Both one-click paths land here — turning a canonical scout on, and a custom draft
             // coming back from the create modal. A refinement chat only opens on the draft, so it
             // is a click, not a creation.
             captureScoutSuggestionCreated({
+                suggestionId: item.id,
+                configId: config.id,
                 kind: suggestionKind(item),
-                skillName: item.skill_name,
+                skillName: config.skill_name,
                 via: 'api',
                 surface,
             })
             actions.loadSuggestions()
+        },
+        // Only the strip's own buttons dispatch these. A remembered state comes back through
+        // persistence, which dispatches no action, so a reload reports nothing.
+        setCollapsed: ({ collapsed }) => {
+            captureScoutSuggestionsStripClicked({
+                target: collapsed ? 'collapse' : 'expand',
+                count: values.suggestions.length,
+                status: values.batchStatus,
+            })
+        },
+        hideStrip: () => {
+            captureScoutSuggestionsStripClicked({
+                target: 'close',
+                count: values.suggestions.length,
+                status: values.batchStatus,
+            })
         },
         reportSuggestionsShown: ({ surface }) => {
             captureScoutSuggestionsShown({

@@ -1,7 +1,9 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -17,9 +19,10 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ResolutionRunArtefact,
     ReviewIssueFinding,
     ThreadVerdictArtefact,
+    TurnMarkerArtefact,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM
+from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.perspective_selection import (
@@ -34,6 +37,8 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_pr_snapshot,
 )
 from products.review_hog.backend.reviewer.progress import RESOLUTION_RUN_NOTE_AUTHOR
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import NoteArtefact
 
@@ -77,6 +82,7 @@ def _issues_review(count: int) -> IssuesReview:
 class TestRecentReviewsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.url = f"/api/projects/{self.team.id}/review_hog/reviews/"
 
     def _report(
@@ -115,6 +121,7 @@ class TestRecentReviewsAPI(APIBaseTest):
         adjusted: IssuePriority | None = None,
         judged: bool = True,
         perspective: str | None = None,
+        review_mode: str | None = None,
     ) -> None:
         ReviewReportArtefact.append_finding(
             team_id=self.team.id,
@@ -129,6 +136,7 @@ class TestRecentReviewsAPI(APIBaseTest):
                 suggestion="s",
                 priority=priority,
                 source_perspective=perspective,
+                validation_context=json.dumps({"review_mode": review_mode}) if review_mode else None,
             ),
             attribution=ArtefactAttribution.system(),
         )
@@ -160,6 +168,15 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert rows[0]["github_url"] == mine.pr_url
         assert rows[0]["published"] is False
         assert "perspective_selection" not in rows[0]  # detail-only payload — the list stays lean
+
+    def test_full_review_published_reads_only_the_full_marker(self) -> None:
+        self._report(pr_number=1, acting_user=self.user, published_head_sha="a", published_heads_by_mode={"flash": "a"})
+        self._report(pr_number=2, acting_user=self.user, published_head_sha="b", published_heads_by_mode={"full": "b"})
+
+        rows = {row["pr_number"]: row for row in self.client.get(self.url).json()["results"]}
+
+        assert rows[1]["full_review_published"] is False
+        assert rows[2]["full_review_published"] is True
 
     def test_mine_scope_includes_reviews_of_prs_i_authored(self) -> None:
         # The incident this guards: a review a teammate triggers on your PR lands under THEIR
@@ -502,6 +519,96 @@ class TestRecentReviewsAPI(APIBaseTest):
             "total": 2,
         }
 
+    def test_single_agent_turn_reports_its_own_stages(self) -> None:
+        running = self._report(pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
+        running_id = str(running.id)
+
+        def stage() -> dict:
+            return self.client.get(self.url).json()["results"][0]["progress"]
+
+        persist_pr_snapshot(
+            team_id=self.team.id,
+            report_id=running_id,
+            head_sha="sha1",
+            pr_metadata=_pr_metadata("sha1", "in flight"),
+            pr_comments=[],
+            pr_files=[],
+            review_design=REVIEW_DESIGN_SINGLE_AGENT,
+        )
+        assert stage() == {"review_stage": "single_agent_preparing", "done": None, "total": None}
+
+        ReviewReportArtefact.add_turn_marker(
+            team_id=self.team.id,
+            report_id=running_id,
+            content=TurnMarkerArtefact(
+                head_sha="sha1",
+                run_index=1,
+                review_mode=REVIEW_MODE_FLASH,
+                reviewhog_version="v",
+                reviewhog_fingerprint="f",
+            ),
+            attribution=ArtefactAttribution.system(),
+        )
+        assert stage() == {"review_stage": "single_agent_reviewing", "done": None, "total": None}
+
+        self._finding(running, "1-a", priority=IssuePriority.MUST_FIX)
+        assert stage() == {"review_stage": "single_agent_finalizing", "done": None, "total": None}
+
+    @parameterized.expand(
+        [
+            ("active", "sha1", False, True),
+            ("idle", "sha1", False, False),
+            ("active", "another-head", False, False),
+            ("active", "sha1", True, False),
+        ]
+    )
+    def test_activity_heartbeat_keeps_only_its_active_review_visible(
+        self, status: str, heartbeat_head: str, another_team: bool, visible: bool
+    ) -> None:
+        now = timezone.now()
+        with time_machine.travel(now - IN_PROGRESS_STALE_AFTER - timedelta(minutes=1), tick=False):
+            running = self._report(
+                pr_number=2, acting_user=self.user, completed=False, run_count=0, head_sha="sha1", status=status
+            )
+        heartbeat_team_id = self.team.id
+        if another_team:
+            heartbeat_team_id = Team.objects.create(organization=self.organization, name="another project").id
+        heartbeat = ReviewActivityHeartbeater(
+            team_id=heartbeat_team_id, report_id=str(running.id), head_sha=heartbeat_head
+        )
+
+        with time_machine.travel(now, tick=False):
+            assert self.client.get(self.url).json()["results"] == []
+            before_pulse = running.updated_at
+            heartbeat.touch_report()
+            running.refresh_from_db()
+            assert running.updated_at == (now if visible else before_pulse)
+            rows = self.client.get(self.url).json()["results"]
+            assert bool(rows) is visible
+            if visible:
+                assert rows[0]["pr_number"] == 2
+                assert rows[0]["in_progress"] is True
+                assert rows[0]["run_count"] == 0
+
+        with time_machine.travel(now + IN_PROGRESS_STALE_AFTER + timedelta(seconds=1), tick=False):
+            assert self.client.get(self.url).json()["results"] == []
+
+    def test_heartbeating_first_turn_outranks_newer_stale_first_turns(self) -> None:
+        # Crashed first turns stay ACTIVE. More of them than the probe slice, all newer than a live
+        # run, must not push that live run out of the list.
+        now = timezone.now()
+        with time_machine.travel(now - timedelta(hours=2), tick=False):
+            live = self._report(pr_number=1, acting_user=self.user, completed=False, run_count=0, head_sha="sha1")
+        with time_machine.travel(now - IN_PROGRESS_STALE_AFTER - timedelta(minutes=1), tick=False):
+            for pr_number in range(2, 5):
+                self._report(pr_number=pr_number, acting_user=self.user, completed=False, run_count=0)
+
+        with time_machine.travel(now, tick=False):
+            ReviewActivityHeartbeater(team_id=self.team.id, report_id=str(live.id), head_sha="sha1").touch_report()
+            rows = self.client.get(self.url, {"limit": 1}).json()["results"]
+
+        assert [(row["pr_number"], row["in_progress"]) for row in rows] == [(1, True)]
+
     def _resolution_run(self, report: ReviewReport, thread_ids: list[str], *, skipped: int = 0) -> None:
         ReviewReportArtefact.append_resolution_run(
             team_id=self.team.id,
@@ -770,6 +877,33 @@ class TestRecentReviewsAPI(APIBaseTest):
             {"skill_name": logic, "raised": 2, "kept": 1, "dismissed": 1},
         ]
         assert self.client.get(f"{self.url}perspective_stats/?scope=everything").status_code == 400
+
+        # The settings read own_deep: a Standard turn reads none of the user's skills, and a teammate's
+        # Deep review uses the teammate's skills, so neither may count.
+        standard = self._report(pr_number=4, acting_user=self.user)
+        self._finding(standard, "1-s", priority=IssuePriority.MUST_FIX, perspective=logic, review_mode="flash")
+        ReviewReport.objects.for_team(self.team.id).filter(id=standard.id).update(
+            last_run_at=datetime(2026, 6, 1, tzinfo=UTC)
+        )
+        # A clean Standard turn has no findings to carry its mode, so only the publish watermark tells.
+        # It is the newest report, and it must not take a slot from the Deep reviews under the report limit.
+        clean_standard = self._report(
+            pr_number=5, acting_user=self.user, head_sha="c1ea2", published_heads_by_mode={"flash": "c1ea2"}
+        )
+        ReviewReport.objects.for_team(self.team.id).filter(id=clean_standard.id).update(
+            last_run_at=datetime(2026, 8, 1, tzinfo=UTC)
+        )
+
+        with patch("products.review_hog.backend.api.reviews.PERSPECTIVE_STATS_REPORT_LIMIT", 2):
+            res = self.client.get(f"{self.url}perspective_stats/?scope=own_deep")
+
+        assert res.status_code == 200
+        data = res.json()
+        assert data["report_count"] == 2
+        assert data["perspectives"] == [
+            {"skill_name": logic, "raised": 2, "kept": 1, "dismissed": 1},
+            {"skill_name": blind, "raised": 1, "kept": 1, "dismissed": 0},
+        ]
 
     def test_retrieve_is_project_wide_but_never_cross_team(self) -> None:
         # Opening a teammate's review from the everyone-scope list must work, but another team's

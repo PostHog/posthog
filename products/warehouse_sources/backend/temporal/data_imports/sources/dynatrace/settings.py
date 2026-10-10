@@ -40,6 +40,11 @@ class DynatraceEndpointConfig:
     max_lookback: Optional[timedelta] = None
     # Required `entitySelector` for the entities endpoint (must specify a type on the first page).
     entity_selector: Optional[str] = None
+    # Entity type the selector pins. Also the set the tags endpoint is fanned out over.
+    entity_type: Optional[str] = None
+    # Endpoint has no listing of its own: Dynatrace requires an `entitySelector` naming a single
+    # entity type, so it is read once per type the entity tables cover.
+    fans_out_over_entity_types: bool = False
     # Endpoint whose path stands in for this one when probing token scope. The metrics query needs
     # a metric selector a probe has no way to guess, so it borrows the descriptor endpoint's probe
     # — both sit behind `metrics.read`.
@@ -78,6 +83,7 @@ def _entity_endpoint(name: str, entity_type: str) -> DynatraceEndpointConfig:
         primary_keys=["entityId"],
         page_size=100,
         entity_selector=f'type("{entity_type}")',
+        entity_type=entity_type,
         default_from="now-30d",
         extra_params={"fields": _ENTITY_FIELDS},
     )
@@ -130,6 +136,25 @@ DYNATRACE_ENDPOINTS: dict[str, DynatraceEndpointConfig] = {
         primary_keys=["securityProblemId"],
         page_size=100,
     ),
+    "releases": DynatraceEndpointConfig(
+        name="releases",
+        path="/api/v2/releases",
+        data_key="releases",
+        # A release carries no id of its own. Dynatrace documents <name, product, stage, version>
+        # as the unique tuple.
+        primary_keys=["name", "product", "stage", "version"],
+        page_size=1000,
+        # Dynatrace falls back to the last two weeks when `from` is omitted. A release row carries
+        # no timestamp to track a watermark on, so the table is full refresh over a wider window.
+        default_from="now-30d",
+    ),
+    "entity_types": DynatraceEndpointConfig(
+        name="entity_types",
+        path="/api/v2/entityTypes",
+        data_key="types",
+        primary_keys=["type"],
+        page_size=500,
+    ),
     "hosts": _entity_endpoint("hosts", "HOST"),
     "services": _entity_endpoint("services", "SERVICE"),
     "applications": _entity_endpoint("applications", "APPLICATION"),
@@ -141,6 +166,22 @@ DYNATRACE_ENDPOINTS: dict[str, DynatraceEndpointConfig] = {
     "kubernetes_nodes": _entity_endpoint("kubernetes_nodes", "KUBERNETES_NODE"),
     "cloud_applications": _entity_endpoint("cloud_applications", "CLOUD_APPLICATION"),
     "custom_devices": _entity_endpoint("custom_devices", "CUSTOM_DEVICE"),
+    "entity_tags": DynatraceEndpointConfig(
+        name="entity_tags",
+        path="/api/v2/tags",
+        data_key="tags",
+        # Dynatrace returns no identifier for a tag, and the same tag sits on entities of several
+        # types, so a row is keyed on the type it was read for plus the tag's canonical string
+        # form, which already carries the context, key and value.
+        primary_keys=["entityType", "stringRepresentation"],
+        # The endpoint takes no pageSize and returns every matching tag in one response.
+        page_size=None,
+        # Without `from` the endpoint only looks back 24 hours, so tags on entities idle over a
+        # weekend would disappear from the table.
+        default_from="now-30d",
+        fans_out_over_entity_types=True,
+        scope_probe_endpoint="hosts",
+    ),
     "metrics": DynatraceEndpointConfig(
         name="metrics",
         path="/api/v2/metrics",
@@ -200,6 +241,11 @@ DYNATRACE_ENDPOINTS: dict[str, DynatraceEndpointConfig] = {
 
 ENDPOINTS = tuple(DYNATRACE_ENDPOINTS.keys())
 
+# Types the tags endpoint is read for, derived from the entity tables so the two can't drift.
+TAGGED_ENTITY_TYPES: tuple[str, ...] = tuple(
+    config.entity_type for config in DYNATRACE_ENDPOINTS.values() if config.entity_type
+)
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in DYNATRACE_ENDPOINTS.items()
 }
@@ -211,6 +257,8 @@ ENDPOINT_SCOPES: dict[str, str] = {
     "events": "events.read",
     "audit_logs": "auditLogs.read",
     "security_problems": "securityProblems.read",
+    "releases": "releases.read",
+    "entity_types": "entities.read",
     "hosts": "entities.read",
     "services": "entities.read",
     "applications": "entities.read",
@@ -222,6 +270,7 @@ ENDPOINT_SCOPES: dict[str, str] = {
     "kubernetes_nodes": "entities.read",
     "cloud_applications": "entities.read",
     "custom_devices": "entities.read",
+    "entity_tags": "entities.read",
     "metrics": "metrics.read",
     "metric_data_points": "metrics.read",
     "slos": "slo.read",

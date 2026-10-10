@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -6,8 +8,10 @@ import { Provider, getContext } from 'kea'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import * as featureFlagLogicModule from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { MockResolverInfo } from '~/mocks/utils'
 import { actionsModel } from '~/models/actionsModel'
@@ -43,6 +47,20 @@ jest.mock('lib/components/AutoSizer', () => ({
         return <div ref={ref}>{renderProp({ height: visible ? 400 : 0, width: visible ? 400 : 0 })}</div>
     },
 }))
+
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+}
+
+const ANNOUNCEMENT_URL = 'https://example.com/announcement'
+
+function setMoveNotices(enabled: boolean, url: string | null): void {
+    featureFlagLogicModule.featureFlagLogic.mount()
+    featureFlagLogicModule.featureFlagLogic.actions.setFeatureFlags([], {
+        [FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES]: enabled,
+    })
+    jest.spyOn(featureFlagLogicModule, 'getFeatureFlagPayload').mockReturnValue({ url })
+}
 
 describe('TaxonomicFilter', () => {
     let onChangeMock: jest.Mock
@@ -240,6 +258,27 @@ describe('TaxonomicFilter', () => {
     }
 
     describe('rendering', () => {
+        it('does not tag the $pageview primary property as "Not seen" in Suggested filters', async () => {
+            // Real timers: this scenario includes SuggestedFilters, whose reveal-barrier state
+            // doesn't survive the fake->real timer switch withoutDebounceDelay performs. See
+            // the "collapses URLs" test in this describe for the same pattern.
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.Events,
+                ],
+                eventNames: ['$pageview'],
+            })
+
+            // $pageview's taxonomy primary property ($pathname) is promoted into Suggested
+            // filters as a synthesized row with no per-event seen flag, so it must not be
+            // tagged "Not seen" even though it fires on $pageview.
+            const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
+            expect(firstRow).toHaveTextContent('Path name')
+            expect(firstRow).not.toHaveTextContent('Not seen')
+        })
+
         it('renders search input and loads results from the API', async () => {
             renderFilter()
 
@@ -523,34 +562,37 @@ describe('TaxonomicFilter', () => {
         // reporting "no results" tells someone who knows the event exists that it never did.
         // The rebuild's half of this lives in menu/Combobox.test.tsx.
         describe('an event hidden because its data is moving', () => {
-            let unmountFeatureFlagLogic: (() => void) | null = null
-
             beforeEach(() => {
-                unmountFeatureFlagLogic = featureFlagLogic.mount()
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS], {
-                    [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true,
-                })
+                setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
             })
 
             afterEach(() => {
-                featureFlagLogic.actions.setFeatureFlags([], {})
-                unmountFeatureFlagLogic?.()
-                unmountFeatureFlagLogic = null
+                jest.restoreAllMocks()
             })
 
-            it('explains the absence instead of reporting no results', async () => {
-                renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
+            it.each([
+                ['links the announcement', true, ANNOUNCEMENT_URL, ANNOUNCEMENT_URL],
+                ['has no link while the announcement has no URL', true, null, undefined],
+                ['has no link while the move notices are off', false, ANNOUNCEMENT_URL, undefined],
+            ])(
+                'explains the absence instead of reporting no results, and %s',
+                async (_label, moveNoticesOn, url, expectedHref) => {
+                    setMoveNotices(moveNoticesOn, url)
+                    renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
 
-                await activateGroupWithResults('taxonomic-tab-events')
-                await withoutDebounceDelay((user) =>
-                    user.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
-                )
+                    await activateGroupWithResults('taxonomic-tab-events')
+                    await withoutDebounceDelay((user) =>
+                        user.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+                    )
 
-                await waitFor(() => {
-                    expect(inVisibleTab(screen.getAllByTestId('taxonomic-hidden-event'))).toBeTruthy()
-                })
-                expect(screen.queryByText(/No results for/)).not.toBeInTheDocument()
-            })
+                    await waitFor(() => {
+                        expect(inVisibleTab(screen.getAllByTestId('taxonomic-hidden-event'))).toBeTruthy()
+                    })
+                    expect(screen.queryByText(/No results for/)).not.toBeInTheDocument()
+                    const link = inVisibleTab(screen.queryAllByTestId('taxonomic-hidden-event-announcement'))
+                    expect(link?.getAttribute('href')).toBe(expectedHref)
+                }
+            )
 
             // The aggregated tab's own group carries no exclusions, so reading the active list's
             // group instead of the Events group leaves this arm silent.
@@ -571,8 +613,8 @@ describe('TaxonomicFilter', () => {
                 })
             })
 
-            it('reports no results as usual once the kill switch is off', async () => {
-                featureFlagLogic.actions.setFeatureFlags([], {})
+            it('reports no results as usual for a team on the Events mode', async () => {
+                setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number0)
                 renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events] })
 
                 await activateGroupWithResults('taxonomic-tab-events')
@@ -586,9 +628,8 @@ describe('TaxonomicFilter', () => {
                 expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
             })
 
-            // A picker on a live-event surface (the survey and product-tour event triggers, live
-            // events, ingestion triggers) opts in with `includeHiddenEvents`, so the flag must not
-            // hide the event or explain an absence there.
+            // Live-event surfaces (the survey and product-tour event triggers, live events, ingestion
+            // triggers) opt in with `includeHiddenEvents`.
             it('keeps offering the event when the picker opts in', async () => {
                 renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events], includeHiddenEvents: true })
 
@@ -1741,6 +1782,29 @@ describe('TaxonomicFilter', () => {
                 parseInt(deploymentIdx.split('-').pop() as string)
             )
         })
+    })
+
+    it('sends endpoint filters with the remote attribute request', async () => {
+        const requests: URLSearchParams[] = []
+        const captureRequest = (info: MockResolverInfo): [number, unknown] => {
+            requests.push(new URL(info.request.url).searchParams)
+            return [200, { results: [], count: 0 }]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team/metrics/attributes': captureRequest,
+                '/api/environments/:team/metrics/attributes': captureRequest,
+            },
+        })
+
+        renderFilter({
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.MetricAttributes],
+            endpointFilters: { metricName: 'http_requests', dateFrom: '2026-01-01T00:00:00Z' },
+        })
+
+        await waitFor(() => expect(requests.length).toBeGreaterThan(0))
+        expect(requests[0].get('metricName')).toBe('http_requests')
+        expect(requests[0].get('dateFrom')).toBe('2026-01-01T00:00:00Z')
     })
 
     describe('excludedOperators', () => {
