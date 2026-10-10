@@ -6,7 +6,6 @@ import { dayjs } from 'lib/dayjs'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { ACCURACY_CUTOFFS, PooledConfusion, percent } from '../onlinePerformance'
-import { PREDICTION_SEGMENT_THRESHOLDS } from '../predictionSegments'
 import { MetricCard } from './MetricCard'
 
 function dateRange({ firstDate, lastDate }: PooledConfusion): string {
@@ -57,8 +56,8 @@ export function ConfusionMatrixCard(): JSX.Element {
                     )}
                     {confusion.flagged === 0 ? (
                         <LemonBanner type="info">
-                            No one scored {PREDICTION_SEGMENT_THRESHOLDS.high * 100}% or higher in this period. Pick Top
-                            10% to see how the people with the highest scores did.
+                            No one scored as likely in this period. Pick Top 10% to see how the people with the highest
+                            scores did.
                         </LemonBanner>
                     ) : (
                         <div className="flex flex-wrap items-start gap-4">
