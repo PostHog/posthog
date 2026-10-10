@@ -23,6 +23,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.preferences import UrgencyThreshold
 from products.review_hog.backend.requested_reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_RESOLVE_ONLY,
@@ -464,8 +465,8 @@ class ReviewDetailSerializer(ReviewRecentReviewSerializer):
         help_text="The rendered review body published to GitHub, as markdown. Only kept for the latest "
         "turn, so null when `run_index` selects an older turn.",
     )
-    run_urgency_threshold = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- existing shared list; only the help_text changed here
-        choices=_PRIORITY_CHOICES,
+    run_urgency_threshold = serializers.ChoiceField(
+        choices=UrgencyThreshold.choices,
         allow_null=True,
         help_text="The urgency threshold the returned turn's publishing gated on (stamped at finalize "
         "from the run's own resolve snapshot); null for turns that predate its recording — readers "

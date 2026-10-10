@@ -876,6 +876,16 @@ export interface ReviewPerspectiveSelectionApi {
     chunks: ReviewSelectionChunkApi[]
 }
 
+export interface ReviewFindingLineRangeApi {
+    /** First affected line. */
+    start: number
+    /**
+     * Last affected line; null for a single line.
+     * @nullable
+     */
+    end: number | null
+}
+
 /**
  * * `must_fix` - must_fix
  * * `should_fix` - should_fix
@@ -888,16 +898,6 @@ export const ReviewIssuePriorityEnumApi = {
     ShouldFix: 'should_fix',
     Consider: 'consider',
 } as const
-
-export interface ReviewFindingLineRangeApi {
-    /** First affected line. */
-    start: number
-    /**
-     * Last affected line; null for a single line.
-     * @nullable
-     */
-    end: number | null
-}
 
 /**
  * * `bug` - bug
@@ -1089,10 +1089,10 @@ export interface ReviewDetailApi {
     report_markdown: string | null
     /** The urgency threshold the returned turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
      *
-     * * `must_fix` - must_fix
-     * * `should_fix` - should_fix
-     * * `consider` - consider */
-    run_urgency_threshold: ReviewIssuePriorityEnumApi | null
+     * * `consider` - Consider (all)
+     * * `should_fix` - Should fix
+     * * `must_fix` - Must fix */
+    run_urgency_threshold: UrgencyThresholdEnumApi | null
     /** The returned turn's validated findings, most urgent first. */
     findings: ReviewFindingApi[]
     /** The returned turn's findings the validator dismissed, with its reasoning. */
