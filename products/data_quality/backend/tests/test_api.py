@@ -43,6 +43,7 @@ from .schedule_helpers import schedule_client
 
 START_SUITE = "products.data_quality.backend.logic.checks.sync_connect"
 FLAG = "products.data_quality.backend.presentation.views.is_data_quality_checks_enabled"
+REPORT_USER_ACTION = "products.data_quality.backend.presentation.views.report_user_action"
 
 
 class TestMetricCheckAPI(APIBaseTest):
@@ -641,6 +642,68 @@ class TestDataQualityCheckAPI(APIBaseTest):
         )
         assert entry is not None
         assert entry.activity == "deleted"
+
+    @parameterized.expand(
+        [
+            (
+                "create",
+                lambda self, check: self.client.post(f"{self.url}/", self._payload(check_type=CheckType.UNIQUE)),
+                "data quality check created",
+                {"check_type": "unique", "subject_type": "view", "severity": "error", "created_source": "user"},
+            ),
+            (
+                "update",
+                lambda self, check: self.client.patch(f"{self.url}/{check.id}/", {"description": "why"}),
+                "data quality check updated",
+                {"check_type": "not_null", "subject_type": "view", "changed_fields": ["description"]},
+            ),
+            (
+                "delete",
+                lambda self, check: self.client.delete(f"{self.url}/{check.id}/"),
+                "data quality check deleted",
+                {"check_type": "not_null", "subject_type": "view"},
+            ),
+            (
+                "run_one_check",
+                lambda self, check: self.client.post(f"{self.url}/{check.id}/run/"),
+                "data quality checks run",
+                {"scope": "check", "check_count": 1},
+            ),
+            (
+                "run_subject",
+                lambda self, check: self.client.post(f"{self.suites_url}/", self.subject),
+                "data quality checks run",
+                {"scope": "subject"},
+            ),
+            (
+                "run_project",
+                lambda self, check: self.client.post(f"{self.suites_url}/", {}),
+                "data quality checks run",
+                {"scope": "project", "check_count": 1},
+            ),
+        ]
+    )
+    def test_check_actions_are_reported(self, _name, act, event, expected_properties) -> None:
+        check = self._create_check()
+        with (
+            patch(REPORT_USER_ACTION) as report,
+            patch(START_SUITE, return_value=MagicMock(start_workflow=AsyncMock())),
+        ):
+            response = act(self, check)
+
+        assert response.status_code < 300, response.content
+        report.assert_called_once()
+        assert report.call_args.args[1] == event
+        properties = report.call_args.args[2]
+        assert {key: properties.get(key) for key in expected_properties} == expected_properties
+
+    def test_recreating_an_existing_check_reports_nothing(self) -> None:
+        self._create_check()
+        with patch(REPORT_USER_ACTION) as report:
+            response = self.client.post(f"{self.url}/", self._payload())
+
+        assert response.status_code == status.HTTP_200_OK
+        report.assert_not_called()
 
     def _subject_query(self, subject_uuid, subject_type: str = SubjectType.VIEW) -> str:
         return f"subject_type={subject_type}&subject_uuid={subject_uuid}"
