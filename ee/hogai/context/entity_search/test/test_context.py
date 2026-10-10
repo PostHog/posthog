@@ -543,6 +543,32 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         assert entities[0]["extra_fields"]["status"] == "disabled"
         assert entities[0]["extra_fields"]["active"] is False
 
+    @parameterized.expand(
+        [
+            (
+                "exact_key_first",
+                "enterprise-agent-builder-ux-refresh",
+                ["enterprise-agent-builder-ux-refresh", "enterprise-agent-builder-ux-refresh-v2"],
+            ),
+            ("key_substring_case_insensitive", "CHECKOUT", ["checkout-v2"]),
+            ("name_with_whitespace", "  New checkout  ", ["checkout-v2"]),
+            ("no_match", "missing-flag", []),
+        ]
+    )
+    async def test_list_feature_flags_search_by_key_or_name(self, _name, search, expected_keys):
+        await FeatureFlag.objects.acreate(
+            team=self.team, key="enterprise-agent-builder-ux-refresh", name="Agent builder UX", created_by=self.user
+        )
+        await FeatureFlag.objects.acreate(
+            team=self.team, key="enterprise-agent-builder-ux-refresh-v2", created_by=self.user
+        )
+        await FeatureFlag.objects.acreate(team=self.team, key="checkout-v2", name="New checkout", created_by=self.user)
+
+        entities, total = await self.context.list_feature_flags(limit=10, offset=0, search=search)
+
+        assert [e["extra_fields"]["key"] for e in entities] == expected_keys
+        assert total == len(expected_keys)
+
     async def test_list_feature_flags_denied_without_resource_access(self):
         # A role without feature flag viewer access must not receive any flag metadata
         await FeatureFlag.objects.acreate(team=self.team, key="some-flag", active=True, created_by=self.user)

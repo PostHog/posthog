@@ -29,13 +29,14 @@ class TestListFeatureFlagsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("stale", "STALE"),
-            ("enabled", "true"),
-            ("disabled", "false"),
-            (None, None),
+            ("stale", "STALE", None),
+            ("enabled", "true", None),
+            ("disabled", "false", None),
+            (None, None, None),
+            (None, None, "enterprise-agent-builder-ux-refresh"),
         ]
     )
-    async def test_status_maps_to_active_filter(self, status, expected_active_filter):
+    async def test_args_map_to_context_filters(self, status, expected_active_filter, search):
         """The user-facing status maps to the backend `active` query param."""
         # autospec validates calls against the real EntitySearchContext signature
         with patch("ee.hogai.tools.list_feature_flags.EntitySearchContext", autospec=True) as MockEntitySearchContext:
@@ -43,12 +44,14 @@ class TestListFeatureFlagsTool(ClickhouseTestMixin, NonAtomicBaseTest):
             mock_instance.list_feature_flags.return_value = ([], 0)
             mock_instance.format_entities.return_value = ""
 
-            await self.tool._arun_impl(status=status, limit=100, offset=0)
+            await self.tool._arun_impl(status=status, search=search, limit=100, offset=0)
 
             MockEntitySearchContext.assert_called_once_with(
                 team=self.team, user=self.user, context_manager=self.context_manager
             )
-            mock_instance.list_feature_flags.assert_called_once_with(100, 0, active_filter=expected_active_filter)
+            mock_instance.list_feature_flags.assert_called_once_with(
+                100, 0, active_filter=expected_active_filter, search=search
+            )
 
     async def test_returns_formatted_data_with_status(self):
         """Results carry each flag's status so stale flags are identifiable without per-flag reads."""
