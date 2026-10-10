@@ -258,6 +258,24 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert row["emitted_report_ids"] == ["r-1"]
         assert row["edited_report_ids"] == ["r-2"]
 
+    @parameterized.expand([("list",), ("detail",)])
+    def test_deleted_reports_drop_out_of_the_touched_report_ids(self, surface: str) -> None:
+        live = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
+        deleted_author = SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
+        deleted_edit = SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
+        run = _make_run(
+            self.team,
+            emitted_report_ids=[str(live.id), str(deleted_author.id)],
+            edited_report_ids=[str(deleted_edit.id)],
+        )
+        url = self._list_url() if surface == "list" else self._detail_url(str(run.id))
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        row = body[0] if surface == "list" else body
+        assert row["emitted_report_ids"] == [str(live.id)]
+        assert row["edited_report_ids"] == []
+
     @parameterized.expand([("emitted_true", "true"), ("emitted_false", "false")])
     def test_list_emitted_filter_keeps_only_the_matching_runs(self, _name: str, emitted_param: str) -> None:
         emitting = _make_run(self.team, emitted_count=1, emitted_finding_ids=["f-x"])
@@ -2725,6 +2743,30 @@ class TestRunCronScheduleValidation(SimpleTestCase):
 
         assert serializer.is_valid()
         assert serializer.validated_data["run_cron_schedule"] is None
+
+
+_PRECHECK_QUERY = "SELECT 1 FROM events WHERE timestamp > {since} AND timestamp <= {now}"
+
+
+class TestPrecheckQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("placeholders", _PRECHECK_QUERY, True, _PRECHECK_QUERY),
+            ("padded", "  SELECT 1  ", True, "SELECT 1"),
+            ("blank_turns_it_off", "   ", True, None),
+            ("syntax_error", "SELEC 1", False, None),
+            ("unknown_placeholder", "SELECT 1 WHERE {nope}", False, None),
+            ("not_a_select", "DELETE FROM events", False, None),
+        ]
+    )
+    def test_precheck_query_validation(self, _name: str, query: str, valid: bool, expected: str | None) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"precheck_query": query}, partial=True)
+
+        assert serializer.is_valid() is valid
+        if valid:
+            assert serializer.validated_data["precheck_query"] == expected
+        else:
+            assert "precheck_query" in serializer.errors
 
 
 class TestScoutHarnessConfigAPI(APIBaseTest):

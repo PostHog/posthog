@@ -1,12 +1,13 @@
 from datetime import UTC, datetime, timedelta
 
 import time_machine
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from django.apps import apps
 
 from parameterized import parameterized
+from rest_framework import status
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.precheck import PRECHECK_MAX_ROWS, evaluate_scout_precheck
@@ -133,3 +134,59 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
 
         assert result is None
         capture.assert_not_called()
+
+
+@time_machine.travel(NOW, tick=False)
+class TestScoutPrecheckTestAPI(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.config = SignalScoutConfig.all_teams.create(team=self.team, skill_name=SKILL)
+        SignalScoutConfig.all_teams.filter(pk=self.config.pk).update(created_at=NOW - timedelta(days=7))
+        _create_event(team=self.team, event="boom", distinct_id="d1", timestamp=NOW - timedelta(hours=1))
+        flush_persons_and_events()
+
+    def _url(self, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/{suffix}"
+
+    @parameterized.expand(
+        [
+            ("saved_query_finds_rows", NEW_EVENTS_QUERY, {}, True, "rows", 1, False),
+            (
+                "body_query_overrides_saved",
+                NEW_EVENTS_QUERY,
+                {"precheck_query": "SELECT 1 FROM events WHERE event = 'other' AND timestamp > {since}"},
+                False,
+                "no_rows",
+                0,
+                False,
+            ),
+            (
+                "query_error_runs_the_scout",
+                None,
+                {"precheck_query": "SELECT nope FROM not_a_table"},
+                True,
+                "query_error",
+                0,
+                True,
+            ),
+        ]
+    )
+    def test_precheck_test_runs_the_query_without_a_run(
+        self, _name, saved_query, body, would_run, reason, row_count, has_error
+    ) -> None:
+        self.client.patch(self._url(), {"precheck_query": saved_query}, format="json")
+
+        with patch("products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run") as start:
+            response = self.client.post(self._url("precheck_test/"), body, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert (data["would_run"], data["reason"], data["row_count"]) == (would_run, reason, row_count)
+        assert (data["error"] is not None) is has_error
+        start.assert_not_called()
+        assert not SignalScoutRun.all_teams.filter(team=self.team).exists()
+
+    def test_precheck_test_without_any_query_is_rejected(self) -> None:
+        response = self.client.post(self._url("precheck_test/"), {}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
