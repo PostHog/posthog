@@ -920,7 +920,8 @@ export const ReviewDrawerStandard: Story = {
     parameters: { review: standardReviewDetail.id },
     play: async () => {
         const body = within(document.body)
-        await expect(await body.findByText('Digest window uses the server timezone')).toBeVisible()
+        // The drawer fades in from opacity 0, so a one-shot visibility check can land mid-transition.
+        await waitFor(() => expect(body.getByText('Digest window uses the server timezone')).toBeVisible())
         await expect(body.getByText('How it ran')).toBeVisible()
         await expect(body.queryByText(/Below threshold/)).not.toBeInTheDocument()
     },
@@ -931,7 +932,7 @@ export const ReviewDrawerStandardNotPosted: Story = {
     play: async () => {
         const body = within(document.body)
         ;(await body.findByText('Not posted (3)')).click()
-        await expect(await body.findByText('Digest skips teams created after midnight UTC')).toBeVisible()
+        await waitFor(() => expect(body.getByText('Digest skips teams created after midnight UTC')).toBeVisible())
         await expect(body.getByText('Over the limit (#6)')).toBeVisible()
     },
 }
@@ -940,7 +941,7 @@ export const ReviewDrawerDeep: Story = {
     parameters: { review: deepReviewDetail.id },
     play: async () => {
         const body = within(document.body)
-        await expect(await body.findByText('Retry loop never gives up on a permanent error')).toBeVisible()
+        await waitFor(() => expect(body.getByText('Retry loop never gives up on a permanent error')).toBeVisible())
         await expect(body.getByText(/Below threshold/)).toBeVisible()
     },
 }
