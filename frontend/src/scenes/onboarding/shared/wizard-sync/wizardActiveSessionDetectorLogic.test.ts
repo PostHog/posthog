@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 
@@ -48,6 +49,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        jest.restoreAllMocks()
     })
 
     describe('isSessionActive', () => {
@@ -111,18 +113,26 @@ describe('wizardActiveSessionDetectorLogic', () => {
         expect(mockLatestRetrieve.mock.calls.length).toBe(callsAfterDisable)
     })
 
-    it('permanently disables the detector on a 403', async () => {
-        mockLatestRetrieve.mockRejectedValue(new ApiError('forbidden', 403))
+    // A deleted or inaccessible project answers every poll the same way. These are expected
+    // states, so they must stop the poll without filing an exception.
+    it.each([
+        ['a 403 permission denial', new ApiError('forbidden', 403, undefined, { code: 'permission_denied' })],
+        ['a deleted project', new ApiError('not found', 404, undefined, { detail: 'Project not found.' })],
+    ])('permanently disables the detector without capturing on %s', async (_, error) => {
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        mockLatestRetrieve.mockRejectedValue(error)
 
         await expectLogic(logic, () => {
             logic.actions.check()
         })
             .toDispatchActions(['markPermanentlyDisabled'])
             .toMatchValues({ permanentlyDisabled: true })
+        expect(captureSpy).not.toHaveBeenCalled()
     })
 
-    it('does NOT permanently disable on a 404 (transient deploy-window route gap)', async () => {
-        mockLatestRetrieve.mockRejectedValue(new ApiError('not found', 404))
+    it('does NOT permanently disable on a 404 (transient deploy-window route gap), and still captures it', async () => {
+        const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        mockLatestRetrieve.mockRejectedValue(new ApiError('not found', 404, undefined, { detail: 'Not found.' }))
 
         await expectLogic(logic, () => {
             logic.actions.check()
@@ -130,6 +140,7 @@ describe('wizardActiveSessionDetectorLogic', () => {
             .toDispatchActions(['setLastError'])
             .toNotHaveDispatchedActions(['markPermanentlyDisabled'])
             .toMatchValues({ permanentlyDisabled: false })
+        expect(captureSpy).toHaveBeenCalled()
     })
 
     // With two programs watched, a failure on the live one plus an empty answer from the other is
