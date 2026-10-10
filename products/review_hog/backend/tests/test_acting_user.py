@@ -1,5 +1,4 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
@@ -17,14 +16,12 @@ from products.review_hog.backend.temporal.activities import ResolveActingUserInp
 from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
 
 _SELF = "SELF"
-_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 
 
 class TestResolveActingUser(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "OctoCat"})
-        self.internal_flag = self.enterContext(patch(_INTERNAL_FLAG, return_value=True))
 
     @parameterized.expand(
         [
@@ -288,10 +285,9 @@ class TestResolveActingUser(BaseTest):
 
     @parameterized.expand(
         [
-            ("owner_opted_in_and_a_teammate_asks", "teammate", True, False, True, True),
-            ("requester_opted_in_but_the_owner_did_not", "teammate", False, True, True, False),
-            ("internal_flag_off", "teammate", True, False, False, False),
-            ("no_owner", "ghost", False, True, True, False),
+            ("owner_opted_in_and_a_teammate_asks", "teammate", True, False, True),
+            ("requester_opted_in_but_the_owner_did_not", "teammate", False, True, False),
+            ("no_owner", "ghost", False, True, False),
         ]
     )
     def test_resolution_follows_the_pr_owners_opt_in(
@@ -300,7 +296,6 @@ class TestResolveActingUser(BaseTest):
         author_login: str,
         owner_opted_in: bool,
         requester_opted_in: bool,
-        internal: bool,
         expected: bool,
     ) -> None:
         teammate = self._create_user("teammate@posthog.com")
@@ -309,8 +304,6 @@ class TestResolveActingUser(BaseTest):
             ReviewUserSettings.objects.for_team(self.team.id).create(
                 team_id=self.team.id, user_id=user.id, preferences={"resolve_comments": opted_in}
             )
-        self.internal_flag.return_value = internal
-
         result = _resolve_acting_user(
             ResolveActingUserInput(team_id=self.team.id, author_login=author_login, override_user_id=self.user.id)
         )

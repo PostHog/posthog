@@ -14,7 +14,6 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewUserSettings
 from products.review_hog.backend.preferences import (
     PREFERENCE_KEYS,
@@ -115,8 +114,6 @@ class ReviewUserSettingsSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_stamphog_connected(self, instance: ReviewPreferences) -> bool:
-        if not has_internal_features(self._team_id()):
-            return False
         # This reads the stamphog product DB, which can fail fast on its own circuit breaker. An
         # informational UI flag must not fail the settings endpoint, so fall back to False.
         try:

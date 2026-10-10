@@ -43,7 +43,6 @@ _LABEL_QUEUE = "products.review_hog.backend.tasks.process_label_event.delay"
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
 _BUSY = "products.review_hog.backend.temporal.client.workflow_running"
 _GITHUB = "products.review_hog.backend.label_reviews.github_api_request"
-_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 _SECRET = "test-review-hog-webhook-secret"
 _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
@@ -306,7 +305,6 @@ class TestAuthoredPRReviewTask(BaseTest):
         self.preferences = ReviewUserSettings.objects.for_team(self.team.id).create(
             team_id=self.team.id, user_id=self.user.id, preferences={"default_review_mode": "flash"}
         )
-        self.internal_flag = self.enterContext(patch(_INTERNAL_FLAG, return_value=True))
 
     def _queued_event(self, login: str = "OctoCat") -> Mapping[str, object]:
         with patch(_QUEUE) as enqueue:
@@ -361,7 +359,6 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("left_org", "bot_skipped"),
             ("unmapped", "bot_skipped"),
             ("missing_installation", "installation_mismatch"),
-            ("internal_flag_off", "internal_features_off"),
             ("full_review_published", "full_review_published"),
         ]
     )
@@ -382,8 +379,6 @@ class TestAuthoredPRReviewTask(BaseTest):
             OrganizationMembership.objects.filter(organization=self.organization, user=self.user).delete()
         elif change == "missing_installation":
             self.integration.delete()
-        elif change == "internal_flag_off":
-            self.internal_flag.return_value = False
         elif change == "full_review_published":
             ReviewReport.objects.for_team(self.team.id).create(
                 team=self.team,
@@ -462,7 +457,6 @@ class TestLabelReviewTask(BaseTest):
         self.repository = ReviewRepository.objects.for_team(self.team.id).create(
             team=self.team, installation_id=_INSTALLATION_ID, full_name="PostHog/posthog", selected=True
         )
-        self.internal_flag = self.enterContext(patch(_INTERNAL_FLAG, return_value=True))
         self.enterContext(patch(_BUSY, return_value=False))
         self.start = self.enterContext(patch(_START))
         self.github = self.enterContext(patch(_GITHUB))
@@ -520,16 +514,13 @@ class TestLabelReviewTask(BaseTest):
     @parameterized.expand(
         [
             ("repository_not_added", "repository_not_added"),
-            ("internal_flag_off", "internal_features_off"),
             ("no_run_user", "no_run_user"),
         ]
     )
-    def test_a_label_without_an_owning_internal_project_starts_nothing(self, change: str, outcome: str) -> None:
+    def test_a_label_without_an_owning_project_or_run_user_starts_nothing(self, change: str, outcome: str) -> None:
         queued = self._queued_event(_label_payload(login="stranger"))
         if change == "repository_not_added":
             self.repository.delete()
-        elif change == "internal_flag_off":
-            self.internal_flag.return_value = False
         else:
             self.integration.created_by = None
             self.integration.save(update_fields=["created_by"])

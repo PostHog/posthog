@@ -345,7 +345,6 @@ const meta: Meta<typeof CodeReviewScene> = {
     beforeEach: ({ parameters }) => {
         storyState.settings = {
             ...defaultSettings,
-            stamphog_connected: parameters.showInternalFeatures ?? false,
             ...parameters.savedSettings,
         }
         storyState.project = projectSettings(parameters.claimScope ?? 'all', parameters.canEdit ?? true)
@@ -552,9 +551,6 @@ export const Settings: Story = {
         await expect(canvas.getByText('You can edit: project admin')).toBeVisible()
         await expect(canvas.getByText('Full review settings')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
-        await expect(
-            canvas.queryByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
-        ).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
     },
 }
@@ -570,28 +566,16 @@ export const SettingsForMember: Story = {
     },
 }
 
-export const InternalFeatures: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.REVIEW_HOG, FEATURE_FLAGS.REVIEW_HOG_INTERNAL],
-        savedSettings: { stamphog_connected: true },
-        tab: 'settings',
-    },
-    play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await expect(
-            await canvas.findByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
-        ).toBeVisible()
-        await expect(canvas.getByLabelText('Let Stamphog review my Inbox PRs')).toBeVisible()
-    },
-}
-
 export const SavedInboxOptIns: Story = {
     parameters: { savedSettings: { review_inbox_prs: true, stamphog_review_inbox_prs: true }, tab: 'settings' },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        const inboxSwitch = await canvas.findByLabelText('Review PRs the agent opens for Inbox reports assigned to me')
+        const inboxLabel = 'Review PRs the agent opens for Inbox reports assigned to me'
+        // The Inbox section renders before the settings load and can re-render with new nodes,
+        // so query again on every attempt until the saved values arrive.
+        await waitFor(() => expect(canvas.getByLabelText(inboxLabel)).toBeChecked(), { timeout: 5000 })
+        const inboxSwitch = canvas.getByLabelText(inboxLabel)
         const stamphogSwitch = canvas.getByLabelText('Let Stamphog review my Inbox PRs')
-        await expect(inboxSwitch).toBeChecked()
         await expect(inboxSwitch).toBeEnabled()
         await expect(stamphogSwitch).toBeChecked()
         await expect(stamphogSwitch).toBeEnabled()

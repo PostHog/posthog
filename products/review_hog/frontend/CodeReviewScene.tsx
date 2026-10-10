@@ -661,8 +661,6 @@ function RecentReviewsSection(): JSX.Element | null {
 function TriggerReviewSection(): JSX.Element {
     const { triggerPrUrl, triggeringReview, triggerUrlResolving, triggerUrlHasFullReview } =
         useValues(reviewHogSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showInternalFeatures = !!featureFlags[FEATURE_FLAGS.REVIEW_HOG_INTERNAL]
     const { setTriggerPrUrl, submitTriggerReview } = useActions(reviewHogSettingsLogic)
 
     const noUrlReason = !triggerPrUrl.trim() ? 'Paste a pull request URL first' : undefined
@@ -714,29 +712,23 @@ function TriggerReviewSection(): JSX.Element {
                                     >
                                         Review without resolving comments
                                     </LemonButton>
-                                    {showInternalFeatures && (
-                                        <LemonButton
-                                            fullWidth
-                                            onClick={() =>
-                                                submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
-                                            }
-                                            tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
-                                        >
-                                            Only resolve existing comments
-                                        </LemonButton>
-                                    )}
-                                    {showInternalFeatures && (
-                                        <LemonButton
-                                            fullWidth
-                                            onClick={() =>
-                                                submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)
-                                            }
-                                            tooltip="A faster, cheaper review that never resolves comments and uses none of your review skills. Its status comment is marked as flash."
-                                            disabledReason={flashAfterFullReason}
-                                        >
-                                            Review in Flash mode
-                                        </LemonButton>
-                                    )}
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() =>
+                                            submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.ResolveOnly)
+                                        }
+                                        tooltip="Skip the review and only work through the pull request's existing unresolved comment threads."
+                                    >
+                                        Only resolve existing comments
+                                    </LemonButton>
+                                    <LemonButton
+                                        fullWidth
+                                        onClick={() => submitTriggerReview(ReviewTriggerRequestRunModeEnumApi.Flash)}
+                                        tooltip="A faster, cheaper review that never resolves comments and uses none of your review skills. Its status comment is marked as flash."
+                                        disabledReason={flashAfterFullReason}
+                                    >
+                                        Review in Flash mode
+                                    </LemonButton>
                                 </>
                             ),
                         },

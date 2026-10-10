@@ -34,7 +34,6 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
@@ -899,11 +898,7 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     defaults = ReviewPreferences.resolve({}, ReviewProjectSettings.load(input.team_id).defaults)
     preferences = defaults if borrowed else preferences_by_user[acting_user_id]
     owner_preferences = preferences_by_user[owner.user_id] if owner.user_id is not None else defaults
-    resolution = ResolutionGate(
-        owner_user_id=owner.user_id,
-        owner_opted_in=owner_preferences.resolve_comments,
-        internal_features=owner.user_id is not None and has_internal_features(input.team_id),
-    )
+    resolution = ResolutionGate(owner_user_id=owner.user_id, owner_opted_in=owner_preferences.resolve_comments)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
         review_labeled_prs=True,

@@ -302,8 +302,7 @@ class ReviewTriggerErrorSerializer(serializers.Serializer):
         choices=ReviewRequestRefusal.choices,
         help_text="Why the request was refused, for a client that shows its own reason: 'flash_after_full' "
         "(the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not "
-        "turned on resolving comments), 'internal_feature' (the run mode is not available in this project). "
-        "Absent for other errors.",
+        "turned on resolving comments). Absent for other errors.",
     )
 
 
@@ -712,8 +711,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             ),
             403: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,
-                description="The review-hog feature flag is off for this project, or Flash or resolve-only was "
-                "requested in a project without the review-hog-internal flag (code 'internal_feature').",
+                description="The review-hog feature flag is off for this project.",
             ),
             409: OpenApiResponse(
                 response=ReviewTriggerErrorSerializer,

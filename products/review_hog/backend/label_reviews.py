@@ -6,7 +6,7 @@ review again, and the workflow removes the label when the run ends.
 
 - A person can add the label, and so can Stamphog, which hands a refused or escalated pull request to
   ReviewHog this way. Another bot's label gets an explaining comment and is removed.
-- The review runs in the owning project, which needs the `review-hog-internal` flag.
+- The review runs in the owning project.
 - It runs as the pull request owner (`pr_owner.py`). Without an owner it runs as the person who
   connected the installation, with default settings and no resolution.
 """
@@ -22,7 +22,6 @@ from posthog.models.integration import GitHubIntegration, Integration
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_reviews import connector_user_id
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.pull_request_events import REVIEWHOG_LABEL
@@ -42,7 +41,6 @@ BOT_LABEL_COMMENT = (
 
 LabelReviewOutcome = Literal[
     "repository_not_added",
-    "internal_features_off",
     "installation_mismatch",
     "bot_labeler",
     "no_run_user",
@@ -129,9 +127,6 @@ class LabelReview:
             _observe("repository_not_added")
             return
         team_id = owner.team_id
-        if not has_internal_features(team_id):
-            _observe("internal_features_off")
-            return
         integration = (
             Integration.objects.filter(team_id=team_id, kind="github", integration_id=self.installation_id)
             .order_by("id")

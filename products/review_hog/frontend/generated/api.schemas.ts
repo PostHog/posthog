@@ -1068,24 +1068,21 @@ export interface ReviewTriggerResponseApi {
 /**
  * * `flash_after_full` - Flash after a published Full review
  * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution
- * * `internal_feature` - Not available in this project
  */
 export type ReviewRequestRefusalEnumApi = (typeof ReviewRequestRefusalEnumApi)[keyof typeof ReviewRequestRefusalEnumApi]
 
 export const ReviewRequestRefusalEnumApi = {
     FlashAfterFull: 'flash_after_full',
     ResolutionNotOptedIn: 'resolution_not_opted_in',
-    InternalFeature: 'internal_feature',
 } as const
 
 export interface ReviewTriggerErrorApi {
     /** Human-readable explanation of why the trigger was rejected. */
     error: string
-    /** Why the request was refused, for a client that shows its own reason: 'flash_after_full' (the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not turned on resolving comments), 'internal_feature' (the run mode is not available in this project). Absent for other errors.
+    /** Why the request was refused, for a client that shows its own reason: 'flash_after_full' (the PR already has a published Full review), 'resolution_not_opted_in' (the PR owner has not turned on resolving comments). Absent for other errors.
      *
      * * `flash_after_full` - Flash after a published Full review
-     * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution
-     * * `internal_feature` - Not available in this project */
+     * * `resolution_not_opted_in` - The pull request owner has not opted in to resolution */
     code?: ReviewRequestRefusalEnumApi
 }
 
