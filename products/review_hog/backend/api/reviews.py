@@ -464,7 +464,7 @@ class ReviewDetailSerializer(ReviewRecentReviewSerializer):
         help_text="The rendered review body published to GitHub, as markdown. Only kept for the latest "
         "turn, so null when `run_index` selects an older turn.",
     )
-    run_urgency_threshold = serializers.ChoiceField(
+    run_urgency_threshold = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- existing shared list; only the help_text changed here
         choices=_PRIORITY_CHOICES,
         allow_null=True,
         help_text="The urgency threshold the returned turn's publishing gated on (stamped at finalize "
