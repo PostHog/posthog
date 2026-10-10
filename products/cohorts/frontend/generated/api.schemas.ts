@@ -653,6 +653,10 @@ export type CohortsListParams = {
      */
     basic?: boolean
     /**
+     * Optional. Return only cohorts created by the user with this id.
+     */
+    created_by_id?: number
+    /**
      * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
      */
     hide_behavioral_cohorts?: boolean
@@ -668,7 +672,18 @@ export type CohortsListParams = {
      * Optional. Match against cohort `name`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string
+    /**
+     * Optional. `static` returns only static cohorts, `dynamic` only dynamic ones.
+     */
+    type?: CohortsListType
 }
+
+export type CohortsListType = (typeof CohortsListType)[keyof typeof CohortsListType]
+
+export const CohortsListType = {
+    Dynamic: 'dynamic',
+    Static: 'static',
+} as const
 
 export type CohortsPersonsRetrieveParams = {
     format?: CohortsPersonsRetrieveFormat

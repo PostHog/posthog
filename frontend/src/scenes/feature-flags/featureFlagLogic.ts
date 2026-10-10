@@ -168,8 +168,7 @@ const BROADCAST_COHORT_POLL_MS = 2000
 const BROADCAST_COHORT_WAIT_MS = 60_000
 // A flag cohort is a snapshot, so reuse it only while it still reflects who has the flag now.
 const REUSABLE_FLAG_COHORT_MAX_AGE_MS = 60 * 60 * 1000
-// The cohort search parameter rejects longer queries with a 400.
-const COHORT_SEARCH_MAX_LENGTH = 200
+const FLAG_BROADCAST_SOURCE = 'feature_flag'
 
 function flagCohortNamePrefix(flagKey: string): string {
     // Matches the name that create_static_cohort_for_flag gives its cohort. Renaming it there stops reuse here.
@@ -202,6 +201,23 @@ function newestReusableFlagCohort(
     )
     reusable.sort((a, b) => new Date(b.created_at as string).getTime() - new Date(a.created_at as string).getTime())
     return reusable[0] ?? null
+}
+
+/** Why a broadcast to this flag's audience would reach no one, if it would. */
+export function broadcastNoOneReason(
+    flag: Pick<FeatureFlagType, 'deleted' | 'active' | 'filters'> | null | undefined
+): string | undefined {
+    if (flag?.deleted) {
+        return 'This flag is deleted'
+    }
+    if (!flag?.active) {
+        return 'This flag is disabled, so no one has it. Enable it first.'
+    }
+    // The cohort task skips group-targeted flags, so their cohort stays empty.
+    if (flag.filters?.aggregation_group_type_index != null) {
+        return 'This flag targets groups, not people, so there is no one to email.'
+    }
+    return undefined
 }
 
 function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
@@ -617,6 +633,13 @@ export type FeatureFlagEditorKind = 'v1' | 'rules_v2' | null
 
 export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
+}
+
+function dismissBroadcastProgress(cache: Record<string, any>): void {
+    if (cache.broadcastToastId) {
+        lemonToast.dismiss(cache.broadcastToastId)
+        cache.broadcastToastId = null
+    }
 }
 
 function isOnFeatureFlagPage(id: FeatureFlagLogicProps['id']): boolean {
@@ -1261,21 +1284,6 @@ export interface featureFlagLogicActions {
         featureFlagCopy: CopyFlagsResponseApi | undefined
         payload?: any
     }
-    createBroadcastCohort: (_: void) => void
-    createBroadcastCohortFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    createBroadcastCohortSuccess: (
-        broadcastCohort: CohortApi | null,
-        payload?: void
-    ) => {
-        broadcastCohort: CohortApi | null
-        payload?: void
-    }
     createEarlyAccessFeature: () => any
     createEarlyAccessFeatureFailure: (
         error: string,
@@ -1382,6 +1390,21 @@ export interface featureFlagLogicActions {
     }
     enrichUsageDashboard: () => {
         value: true
+    }
+    findOrCreateBroadcastCohort: (_: void) => void
+    findOrCreateBroadcastCohortFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    findOrCreateBroadcastCohortSuccess: (
+        broadcastCohort: CohortApi | null,
+        payload?: void
+    ) => {
+        broadcastCohort: CohortApi | null
+        payload?: void
     }
     loadCopyDependencyRequirements: () => {
         value: true
@@ -3637,19 +3660,29 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         broadcastCohort: [
             null as CohortApi | null,
             {
-                createBroadcastCohort: async (_: void, breakpoint) => {
+                findOrCreateBroadcastCohort: async (_: void, breakpoint) => {
                     if (!props.id || props.id === 'new' || props.id === 'link' || !values.currentProjectId) {
                         return null
                     }
                     const projectId = String(values.currentProjectId)
-                    const search = flagCohortNamePrefix(values.featureFlag.key)
-                    const userUuid = values.user?.uuid
+                    // The tab's copy of the flag can be older than a teammate's edit or a scheduled change.
+                    const flag = (await featureFlagsRetrieve(projectId, props.id)) as unknown as FeatureFlagType
+                    breakpoint()
+                    const noOneReason = broadcastNoOneReason(flag)
+                    if (noOneReason) {
+                        lemonToast.error(noOneReason)
+                        return null
+                    }
+                    const user = values.user
                     let cohortId: number | null = null
-                    if (userUuid && search.length <= COHORT_SEARCH_MAX_LENGTH) {
-                        const { results } = await cohortsList(projectId, { search, limit: 20 })
+                    if (user) {
+                        const { results } = await cohortsList(projectId, {
+                            type: 'static',
+                            created_by_id: user.id,
+                            limit: 20,
+                        })
                         breakpoint()
-                        cohortId =
-                            newestReusableFlagCohort(results, values.featureFlag, userUuid, Date.now())?.id ?? null
+                        cohortId = newestReusableFlagCohort(results, flag, user.uuid, Date.now())?.id ?? null
                     }
                     if (cohortId === null) {
                         const { cohort } = await featureFlagsCreateStaticCohortForFlagCreate(projectId, props.id)
@@ -4558,7 +4591,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadCopyDependencyRequirements()
             }
         },
-        createBroadcastCohortSuccess: ({ broadcastCohort }) => {
+        findOrCreateBroadcastCohort: () => {
+            captureMessageAudienceClicked(FLAG_BROADCAST_SOURCE, 'broadcast')
+            dismissBroadcastProgress(cache)
+            cache.broadcastToastId = lemonToast.loading('Finding the people who have this flag…', {
+                // A fresh id per click: a dismissed id stays cancelled, which would hide the next click's toast.
+                toastId: `flag-broadcast-${props.id}-${Date.now()}`,
+                autoClose: false,
+            })
+        },
+        findOrCreateBroadcastCohortFailure: () => {
+            dismissBroadcastProgress(cache)
+        },
+        findOrCreateBroadcastCohortSuccess: ({ broadcastCohort }) => {
+            dismissBroadcastProgress(cache)
             if (!broadcastCohort) {
                 return
             }
@@ -4578,17 +4624,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 )
                 return
             }
-            captureMessageAudienceClicked('feature_flag', 'broadcast')
-            router.actions.push(
-                messageAudienceUrl(
-                    {
-                        source: 'feature_flag',
-                        properties: cohortAudienceProperties(broadcastCohort),
-                        broadcastName: `${values.featureFlag.key} announcement`,
-                    },
-                    'broadcast'
-                )
+            const broadcastUrl = messageAudienceUrl(
+                {
+                    source: FLAG_BROADCAST_SOURCE,
+                    properties: cohortAudienceProperties(broadcastCohort),
+                    broadcastName: `${values.featureFlag.key} announcement`,
+                },
+                'broadcast'
             )
+            if (isOnFeatureFlagPage(props.id)) {
+                router.actions.push(broadcastUrl)
+                return
+            }
+            // The wait can outlast the visit, so don't pull someone off the page they moved to.
+            lemonToast.success('The people who have this flag are ready for your broadcast.', {
+                button: { label: 'Open broadcast', action: () => router.actions.push(broadcastUrl) },
+            })
         },
         createStaticCohortSuccess: ({ newCohort }) => {
             if (newCohort) {
@@ -5598,5 +5649,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     beforeUnmount(({ props, cache }) => {
         // A notice that survives navigation has a button that reloads an unmounted logic.
         dismissAgentNotices(props.id, cache)
+        dismissBroadcastProgress(cache)
     }),
 ])

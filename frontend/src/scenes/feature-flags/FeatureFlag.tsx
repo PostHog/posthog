@@ -27,7 +27,7 @@ import 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { retryImport } from 'lib/utils/retryImport'
@@ -93,7 +93,7 @@ import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
-import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
+import { FeatureFlagLogicProps, broadcastNoOneReason, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
 import { FeatureFlagRulesV2Editor } from './FeatureFlagRulesV2Editor'
@@ -156,7 +156,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         restoreFeatureFlag,
         editFeatureFlag,
         createStaticCohort,
-        createBroadcastCohort,
+        findOrCreateBroadcastCohort,
         setSelectedTab,
         saveDescriptionInline,
         saveTagsInline,
@@ -196,13 +196,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     }
 
     const isNewFeatureFlag = id === 'new' || id === undefined
-    const broadcastDisabledReason = broadcastCohortLoading
-        ? 'Finding the people who have this flag…'
-        : featureFlag?.deleted
-          ? 'This flag is deleted'
-          : !featureFlag?.active
-            ? 'This flag is disabled, so no one has it. Enable it first.'
-            : undefined
+    const canCreateFlagCohort = isV1Config && !!featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]
+    const broadcastDisabledReason =
+        getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ??
+        (broadcastCohortLoading ? 'Finding the people who have this flag…' : broadcastNoOneReason(featureFlag))
 
     // Expose the flag's release conditions to PostHog AI so it can answer "who does this match?"
     // and build an equivalent insight. The blast-radius endpoint only returns counts, so without
@@ -415,7 +412,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             </ButtonPrimitive>
                         )}
                         <SceneAddToNotebookDropdownMenu dataAttrKey={RESOURCE_TYPE} />
-                        {isV1Config && featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
+                        {canCreateFlagCohort && (
                             <ButtonPrimitive
                                 menuItem
                                 data-attr={`${RESOURCE_TYPE}-create-cohort`}
@@ -425,11 +422,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 Create cohort
                             </ButtonPrimitive>
                         )}
-                        {isV1Config && featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
+                        {canCreateFlagCohort && (
                             <ButtonPrimitive
                                 menuItem
                                 data-attr={`${RESOURCE_TYPE}-message-audience-broadcast`}
-                                onClick={() => createBroadcastCohort()}
+                                onClick={() => findOrCreateBroadcastCohort()}
                                 disabled={!!broadcastDisabledReason}
                                 tooltip={broadcastDisabledReason}
                             >
@@ -592,7 +589,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             }}
                                         />
                                     )}
-                                    {isV1Config && featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
+                                    {canCreateFlagCohort && (
                                         <SceneMenuBarItem
                                             onClick={() => createStaticCohort()}
                                             data-attr={`${RESOURCE_TYPE}-menubar-create-cohort`}
@@ -601,9 +598,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             Cohort
                                         </SceneMenuBarItem>
                                     )}
-                                    {isV1Config && featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
+                                    {canCreateFlagCohort && (
                                         <SceneMenuBarItem
-                                            onClick={() => createBroadcastCohort()}
+                                            onClick={() => findOrCreateBroadcastCohort()}
                                             disabled={!!broadcastDisabledReason}
                                             tooltip={broadcastDisabledReason}
                                             data-attr={`${RESOURCE_TYPE}-menubar-message-audience-broadcast`}
