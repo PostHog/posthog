@@ -1,9 +1,9 @@
-"""Reads of stored metric results.
+"""Reads and writes of stored metric results.
 
-`MetricResultStore` is the only reader of `ExperimentMetricResult`. Its named queries hide three storage
-conventions from the callers:
+`MetricResultStore` is the only module that reads or writes `ExperimentMetricResult`. Its named queries and writes
+hide three storage conventions from the callers:
 
-- A recalculation run files its rows under a salted calculation key (`compute_recalc_fingerprint`), and the daily
+- A recalculation run files its rows under a salted calculation key (`_recalc_fingerprint`), and the daily
   timeseries workflows file theirs under the bare key. So the two families never find each other's rows.
 - The timeseries sync copies daily points into a run one second past the newest point (`sync_copy_window`).
 - Every writer stores the experiment's start date in `query_from`. After a relaunch moves the start date forward,
@@ -12,6 +12,10 @@ conventions from the callers:
 Several rows can share `(experiment, metric_uuid, query_to)` once the unique constraint on that key goes. Every
 query that can meet such rows returns the one with the newest `completed_at`, then the highest id. It never looks a
 row up with `.get()` on that key. While the constraint holds, no two rows tie, so this order changes no result.
+
+Every write looks the row up on `(experiment, metric_uuid, query_to)` and stores the fingerprint as an updated
+field. A row that holds the window under another fingerprint is therefore updated in place, and no write can
+violate the unique constraint or create a second row for a window.
 
 Every query filters on the experiment first, so the `(experiment, metric_uuid, query_to)` indexes serve it.
 """
@@ -22,8 +26,12 @@ from datetime import date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from django.db import transaction
 from django.db.models import F, QuerySet
 from django.db.models.fields.json import KT, KeyTransform
+from django.utils import timezone as django_timezone
+
+import structlog
 
 from posthog.dataclasses import frozen
 
@@ -43,9 +51,16 @@ _RECALCULATION_SALT = "recalculation"
 _SYNC_COPY_OFFSET = timedelta(seconds=1)
 
 _COMPLETED = ExperimentMetricResult.Status.COMPLETED
+_FAILED = ExperimentMetricResult.Status.FAILED
+
+_TERMINAL_RECALC_STATUSES = frozenset(
+    {ExperimentMetricsRecalculation.Status.COMPLETED, ExperimentMetricsRecalculation.Status.FAILED}
+)
+
+logger = structlog.get_logger(__name__)
 
 
-def compute_recalc_fingerprint(config_fingerprint: str) -> str:
+def _recalc_fingerprint(config_fingerprint: str) -> str:
     """Fingerprint stamped onto ExperimentMetricResult rows written by the recalculation workflow.
 
     Returns a 64-char SHA256 hex digest derived solely from the config fingerprint plus a fixed salt, so it is
@@ -103,7 +118,7 @@ class MetricResultStore:
             for calculation_config in build_calculation_configs(run.experiment)
         }
         fingerprints = [
-            compute_recalc_fingerprint(calculation_configs[metric_uuid].calculation_key())
+            _recalc_fingerprint(calculation_configs[metric_uuid].calculation_key())
             for metric_uuid in run.metric_uuids or []
             if metric_uuid in calculation_configs
         ]
@@ -122,7 +137,7 @@ class MetricResultStore:
             experiment_id=self.experiment_id,
             metric_uuid=calculation_config.metric_id,
             query_to=window,
-            fingerprint=compute_recalc_fingerprint(calculation_config.calculation_key()),
+            fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
             status=_COMPLETED,
         ).exists()
 
@@ -195,6 +210,184 @@ class MetricResultStore:
             ).values_list("metric_uuid", flat=True)
         )
 
+    def record_run_result(
+        self,
+        recalculation_id: str,
+        calculation_config: MetricCalculationConfig,
+        *,
+        window: datetime,
+        query_from: datetime,
+        result: dict[str, Any],
+        query_id: str | None,
+    ) -> None:
+        """Store the completed result of one metric of a recalculation run, unless the run is terminal or missing."""
+        self._record_for_run(
+            recalculation_id,
+            calculation_config,
+            window=window,
+            query_from=query_from,
+            status=_COMPLETED,
+            result=result,
+            error_message=None,
+            query_id=query_id,
+        )
+
+    def record_run_failure(
+        self,
+        recalculation_id: str,
+        calculation_config: MetricCalculationConfig,
+        *,
+        window: datetime,
+        query_from: datetime,
+        error_message: str,
+        query_id: str | None,
+    ) -> None:
+        """Store the failure of one metric of a recalculation run, unless the run is terminal or missing."""
+        self._record_for_run(
+            recalculation_id,
+            calculation_config,
+            window=window,
+            query_from=query_from,
+            status=_FAILED,
+            result=None,
+            error_message=error_message,
+            query_id=query_id,
+        )
+
+    def record_daily_point(
+        self, metric_uuid: str, calculation_key: str, *, window: datetime, query_from: datetime, result: dict[str, Any]
+    ) -> None:
+        """Store a completed daily point under the bare calculation key. The backfill stores its past days here too."""
+        self._upsert(
+            metric_uuid,
+            window,
+            fingerprint=calculation_key,
+            query_from=query_from,
+            status=_COMPLETED,
+            result=result,
+            error_message=None,
+            query_id=None,
+            completed_at=django_timezone.now(),
+        )
+
+    def record_daily_failure(
+        self, metric_uuid: str, calculation_key: str, *, window: datetime, query_from: datetime, error_message: str
+    ) -> None:
+        """Store a failed daily point under the bare calculation key."""
+        self._upsert(
+            metric_uuid,
+            window,
+            fingerprint=calculation_key,
+            query_from=query_from,
+            status=_FAILED,
+            result=None,
+            error_message=error_message,
+            query_id=None,
+            completed_at=None,
+        )
+
+    def copy_into_sync_run(
+        self,
+        window: datetime,
+        points: Iterable[tuple[MetricCalculationConfig, ExperimentMetricResult]],
+        *,
+        query_from: datetime,
+        completed_at: datetime,
+    ) -> None:
+        """Copy daily points into a timeseries sync run at its window, under the salted keys a run read looks for."""
+        for calculation_config, point in points:
+            self._upsert(
+                calculation_config.metric_id,
+                window,
+                fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
+                query_from=query_from,
+                status=_COMPLETED,
+                result=point.result,
+                error_message=None,
+                query_id=None,
+                completed_at=completed_at,
+            )
+
+    def delete_daily_points(self, metric_uuid: str, calculation_key: str) -> None:
+        """Delete every row of a metric under the bare calculation key, which holds its daily and backfilled points."""
+        ExperimentMetricResult.objects.filter(
+            experiment_id=self.experiment_id, metric_uuid=metric_uuid, fingerprint=calculation_key
+        ).delete()
+
+    def _record_for_run(
+        self,
+        recalculation_id: str,
+        calculation_config: MetricCalculationConfig,
+        *,
+        window: datetime,
+        query_from: datetime,
+        status: str,
+        result: dict[str, Any] | None,
+        error_message: str | None,
+        query_id: str | None,
+    ) -> None:
+        team_id = calculation_config.settings.team_id
+        with transaction.atomic():
+            # Match request_recalculation's lock order; result inserts also take an experiment FK lock.
+            Experiment.objects.select_for_update(no_key=True).filter(id=self.experiment_id, team_id=team_id).exists()
+            current_status = (
+                ExperimentMetricsRecalculation.objects.select_for_update()
+                .filter(id=recalculation_id, experiment_id=self.experiment_id, team_id=team_id)
+                .values_list("status", flat=True)
+                .first()
+            )
+            if current_status is None or current_status in _TERMINAL_RECALC_STATUSES:
+                logger.warning(
+                    "Skipping experiment metric result write for a terminal or missing recalculation",
+                    recalculation_id=recalculation_id,
+                    metric_uuid=calculation_config.metric_id,
+                    recalculation_status=current_status,
+                )
+                return
+
+            self._upsert(
+                calculation_config.metric_id,
+                window,
+                fingerprint=_recalc_fingerprint(calculation_config.calculation_key()),
+                query_from=query_from,
+                status=status,
+                result=result,
+                error_message=error_message,
+                query_id=query_id,
+                completed_at=django_timezone.now() if status == _COMPLETED else None,
+            )
+
+    def _upsert(
+        self,
+        metric_uuid: str,
+        window: datetime,
+        *,
+        fingerprint: str,
+        query_from: datetime,
+        status: str,
+        result: dict[str, Any] | None,
+        error_message: str | None,
+        query_id: str | None,
+        completed_at: datetime | None,
+    ) -> None:
+        # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in defaults so a row
+        # already occupying that key under a different fingerprint is updated in place, not inserted as a colliding
+        # duplicate.
+        ExperimentMetricResult.objects.update_or_create(
+            experiment_id=self.experiment_id,
+            metric_uuid=metric_uuid,
+            query_to=window,
+            defaults={
+                "fingerprint": fingerprint,
+                "query_from": query_from,
+                "status": status,
+                "result": result,
+                "query_id": query_id,
+                "completed_at": completed_at,
+                "error_message": error_message,
+            },
+        )
+
     @staticmethod
     def sync_copy_window(newest_point: datetime) -> datetime:
         """The query_to of a timeseries sync run and of the copies it holds, for daily points up to `newest_point`."""
@@ -256,3 +449,33 @@ def previous_completed_metric_result(
         return None
     row = MetricResultStore(experiment_id=experiment_id).previous_completed(metric_uuid, calculation_key, before=before)
     return row.result if row is not None else None
+
+
+def record_daily_metric_result(
+    experiment_id: int,
+    *,
+    metric_uuid: str,
+    calculation_key: str,
+    window: datetime,
+    query_from: datetime,
+    result: dict[str, Any],
+) -> None:
+    """Store a completed daily point, for the scheduled workflows outside the product."""
+    MetricResultStore(experiment_id=experiment_id).record_daily_point(
+        metric_uuid, calculation_key, window=window, query_from=query_from, result=result
+    )
+
+
+def record_daily_metric_failure(
+    experiment_id: int,
+    *,
+    metric_uuid: str,
+    calculation_key: str,
+    window: datetime,
+    query_from: datetime,
+    error_message: str,
+) -> None:
+    """Store a failed daily point, for the scheduled workflows outside the product."""
+    MetricResultStore(experiment_id=experiment_id).record_daily_failure(
+        metric_uuid, calculation_key, window=window, query_from=query_from, error_message=error_message
+    )
