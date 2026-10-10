@@ -14574,6 +14574,10 @@ snapshots:
         hash: v1.k794b7964.15d432a648fa4f9c3014fb9eb2575a3fabef538e54a6b1c68ee365c3575c1903.KeVrff6VhdQx8AdPek8I7jfXGtRk5MCEybrtb_ZoCoA
     scenes-code-review--review-drawer-standard--light:
         hash: v1.k794b7964.b53341de7580b5171efd0dfee295ee2f4ef30dd69a057b3ef14e25b0d31709b3.g6L5bNqhOk1MwKDUX-iRS4LFjAKSrpZ6Znmuhv55FhY
+    scenes-code-review--review-drawer-standard-not-posted--dark:
+        hash: v1.k794b7964.3da9d89ad94f5333211ef5c3cde37558bc75dd9f854fd87cda69b6d404376f0f.uEOCy1EExEg8oV2sGDRMTKDUhhZbqxP0ScaTWrMO5eI
+    scenes-code-review--review-drawer-standard-not-posted--light:
+        hash: v1.k794b7964.c790ba3ca42d480a5302e3bd201ebc014c829ddf55dfbe12be1603c064224006.fmHTLnmtcBwkGjb02XFr1np5mOBjiq-lRNPMlHmD8ck
     scenes-code-review--saved-inbox-opt-ins--dark:
         hash: v1.k794b7964.ad93f63add9cc729094908a1c95fd2d5a16cdc3cf60491d478103e0f8ef29e68.XWH14JWiIxuAv5FK2GruOU2sleoiBQ2AX9vCrVT3lk8
     scenes-code-review--saved-inbox-opt-ins--light:
