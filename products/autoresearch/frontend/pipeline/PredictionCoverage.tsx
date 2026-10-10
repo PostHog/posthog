@@ -15,6 +15,10 @@ function formatDays(days: number): string {
     return rounded === '1' ? '1 day' : `${rounded} days`
 }
 
+function every(days: number): string {
+    return days === 1 ? 'every day' : `every ${formatDays(days)}`
+}
+
 function EstimatedCoverageBanner(): JSX.Element | null {
     const { scoringCoverage } = useValues(autoresearchPipelineLogic)
     if (!scoringCoverage) {
@@ -54,14 +58,13 @@ export function CoverageSummaryBanner(): JSX.Element | null {
                         {formatDays(coverage.age_days_p90)} old.
                     </p>
                 )}
-                {measuredRescoreDays != null && (
-                    <p className="mb-0">
-                        Each person is rescored about every {formatDays(measuredRescoreDays)}
-                        {measuredRescoreDays !== targetRescoreDays
-                            ? `. The target is every ${formatDays(targetRescoreDays)}.`
-                            : ', as planned.'}
-                    </p>
-                )}
+                <p className="mb-0">
+                    {measuredRescoreDays == null
+                        ? `The target is to rescore each person ${every(targetRescoreDays)}. The measured rescore interval shows once everyone has a score.`
+                        : measuredRescoreDays !== targetRescoreDays
+                          ? `Each person is rescored about ${every(measuredRescoreDays)}. The target is ${every(targetRescoreDays)}.`
+                          : `Each person is rescored about ${every(measuredRescoreDays)}, as planned.`}
+                </p>
                 {failedRunsSince > 0 && (
                     <p className="mb-0">
                         {failedRunsSince === 1 ? '1 scoring run' : `${failedRunsSince} scoring runs`} failed after this
@@ -79,18 +82,21 @@ export function CoverageHistoryChart(): JSX.Element {
     const theme = useChartTheme()
 
     const series = useMemo<Series[]>(
+        // Dots keep a measured day visible when failed runs leave no neighbor to draw a line to.
         () => [
             {
                 key: 'coverage',
                 label: 'People with a score (%)',
                 color: theme.colors[0],
-                data: coverageHistory.map((p) => p.coveragePct),
+                data: coverageHistory.map((p) => p.coveragePct ?? NaN),
+                points: { radius: 2 },
             },
             {
                 key: 'age_p50',
                 label: 'Median score age (days)',
                 color: theme.colors[1],
                 data: coverageHistory.map((p) => p.ageP50Days ?? NaN),
+                points: { radius: 2 },
                 yAxisId: 'age',
             },
             {
@@ -98,6 +104,7 @@ export function CoverageHistoryChart(): JSX.Element {
                 label: '90th percentile score age (days)',
                 color: theme.colors[2],
                 data: coverageHistory.map((p) => p.ageP90Days ?? NaN),
+                points: { radius: 2 },
                 yAxisId: 'age',
             },
         ],
@@ -116,7 +123,7 @@ export function CoverageHistoryChart(): JSX.Element {
         []
     )
 
-    if (coverageHistory.length < 2) {
+    if (coverageHistory.filter((p) => p.coveragePct != null).length < 2) {
         return (
             <p className="text-sm text-muted mb-0">
                 The chart needs two days of scoring runs that measured coverage. Check back after the next scoring run.
@@ -124,7 +131,7 @@ export function CoverageHistoryChart(): JSX.Element {
         )
     }
     return (
-        <div className="h-64 max-w-4xl">
+        <div className="flex flex-col h-64 max-w-4xl">
             <TimeSeriesLineChart
                 series={series}
                 labels={coverageHistory.map((p) => p.day)}

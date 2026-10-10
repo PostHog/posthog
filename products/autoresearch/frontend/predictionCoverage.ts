@@ -1,3 +1,5 @@
+import { dayjs } from 'lib/dayjs'
+
 import type { AutoresearchPredictionCoverageApi, AutoresearchRunApi } from './generated/api.schemas'
 
 /** Measured score coverage and score age from the newest live champion run that recorded them. */
@@ -12,10 +14,10 @@ export interface CoverageSummary {
     failedRunsSince: number
 }
 
-/** One day's coverage, from the newest measured run of that day. */
+/** One day's coverage, from the newest measured run of that day. Null values mark a day with no measure. */
 export interface CoveragePoint {
     day: string
-    coveragePct: number
+    coveragePct: number | null
     ageP50Days: number | null
     ageP90Days: number | null
 }
@@ -67,5 +69,15 @@ export function coverageHistory(runs: AutoresearchRunApi[]): CoveragePoint[] {
             ageP90Days: run.coverage.age_days_p90,
         })
     }
-    return [...byDay.values()]
+    const days = [...byDay.keys()]
+    if (days.length === 0) {
+        return []
+    }
+    // A day with no measured run stays on the axis as a gap, so failed or skipped runs stay visible.
+    const points: CoveragePoint[] = []
+    for (let day = dayjs.utc(days[0]); !day.isAfter(dayjs.utc(days[days.length - 1])); day = day.add(1, 'day')) {
+        const key = day.format('YYYY-MM-DD')
+        points.push(byDay.get(key) ?? { day: key, coveragePct: null, ageP50Days: null, ageP90Days: null })
+    }
+    return points
 }
