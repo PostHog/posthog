@@ -58,6 +58,7 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state as is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
+from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
@@ -877,8 +878,12 @@ def get_sandbox_ph_mcp_configs(
     ]
 
 
-def _bare_repository_names(repositories: Sequence[str]) -> list[str]:
-    return list(dict.fromkeys(repository.rsplit("/", 1)[-1].lower() for repository in repositories))
+def _installation_repository_names(repositories: Sequence[str]) -> list[str]:
+    # Public sandbox repos clone without credentials and usually sit outside the installation,
+    # where GitHub rejects a scoped mint that names them.
+    return sorted(
+        {repository.rsplit("/", 1)[-1].lower() for repository in repositories if not is_public_sandbox_repo(repository)}
+    )
 
 
 def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) -> list[str]:
@@ -898,10 +903,9 @@ def get_github_token(github_integration_id: int, repositories: Sequence[str] = (
             "GitHub App installation for this integration is uninstalled or suspended",
             {"github_integration_id": github_integration_id},
         )
-    if repositories:
-        return github_integration.mint_scoped_installation_token(
-            None, repositories=_bare_repository_names(repositories)
-        )
+    installation_repositories = _installation_repository_names(repositories)
+    if installation_repositories:
+        return github_integration.mint_scoped_installation_token(None, repositories=installation_repositories)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
 
@@ -969,7 +973,7 @@ def get_readonly_github_token(team_id: int, repositories: Sequence[str] = ()) ->
             logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
             return None
         return integration.mint_scoped_installation_token(
-            READONLY_SANDBOX_GITHUB_PERMISSIONS, repositories=_bare_repository_names(repositories) or None
+            READONLY_SANDBOX_GITHUB_PERMISSIONS, repositories=_installation_repository_names(repositories) or None
         )
     except Exception:
         logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
@@ -980,10 +984,9 @@ def get_user_github_token(github_user_integration_id: str, repositories: Sequenc
     """Return the installation access token from a UserIntegration, refreshing if expired."""
     integration = UserIntegration.objects.get(id=github_user_integration_id)
     github_integration = UserGitHubIntegration(integration)
-    if repositories:
-        return github_integration.mint_scoped_installation_token(
-            None, repositories=_bare_repository_names(repositories)
-        )
+    installation_repositories = _installation_repository_names(repositories)
+    if installation_repositories:
+        return github_integration.mint_scoped_installation_token(None, repositories=installation_repositories)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
     return github_integration.integration.sensitive_config.get("access_token") or None

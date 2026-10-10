@@ -242,7 +242,10 @@ def test_reauthorization_required_surfaces_as_credential_unavailable(
         _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
 
 
-@pytest.mark.parametrize("repositories, expected", [([], None), (["Acme/API", "acme/api", "acme/web"], ["api", "web"])])
+@pytest.mark.parametrize(
+    "repositories, expected",
+    [([], None), (["Acme/API", "acme/api", "acme/web"], ["api", "web"]), (["PostHog/.github"], None)],
+)
 def test_readonly_token_scopes_repositories_without_widening_permissions(repositories, expected):
     integration = _team_integration()
     with patch(

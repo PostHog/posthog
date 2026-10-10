@@ -834,7 +834,16 @@ class TestGetGithubToken(TestCase):
         with self.assertRaises(CredentialUnavailableError):
             get_github_token(integration.id)
 
-    def test_repositories_get_a_freshly_minted_token_instead_of_the_shared_one(self):
+    @parameterized.expand(
+        [
+            ("dedupes_owner_and_case", ["Acme/API", "acme/api", "acme/web"], ["api", "web"], "ghs_scoped"),
+            ("drops_public_bootstrap_repo", ["acme/web", "PostHog/.github"], ["web"], "ghs_scoped"),
+            ("public_bootstrap_only_keeps_shared_token", ["PostHog/.github"], None, "ghs_shared"),
+        ]
+    )
+    def test_repositories_get_a_freshly_minted_token_instead_of_the_shared_one(
+        self, _name, repositories, expected_mint_repositories, expected_token
+    ):
         from posthog.models import Integration, Organization, Team
         from posthog.models.integration import GitHubIntegration
 
@@ -850,10 +859,13 @@ class TestGetGithubToken(TestCase):
         )
 
         with patch.object(GitHubIntegration, "mint_scoped_installation_token", return_value="ghs_scoped") as mint:
-            token = get_github_token(integration.id, repositories=["Acme/API", "acme/api", "acme/web"])
+            token = get_github_token(integration.id, repositories=repositories)
 
-        assert token == "ghs_scoped"
-        mint.assert_called_once_with(None, repositories=["api", "web"])
+        assert token == expected_token
+        if expected_mint_repositories is None:
+            mint.assert_not_called()
+        else:
+            mint.assert_called_once_with(None, repositories=expected_mint_repositories)
 
 
 class TestSlackTaskRunActorUser(TestCase):
