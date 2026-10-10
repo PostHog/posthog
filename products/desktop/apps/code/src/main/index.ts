@@ -180,8 +180,15 @@ const CRASH_LOOP_WINDOW_MS = 30_000;
 const CRASH_LOOP_THRESHOLD = 3;
 const recentCrashTimestamps: number[] = [];
 // Electron reports renderers torn down during quit as "killed", which is also
-// a recoverable reason, so recovery has to be gated on shutdown state instead.
+// a recoverable reason, so reporting and recovery are gated on shutdown state.
 let shutdownStarted = false;
+
+// Windows can end the renderer on logoff or OS shutdown before before-quit fires.
+app.on("browser-window-created", (_event, win) => {
+  win.on("session-end", () => {
+    shutdownStarted = true;
+  });
+});
 
 function isCrashLoop(): boolean {
   const now = Date.now();
@@ -215,6 +222,14 @@ app.on("render-process-gone", (_event, webContents, details) => {
     ...crashDiagnostics(),
   };
   log.error("Renderer process gone", props);
+
+  if (shutdownStarted) {
+    log.info("Skipping renderer report and recovery during shutdown", {
+      reason: details.reason,
+    });
+    return;
+  }
+
   posthogNodeAnalytics.captureException(
     new Error(`Renderer process gone: ${details.reason}`),
     {
@@ -223,13 +238,6 @@ app.on("render-process-gone", (_event, webContents, details) => {
     },
   );
   posthogNodeAnalytics.flush().catch(() => {});
-
-  if (shutdownStarted) {
-    log.info("Skipping renderer recovery during shutdown", {
-      reason: details.reason,
-    });
-    return;
-  }
 
   if (RECOVERABLE_RENDER_REASONS.has(details.reason)) {
     if (isCrashLoop()) {
