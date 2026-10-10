@@ -1050,6 +1050,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
             'cross-project-dashboards',
+            'warehouse-suggestions',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
@@ -1094,10 +1095,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
                 'autoresearch',
                 'today-rail-nav',
+                'marketing-analytics-setup-plan-mcp',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')
-        expect(flags).toHaveLength(36)
+        expect(flags).toHaveLength(37)
     })
 
     it('keeps human and task context wiki tools on separate scopes', () => {

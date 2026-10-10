@@ -2652,6 +2652,7 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 # These keys are reserved for server-owned run state, never PATCH input.
 _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
+        # Worker-interpreted trial markers must never be caller-writable.
         "scout_trial",
         "scout_trial_judge",
         "scout_trial_private",
@@ -6577,27 +6578,6 @@ def scout_trial_task_ids(team_id: int, *, visible_task_id: UUID | None = None) -
 
 def is_scout_trial_task(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(Task.scout_experiment_q(), id=task_id, team_id=team_id).exists()
-
-
-def is_scout_trial_judge_task_run(*, team_id: int, task_id: UUID, run_id: UUID | None = None) -> bool:
-    runs = TaskRun.objects.filter(task_id=task_id, team_id=team_id, task__team_id=team_id)
-    if run_id is not None:
-        runs = runs.filter(id=run_id)
-    row = (
-        runs.filter(task__origin_product=Task.OriginProduct.SIGNALS_SCOUT, task__deleted=False)
-        .values("state", "task__origin_key", "task__created_by_id")
-        .first()
-    )
-    marker = (row["state"] or {}).get("scout_trial_judge") if row else None
-    return bool(
-        row
-        and isinstance(marker, dict)
-        and type(marker.get("version")) is int
-        and marker["version"] == 1
-        and type(marker.get("user_id")) is int
-        and marker.get("user_id") == row["task__created_by_id"]
-        and row["task__origin_key"] == f"scout-trial-judge:{marker.get('evaluation_id')}:{marker.get('launch_id')}"
-    )
 
 
 def list_pinned_task_ids(team_id: int, user_id: int, *, exclude_task_ids: Iterable[UUID] = ()) -> list[UUID]:
