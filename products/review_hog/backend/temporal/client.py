@@ -27,6 +27,7 @@ targets a PR (`pr_url`), validated in `_build_resolution_inputs`.
 import asyncio
 import logging
 from collections.abc import Callable
+from enum import StrEnum
 from typing import Any, cast
 
 from django.conf import settings
@@ -58,6 +59,33 @@ logger = logging.getLogger(__name__)
 _RESOLUTION_RETRY = RetryPolicy(maximum_attempts=2)
 
 
+class WorkflowProbe(StrEnum):
+    RUNNING = "running"
+    NOT_RUNNING = "not_running"
+    UNKNOWN = "unknown"
+
+
+def probe_workflow(workflow_id: str) -> WorkflowProbe:
+    """Whether `workflow_id` has a live execution, with probe errors kept apart as UNKNOWN.
+
+    A status reader must not report a PR as idle when Temporal did not answer.
+    """
+    try:
+        client = sync_connect()
+        description = async_to_sync(client.get_workflow_handle(workflow_id).describe)()
+    except RPCError as e:
+        if e.status == RPCStatusCode.NOT_FOUND:
+            return WorkflowProbe.NOT_RUNNING
+        logger.warning("Workflow describe failed for %s: %s", workflow_id, e)
+        return WorkflowProbe.UNKNOWN
+    except Exception:
+        logger.exception("Workflow describe failed for %s", workflow_id)
+        return WorkflowProbe.UNKNOWN
+    if description.status == WorkflowExecutionStatus.RUNNING:
+        return WorkflowProbe.RUNNING
+    return WorkflowProbe.NOT_RUNNING
+
+
 def workflow_running(workflow_id: str) -> bool:
     """Whether `workflow_id` has a live execution — the busy-guard's probe (CONTEXT.md — "Busy-guard").
 
@@ -67,18 +95,7 @@ def workflow_running(workflow_id: str) -> bool:
     trigger must not 500 over a flaky describe, and a real Temporal outage still surfaces on the
     start call itself.
     """
-    try:
-        client = sync_connect()
-        description = async_to_sync(client.get_workflow_handle(workflow_id).describe)()
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        logger.warning("Busy-guard describe failed for %s: %s", workflow_id, e)
-        return False
-    except Exception:
-        logger.exception("Busy-guard describe failed for %s", workflow_id)
-        return False
-    return description.status == WorkflowExecutionStatus.RUNNING
+    return probe_workflow(workflow_id) == WorkflowProbe.RUNNING
 
 
 def _build_inputs(

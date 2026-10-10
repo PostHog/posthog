@@ -262,6 +262,8 @@ class TurnMarker:
 
     review_mode: str
     head_sha: str | None
+    # When the marker row was written, which is just before the turn's review sessions start.
+    started_at: datetime
 
 
 def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], TurnMarker]:
@@ -277,14 +279,14 @@ def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], T
             marker_review_mode=KeyTextTransform("review_mode", _content_json()),
         )
         .order_by("created_at", "id")
-        .values("report_id", "head_sha", "marker_run_index", "marker_review_mode")
+        .values("report_id", "head_sha", "marker_run_index", "marker_review_mode", "created_at")
     )
     markers: dict[tuple[str, int], TurnMarker] = {}
     for row in rows:
         if row["marker_run_index"] is None or row["marker_review_mode"] is None:
             continue
         markers[(str(row["report_id"]), int(row["marker_run_index"]))] = TurnMarker(
-            review_mode=row["marker_review_mode"], head_sha=row["head_sha"]
+            review_mode=row["marker_review_mode"], head_sha=row["head_sha"], started_at=row["created_at"]
         )
     return markers
 

@@ -82,8 +82,35 @@ const reviewHogReviewsTrigger = (): ToolBase<
     },
 })
 
+const ReviewHogReviewsPrStatusSchema = () => {
+    const ReviewHogReviewsPrStatusRetrieveQueryParams = orvalSchemas.ReviewHogReviewsPrStatusRetrieveQueryParams()
+    return ReviewHogReviewsPrStatusRetrieveQueryParams
+}
+
+const reviewHogReviewsPrStatus = (): ToolBase<
+    ReturnType<typeof ReviewHogReviewsPrStatusSchema>,
+    Schemas.ReviewPRStatus
+> => ({
+    name: 'review-hog-reviews-pr-status',
+    schema: ReviewHogReviewsPrStatusSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReviewHogReviewsPrStatusSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReviewPRStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/review_hog/reviews/pr_status/`,
+            query: {
+                pr_url: params.pr_url,
+                requested_at: params.requested_at,
+                run_mode: params.run_mode,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'review-hog-reviews-get': reviewHogReviewsGet,
     'review-hog-reviews-list': reviewHogReviewsList,
     'review-hog-reviews-trigger': reviewHogReviewsTrigger,
+    'review-hog-reviews-pr-status': reviewHogReviewsPrStatus,
 }
