@@ -985,10 +985,13 @@ def finalize_review_report(
     outcome (`publish_persisted_review`), and the workflow's failure activity covers a publish that
     dies past retries.
     """
+    now = timezone.now()
     updates: dict[str, object] = {
         "report_markdown": body_markdown,
         "run_count": run_index,
-        "last_run_at": timezone.now(),
+        "last_run_at": now,
+        # `QuerySet.update()` skips `auto_now`; the reviews table sorts by `updated_at`.
+        "updated_at": now,
         "completed_head_sha": head_sha,
         "run_urgency_threshold": urgency_threshold,
     }

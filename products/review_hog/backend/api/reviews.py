@@ -81,6 +81,8 @@ DEFAULT_REVIEWS_LIMIT = 5
 DEFAULT_REVIEWS_TABLE_LIMIT = 25
 # Caps "Show more" growth — enrichment (jsonb stats + findings bundle) is per-row work.
 MAX_REVIEWS_LIMIT = 100
+# Far beyond any real history, and well inside PostgreSQL's bigint OFFSET.
+MAX_REVIEWS_TABLE_OFFSET = 1_000_000
 
 # Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
 PERSPECTIVE_STATS_REPORT_LIMIT = 50
@@ -393,7 +395,10 @@ class ReviewsTableParamsSerializer(serializers.Serializer):
         help_text=f"Rows per page. Defaults to {DEFAULT_REVIEWS_TABLE_LIMIT}, at most {MAX_REVIEWS_LIMIT}.",
     )
     offset = serializers.IntegerField(
-        default=0, min_value=0, help_text="How many rows to skip, for paging through the table."
+        default=0,
+        min_value=0,
+        max_value=MAX_REVIEWS_TABLE_OFFSET,
+        help_text="How many rows to skip, for paging through the table.",
     )
 
 

@@ -126775,6 +126775,7 @@ export namespace Schemas {
     /**
      * How many rows to skip, for paging through the table.
      * @minimum 0
+     * @maximum 1000000
      */
     offset?: number;
     /**
