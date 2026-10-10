@@ -1,5 +1,5 @@
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Literal
 
 import requests
@@ -37,7 +37,7 @@ def _cap_mapping(value: Mapping[Any, Any], budget: int) -> dict[str, Any]:
         available = budget - _json_size({**result, key: None}) + 4
         if available <= 0:
             break
-        capped = cap_value(item, available)
+        capped = _capper_for(item)(item, available)
         if capped is not None and _json_size(capped) <= available:
             result[key] = capped
     return result
@@ -47,21 +47,29 @@ def _cap_list(value: list[Any], budget: int) -> list[Any]:
     items: list[Any] = []
     for item in value:
         available = budget - _json_size(items) - bool(items)
-        capped = cap_value(item, available)
+        capped = _capper_for(item)(item, available)
         if capped is None or _json_size(capped) > available or (isinstance(item, str) and capped != item):
             break
         items.append(capped)
     return items
 
 
-def cap_value(value: Any, budget: int) -> Any:
-    if isinstance(value, str):
-        return _cap_string(value, budget)
-    if isinstance(value, Mapping):
-        return _cap_mapping(value, budget)
-    if isinstance(value, list):
-        return _cap_list(value, budget)
+def _cap_scalar(value: Any, budget: int) -> Any:
     return value if value is not None and _json_size(value) <= budget else None
+
+
+def _capper_for(value: Any) -> Callable[[Any, int], Any]:
+    if isinstance(value, str):
+        return _cap_string
+    if isinstance(value, Mapping):
+        return _cap_mapping
+    if isinstance(value, list):
+        return _cap_list
+    return _cap_scalar
+
+
+def cap_value(value: Any, budget: int) -> Any:
+    return _capper_for(value)(value, budget)
 
 
 def produce_step_resume_event(*, team_id: int, origin_key: str, status: str, result: Mapping[str, Any]) -> None:
