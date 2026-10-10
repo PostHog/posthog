@@ -9,7 +9,7 @@ import { parsePathNodeKey } from 'products/product_analytics/frontend/insights/p
 
 import { ChartHeader } from './ChartHeader'
 import { useMcpChartTheme } from './charts/theme'
-import { buildPathsView } from './pathsView'
+import { buildPathsView, MAX_DRAWN_STEPS } from './pathsView'
 import type { PathsResultItem, PathsVisualizerProps } from './types'
 import { formatDuration, formatNumber } from './utils'
 
@@ -27,10 +27,18 @@ function stepRange(edge: PathsResultItem): string {
 
 export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement {
     const theme = useMcpChartTheme()
-    const { allEdges, edges, truncated, graph, columnLabels, nodePadding, stepCount, pathStarts, chartWidth } = useMemo(
-        () => buildPathsView(results),
-        [results]
-    )
+    const {
+        allEdges,
+        edges,
+        truncated,
+        stepsClipped,
+        graph,
+        columnLabels,
+        nodePadding,
+        stepCount,
+        pathStarts,
+        chartWidth,
+    } = useMemo(() => buildPathsView(results), [results])
     // A node's value counts only its drawn ribbons, so a truncated view would label partial totals.
     const config = useMemo<SankeyChartConfig>(
         () => ({ ...CHART_CONFIG, columnLabels, nodePadding, showNodeValues: !truncated }),
@@ -96,9 +104,10 @@ export function PathsVisualizer({ results }: PathsVisualizerProps): ReactElement
                     <>
                         {' '}
                         · <strong className="text-foreground">{formatNumber(pathStarts)}</strong> path
-                        {pathStarts === 1 ? ' begins' : 's begin'} at step 1
+                        {pathStarts === 1 ? ' in this result begins' : 's in this result begin'} at step 1
                     </>
                 )}
+                {stepsClipped && <> · The chart shows steps 1 to {MAX_DRAWN_STEPS}</>}
             </div>
         </div>
     )

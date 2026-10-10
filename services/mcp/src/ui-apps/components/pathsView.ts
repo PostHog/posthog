@@ -13,9 +13,10 @@ export const MAX_EDGES = 60
 
 const MAX_STEPS_IN_FRAME = 5
 
-// Bounds the scroll width, so a result with a very high step index cannot size the canvas
-// to thousands of percent of the frame.
-export const MAX_SCROLL_COLUMNS = 25
+// The chart draws transitions up to this step only. That bounds the scroll width, and it keeps
+// every node pinned under its step header: unpinned, the layout places nodes by graph depth, so a
+// late transition whose earlier steps are missing would sit in an early column.
+export const MAX_DRAWN_STEPS = 25
 
 const NODE_PADDING = 6
 // Total gap one column may take out of the h-80 chart's plot, under half its height. When a dense
@@ -27,6 +28,8 @@ export interface PathsView {
     /** The transitions the chart draws, busiest first. */
     edges: PathsResultItem[]
     truncated: boolean
+    /** True when the result has transitions past `MAX_DRAWN_STEPS` that the chart leaves out. */
+    stepsClipped: boolean
     graph: PathsSankeyGraph<PathsResultItem>
     columnLabels: string[]
     nodePadding: number
@@ -39,16 +42,15 @@ export interface PathsView {
 
 export function buildPathsView(results: unknown): PathsView {
     const allEdges: PathsResultItem[] = Array.isArray(results) ? results : []
+    const drawable = allEdges.filter((edge) => parsePathNodeKey(edge.target).step <= MAX_DRAWN_STEPS)
     // Busiest first, so a truncated view keeps the transitions that matter.
-    const edges = [...allEdges].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).slice(0, MAX_EDGES)
-    const graph = buildPathsSankeyGraph(edges, { labelUrls: true, pinStepsUpTo: MAX_SCROLL_COLUMNS })
-    // Step headers only line up when every node sits in its step's column.
-    const columnLabels = graph.stepsPinned ? Array.from({ length: graph.stepCount }, (_, i) => `Step ${i + 1}`) : []
+    const edges = [...drawable].sort((a, b) => (b.value ?? 0) - (a.value ?? 0)).slice(0, MAX_EDGES)
+    const graph = buildPathsSankeyGraph(edges, { labelUrls: true, pinStepsUpTo: MAX_DRAWN_STEPS })
+    const columnLabels = Array.from({ length: graph.stepCount }, (_, i) => `Step ${i + 1}`)
 
     const perStep = new Map<number, number>()
     for (const node of graph.nodes) {
-        // Unpinned, the layout places nodes by depth, so nodes from any step can share one column.
-        const step = graph.stepsPinned ? parsePathNodeKey(node.id).step : 0
+        const step = parsePathNodeKey(node.id).step
         perStep.set(step, (perStep.get(step) ?? 0) + 1)
     }
     const densest = Math.max(1, ...perStep.values())
@@ -58,18 +60,14 @@ export function buildPathsView(results: unknown): PathsView {
     const stepCount = allEdges.reduce((max, edge) => Math.max(max, parsePathNodeKey(edge.target).step), 0)
     // Past five steps the chart grows a fifth of the frame per step and scrolls, as the paths
     // insight does, so long paths keep readable columns.
-    // Unpinned, the chart lays nodes out by depth, and every edge moves one step on, so the
-    // distinct steps bound its columns where the highest step index does not.
-    const columnCount = Math.min(
-        graph.stepsPinned ? graph.stepCount : new Set(graph.nodes.map((node) => parsePathNodeKey(node.id).step)).size,
-        MAX_SCROLL_COLUMNS
-    )
-    const chartWidth = columnCount > MAX_STEPS_IN_FRAME ? `${(columnCount / MAX_STEPS_IN_FRAME) * 100}%` : '100%'
+    const chartWidth =
+        graph.stepCount > MAX_STEPS_IN_FRAME ? `${(graph.stepCount / MAX_STEPS_IN_FRAME) * 100}%` : '100%'
 
     return {
         allEdges,
         edges,
         truncated: edges.length < allEdges.length,
+        stepsClipped: drawable.length < allEdges.length,
         graph,
         columnLabels,
         nodePadding,

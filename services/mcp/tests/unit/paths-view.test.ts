@@ -22,17 +22,25 @@ describe('buildPathsView', () => {
     })
 
     it.each([
-        { name: 'fits five steps in the frame', steps: 4, chartWidth: '100%', pinned: true },
-        { name: 'scrolls past five steps', steps: 9, chartWidth: '180%', pinned: true },
-        { name: 'caps the scroll width for a very long path', steps: 40, chartWidth: '500%', pinned: false },
-    ])('$name', ({ steps, chartWidth, pinned }) => {
+        { name: 'fits five steps in the frame', steps: 4, chartWidth: '100%', columns: 4, stepsClipped: false },
+        { name: 'scrolls past five steps', steps: 9, chartWidth: '180%', columns: 9, stepsClipped: false },
+        {
+            name: 'draws only the first steps of a very long path, each under its step header',
+            steps: 40,
+            chartWidth: '500%',
+            columns: 25,
+            stepsClipped: true,
+        },
+    ])('$name', ({ steps, chartWidth, columns, stepsClipped }) => {
         const chain = Array.from({ length: steps - 1 }, (_, i) => edge(i + 1, `/p${i}`, `/p${i + 1}`, 10))
 
         const view = buildPathsView(chain)
 
         expect(view.chartWidth).toBe(chartWidth)
-        expect(view.graph.stepsPinned).toBe(pinned)
-        expect(view.columnLabels).toHaveLength(pinned ? steps : 0)
+        expect(view.graph.stepsPinned).toBe(true)
+        expect(view.columnLabels).toHaveLength(columns)
+        expect(view.stepsClipped).toBe(stepsClipped)
+        expect(view.stepCount).toBe(steps)
     })
 
     it('returns an empty view for a non-array result', () => {
