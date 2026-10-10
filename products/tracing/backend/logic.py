@@ -250,6 +250,20 @@ def with_span_attribute_type_suffix(prop: SpanPropertyFilter) -> SpanPropertyFil
     return prop
 
 
+# An exclusion maps to the filter whose matches it removes. IS_NOT_SET has no entry: "no span has the
+# attribute" is not what a user means when they hide spans that have it.
+_EXCLUSION_OPERATOR_COMPLEMENTS = {
+    PropertyOperator.IS_NOT: PropertyOperator.EXACT,
+    PropertyOperator.NOT_IN: PropertyOperator.IN_,
+    PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+    PropertyOperator.NOT_ICONTAINS_MULTI: PropertyOperator.ICONTAINS_MULTI,
+    PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
+    PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
+    PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
+    PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+}
+
+
 class TraceSpansQueryRunnerMixin(QueryRunner):
     """Shared WHERE clause and settings for all trace span query runners."""
 
@@ -601,6 +615,9 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         subquery_where_exprs: list[ast.Expr] = [self.where()]
         if root_only:
             subquery_where_exprs.append(parse_expr("is_root_span = 1"))
+        excluded_traces = self._excluded_traces_filter()
+        if excluded_traces is not None:
+            subquery_where_exprs.append(excluded_traces)
 
         having_expr: ast.Expr | None = None
         if not by_duration:
@@ -788,6 +805,45 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         )
 
         return query
+
+    def _excluded_traces_filter(self) -> ast.Expr | None:
+        """Drop every trace that has a span with an excluded attribute value.
+
+        The trace list keeps a trace when any of its spans matches the filters. An exclusion such as
+        `user_agent.original ≠ Discordbot/2.0` matches every child span that has no user agent, so
+        without this the bot trace stays in the list. A single-trace lookup keeps its trace.
+        """
+        if self.query.traceId is not None:
+            return None
+
+        excluded: list[ast.Expr] = []
+        for prop in [*self.span_attribute_filters, *self.resource_attribute_filters]:
+            if not isinstance(prop, SpanPropertyFilter) or prop.operator not in _EXCLUSION_OPERATOR_COMPLEMENTS:
+                continue
+            positive = prop.model_copy(deep=True)
+            positive.operator = _EXCLUSION_OPERATOR_COMPLEMENTS[prop.operator]
+            excluded.append(property_to_expr(positive, team=self.team))
+        if not excluded:
+            return None
+
+        # Start at the root lookback, so a root loaded from before the range cannot bring back its trace.
+        excluded_trace_ids = parse_select(
+            f"""
+            SELECT trace_id
+            FROM posthog.trace_spans
+            WHERE {TIME_BUCKET_DATE_RANGE_WHERE}
+                AND timestamp >= {{date_from}} AND timestamp < {{date_to}}
+                AND {{excluded}}
+            """,
+            placeholders={
+                "date_from": ast.Constant(value=self.query_date_range.date_from() - ROOT_SPAN_LOOKBACK),
+                "date_to": ast.Constant(value=self.query_date_range.date_to()),
+                "excluded": ast.Or(exprs=excluded) if len(excluded) > 1 else excluded[0],
+            },
+        )
+        return parse_expr(
+            "trace_id NOT IN ({excluded_trace_ids})", placeholders={"excluded_trace_ids": excluded_trace_ids}
+        )
 
     @property
     def _recent_spans_limit(self) -> int:
