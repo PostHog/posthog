@@ -882,10 +882,20 @@ class TestRecentReviewsAPI(APIBaseTest):
         # Deep review uses the teammate's skills, so neither may count.
         standard = self._report(pr_number=4, acting_user=self.user)
         self._finding(standard, "1-s", priority=IssuePriority.MUST_FIX, perspective=logic, review_mode="flash")
+        ReviewReport.objects.for_team(self.team.id).filter(id=standard.id).update(
+            last_run_at=datetime(2026, 6, 1, tzinfo=UTC)
+        )
         # A clean Standard turn has no findings to carry its mode, so only the publish watermark tells.
-        self._report(pr_number=5, acting_user=self.user, head_sha="c1ea2", published_heads_by_mode={"flash": "c1ea2"})
+        # It is the newest report, and it must not take a slot from the Deep reviews under the report limit.
+        clean_standard = self._report(
+            pr_number=5, acting_user=self.user, head_sha="c1ea2", published_heads_by_mode={"flash": "c1ea2"}
+        )
+        ReviewReport.objects.for_team(self.team.id).filter(id=clean_standard.id).update(
+            last_run_at=datetime(2026, 8, 1, tzinfo=UTC)
+        )
 
-        res = self.client.get(f"{self.url}perspective_stats/?scope=own_deep")
+        with patch("products.review_hog.backend.api.reviews.PERSPECTIVE_STATS_REPORT_LIMIT", 2):
+            res = self.client.get(f"{self.url}perspective_stats/?scope=own_deep")
 
         assert res.status_code == 200
         data = res.json()

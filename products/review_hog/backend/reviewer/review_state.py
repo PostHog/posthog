@@ -48,7 +48,8 @@ def completed_turn_review_mode(
     if mode is not None:
         return mode
     head = report.completed_head_sha or report.head_sha
-    heads = published_heads_by_mode(report)
+    # Legacy rows kept the mode on findings only, and the findings already said nothing.
+    heads = report.published_heads_by_mode or {}
     if head and heads.get(REVIEW_MODE_FLASH) == head and heads.get(REVIEW_MODE_FULL) != head:
         return REVIEW_MODE_FLASH
     return REVIEW_MODE_FULL

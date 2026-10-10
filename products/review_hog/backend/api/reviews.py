@@ -692,7 +692,12 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         queryset: QuerySet[ReviewReport]
         if scope == PerspectiveStatsScope.OWN_DEEP:
             team_id = resolve_effective_team_id(self.team_id)
-            queryset = ReviewReport.objects.for_team(team_id, canonical=True).filter(acting_user_id=request.user.id)
+            # Filter before the report limit, so newer Standard reports cannot push Deep ones out of the window.
+            # Rows from before the per-mode watermark predate Standard reviews.
+            queryset = ReviewReport.objects.for_team(team_id, canonical=True).filter(
+                Q(published_heads_by_mode__has_key=REVIEW_MODE_FULL) | Q(published_heads_by_mode__isnull=True),
+                acting_user_id=request.user.id,
+            )
         else:
             team_id, queryset = self._reports(request, scope=scope)
         reports = list(
