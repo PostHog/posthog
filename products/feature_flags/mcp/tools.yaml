@@ -20,9 +20,11 @@ ui_apps:
         view_prop: flag
 tools:
     create-feature-flag:
-        sdk: { namespace: featureFlags, method: create }
         operation: feature_flags_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: create
         scopes:
             - feature_flag:write
         annotations:
@@ -93,9 +95,11 @@ tools:
                     - featureFlagId
         soft_delete: true
     feature-flag-archive:
-        sdk: { namespace: featureFlags, method: archive }
         operation: feature_flags_archive_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: archive
         scopes:
             - feature_flag:write
         annotations:
@@ -149,9 +153,11 @@ tools:
                 - status
                 - version
     feature-flag-disable:
-        sdk: { namespace: featureFlags, method: disable }
         operation: feature_flags_disable_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: disable
         scopes:
             - feature_flag:write
         annotations:
@@ -203,9 +209,11 @@ tools:
                 - status
                 - version
     feature-flag-enable:
-        sdk: { namespace: featureFlags, method: enable }
         operation: feature_flags_enable_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: enable
         scopes:
             - feature_flag:write
         annotations:
@@ -252,9 +260,11 @@ tools:
                 - status
                 - version
     feature-flag-get-all:
-        sdk: { namespace: featureFlags, method: list }
         operation: feature_flags_list
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: list
         scopes:
             - feature_flag:read
         annotations:
@@ -299,9 +309,11 @@ tools:
                 - active
                 - created_at
     feature-flag-get-definition:
-        sdk: { namespace: featureFlags, method: get }
         operation: feature_flags_retrieve
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: get
         scopes:
             - feature_flag:read
         annotations:
@@ -323,9 +335,11 @@ tools:
                     - feature_flag_id
                     - featureFlagId
     feature-flag-roll-out-to-everyone:
-        sdk: { namespace: featureFlags, method: rollOutToEveryone }
         operation: feature_flags_roll_out_to_everyone_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: rollOutToEveryone
         scopes:
             - feature_flag:write
         annotations:
@@ -412,9 +426,11 @@ tools:
                 - version
                 - filters
     feature-flag-set-release-condition-rollout:
-        sdk: { namespace: featureFlags, method: setReleaseConditionRollout }
         operation: feature_flags_set_release_condition_rollout_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: setReleaseConditionRollout
         scopes:
             - feature_flag:write
         annotations:
@@ -473,9 +489,11 @@ tools:
                 - version
                 - filters
     feature-flag-unarchive:
-        sdk: { namespace: featureFlags, method: unarchive }
         operation: feature_flags_unarchive_create
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: unarchive
         scopes:
             - feature_flag:write
         annotations:
@@ -622,9 +640,11 @@ tools:
             untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of
             successful and failed copies.
     feature-flags-dependent-flags-retrieve:
-        sdk: { namespace: featureFlags, method: dependentFlags }
         operation: feature_flags_dependent_flags_list
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: dependentFlags
         scopes:
             - feature_flag:read
         annotations:
@@ -678,9 +698,11 @@ tools:
             for every flag and can produce a very large payload. Optionally pass `groups` as a JSON object to evaluate
             group-based flags.
     feature-flags-status-retrieve:
-        sdk: { namespace: featureFlags, method: status }
         operation: feature_flags_status_retrieve
         enabled: true
+        sdk:
+            namespace: featureFlags
+            method: status
         scopes:
             - feature_flag:read
         annotations:

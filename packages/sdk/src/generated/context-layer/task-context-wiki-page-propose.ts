@@ -23,8 +23,11 @@ export type ContextLayerTaskContextWikiPageProposeRequestSchema2 = string
  * Request body for creating or replacing one wiki page.
  */
 export interface ContextLayerTaskContextWikiPageProposeInput {
+    /** Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`. */
     path: ContextLayerTaskContextWikiPageProposeRequestSchema0
+    /** The complete Markdown content for the page. */
     content: ContextLayerTaskContextWikiPageProposeRequestSchema1
+    /** The head_sha returned when reading the page. Required to bind the proposed edit. */
     base_head: ContextLayerTaskContextWikiPageProposeRequestSchema2
 }
 

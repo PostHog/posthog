@@ -8,9 +8,11 @@ url_prefix: /dashboard
 ui_apps: {}
 tools:
     dashboard-create:
-        sdk: { namespace: dashboards, method: create }
         operation: dashboards_create
         enabled: true
+        sdk:
+            namespace: dashboards
+            method: create
         scopes:
             - dashboard:write
         annotations:
@@ -203,9 +205,11 @@ tools:
             id:
                 cast: string-int
     dashboard-get:
-        sdk: { namespace: dashboards, method: get }
         operation: dashboards_retrieve
         enabled: true
+        sdk:
+            namespace: dashboards
+            method: get
         scopes:
             - dashboard:read
         annotations:
@@ -437,9 +441,11 @@ tools:
             to_dashboard:
                 required: true
     dashboard-update:
-        sdk: { namespace: dashboards, method: update }
         operation: dashboards_partial_update
         enabled: true
+        sdk:
+            namespace: dashboards
+            method: update
         scopes:
             - dashboard:write
         annotations:
@@ -662,9 +668,11 @@ tools:
                 cast: string-int
         feature_flag: dashboard-widgets
     dashboards-get-all:
-        sdk: { namespace: dashboards, method: list }
         operation: dashboards_list
         enabled: true
+        sdk:
+            namespace: dashboards
+            method: list
         scopes:
             - dashboard:read
         annotations:

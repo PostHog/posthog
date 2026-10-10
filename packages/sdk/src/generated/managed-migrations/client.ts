@@ -23,6 +23,8 @@ export interface ManagedMigrationsClient {
      *
      * Troubleshooting reminders (same semantics as the list tool): `waiting_to_start` = running with no worker lease yet; `lease_expired: true` on a running job = the worker died or the job is about to be re-claimed; a `paused` job keeps its lease and resuming (a Django admin action - this API is read-only) must clear it; `paused` with an invalid-JSON parse error at the resume point usually means the source bytes changed under the committed offset and the in-flight part needs a reset to offset 0 via Django admin's "Resume + re-import in-flight part".
      *
+     * @sourceDescription Get one batch import job with its raw worker state and import config. PostHog staff only.
+     *
      * @mcpTool managed-migrations-support-get
      *
      * @requiredScopes batch_import_support:read
@@ -47,6 +49,8 @@ export interface ManagedMigrationsClient {
      * - `status_message` is the developer-facing debugging signal; `display_status_message` is what the customer sees in the PostHog UI.
      *
      * Use `managed-migrations-support-get` with a job id for the raw worker `state` and `import_config` blobs. Credentials (`secrets`) are never returned.
+     *
+     * @sourceDescription List batch import (managed migration) jobs across all teams. PostHog staff only.
      *
      * @mcpTool managed-migrations-support-list
      *

@@ -1,6 +1,7 @@
 {
     "method": "accessControl.accessControlRoleRuleSetExecute",
     "toolName": "access-control-role-rule-set-execute",
+    "operationId": "organizations_projects_access_control_role_rules_update",
     "title": "Set or clear one role's access rule for a scope (execute)",
     "category": "Access control",
     "description": "Step 2 of 2 for change a role's access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
@@ -33,6 +34,15 @@
         }
     ],
     "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Set or clear one role's rule for a scope. A role rule applies to every member of the role and takes precedence over the default. Requires the role-based access feature. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1projects~1{id}~1access_control_role_rules~1/put"
+            }
+        },
         {
             "role": "override",
             "text": "Sets the level every member of one role gets for one scope. A role rule wins over the default, and a member's own rule wins over it. The scope is the project (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the role's rule. An empty result means the rule is cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with `role_id` first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",

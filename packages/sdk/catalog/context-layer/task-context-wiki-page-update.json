@@ -1,6 +1,7 @@
 {
     "method": "contextLayer.taskContextWikiPageUpdate",
     "toolName": "task-context-wiki-page-update",
+    "operationId": "context_layer_agent_pages_update",
     "title": "Update this task's context wiki page",
     "category": "Context wiki",
     "description": "Replace the current task channel's context page. Read it first and pass head_sha as base_head. Shared pages require task-context-wiki-page-propose and human review. Instruction files, generated indexes, scripts, and other channels' pages cannot be edited.",
@@ -51,6 +52,15 @@
         }
     ],
     "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The same organization wiki, reached by an agent run inside a sandbox.\n\nThis exists as a second, project-nested route because a sandbox run token\ncarries `scoped_teams`, and `APIScopePermission` accepts those only on a\nproject-nested view — on the organization-scoped route above, every sandbox\ntoken is refused before it reaches any of this. The wiki is still one repo\nper organization; the project in the path is how a run token proves which\norganization it may act for, and is not a scope on the wiki itself.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1context_layer~1agent~1pages~1/put"
+            }
+        },
         {
             "role": "override",
             "text": "Replace the current task channel's context page. Read it first and pass head_sha as base_head. Shared pages require task-context-wiki-page-propose and human review. Instruction files, generated indexes, scripts, and other channels' pages cannot be edited.",
@@ -117,6 +127,54 @@
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/context_layer.ts",
                         "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageUpdateInput",
+            "field": "path",
+            "effectiveDescription": "Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/context_layer/agent/pages/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageUpdateInput",
+            "field": "content",
+            "effectiveDescription": "The complete Markdown content for the page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The complete Markdown content for the page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/context_layer/agent/pages/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageUpdateInput",
+            "field": "base_head",
+            "effectiveDescription": "Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/context_layer/agent/pages/"
                     }
                 }
             ]
