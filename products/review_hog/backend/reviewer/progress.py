@@ -61,6 +61,7 @@ IN_PROGRESS_STALE_AFTER = timedelta(minutes=30)
 
 RESOLUTION_RESOLVING = "resolving"
 RESOLUTION_STOPPED = "stopped"
+RESOLUTION_COMPLETED = "completed"
 # The `author` the resolution stage stamps on its closing run `note` — the completion marker the
 # state derivation looks for. Kept here so the writer (temporal/resolution.py) and this reader
 # can't drift apart.
@@ -253,6 +254,39 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
 
 
 @frozen
+class TurnMarker:
+    """The mode and head of one executed turn, from its `turn_marker` artefact."""
+
+    review_mode: str
+    head_sha: str | None
+
+
+def turn_markers(team_id: int, report_ids: list[str]) -> dict[tuple[str, int], TurnMarker]:
+    """Each turn's marker, keyed by (report id, run index). The newest row of a retried turn wins.
+
+    Turns that started before markers existed, or whose marker write failed, are absent.
+    """
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id__in=report_ids, type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
+        .annotate(
+            marker_run_index=KeyTextTransform("run_index", _content_json()),
+            marker_review_mode=KeyTextTransform("review_mode", _content_json()),
+        )
+        .order_by("created_at", "id")
+        .values("report_id", "head_sha", "marker_run_index", "marker_review_mode")
+    )
+    markers: dict[tuple[str, int], TurnMarker] = {}
+    for row in rows:
+        if row["marker_run_index"] is None or row["marker_review_mode"] is None:
+            continue
+        markers[(str(row["report_id"]), int(row["marker_run_index"]))] = TurnMarker(
+            review_mode=row["marker_review_mode"], head_sha=row["head_sha"]
+        )
+    return markers
+
+
+@frozen
 class ResolutionRunState:
     """The report's latest resolution run, as the list row and the drawer render it."""
 
@@ -261,6 +295,36 @@ class ResolutionRunState:
     total: int = 0
     fixed: int = 0
     needs_attention: int = 0
+
+
+@frozen
+class ResolutionSummary:
+    """The report's latest resolution run, completed runs included, as an API reader reports it."""
+
+    status: str  # RESOLUTION_RESOLVING | RESOLUTION_STOPPED | RESOLUTION_COMPLETED
+    started_at: datetime
+    completed_at: datetime | None
+    total: int
+    fixed: int
+    needs_attention: int
+    commits: tuple[str, ...]
+
+
+@frozen
+class _ThreadVerdictRow:
+    outcome: str
+    reply_posted: bool
+    # Only a fix commit the public reply links to: verified on the PR branch and not touching restricted paths.
+    linked_commit_sha: str | None
+
+
+@frozen
+class _RunSignals:
+    """Per report, the newest `pr_snapshot`, closing run `note`, and turn-written artefact."""
+
+    snapshot_latest: dict[str, datetime]
+    note_latest: dict[str, datetime]
+    activity_latest: dict[str, datetime]
 
 
 def _latest_created_at(queryset: QuerySet) -> dict[str, datetime]:
@@ -295,6 +359,34 @@ def _load_resolution_runs(
     return runs
 
 
+def _run_signals(team_id: int, report_ids: list[str]) -> _RunSignals:
+    scoped = ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=report_ids)
+    return _RunSignals(
+        snapshot_latest=_latest_created_at(scoped.filter(type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT)),
+        note_latest=_latest_created_at(
+            scoped.filter(type=ReviewReportArtefact.ArtefactType.NOTE)
+            .annotate(note_author=KeyTextTransform("author", _content_json()))
+            .filter(note_author=RESOLUTION_RUN_NOTE_AUTHOR)
+        ),
+        activity_latest=_latest_created_at(scoped.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)),
+    )
+
+
+def _superseded(signals: _RunSignals, report_id: str, started_at: datetime) -> bool:
+    snapshot_at = signals.snapshot_latest.get(report_id)
+    return snapshot_at is not None and snapshot_at > started_at
+
+
+def _closed_at(signals: _RunSignals, report_id: str, started_at: datetime) -> datetime | None:
+    note_at = signals.note_latest.get(report_id)
+    return note_at if note_at is not None and note_at >= started_at else None
+
+
+def _is_fresh(report: ReviewReport, latest_artefact_at: datetime | None) -> bool:
+    last_activity = max(filter(None, [report.updated_at, latest_artefact_at]), default=None)
+    return last_activity is not None and last_activity >= timezone.now() - IN_PROGRESS_STALE_AFTER
+
+
 def _live_resolution_runs(
     team_id: int, runs: dict[str, tuple[ResolutionRunArtefact, datetime]]
 ) -> tuple[dict[str, tuple[ResolutionRunArtefact, datetime]], dict[str, datetime]]:
@@ -304,34 +396,24 @@ def _live_resolution_runs(
     it completed (a closing run `note` after the anchor). Activity liveness reuses the same signal
     `_in_progress_report_ids` uses for review turns, so the two can't disagree about "visibly moving".
     """
-    scoped = ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=list(runs))
-    snapshot_latest = _latest_created_at(scoped.filter(type=ReviewReportArtefact.ArtefactType.PR_SNAPSHOT))
-    note_latest = _latest_created_at(
-        scoped.filter(type=ReviewReportArtefact.ArtefactType.NOTE)
-        .annotate(note_author=KeyTextTransform("author", _content_json()))
-        .filter(note_author=RESOLUTION_RUN_NOTE_AUTHOR)
-    )
-    activity_latest = _latest_created_at(scoped.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME))
-
+    signals = _run_signals(team_id, list(runs))
     live: dict[str, tuple[ResolutionRunArtefact, datetime]] = {}
     for report_id, (run, started_at) in runs.items():
-        superseded = snapshot_latest.get(report_id) is not None and snapshot_latest[report_id] > started_at
-        completed = note_latest.get(report_id) is not None and note_latest[report_id] >= started_at
-        if not superseded and not completed:
+        if not _superseded(signals, report_id, started_at) and _closed_at(signals, report_id, started_at) is None:
             live[report_id] = (run, started_at)
-    return live, activity_latest
+    return live, signals.activity_latest
 
 
 def _thread_verdicts(
     team_id: int, live: dict[str, tuple[ResolutionRunArtefact, datetime]]
-) -> dict[str, dict[str, tuple[str, bool]]]:
+) -> dict[str, dict[str, _ThreadVerdictRow]]:
     """Latest verdict per thread within each live run (rows come oldest-first, so later rows win).
 
     Scoped to the run's own queued threads, because redelivering a prior run's verdict also appends
     rows during this run. Only delivered verdicts (`reply_posted`) count: a judged thread whose
     GitHub writes failed has no reply yet, so it must not read as settled.
     """
-    verdicts: dict[str, dict[str, tuple[str, bool]]] = {report_id: {} for report_id in live}
+    verdicts: dict[str, dict[str, _ThreadVerdictRow]] = {report_id: {} for report_id in live}
     verdict_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(
@@ -343,18 +425,32 @@ def _thread_verdicts(
             thread_id=KeyTextTransform("thread_id", _content_json()),
             outcome=KeyTextTransform("outcome", _content_json()),
             reply_posted=KeyTextTransform("reply_posted", _content_json()),
+            commit_sha=KeyTextTransform("commit_sha", _content_json()),
+            commit_verified=KeyTextTransform("commit_verified", _content_json()),
+            commit_restricted=KeyTextTransform("commit_restricted", _content_json()),
         )
         .order_by("created_at", "id")
-        .values("report_id", "thread_id", "outcome", "reply_posted", "created_at")
+        .values(
+            "report_id",
+            "thread_id",
+            "outcome",
+            "reply_posted",
+            "commit_sha",
+            "commit_verified",
+            "commit_restricted",
+            "created_at",
+        )
     )
     for verdict_row in verdict_rows:
         report_id = str(verdict_row["report_id"])
         run, started_at = live[report_id]
         if verdict_row["created_at"] < started_at or verdict_row["thread_id"] not in run.thread_ids:
             continue
-        verdicts[report_id][verdict_row["thread_id"]] = (
-            verdict_row["outcome"],
-            verdict_row["reply_posted"] == "true",
+        linked = verdict_row["commit_verified"] == "true" and verdict_row["commit_restricted"] != "true"
+        verdicts[report_id][verdict_row["thread_id"]] = _ThreadVerdictRow(
+            outcome=verdict_row["outcome"],
+            reply_posted=verdict_row["reply_posted"] == "true",
+            linked_commit_sha=verdict_row["commit_sha"] if linked else None,
         )
     return verdicts
 
@@ -381,14 +477,11 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
 
     verdicts = _thread_verdicts(team_id, live)
 
-    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
     reports_by_id = {str(report.id): report for report in reports}
     states: dict[str, ResolutionRunState] = {}
     for report_id, (run, _started_at) in live.items():
-        report = reports_by_id[report_id]
-        last_activity = max(filter(None, [report.updated_at, activity_latest.get(report_id)]), default=None)
-        fresh = last_activity is not None and last_activity >= cutoff
-        delivered = [outcome for outcome, reply_posted in verdicts[report_id].values() if reply_posted]
+        fresh = _is_fresh(reports_by_id[report_id], activity_latest.get(report_id))
+        delivered = [verdict.outcome for verdict in verdicts[report_id].values() if verdict.reply_posted]
         states[report_id] = ResolutionRunState(
             status=RESOLUTION_RESOLVING if fresh else RESOLUTION_STOPPED,
             done=len(delivered),
@@ -397,6 +490,44 @@ def resolution_states(team_id: int, reports: list[ReviewReport]) -> dict[str, Re
             needs_attention=sum(1 for outcome in delivered if outcome == "escalate"),
         )
     return states
+
+
+def latest_resolution_summaries(team_id: int, reports: list[ReviewReport]) -> dict[str, ResolutionSummary]:
+    """Each report's latest resolution run, completed runs included, with its outcome counts and fix commits.
+
+    A sibling of `resolution_states`, which drops completed and superseded runs because the list row
+    only shows a run while it matters for progress. A run that a newer review turn superseded
+    without its closing note reads as stopped.
+    """
+    runs = _load_resolution_runs(team_id, reports)
+    if not runs:
+        return {}
+    signals = _run_signals(team_id, list(runs))
+    verdicts = _thread_verdicts(team_id, runs)
+    reports_by_id = {str(report.id): report for report in reports}
+    summaries: dict[str, ResolutionSummary] = {}
+    for report_id, (run, started_at) in runs.items():
+        completed_at = _closed_at(signals, report_id, started_at)
+        if completed_at is not None:
+            status = RESOLUTION_COMPLETED
+        elif not _superseded(signals, report_id, started_at) and _is_fresh(
+            reports_by_id[report_id], signals.activity_latest.get(report_id)
+        ):
+            status = RESOLUTION_RESOLVING
+        else:
+            status = RESOLUTION_STOPPED
+        delivered = [verdict for verdict in verdicts[report_id].values() if verdict.reply_posted]
+        fixed = [verdict for verdict in delivered if verdict.outcome == "fixed"]
+        summaries[report_id] = ResolutionSummary(
+            status=status,
+            started_at=started_at,
+            completed_at=completed_at,
+            total=run.total,
+            fixed=len(fixed),
+            needs_attention=sum(1 for verdict in delivered if verdict.outcome == "escalate"),
+            commits=tuple(dict.fromkeys(v.linked_commit_sha for v in fixed if v.linked_commit_sha)),
+        )
+    return summaries
 
 
 def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int | None:
