@@ -21,6 +21,7 @@ from products.data_modeling.backend.models.data_modeling_job import DataModeling
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.product_analytics.backend.facade.api import insight_references
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 if TYPE_CHECKING:
@@ -438,6 +439,7 @@ DEPENDENT_KIND_LABELS: dict[str, str] = {
     NodeType.MAT_VIEW: "materialized view",
     NodeType.ENDPOINT: "endpoint",
     NodeType.METRIC: "metric",
+    NodeType.INSIGHT: "insight",
 }
 
 MAX_NAMED_DEPENDENTS = 3
@@ -459,6 +461,36 @@ def _dependent_metrics(nodes: QuerySet[Node]) -> list[Dependent]:
     return [
         Dependent(name=name, kind=NodeType.METRIC, lineage_node_id=source_node_id)
         for name, source_node_id in sorted(source_by_metric.items())
+    ]
+
+
+def _dependent_insights(team_id: int, nodes: QuerySet[Node]) -> list[Dependent]:
+    """Live insights reading any of `nodes`, each pointing at the node it hangs off.
+
+    The insight row decides, not its node: an insight can be soft-deleted without going through the
+    path that removes its node (a dashboard deleted together with its insights is one), and a node
+    left behind must not block the delete. The live row also carries the current name and the
+    creator, which the caller needs to resolve the reader's access.
+    """
+    source_by_insight: dict[int, str] = {}
+    rows = Node.objects.filter(team_id=team_id, incoming_edges__source__in=nodes, type=NodeType.INSIGHT).values_list(
+        "insight_id", "incoming_edges__source_id"
+    )
+    for insight_id, source_id in rows:
+        if insight_id is not None:
+            source_by_insight.setdefault(insight_id, str(source_id))
+    if not source_by_insight:
+        return []
+    references = insight_references(team_id=team_id, insight_ids=list(source_by_insight))
+    return [
+        Dependent(
+            name=reference.name,
+            kind=NodeType.INSIGHT,
+            insight_id=reference.id,
+            created_by_id=reference.created_by_id,
+            lineage_node_id=source_by_insight[reference.id],
+        )
+        for reference in sorted(references, key=lambda reference: (reference.name, reference.id))
     ]
 
 
@@ -531,7 +563,7 @@ def delete_node_from_dag(saved_query: "DataWarehouseSavedQuery") -> None:
             )
             for dependent in get_dependent_saved_queries(saved_query)
         ]
-        dependents = query_dependents + _dependent_metrics(nodes)
+        dependents = query_dependents + _dependent_metrics(nodes) + _dependent_insights(saved_query.team_id, nodes)
         if dependents:
             raise HasDependentsError(
                 saved_query.name,

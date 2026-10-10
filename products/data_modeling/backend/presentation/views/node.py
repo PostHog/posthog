@@ -44,7 +44,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
-from products.data_modeling.backend.presentation.views.metric_visibility import MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.node_visibility import NodeVisibilityMixin
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -93,6 +93,7 @@ class NodeSerializer(serializers.ModelSerializer):
     lineage_issue = serializers.SerializerMethodField(read_only=True)
     origin = serializers.SerializerMethodField(read_only=True)
     warehouse_table_id = serializers.SerializerMethodField(read_only=True)
+    insight_short_id = serializers.SerializerMethodField(read_only=True)
     dag = TeamScopedPrimaryKeyRelatedField(queryset=DAG.objects.all())
 
     class Meta:
@@ -106,6 +107,8 @@ class NodeSerializer(serializers.ModelSerializer):
             "description",
             "saved_query_id",
             "metric_id",
+            "insight_id",
+            "insight_short_id",
             "lineage_issue",
             "origin",
             "warehouse_table_id",
@@ -133,6 +136,8 @@ class NodeSerializer(serializers.ModelSerializer):
             "dag_name",
             "saved_query_id",
             "metric_id",
+            "insight_id",
+            "insight_short_id",
             "lineage_issue",
             "origin",
             "warehouse_table_id",
@@ -162,16 +167,19 @@ class NodeSerializer(serializers.ModelSerializer):
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)][0]
-        return len(_get_upstream_nodes(node, hidden_types=self._hidden_types()))
+        return len(_get_upstream_nodes(node, hidden_types=self._hidden_types(), hidden_ids=self._hidden_ids()))
 
     def get_downstream_count(self, node: Node) -> int:
         counts = self.context.get("node_counts")
         if counts and str(node.id) in counts:
             return counts[str(node.id)][1]
-        return len(_get_downstream_nodes(node, hidden_types=self._hidden_types()))
+        return len(_get_downstream_nodes(node, hidden_types=self._hidden_types(), hidden_ids=self._hidden_ids()))
 
     def _hidden_types(self) -> frozenset[str]:
         return self.context.get("hidden_node_types") or frozenset()
+
+    def _hidden_ids(self) -> frozenset[str]:
+        return self.context.get("hidden_node_ids") or frozenset()
 
     def get_last_run_at(self, node: Node) -> str | None:
         run_at = getattr(node, "_latest_job_run_at", None)
@@ -236,6 +244,15 @@ class NodeSerializer(serializers.ModelSerializer):
         except ValueError:
             return None
 
+    @extend_schema_field(
+        serializers.CharField(
+            allow_null=True,
+            help_text="Short ID of the insight an insight node stands for, which its URL uses. Null for any other node.",
+        )
+    )
+    def get_insight_short_id(self, node: Node) -> str | None:
+        return node.insight_short_id if node.type == NodeType.INSIGHT else None
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
         # maintains them directly via the ORM and bypasses this serializer. Block users from
@@ -245,8 +262,8 @@ class NodeSerializer(serializers.ModelSerializer):
         target_dag = attrs.get("dag")
         if target_dag is not None and target_dag.is_managed:
             raise serializers.ValidationError("Nodes cannot be created in or moved into a system-managed DAG.")
-        if self.instance is not None and self.instance.type == NodeType.METRIC:
-            raise serializers.ValidationError("Metric nodes are maintained by the data catalog.")
+        if self.instance is not None and self.instance.type in _READER_NODE_EDIT_REFUSALS:
+            raise serializers.ValidationError(_READER_NODE_EDIT_REFUSALS[self.instance.type])
         node_type = attrs.get("type")
         if node_type is not None:
             # A full PUT round-trips the node's own type, so a type equal to the current one is
@@ -257,6 +274,17 @@ class NodeSerializer(serializers.ModelSerializer):
             elif node_type != self.instance.type:
                 raise serializers.ValidationError("A node's type cannot be changed through the API.")
         return attrs
+
+
+_READER_NODE_EDIT_REFUSALS: dict[str, str] = {
+    NodeType.METRIC: "Metric nodes are maintained by the data catalog.",
+    NodeType.INSIGHT: "Insight nodes are maintained from their insight's query.",
+}
+
+_READER_NODE_DELETE_REFUSALS: dict[str, str] = {
+    NodeType.METRIC: "Metric nodes are deleted by deleting their metric.",
+    NodeType.INSIGHT: "Insight nodes are deleted by deleting their insight.",
+}
 
 
 class NodePagination(PageNumberPagination):
@@ -275,7 +303,10 @@ _READ_DENIED = "Reading data models requires data warehouse read access."
 
 
 def _get_upstream_nodes(
-    node: Node, include_tables: bool = False, hidden_types: frozenset[str] = frozenset()
+    node: Node,
+    include_tables: bool = False,
+    hidden_types: frozenset[str] = frozenset(),
+    hidden_ids: frozenset[str] = frozenset(),
 ) -> set[str]:
     """Get all upstream (ancestor) node IDs recursively, optionally excluding TABLE nodes."""
     nodes: set[str] = set()
@@ -290,12 +321,16 @@ def _get_upstream_nodes(
             qs = qs.exclude(source__type=NodeType.TABLE)
         if hidden_types:
             qs = qs.exclude(source__type__in=hidden_types)
+        if hidden_ids:
+            qs = qs.exclude(source_id__in=hidden_ids)
         current = list(qs.values_list("source_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
 
 
-def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()) -> set[str]:
+def _get_downstream_nodes(
+    node: Node, hidden_types: frozenset[str] = frozenset(), hidden_ids: frozenset[str] = frozenset()
+) -> set[str]:
     """Get all downstream (descendant) node IDs recursively, excluding TABLE nodes."""
     nodes: set[str] = set()
     current = [node.id]
@@ -307,6 +342,8 @@ def _get_downstream_nodes(node: Node, hidden_types: frozenset[str] = frozenset()
         )
         if hidden_types:
             qs = qs.exclude(target__type__in=hidden_types)
+        if hidden_ids:
+            qs = qs.exclude(target_id__in=hidden_ids)
         current = list(qs.values_list("target_id", flat=True))
         nodes.update(str(i) for i in current)
     return nodes
@@ -340,7 +377,7 @@ class LineageResponseSerializer(serializers.Serializer):
     edges = EdgeSerializer(many=True, help_text="Every edge between two of those nodes.")
 
 
-class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class NodeViewSet(NodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = Node.objects.select_related("saved_query", "dag").all()
     serializer_class = NodeSerializer
@@ -350,13 +387,17 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
     ordering = "name"
 
     def get_serializer_context(self) -> dict[str, Any]:
-        return {**super().get_serializer_context(), "hidden_node_types": self._hidden_node_types()}
+        return {
+            **super().get_serializer_context(),
+            "hidden_node_types": self._hidden_node_types(),
+            "hidden_node_ids": self._hidden_node_ids,
+        }
 
     def perform_destroy(self, instance: Node) -> None:
         if instance.dag.is_managed:
             raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
-        if instance.type == NodeType.METRIC:
-            raise serializers.ValidationError("Metric nodes are deleted by deleting their metric.")
+        if instance.type in _READER_NODE_DELETE_REFUSALS:
+            raise serializers.ValidationError(_READER_NODE_DELETE_REFUSALS[instance.type])
         instance.delete()
 
     def _require_warehouse_access(self, *, level: AccessControlLevel, message: str) -> None:
@@ -390,7 +431,12 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
         nodes = page if page is not None else queryset
 
         dag_id = self._get_dag_id_param()
-        graph = Graph(team_id=self.team_id, dag_id=dag_id, hidden_types=self._hidden_node_types())
+        graph = Graph(
+            team_id=self.team_id,
+            dag_id=dag_id,
+            hidden_types=self._hidden_node_types(),
+            hidden_ids=self._hidden_node_ids,
+        )
         node_ids = [str(n.id) for n in nodes]
         counts = graph.batch_counts(node_ids)
 
@@ -544,8 +590,9 @@ class NodeViewSet(MetricNodeVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.Mo
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 
         hidden_types = self._hidden_node_types()
-        upstream_ids = _get_upstream_nodes(node, include_tables=True, hidden_types=hidden_types)
-        downstream_ids = _get_downstream_nodes(node, hidden_types=hidden_types)
+        hidden_ids = self._hidden_node_ids
+        upstream_ids = _get_upstream_nodes(node, include_tables=True, hidden_types=hidden_types, hidden_ids=hidden_ids)
+        downstream_ids = _get_downstream_nodes(node, hidden_types=hidden_types, hidden_ids=hidden_ids)
         all_ids = upstream_ids | downstream_ids | {str(node.id)}
 
         nodes = self._exclude_hidden_nodes(

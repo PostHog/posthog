@@ -24,6 +24,7 @@ from products.data_modeling.backend.logic.node_suspension import (
 )
 from products.data_modeling.backend.models import DAG, DataModelingJob, DataModelingJobEngine, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 
@@ -967,6 +968,53 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
         node_ids = {node["id"] for node in payload["nodes"]}
         self.assertEqual(str(self.metric_node.id) in node_ids, expected_visible)
         self.assertEqual(len(payload["edges"]) == 1, expected_visible)
+
+    @parameterized.expand(
+        [("readable", False, False, True), ("denied", True, False, False), ("deleted", False, True, False)]
+    )
+    def test_insight_visibility_covers_every_placement(
+        self, _name: str, denied: bool, deleted: bool, expected_visible: bool
+    ) -> None:
+        self.metric_node.delete()
+        insight = Insight.objects.create(team=self.team, name="Private orders", created_by=self.user, deleted=deleted)
+        other_dag = DAG.objects.create(team=self.team, name="other")
+        other_view = Node.objects.create(
+            team=self.team, dag=other_dag, saved_query=self.view_node.saved_query, type=NodeType.VIEW
+        )
+        reader_ids: set[str] = set()
+        edge_ids: set[str] = set()
+        for source in (self.view_node, other_view):
+            reader = Node.objects.create(
+                team=self.team, dag=source.dag, name="Private orders", type=NodeType.INSIGHT, insight_id=insight.id
+            )
+            edge = Edge.objects.create(team=self.team, dag=source.dag, source=source, target=reader)
+            reader_ids.add(str(reader.id))
+            edge_ids.add(str(edge.id))
+        if denied:
+            self._create_access_control(
+                self.viewer_user, resource="insight", resource_id=str(insight.id), access_level="none"
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        nodes = response.json()["results"]
+        returned_ids = {node["id"] for node in nodes}
+        self.assertEqual(returned_ids & reader_ids, reader_ids if expected_visible else set())
+        for node in nodes:
+            if node["type"] == NodeType.VIEW:
+                self.assertEqual(node["downstream_count"], int(expected_visible))
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned_edges = {edge["id"] for edge in response.json()["results"]}
+        self.assertEqual(returned_edges & edge_ids, edge_ids if expected_visible else set())
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.view_node.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["nodes"]), 2 if expected_visible else 1)
+        self.assertEqual(len(response.json()["edges"]), int(expected_visible))
 
 
 @pytest.mark.ee

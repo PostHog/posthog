@@ -203,6 +203,25 @@ export const Full: Story = {
     ),
 }
 
+const INSIGHT_READER_NODES: DataModelingNode[] = [
+    mockNode({ id: '1', name: 'orders', type: 'table' }),
+    mockNode({ id: '4', name: 'monthly_report', type: 'view' }),
+    mockNode({ id: '7', name: 'Monthly revenue', type: 'insight', insight_id: 101, insight_short_id: 'AbC123xY' }),
+]
+const INSIGHT_READER_EDGES: DataModelingEdge[] = [mockEdge('e1', '1', '4'), mockEdge('e6', '4', '7')]
+
+export const ViewReadByInsight: Story = {
+    render: () => (
+        <LineageGraph
+            nodes={INSIGHT_READER_NODES}
+            edges={INSIGHT_READER_EDGES}
+            currentNodeId="4"
+            variant="full"
+            showControls
+        />
+    ),
+}
+
 export const Canvas: Story = {
     render: () => (
         <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} variant="canvas" showControls showMinimap interactive />

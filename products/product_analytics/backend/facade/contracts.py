@@ -49,3 +49,24 @@ class SavedInsightDefinition:
     short_id: str
     name: str | None
     query: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class InsightReference:
+    """A live insight as another product names it and checks access to it.
+
+    ``name`` is what the insight list shows: the saved name, else the derived name, else the short ID.
+    """
+
+    id: int
+    short_id: str
+    name: str
+    created_by_id: int | None
+
+
+@dataclass(frozen=True)
+class InsightLineageBackfill:
+    """How a team's insights fared when their lineage nodes were rebuilt."""
+
+    seen: int
+    failed: int

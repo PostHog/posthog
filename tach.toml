@@ -312,6 +312,7 @@ depends_on = [
     "posthog",
     "products.data_tools",
     "products.data_warehouse",
+    "products.product_analytics",
     "products.revenue_analytics",
     "products.warehouse_sources", "products.access_control",
 ]
@@ -734,6 +735,7 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.dashboards",
+    "products.data_modeling",
     "products.event_definitions",
     "products.exports",
     "products.annotations",

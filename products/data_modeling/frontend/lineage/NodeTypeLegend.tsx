@@ -10,6 +10,7 @@ const LEGEND_ENTRIES: { type: DataModelingNodeType; description: string }[] = [
     { type: 'matview', description: 'A persisted view with improved query performance' },
     { type: 'endpoint', description: 'A materialized endpoint for API access' },
     { type: 'metric', description: 'A governed metric from the data catalog' },
+    { type: 'insight', description: 'A saved insight that reads from a view or table' },
 ]
 
 export interface NodeTypeLegendProps {

@@ -1,1 +1,1 @@
-0046_dwsavedquery_team_live_created_idx
+0048_node_insight_indexes

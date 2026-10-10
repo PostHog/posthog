@@ -19,10 +19,15 @@ class NodeType(models.TextChoices):
     MAT_VIEW = "matview"
     ENDPOINT = "endpoint"
     METRIC = "metric"
+    INSIGHT = "insight"
 
 
 SAVED_QUERY_NODE_TYPES = frozenset({NodeType.VIEW, NodeType.MAT_VIEW, NodeType.ENDPOINT})
 _SAVED_QUERY_NODE_TYPE_VALUES = sorted(node_type.value for node_type in SAVED_QUERY_NODE_TYPES)
+
+# Nodes that only read from the graph. Their owning product keeps them in step, nothing ever runs them,
+# and the node and edge APIs must not edit them.
+READER_NODE_TYPES = frozenset({NodeType.METRIC, NodeType.INSIGHT})
 
 
 # properties["system"] marker set by consolidate_dags --adopt-unresolvable when a query's SQL
@@ -30,6 +35,9 @@ _SAVED_QUERY_NODE_TYPE_VALUES = sorted(node_type.value for node_type in SAVED_QU
 DEGRADED_SYNC_KEY = "degraded_sync"
 
 UNRESOLVED_DEPENDENCIES_KEY = "unresolved"
+
+# properties key on an insight node holding the insight's short ID, which its URL uses.
+INSIGHT_SHORT_ID_KEY = "insight_short_id"
 
 MAX_SYNC_ERROR_LENGTH = 500
 
@@ -58,6 +66,10 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     saved_query_id: int | None
 
     metric_id = models.UUIDField(null=True, blank=True)
+
+    insight_id = models.BigIntegerField(
+        null=True, blank=True, help_text="ID of the insight an insight node stands for, or null for any other node."
+    )
 
     dag = models.ForeignKey(DAG, on_delete=models.CASCADE, db_column="dag_fk_id")
     dag_id: int
@@ -94,6 +106,11 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             self.properties.pop("system", None)
 
     @property
+    def insight_short_id(self) -> str | None:
+        short_id = (self.properties or {}).get(INSIGHT_SHORT_ID_KEY)
+        return short_id if isinstance(short_id, str) else None
+
+    @property
     def lineage_issue(self) -> dict[str, Any] | None:
         system = (self.properties or {}).get("system") or {}
         degraded = system.get(DEGRADED_SYNC_KEY)
@@ -126,13 +143,22 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
             models.CheckConstraint(
                 name="node_backing_reference_matches_type",
                 condition=(
-                    Q(type=NodeType.TABLE, metric_id__isnull=True)
+                    Q(type=NodeType.TABLE, metric_id__isnull=True, insight_id__isnull=True)
                     | Q(
                         type__in=_SAVED_QUERY_NODE_TYPE_VALUES,
                         saved_query__isnull=False,
                         metric_id__isnull=True,
+                        insight_id__isnull=True,
                     )
-                    | Q(type=NodeType.METRIC, saved_query__isnull=True, metric_id__isnull=False)
+                    | Q(
+                        type=NodeType.METRIC, saved_query__isnull=True, metric_id__isnull=False, insight_id__isnull=True
+                    )
+                    | Q(
+                        type=NodeType.INSIGHT,
+                        saved_query__isnull=True,
+                        metric_id__isnull=True,
+                        insight_id__isnull=False,
+                    )
                 ),
             ),
             models.UniqueConstraint(
@@ -146,8 +172,13 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 fields=["team", "dag", "metric_id"],
             ),
             models.UniqueConstraint(
-                condition=models.Q(saved_query__isnull=True, metric_id__isnull=True),
-                name="name_unique_within_team_dag_for_tables_v2",
+                condition=models.Q(insight_id__isnull=False),
+                name="insight_unique_within_team_dag",
+                fields=["team", "dag", "insight_id"],
+            ),
+            models.UniqueConstraint(
+                condition=models.Q(saved_query__isnull=True, metric_id__isnull=True, insight_id__isnull=True),
+                name="name_unique_within_team_dag_for_tables_v3",
                 fields=["team", "dag", "name"],
             ),
         ]

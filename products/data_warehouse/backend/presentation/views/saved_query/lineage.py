@@ -3,7 +3,7 @@
 from rest_framework import request, serializers
 
 from products.data_modeling.backend.facade.api import reachable_node_ids, saved_query_node_ids
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node, NodeType
+from products.data_modeling.backend.facade.models import READER_NODE_TYPES, DataWarehouseSavedQuery, Node
 
 
 class SavedQueryLineageRequestSerializer(serializers.Serializer):
@@ -74,7 +74,7 @@ def _related_saved_queries(saved_query: DataWarehouseSavedQuery, *, upstream: bo
         team=saved_query.team, id__in=reached
     ).values_list("type", "saved_query_id", "name", "properties"):
         properties = properties or {}
-        if node_type == NodeType.METRIC:
+        if node_type in READER_NODE_TYPES:
             continue
         if saved_query_id is not None:
             identifiers.add(str(saved_query_id))

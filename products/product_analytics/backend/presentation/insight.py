@@ -171,6 +171,8 @@ from products.product_analytics.backend.facade.api import (
     recently_viewed_insights,
     record_insight_view,
     record_insight_views,
+    remove_insight_lineage,
+    sync_insights_lineage,
     with_last_viewed_at,
 )
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
@@ -2442,6 +2444,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 hide_tiles_for_insights(insight_ids)
                 delete_insight_alerts(insight_ids)
                 delete_insight_subscriptions(project_id=self.team.project_id, insight_ids=insight_ids)
+                remove_insight_lineage(insights)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:
@@ -2493,6 +2496,9 @@ When set, the specified dashboard's filters and date range override will be appl
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=False, last_modified_at=now(), last_modified_by=current_user)
                 restore_tiles_for_insights(insight_ids, user_permissions=self.user_permissions)
+                # Re-read so each insight carries deleted=False, which the lineage sync keys off.
+                restored_insights = Insight.objects.filter(id__in=insight_ids, team__project_id=self.team.project_id)
+                sync_insights_lineage(restored_insights.select_related("team"))
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:
@@ -2545,7 +2551,9 @@ When set, the specified dashboard's filters and date range override will be appl
         # are served under /environments/. The per-insight access check below resolves rows team-scoped, which is
         # equivalent today because team_id == project_id, and asymmetric only under the deprecated
         # multi-team-per-project path being removed. Same trade-off as the feature flag bulk endpoint.
-        saved_insights = Insight.objects.filter(team__project_id=self.team.project_id, saved=True)
+        saved_insights = Insight.objects.filter(team__project_id=self.team.project_id, saved=True).select_related(
+            "team"
+        )
         # Counted rather than silently dropped: the toggle lives in the query, so a run that leaves these
         # behind has to say so instead of reporting that nothing needed changing.
         legacy_count = saved_insights.filter(query__isnull=True).count()
@@ -2662,6 +2670,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 # `query_metadata` is derived from the query's entities, which this toggle doesn't touch, so it
                 # stays valid even though bulk_update skips the regeneration in `Insight.save`.
                 Insight.objects.bulk_update(to_update, ["query", "last_modified_at", "last_modified_by"])
+                sync_insights_lineage(to_update)
                 bulk_log_activity(activity_log_entries)
 
         return counts

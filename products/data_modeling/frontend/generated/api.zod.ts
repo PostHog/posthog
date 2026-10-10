@@ -39,21 +39,49 @@ export const DataModelingDagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const DataModelingEdgesCreateBody = /* @__PURE__ */ zod.object({
     dag: zod.uuid(),
     properties: zod.unknown().optional(),
 })
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const DataModelingEdgesUpdateBody = /* @__PURE__ */ zod.object({
     dag: zod.uuid(),
     properties: zod.unknown().optional(),
 })
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const DataModelingEdgesPartialUpdateBody = /* @__PURE__ */ zod.object({
     dag: zod.uuid().optional(),
     properties: zod.unknown().optional(),
 })
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingNodesCreateBodyNameMax = 2048
 
 export const dataModelingNodesCreateBodyDescriptionMax = 1024
@@ -61,15 +89,22 @@ export const dataModelingNodesCreateBodyDescriptionMax = 1024
 export const DataModelingNodesCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingNodesCreateBodyNameMax),
     type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
+        .enum(['table', 'view', 'matview', 'endpoint', 'metric', 'insight'])
         .optional()
         .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric\n\* `insight` - Insight'
         ),
     dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesCreateBodyDescriptionMax).optional(),
 })
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingNodesUpdateBodyNameMax = 2048
 
 export const dataModelingNodesUpdateBodyDescriptionMax = 1024
@@ -77,15 +112,22 @@ export const dataModelingNodesUpdateBodyDescriptionMax = 1024
 export const DataModelingNodesUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingNodesUpdateBodyNameMax),
     type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
+        .enum(['table', 'view', 'matview', 'endpoint', 'metric', 'insight'])
         .optional()
         .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric\n\* `insight` - Insight'
         ),
     dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesUpdateBodyDescriptionMax).optional(),
 })
 
+/**
+ * Hides the nodes whose names the reader may not see, from node lists, edge lists and counts alike.
+ *
+ * A metric is all or nothing on project `data_catalog` viewer. An insight is resolved through its own
+ * `insight` object grant, and a node whose insight is deleted is hidden too, because nothing would
+ * open behind it.
+ */
 export const dataModelingNodesPartialUpdateBodyNameMax = 2048
 
 export const dataModelingNodesPartialUpdateBodyDescriptionMax = 1024
@@ -93,10 +135,10 @@ export const dataModelingNodesPartialUpdateBodyDescriptionMax = 1024
 export const DataModelingNodesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingNodesPartialUpdateBodyNameMax).optional(),
     type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
+        .enum(['table', 'view', 'matview', 'endpoint', 'metric', 'insight'])
         .optional()
         .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric\n\* `insight` - Insight'
         ),
     dag: zod.uuid().optional(),
     description: zod.string().max(dataModelingNodesPartialUpdateBodyDescriptionMax).optional(),
@@ -112,10 +154,10 @@ export const dataModelingNodesMaterializeCreateBodyDescriptionMax = 1024
 export const DataModelingNodesMaterializeCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingNodesMaterializeCreateBodyNameMax),
     type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
+        .enum(['table', 'view', 'matview', 'endpoint', 'metric', 'insight'])
         .optional()
         .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric\n\* `insight` - Insight'
         ),
     dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesMaterializeCreateBodyDescriptionMax).optional(),
@@ -136,10 +178,10 @@ export const dataModelingNodesRunCreateBodyDescriptionMax = 1024
 export const DataModelingNodesRunCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(dataModelingNodesRunCreateBodyNameMax),
     type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
+        .enum(['table', 'view', 'matview', 'endpoint', 'metric', 'insight'])
         .optional()
         .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
+            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric\n\* `insight` - Insight'
         ),
     dag: zod.uuid(),
     description: zod.string().max(dataModelingNodesRunCreateBodyDescriptionMax).optional(),

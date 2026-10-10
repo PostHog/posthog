@@ -40,6 +40,7 @@ from products.data_warehouse.backend.presentation.views.saved_query.viewset impo
     SavedQueryMaterializeSerializer,
     SavedQueryResumeSchedulesRequestSerializer,
 )
+from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -700,18 +701,25 @@ class TestSavedQuery(APIBaseTest):
         )
         assert cast(dict[str, Any], delete_activity.detail)["name"] == query_name
 
-    def test_a_refused_delete_names_its_dependents_and_links_their_lineage(self):
+    @parameterized.expand([("metric", "weekly_active_accounts (metric)"), ("insight", "Weekly accounts (insight)")])
+    def test_a_refused_delete_names_its_dependents_and_links_their_lineage(self, reader: str, named: str):
         dag = DAG.get_or_create_default(self.team)
         view = DataWarehouseSavedQuery.objects.create(team=self.team, name="accounts_view")
         view_node = Node.objects.create(team=self.team, saved_query=view, dag=dag, type=NodeType.VIEW)
-        metric_node = Node.objects.create(
-            team=self.team,
-            dag=dag,
-            name="weekly_active_accounts",
-            type=NodeType.METRIC,
-            metric_id=uuid.uuid4(),
-        )
-        Edge.objects.create(team=self.team, dag=dag, source=view_node, target=metric_node)
+        if reader == "metric":
+            reader_node = Node.objects.create(
+                team=self.team,
+                dag=dag,
+                name="weekly_active_accounts",
+                type=NodeType.METRIC,
+                metric_id=uuid.uuid4(),
+            )
+        else:
+            insight = Insight.objects.create(team=self.team, name="Weekly accounts", created_by=self.user)
+            reader_node = Node.objects.create(
+                team=self.team, dag=dag, name="Weekly accounts", type=NodeType.INSIGHT, insight_id=insight.id
+            )
+        Edge.objects.create(team=self.team, dag=dag, source=view_node, target=reader_node)
 
         response = self.client.delete(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}",
@@ -719,9 +727,9 @@ class TestSavedQuery(APIBaseTest):
 
         assert response.status_code == 400, response.content
         body = response.json()
-        assert body["detail"] == (
-            "Can't delete accounts_view yet. These read from it: weekly_active_accounts (metric). "
-            "Update or delete them first."
+        assert (
+            body["detail"]
+            == f"Can't delete accounts_view yet. These read from it: {named}. Update or delete them first."
         )
         assert body["code"] == "has_dependents"
         assert body["extra"] == {"node_id": str(view_node.id)}
@@ -1828,7 +1836,13 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json(), {"upstream_count": 0, "downstream_count": 2})
 
-    def test_descendants_omit_a_metric_that_reads_the_view(self):
+    @parameterized.expand(
+        [
+            ("metric", {"type": NodeType.METRIC, "metric_id": uuid.uuid4()}),
+            ("insight", {"type": NodeType.INSIGHT, "insight_id": 101}),
+        ]
+    )
+    def test_descendants_omit_a_reader_of_the_view(self, _name: str, reader: dict[str, Any]):
         dag = DAG.get_or_create_default(self.team)
         view = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -1837,14 +1851,8 @@ class TestSavedQuery(APIBaseTest):
             created_by=self.user,
         )
         view_node = Node.objects.create(team=self.team, saved_query=view, dag=dag, type=NodeType.VIEW)
-        metric_node = Node.objects.create(
-            team=self.team,
-            dag=dag,
-            name="weekly_active_accounts",
-            type=NodeType.METRIC,
-            metric_id=uuid.uuid4(),
-        )
-        Edge.objects.create(team=self.team, dag=dag, source=view_node, target=metric_node)
+        reader_node = Node.objects.create(team=self.team, dag=dag, name="weekly_active_accounts", **reader)
+        Edge.objects.create(team=self.team, dag=dag, source=view_node, target=reader_node)
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}/descendants",

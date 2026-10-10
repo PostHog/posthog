@@ -522,4 +522,5 @@ class TableCollector(TraversingVisitor):
         else:
             self.visit(node.table)
 
+        self.visit(node.constraint)
         self.visit(node.next_join)
