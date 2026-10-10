@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSelect, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import {
     REVIEW_SKILL_KIND_LABELS,
@@ -12,7 +12,7 @@ import { prettifySkillName } from 'products/review_hog/frontend/skillNames'
 
 import { SingleActiveSkillGroup } from './SingleActiveSkillGroup'
 import { SkillGroupHeader } from './SkillGroupHeader'
-import { SkillRow } from './SkillRow'
+import { SkillKept, SkillRow } from './SkillRow'
 
 const SKILL_KINDS: ReviewSkillKind[] = ['perspective', 'blind_spots', 'validator', 'resolution']
 
@@ -20,10 +20,21 @@ function capitalize(text: string): string {
     return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
-/** The viewer's review skills for the Deep reviews they start, always open. */
+/**
+ * The viewer's review skills for the Deep reviews they start, always open. Kept counts come from the
+ * viewer's own last Deep reviews, never from the Activity tab's Mine / Everyone switch.
+ */
 export function ReviewSkillsPanel(): JSX.Element {
-    const { perspectives, blindSpots, validators, resolutionSkills, savingSkillNames, creatingSkillKind } =
-        useValues(reviewHogSettingsLogic)
+    const {
+        perspectives,
+        blindSpots,
+        validators,
+        resolutionSkills,
+        deepSkillKept,
+        deepValidationKept,
+        savingSkillNames,
+        creatingSkillKind,
+    } = useValues(reviewHogSettingsLogic)
     const {
         togglePerspective,
         selectBlindSpots,
@@ -31,9 +42,14 @@ export function ReviewSkillsPanel(): JSX.Element {
         selectResolutionSkill,
         startSkillAuthorTask,
         openAdoptSkillModal,
+        openPipelineDetail,
     } = useActions(reviewHogSettingsLogic)
 
+    const keptFor = (skillName: string): SkillKept | null => deepSkillKept?.[skillName] ?? null
     const enabledCount = perspectives?.filter((perspective) => perspective.enabled).length ?? 0
+    const validationKept: SkillKept | null = deepValidationKept
+        ? { kept: deepValidationKept.kept, raised: deepValidationKept.judged }
+        : null
 
     return (
         <section className="@container flex flex-col overflow-hidden rounded border border-primary bg-surface-primary">
@@ -50,6 +66,7 @@ export function ReviewSkillsPanel(): JSX.Element {
                         and reads none of these. Switch a skill on or off for the Deep reviews you start.
                     </p>
                 </div>
+                <span className="text-xs text-secondary">Kept counts: your last 10 Deep reviews</span>
             </header>
             <div className="hidden grid-cols-[minmax(0,1fr)_minmax(0,16rem)] gap-3 border-t border-primary px-4 py-1.5 text-xxs font-semibold uppercase tracking-wide text-secondary @min-[48rem]:grid">
                 <span>Skill</span>
@@ -70,6 +87,7 @@ export function ReviewSkillsPanel(): JSX.Element {
                         key={perspective.skill_name}
                         skillName={perspective.skill_name}
                         description={perspective.description}
+                        kept={deepSkillKept === null ? undefined : keptFor(perspective.skill_name)}
                         mine={
                             <LemonSelect<'on' | 'off'>
                                 size="small"
@@ -97,12 +115,14 @@ export function ReviewSkillsPanel(): JSX.Element {
             <SingleActiveSkillGroup
                 title="Blind-spot check"
                 skills={blindSpots}
+                keptFor={deepSkillKept === null ? undefined : keptFor}
                 onSelect={selectBlindSpots}
                 dataAttr="review-hog-blind-spots-mine"
             />
             <SingleActiveSkillGroup
                 title="Validation criteria"
                 skills={validators}
+                keptFor={deepSkillKept === null ? undefined : () => validationKept}
                 onSelect={selectValidator}
                 dataAttr="review-hog-validator-mine"
             />
@@ -142,6 +162,13 @@ export function ReviewSkillsPanel(): JSX.Element {
                         Use an existing skill
                     </LemonButton>
                 </LemonMenu>
+                <span className="text-xs text-secondary">
+                    How the pipeline uses skills:{' '}
+                    <Link onClick={() => openPipelineDetail()} data-attr="review-hog-skills-pipeline-detail">
+                        Activity › Detailed view
+                    </Link>
+                    .
+                </span>
             </footer>
         </section>
     )

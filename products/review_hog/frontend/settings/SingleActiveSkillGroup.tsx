@@ -6,7 +6,7 @@ import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSe
 import { prettifySkillName } from 'products/review_hog/frontend/skillNames'
 
 import { SkillGroupHeader } from './SkillGroupHeader'
-import { SkillRow } from './SkillRow'
+import { SkillKept, SkillRow } from './SkillRow'
 
 interface SingleActiveSkill {
     skill_name: string
@@ -19,12 +19,15 @@ export function SingleActiveSkillGroup({
     title,
     note,
     skills,
+    keptFor,
     onSelect,
     dataAttr,
 }: {
     title: string
     note?: string
     skills: SingleActiveSkill[] | null
+    /** Undefined hides the kept count, for skills that raise no findings of their own. */
+    keptFor?: (skillName: string) => SkillKept | null
     onSelect: (skillName: string) => void
     dataAttr: string
 }): JSX.Element {
@@ -66,7 +69,12 @@ export function SingleActiveSkillGroup({
                     {select}
                 </div>
             ) : (
-                <SkillRow skillName={active.skill_name} description={active.description} mine={select} />
+                <SkillRow
+                    skillName={active.skill_name}
+                    description={active.description}
+                    kept={keptFor ? keptFor(active.skill_name) : undefined}
+                    mine={select}
+                />
             )}
         </>
     )
