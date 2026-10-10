@@ -143,6 +143,7 @@ from products.signals.backend.temporal.agentic.schedule import (
 from products.today.backend.facade.temporal import create_today_briefing_schedule
 from products.warehouse_suggestions.backend.facade.temporal import create_warehouse_suggestions_schedule
 from products.web_analytics.backend.temporal.digest_notification.types import WADigestNotificationInput
+from products.web_analytics.backend.temporal.page_history.schedule import create_heatmap_page_history_schedule
 from products.web_analytics.backend.temporal.weekly_digest.types import WAWeeklyDigestInput
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
@@ -961,6 +962,7 @@ schedules = [
     create_error_tracking_weekly_digest_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
+    create_heatmap_page_history_schedule,
     create_data_catalog_weekly_digest_schedule,
     create_alerts_platform_tick_schedule,
     create_logs_alert_check_schedule,
