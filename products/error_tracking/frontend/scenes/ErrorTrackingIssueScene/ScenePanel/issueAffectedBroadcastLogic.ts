@@ -113,7 +113,7 @@ export interface issueAffectedBroadcastLogicActions {
 export interface issueAffectedBroadcastLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        sendWarnings: (integrations: any, emailSendingSuspended: any) => string[]
+        sendWarnings: (integrations: IntegrationType[] | null, emailSendingSuspended: boolean) => string[]
     }
 }
 
