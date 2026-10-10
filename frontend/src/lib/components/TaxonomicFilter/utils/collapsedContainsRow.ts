@@ -23,7 +23,7 @@ const URL_SHAPED_QUERY = /[/.:]/
  *  A plain word such as `email` usually names a property, and people often picked the row for it
  *  by mistake. The dedicated Pageview URLs tab offers the row for any query. Shared by both surfaces. */
 export function looksLikeUrl(query: string): boolean {
-    return URL_SHAPED_QUERY.test(query.trim())
+    return URL_SHAPED_QUERY.test(query)
 }
 
 export function urlContainsRowLabel(query: string): string {
