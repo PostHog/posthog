@@ -111,6 +111,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.briefing_reports import open_report_counts, reports_for_briefing
 from products.signals.backend.dismissal_notes import forward_dismissal_note
+from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
@@ -173,6 +174,7 @@ from products.signals.backend.report_merge import (
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_priority import update_report_priority
 from products.signals.backend.report_read_state import (
     ReportReadStateRequestSerializer,
     ReportReadStateResponseSerializer,
@@ -207,6 +209,7 @@ from products.signals.backend.serializers import (
     SignalReportListSerializer,
     SignalReportMetricRefreshRequestSerializer,
     SignalReportMetricRefreshResponseSerializer,
+    SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
     SignalReportsForYouQuerySerializer,
@@ -1335,6 +1338,7 @@ class SignalReportViewSet(
             "pr_checks",
             "pr_comments",
             "claim",
+            "priority",
         }
     )
 
@@ -2097,6 +2101,24 @@ class SignalReportViewSet(
             context=self._enriched_report_context(updated_report),
         )
         return Response(response_serializer.data)
+
+    @validated_request(
+        request_serializer=SignalReportPriorityUpdateSerializer,
+        responses={200: SignalReportSerializer},
+        summary="Change a report's priority",
+        description="Append an attributed priority correction, preserving the previous judgment for future learning.",
+        operation_id="signals_reports_priority_update",
+    )
+    @action(detail=True, methods=["put"], required_scopes=["task:write"])
+    def priority(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        report = cast(SignalReport, self.get_object())
+        update_report_priority(
+            report=report,
+            priority=ReportPriority(request.validated_data["priority"]),
+            attribution=self._request_attribution(),
+        )
+        report.__dict__.pop("prefetched_priority_artefacts", None)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @validated_request(
         request_serializer=SignalReportContentUpdateSerializer,

@@ -1190,6 +1190,13 @@ class ReportRankingSerializer(serializers.Serializer):
     )
 
 
+class SignalReportPriorityUpdateSerializer(serializers.Serializer):
+    priority = serializers.ChoiceField(
+        choices=AutonomyPriority.choices,
+        help_text="New report priority, from P0 (critical) to P4 (minimal).",
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
