@@ -21,9 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -33,13 +37,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailerlite
     API_VERSION_HEADERS,
     MAILERLITE_ENDPOINTS,
     MAILERLITE_V1,
+    PAGE_SIZE,
     WEBHOOK_SCHEMA_NAMES,
+    MailerLiteEndpointConfig,
 )
 
 MAILERLITE_BASE_URL = "https://connect.mailerlite.com/api"
-
-# MailerLite caps list endpoints at 100 rows per page; default is 25.
-PAGE_SIZE = 100
 
 WEBHOOK_NAME = "PostHog Data warehouse"
 
@@ -47,7 +50,12 @@ WEBHOOK_NAME = "PostHog Data warehouse"
 @dataclasses.dataclass
 class MailerLiteResumeConfig:
     # Absolute next-page URL returned by the API (carries the cursor / page number and limit).
-    next_url: str
+    next_url: str | None = None
+    # Fan-out endpoints resume per parent — see
+    # `common.rest_source.__init__._make_paginate_dependent_resource`.
+    completed: list[str] | None = None
+    current: str | None = None
+    child_state: dict[str, Any] | None = None
 
 
 class MailerLiteNextUrlPaginator(JSONResponsePaginator):
@@ -71,6 +79,87 @@ class MailerLiteNextUrlPaginator(JSONResponsePaginator):
             self._next_url = None
 
 
+def _client_config(api_key: str, api_version: str) -> ClientConfig:
+    # `v1` predates version pinning and sends no header (the exact behaviour existing syncs run
+    # under); newer versions pin MailerLite's `X-Version` header so responses stay on a fixed shape.
+    headers = {"Accept": "application/json"}
+    version_header = API_VERSION_HEADERS.get(api_version)
+    if version_header is not None:
+        headers["X-Version"] = version_header
+
+    return {
+        "base_url": MAILERLITE_BASE_URL,
+        # Auth (Bearer) goes through the framework auth config so its value is redacted from
+        # logs and raised errors; only the non-secret headers are set here.
+        "headers": headers,
+        "auth": {"type": "bearer", "token": api_key},
+        "paginator": MailerLiteNextUrlPaginator(),
+        # Pin every request — including a seeded resume URL — to the MailerLite host so a
+        # tampered pagination/resume link can't exfiltrate the Authorization header (SSRF).
+        "allowed_hosts": [],
+    }
+
+
+def _fanout_source(
+    endpoint_config: MailerLiteEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[MailerLiteResumeConfig],
+) -> SourceResponse:
+    fanout = endpoint_config.fanout
+    assert fanout is not None
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and (resume.completed or resume.current):
+            initial_state = {
+                "completed": resume.completed or [],
+                "current": resume.current,
+                "child_state": resume.child_state,
+            }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(
+                MailerLiteResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    # Paginators hold per-walk state, so each hop gets its own. The child is set explicitly
+    # because a path ending in a placeholder would otherwise default to a single-page fetch.
+    resource = build_dependent_resource(
+        endpoint_configs=MAILERLITE_ENDPOINTS,
+        child_endpoint=endpoint_config.name,
+        fanout=fanout,
+        client_config=client_config,
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={"paginator": MailerLiteNextUrlPaginator(), "data_selector": "data"},
+        child_endpoint_extra={"paginator": MailerLiteNextUrlPaginator(), "data_selector": "data"},
+        parent_data_map=endpoint_config.parent_data_map,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_state,
+    )
+
+    return SourceResponse(
+        name=endpoint_config.name,
+        items=lambda: resource,
+        primary_keys=endpoint_config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if endpoint_config.partition_key else None,
+        partition_format="month" if endpoint_config.partition_key else None,
+        partition_keys=[endpoint_config.partition_key] if endpoint_config.partition_key else None,
+    )
+
+
 def mailerlite_source(
     api_key: str,
     endpoint: str,
@@ -82,26 +171,13 @@ def mailerlite_source(
     api_version: str = MAILERLITE_V1,
 ) -> SourceResponse:
     endpoint_config = MAILERLITE_ENDPOINTS[endpoint]
+    client_config = _client_config(api_key, api_version)
 
-    # `v1` predates version pinning and sends no header (the exact behaviour existing syncs run
-    # under); newer versions pin MailerLite's `X-Version` header so responses stay on a fixed shape.
-    headers = {"Accept": "application/json"}
-    version_header = API_VERSION_HEADERS.get(api_version)
-    if version_header is not None:
-        headers["X-Version"] = version_header
+    if endpoint_config.fanout is not None:
+        return _fanout_source(endpoint_config, client_config, team_id, job_id, resumable_source_manager)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": MAILERLITE_BASE_URL,
-            # Auth (Bearer) goes through the framework auth config so its value is redacted from
-            # logs and raised errors; only the non-secret headers are set here.
-            "headers": headers,
-            "auth": {"type": "bearer", "token": api_key},
-            "paginator": MailerLiteNextUrlPaginator(),
-            # Pin every request — including a seeded resume URL — to the MailerLite host so a
-            # tampered pagination/resume link can't exfiltrate the Authorization header (SSRF).
-            "allowed_hosts": [],
-        },
+        "client": client_config,
         "resources": [
             {
                 "name": endpoint,
@@ -119,7 +195,7 @@ def mailerlite_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.next_url:
             initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
