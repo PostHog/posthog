@@ -18,7 +18,7 @@ REGION_BASE_URLS: dict[str, str] = {
 DEFAULT_REGION = "us"
 
 
-@dataclass
+@dataclass(frozen=True)
 class LogzIOEndpointConfig:
     name: str
     path: str
