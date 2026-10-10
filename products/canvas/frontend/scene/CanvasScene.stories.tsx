@@ -29,6 +29,9 @@ const canvas: CanvasApi = {
     pinned_at: null,
     current_version_id: null,
     published_build_id: null,
+    shared_build_id: null,
+    forked_from_canvas_id: null,
+    forked_from_version_id: null,
     component_meta: null,
     created_by: {
         id: MOCK_DEFAULT_USER.id,

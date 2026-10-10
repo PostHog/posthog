@@ -1,4 +1,5 @@
 import { registerToastGetHelp } from 'lib/components/Support/registerToastGetHelp'
+import { shareTokenBeforeSend, shareTokenMaskNetworkRequest } from 'lib/utils/shareTokenRedaction'
 import { registerNotebookLinkDrag } from 'scenes/notebooks/AddToNotebook/registerNotebookLinkDrag'
 
 import { initKea } from '../initKea'
@@ -24,7 +25,14 @@ export function bootApp(): void {
     }
     appBooted = true
 
-    loadPostHogJS()
+    // The canvas fork scene holds a share token in its URL, and a shared page sends its viewer here
+    // to sign in with the token in `next`, so telemetry boots with the hooks that keep those tokens
+    // out of captured events and recorded network request URLs. Supplying a network mask replaces
+    // the SDK's default body scrubber, so body capture must stay off rather than recording credentials.
+    loadPostHogJS({
+        beforeSend: shareTokenBeforeSend,
+        sessionRecording: { maskCapturedNetworkRequestFn: shareTokenMaskNetworkRequest, recordBody: false },
+    })
     // Kea must initialize before any component mounts
     initKea()
     // Link resolves its drag-to-notebook behavior through a seam so bundles without

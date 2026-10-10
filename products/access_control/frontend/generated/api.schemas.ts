@@ -689,6 +689,7 @@ export const RuleResourceEnumApi = {
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
     BusinessKnowledge: 'business_knowledge',
+    Canvas: 'canvas',
     CustomerAnalytics: 'customer_analytics',
     CustomerJourney: 'customer_journey',
     CustomerTask: 'customer_task',

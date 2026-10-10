@@ -696,6 +696,7 @@ class RunFooter:
     # The project the thread's task belongs to, so a reader can tell which project's
     # data the answer was drawn from.
     project: str | None = None
+    desktop_url: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -781,6 +782,7 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
             run_id=str(run.id),
             task_id=str(run.task_id),
             task_url=_task_url(run.team_id, run.task_id, run.id),
+            desktop_url=_desktop_bridge_url(run.task_id),
             model=state.model,
             reasoning_effort=state.reasoning_effort,
             project=_project_name(
@@ -994,6 +996,13 @@ def _task_url(team_id: int, task_id: UUID, run_id: UUID) -> str:
     # `unfurl=false` asks our own link unfurler to leave this one alone: the footer already
     # says what the card would, right next to the link.
     return _public_url(f"/project/{team_id}/tasks/{task_id}?runId={run_id}&{UNFURL_OPT_OUT_PARAM}=false")
+
+
+def _desktop_bridge_url(task_id: UUID) -> str:
+    # `/desktop/task/<id>` is the public bridge scene (see `CodeTaskLink`), not the desktop
+    # app's own route. `unfurl=false` keeps our unfurler off it — the footer already names
+    # the run right beside the link.
+    return _public_url(f"/desktop/task/{task_id}?{UNFURL_OPT_OUT_PARAM}=false")
 
 
 def _public_url(path: str) -> str:
