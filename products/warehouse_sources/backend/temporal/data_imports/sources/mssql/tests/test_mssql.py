@@ -688,9 +688,17 @@ class TestMSSQLSourceValidateCredentials:
                 "DB-Lib error message 20003, severity 6:\nAdaptive Server connection timed out",
                 ("public internet", "firewall", "SSH tunnel"),
             ),
+            (
+                "DB-Lib error message 20017, severity 9:\nUnexpected EOF from the server (127.0.0.1)\n"
+                "DB-Lib error message 20002, severity 9:\nAdaptive Server connection failed (127.0.0.1)",
+                ("host and port", "encryption", "SSH tunnel"),
+            ),
         ],
     )
     def test_connect_failure_names_a_network_cause(self, source, mocker, driver_error, expected_guidance):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
         mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
         mocker.patch.object(source, "get_schemas", side_effect=pymssql.OperationalError(driver_error))
 
@@ -701,6 +709,7 @@ class TestMSSQLSourceValidateCredentials:
         for fragment in expected_guidance:
             assert fragment in error
         assert "Adaptive Server" not in error
+        capture.assert_not_called()
 
 
 class TestRetryOnTransientConnectionError:

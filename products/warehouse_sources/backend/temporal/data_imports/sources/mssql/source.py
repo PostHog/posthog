@@ -58,6 +58,12 @@ _CONNECTION_TIMED_OUT_ERROR = (
     "publicly, use the SSH tunnel option."
 )
 
+_CONNECTION_CLOSED_AT_LOGIN_ERROR = (
+    "Your server closed the connection during login. Check that the host and port point to SQL Server "
+    "and that the SQL Server encryption setting allows the connection. If you use an SSH tunnel, check "
+    "that the tunnel target is your SQL Server host and port."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
@@ -68,6 +74,9 @@ MSSQLErrors = {
     # message echoes the server name and client IP, so match the stable, distinctive phrase instead.
     "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
     "connection timed out": _CONNECTION_TIMED_OUT_ERROR,
+    # DB-Lib error 20017 at connect time: the peer closed the stream before the login finished, which
+    # points to a wrong port, a non-SQL Server service, or an encryption mismatch behind the tunnel.
+    "Unexpected EOF from the server": _CONNECTION_CLOSED_AT_LOGIN_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()
