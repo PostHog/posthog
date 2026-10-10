@@ -26,6 +26,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalScoutBackgroundBand,
     SignalScoutConfig,
+    SignalScoutRun,
 )
 from products.signals.backend.report_check_execution import run_due_report_checks
 from products.signals.backend.scout_harness.config_registry import (
@@ -348,7 +349,7 @@ def _stamp_dispatched_runs(
             "last_run_at",
         )
     )
-    levels = _next_backoff_levels(rows, backoff) if backoff is not None else {}
+    levels = _next_backoff_levels(rows, backoff, now) if backoff is not None else {}
     if levels:
         pks_by_level: dict[int, list[UUID]] = {}
         for pk, level in levels.items():
@@ -379,12 +380,13 @@ def _stamp_dispatched_runs(
     )
 
 
-def _next_backoff_levels(rows: list[tuple], backoff: BackgroundBackoff) -> dict[UUID, int]:
+def _next_backoff_levels(rows: list[tuple], backoff: BackgroundBackoff, now: datetime) -> dict[UUID, int]:
     """The backoff level to store for each enabled rolling-interval background config in `rows`.
 
     A config that a member engaged with since its previous run goes back to level 0. A config with a
     previous run and no engagement goes up one level. The first run of a config keeps level 0,
-    because no earlier run exists for anyone to ignore.
+    because no earlier run exists for anyone to ignore. A previous dispatch that the child skipped
+    (quota, daily report limit, an active run) left no output to ignore, so it keeps the level.
     """
     previous_runs: dict[UUID, tuple[int, int, int | None, datetime]] = {
         pk: (team_id, interval_minutes, level, last_run_at)
@@ -395,10 +397,36 @@ def _next_backoff_levels(rows: list[tuple], backoff: BackgroundBackoff) -> dict[
         and last_run_at is not None
     }
     engaged = _engaged_team_ids({team_id: since for team_id, _, _, since in previous_runs.values()})
-    return {
-        pk: 0 if team_id in engaged else backoff.next_level(interval_minutes, level)
-        for pk, (team_id, interval_minutes, level, _) in previous_runs.items()
-    }
+    ran = _configs_with_run_between({pk: since for pk, (_, _, _, since) in previous_runs.items()}, now)
+    levels: dict[UUID, int] = {}
+    for pk, (team_id, interval_minutes, level, _) in previous_runs.items():
+        if team_id in engaged:
+            levels[pk] = 0
+        elif pk in ran:
+            levels[pk] = backoff.next_level(interval_minutes, level)
+        else:
+            levels[pk] = level or 0
+    return levels
+
+
+def _configs_with_run_between(since_by_config: dict[UUID, datetime], until: datetime) -> set[UUID]:
+    """The configs in `since_by_config` with a `SignalScoutRun` created in `[since, until)`.
+
+    `until` is the current tick start, so the run this tick dispatches does not count as the
+    previous one. One query for all configs together, on the `scout_config` index.
+    """
+    if not since_by_config:
+        return set()
+    latest = (
+        SignalScoutRun.all_teams.filter(
+            scout_config_id__in=since_by_config,
+            created_at__gte=min(since_by_config.values()),
+            created_at__lt=until,
+        )
+        .values("scout_config_id")
+        .annotate(latest=Max("created_at"))
+    )
+    return {row["scout_config_id"] for row in latest if row["latest"] >= since_by_config[row["scout_config_id"]]}
 
 
 # Artefacts a person writes when they act on a report: a dismissal (dismiss, snooze, or a resolve

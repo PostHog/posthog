@@ -28,6 +28,7 @@ from products.signals.backend.models import (
     SignalReportAction,
     SignalScoutBackgroundBand,
     SignalScoutConfig,
+    SignalScoutRun,
 )
 from products.signals.backend.scout_harness import lazy_seed
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
@@ -93,6 +94,7 @@ from products.signals.backend.temporal.agentic.scout_coordinator import (
     stamp_dispatched_signals_scout_runs_activity,
 )
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.models import Task, TaskRun
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
 _IS_CLOUD_PATH = "products.signals.backend.scout_harness.team_limits.is_cloud"
@@ -878,23 +880,50 @@ class TestBackgroundEnrollment:
                 **kwargs,
             )
 
-    def _tick(self, team: Team, background: BackgroundEnrollment, at: datetime) -> bool:
+    def _tick(
+        self, team: Team, config: SignalScoutConfig, background: BackgroundEnrollment, at: datetime, *, runs: bool
+    ) -> bool:
         with time_machine.travel(at, tick=False):
             planned = _collect_planned_runs(_NO_ENROLLMENT, background=background)
             _stamp_dispatched_runs(planned, dispatched_at=at, backoff=background.backoff)
-        return PlannedRun(team_id=team.id, skill_name=_GENERAL) in planned
+        dispatched = PlannedRun(team_id=team.id, skill_name=_GENERAL) in planned
+        if dispatched and runs:
+            with time_machine.travel(at + timedelta(minutes=1), tick=False):
+                task = Task.objects.create(
+                    team=team,
+                    title="scout run",
+                    description="scout run",
+                    origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+                )
+                SignalScoutRun.all_teams.create(
+                    task_run=TaskRun.objects.create(task=task, team=team),
+                    team=team,
+                    scout_config=config,
+                    skill_name=_GENERAL,
+                    skill_version=1,
+                )
+        return dispatched
 
-    def test_unengaged_runs_back_off_to_the_cap_and_stay_there(self):
+    @parameterized.expand(
+        [
+            ("runs_back_off_to_the_cap", True, [7, 14, 28, 56, 90, 90, 90]),
+            # A child that skips (quota, daily report limit) creates no run, so the level never rises.
+            ("skipped_runs_stay_weekly", False, [7, 7, 7, 7, 7, 7, 7]),
+        ]
+    )
+    def test_unengaged_dispatches_over_400_days(self, _name, runs, expected_gaps):
         team = self._team()
         config = self._weekly_background_config(team)
         # Start on the config's own weekly slot, so the first stamp lands exactly on the start day.
         start = _slot_anchor(str(config.pk), _WEEK_MINUTES, datetime(2026, 1, 5, tzinfo=UTC))
         background = _background({team.id}, backoff=_BACKOFF)
 
-        dispatch_days = [day for day in range(400) if self._tick(team, background, start + timedelta(days=day))]
+        dispatch_days = [
+            day for day in range(400) if self._tick(team, config, background, start + timedelta(days=day), runs=runs)
+        ]
 
         gaps = [later - earlier for earlier, later in zip(dispatch_days, dispatch_days[1:])]
-        assert gaps[:7] == [7, 14, 28, 56, 90, 90, 90]
+        assert gaps[:7] == expected_gaps
         config.refresh_from_db()
         assert config.run_interval_minutes == _WEEK_MINUTES
 
