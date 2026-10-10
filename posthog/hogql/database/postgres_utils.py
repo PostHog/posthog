@@ -7,9 +7,6 @@ from typing import TYPE_CHECKING, Any, Protocol
 from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import ExpressionField, FieldOrTable, LazyJoin, Table
-from posthog.hogql.database.utils import get_join_field_chain
-
-from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceAccessMethod
 
@@ -162,15 +159,9 @@ def _add_foreign_key_lazy_join(
     if not column or not target_table or not target_column:
         return
 
-    try:
-        from_field = get_join_field_chain(column)
-        to_field = get_join_field_chain(target_column)
-    except Exception as error:
-        capture_exception(error)
-        return
-
-    if from_field is None or to_field is None:
-        return
+    # Foreign-key metadata holds raw column names, not HogQL expressions, so do not parse them.
+    from_field: list[str | int] = [column]
+    to_field: list[str | int] = [target_column]
 
     field_name = column[:-3] if column.endswith("_id") and len(column) > 3 else column
     if _existing_field_blocks_join(hogql_table.fields.get(field_name), overridable_expression_field_ids):
