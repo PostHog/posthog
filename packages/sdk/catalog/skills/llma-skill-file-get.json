@@ -1,0 +1,103 @@
+{
+    "method": "skills.llmaSkillFileGet",
+    "toolName": "llma-skill-file-get",
+    "title": "Get skill file (deprecated)",
+    "category": "Skills",
+    "description": "DEPRECATED: renamed to skill-file-get. This alias forwards to skill-file-get and will be removed. Call skill-file-get directly with the same arguments.",
+    "requiredScopes": ["llm_skill:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/skills/client.ts",
+    "input": {
+        "name": "SkillsLlmaSkillFileGetInput",
+        "importPath": "@posthog/sdk/skills",
+        "source": "src/generated/skills/llma-skill-file-get.ts",
+        "declaration": "dist/generated/skills/llma-skill-file-get.d.ts"
+    },
+    "output": {
+        "name": "SkillsLlmaSkillFileGetOutput",
+        "importPath": "@posthog/sdk/skills",
+        "source": "src/generated/skills/llma-skill-file-get.ts",
+        "declaration": "dist/generated/skills/llma-skill-file-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SkillsLlmaSkillFileGetRequestSchema0",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/llma-skill-file-get.ts",
+            "declaration": "dist/generated/skills/llma-skill-file-get.d.ts"
+        },
+        {
+            "name": "SkillsLlmaSkillFileGetData",
+            "importPath": "@posthog/sdk/skills",
+            "source": "src/generated/skills/llma-skill-file-get.ts",
+            "declaration": "dist/generated/skills/llma-skill-file-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "DEPRECATED: renamed to skill-file-get. This alias forwards to skill-file-get and will be removed. Call skill-file-get directly with the same arguments.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/llma-skill-file-get/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SkillsLlmaSkillFileGetInput",
+            "field": "file_path",
+            "effectiveDescription": "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The file's path, copied from the `path` field of a skill-get manifest entry (e.g. `references/limits.md`). Sending it as `path` also works.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/file_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileGetInput",
+            "field": "version",
+            "effectiveDescription": "Specific skill version to fetch. If omitted, the latest version is returned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Specific skill version to fetch. If omitted, the latest version is returned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SkillsLlmaSkillFileGetData",
+            "field": "_deprecation_notice",
+            "effectiveDescription": "The current tool name to use instead of this deprecated alias.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The current tool name to use instead of this deprecated alias.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/skills.ts",
+                        "pointer": "#/properties/_deprecation_notice"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

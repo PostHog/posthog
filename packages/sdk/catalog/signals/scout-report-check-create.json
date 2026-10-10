@@ -1,0 +1,783 @@
+{
+    "method": "signals.scoutReportCheckCreate",
+    "toolName": "scout-report-check-create",
+    "operationId": "signals_scout_report_check_create",
+    "title": "Write a follow-up check on a report",
+    "category": "Signals",
+    "description": "Schedule a re-measurement of a report's claim, so \"did the fix hold?\" becomes a stored fact instead of something a future run has to remember to look for. Write one when this run surfaces something whose fix would show up in data later. Pass the `run_id` of your own in-progress run and the `report_id` of the report the check belongs to. Use `metric_threshold` when a bounded query and a baseline exist: pass a `config` with a `metric_id` naming one of the report's own metrics (or your own bounded Trends `query`), a `comparison` (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you measured now. A `query` you supply must keep `dateRange.date_from` relative (`-13d`) and `date_to` empty, so each run measures the days before it rather than the days before the check was written — absolute dates are refused. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. Use `agent` for a claim no single number settles: pass `instructions` saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none. `next_run_at` is when to first look, so allow deploy and soak time. On a report that has not resolved yet, the check is stored `pending` instead of running on that date. The gap you left becomes the wait that starts when the report resolves, so a check never measures the days before the fix shipped. The verdict lands on the report as a `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most five open checks, and a second check for the same claim is noise.",
+    "requiredScopes": ["signal_scout_report:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsScoutReportCheckCreateInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-report-check-create.ts",
+        "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+    },
+    "output": {
+        "name": "SignalsScoutReportCheckCreateOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-report-check-create.ts",
+        "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema4",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema4Variant1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema7",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema8",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema10",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema10Variant1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema6",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema12",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema14",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema16",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema18",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema21",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema22",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema26",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema24",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema20",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema27",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema28",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema29",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateRequestSchema30",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateInputKind",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckCreateData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-create.ts",
+            "declaration": "dist/generated/signals/scout-report-check-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Schedule a re-measurement of a report's claim, so whether the fix held becomes a stored fact instead of something a future run has to remember to look for. A `metric_threshold` check runs one bounded Trends query and compares the result. An `agent` check runs a scout instead, for a claim no single number settles.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1scout~1runs~1{run_id}~1report-check-create~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Schedule a re-measurement of a report's claim, so \"did the fix hold?\" becomes a stored fact instead of something a future run has to remember to look for. Write one when this run surfaces something whose fix would show up in data later. Pass the `run_id` of your own in-progress run and the `report_id` of the report the check belongs to. Use `metric_threshold` when a bounded query and a baseline exist: pass a `config` with a `metric_id` naming one of the report's own metrics (or your own bounded Trends `query`), a `comparison` (`lte` / `gte` / `between`) saying what the value must satisfy, and the `baseline_value` you measured now. A `query` you supply must keep `dateRange.date_from` relative (`-13d`) and `date_to` empty, so each run measures the days before it rather than the days before the check was written — absolute dates are refused. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. Use `agent` for a claim no single number settles: pass `instructions` saying what a later run must establish and `probe_hints` naming the issue ids, services, or queries to look at; it runs on the scout you name in `skill_name`, or on the fleet's follow-up scout when you name none. `next_run_at` is when to first look, so allow deploy and soak time. On a report that has not resolved yet, the check is stored `pending` instead of running on that date. The gap you left becomes the wait that starts when the report resolves, so a check never measures the days before the fix shipped. The verdict lands on the report as a `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a report holds at most five open checks, and a second check for the same claim is noise.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema1",
+            "effectiveDescription": "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema2",
+            "effectiveDescription": "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema4",
+            "effectiveDescription": "Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema6",
+            "effectiveDescription": "What the measured value must satisfy to pass.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the measured value must satisfy to pass.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema7",
+            "effectiveDescription": "`lte`, `gte`, or `between`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`lte`, `gte`, or `between`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema8",
+            "effectiveDescription": "The bound for `lte` and `gte`; unused by `between`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The bound for `lte` and `gte`; unused by `between`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema10",
+            "effectiveDescription": "The inclusive range for `between`; unused by `lte` and `gte`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The inclusive range for `between`; unused by `lte` and `gte`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema12",
+            "effectiveDescription": "The value observed when the check was written, recorded on each result for context.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The value observed when the check was written, recorded on each result for context.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema14",
+            "effectiveDescription": "How to draw this measurement; copied from a referenced metric.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to draw this measurement; copied from a referenced metric.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema16",
+            "effectiveDescription": "How to format measured values; copied from a referenced metric.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to format measured values; copied from a referenced metric.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema18",
+            "effectiveDescription": "Optional value suffix.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional value suffix.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema20",
+            "effectiveDescription": "A check a scout run answers: re-probe the report's claim and record one verdict.\n\nThe kind for a claim no single number settles. A resolved error-tracking report is the usual\ncase: \"did the exception stop?\" needs the issue looked up, its recent events read, and the\nstack compared against what the fix changed, which is a run rather than a comparison.\n\nEverything here is prompt material a scout reads, so it is untrusted by construction: it renders\nin the run block the agent is told to weigh, never in the instructions it is told to follow. The\nverdict still comes back through `scout-check-record-result`, so instructions cannot widen what\na check run may write.\n\n``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,\nso it is optional: a check that names none runs on the fleet's follow-up scout\n(see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A check a scout run answers: re-probe the report's claim and record one verdict.\n\nThe kind for a claim no single number settles. A resolved error-tracking report is the usual\ncase: \"did the exception stop?\" needs the issue looked up, its recent events read, and the\nstack compared against what the fix changed, which is a run rather than a comparison.\n\nEverything here is prompt material a scout reads, so it is untrusted by construction: it renders\nin the run block the agent is told to weigh, never in the instructions it is told to follow. The\nverdict still comes back through `scout-check-record-result`, so instructions cannot widen what\na check run may write.\n\n``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,\nso it is optional: a check that names none runs on the fleet's follow-up scout\n(see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema21",
+            "effectiveDescription": "What the run must establish, in the author's own words.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the run must establish, in the author's own words.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema21"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema22",
+            "effectiveDescription": "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema22"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateRequest_Schema24",
+            "effectiveDescription": "Concrete places to look, such as an issue id, a service name, or a query to repeat.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concrete places to look, such as an issue id, a service name, or a query to repeat.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema24"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateInput",
+            "field": "run_id",
+            "effectiveDescription": "UUID of the `SignalScoutRun` bridge row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the `SignalScoutRun` bridge row.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateInput",
+            "field": "title",
+            "effectiveDescription": "Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateInput",
+            "field": "rationale",
+            "effectiveDescription": "Why the check is worth running.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the check is worth running.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateInput",
+            "field": "kind",
+            "effectiveDescription": "How the check is evaluated.\n\n* `metric_threshold` - Metric Threshold\n* `agent` - Agent",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the check is evaluated.\n\n* `metric_threshold` - Metric Threshold\n* `agent` - Agent",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateInput",
+            "field": "config",
+            "effectiveDescription": "What the check measures and what the result must satisfy; the shape depends on `kind`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the check measures and what the result must satisfy; the shape depends on `kind`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateInput",
+            "field": "next_run_at",
+            "effectiveDescription": "When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When to first evaluate the check. Must be in the future and within 90 days. Defaults to 7 days from now.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateInput",
+            "field": "run_interval_minutes",
+            "effectiveDescription": "Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Gap between runs for a recurring check, between 360 and 129600 minutes. Omit for a one-shot check.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateInput",
+            "field": "runs_remaining",
+            "effectiveDescription": "How many times to evaluate the check, at most 10. Defaults to 1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many times to evaluate the check, at most 10. Defaults to 1.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateInput",
+            "field": "expires_at",
+            "effectiveDescription": "Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Horizon after which the check retires unrun. Defaults to 30 days after the last scheduled run, or the 90-day horizon if that comes first.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateInput",
+            "field": "report_id",
+            "effectiveDescription": "The report the check attaches to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report the check attaches to.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/{run_id}/report-check-create/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "effectiveDescription": "One check as a scout run reads it back.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One check as a scout run reads it back.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "check_id",
+            "effectiveDescription": "The check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The check.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/check_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "report_id",
+            "effectiveDescription": "The report it is attached to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report it is attached to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/report_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "title",
+            "effectiveDescription": "The expectation the check states.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The expectation the check states.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "kind",
+            "effectiveDescription": "`metric_threshold` (the coordinator measures it) or `agent` (a run does).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`metric_threshold` (the coordinator measures it) or `agent` (a run does).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "status",
+            "effectiveDescription": "`pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "next_run_at",
+            "effectiveDescription": "When the check next runs. Provisional while it is `pending`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the check next runs. Provisional while it is `pending`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/next_run_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "last_outcome",
+            "effectiveDescription": "Verdict of the most recent run; null before the first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Verdict of the most recent run; null before the first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/last_outcome"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "run_state",
+            "effectiveDescription": "Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/run_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "waiting_on_run",
+            "effectiveDescription": "True while an `agent` check waits on a dispatched run to record its verdict.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True while an `agent` check waits on a dispatched run to record its verdict.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/waiting_on_run"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "dispatched_run_id",
+            "effectiveDescription": "The scout run the coordinator dispatched for the check, once it started. Null while queued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scout run the coordinator dispatched for the check, once it started. Null while queued.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/dispatched_run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckCreateData",
+            "field": "dispatched_at",
+            "effectiveDescription": "When the coordinator last dispatched a run for the check. Null when no run waits.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the coordinator last dispatched a run for the check. Null when no run waits.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/dispatched_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "scout-report-check-list",
+            "method": "signals.scoutReportCheckList"
+        }
+    ]
+}

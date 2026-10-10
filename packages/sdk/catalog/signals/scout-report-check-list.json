@@ -1,0 +1,271 @@
+{
+    "method": "signals.scoutReportCheckList",
+    "toolName": "scout-report-check-list",
+    "operationId": "signals_scout_report_check_list",
+    "title": "List a report's follow-up checks",
+    "category": "Signals",
+    "description": "Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass the `report_id` of the report to read; no `run_id` is needed. Read this before writing a check: a report already carrying one for the same claim needs no second, and a report holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its clock starts; every status other than `pending` and `active` is terminal. `run_state` says where an open check is: `waiting_on_report`, `paused`, `scheduled`, `due`, `queued`, `running`, or `stale`. For an `agent` check, `waiting_on_run`, `dispatched_run_id`, and `dispatched_at` name the run the coordinator dispatched and when.",
+    "requiredScopes": ["signal_scout_report:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsScoutReportCheckListInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-report-check-list.ts",
+        "declaration": "dist/generated/signals/scout-report-check-list.d.ts"
+    },
+    "output": {
+        "name": "SignalsScoutReportCheckListOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-report-check-list.ts",
+        "declaration": "dist/generated/signals/scout-report-check-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsScoutReportCheckListResponseShape1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-list.ts",
+            "declaration": "dist/generated/signals/scout-report-check-list.d.ts"
+        },
+        {
+            "name": "SignalsScoutReportCheckListData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-report-check-list.ts",
+            "declaration": "dist/generated/signals/scout-report-check-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Every check on one report, newest first. The `report_id` is the only input. Read this before writing one: a report already carrying a check for the same claim needs no second one, and a report holds at most five open checks at a time.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1scout~1runs~1report-checks~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass the `report_id` of the report to read; no `run_id` is needed. Read this before writing a check: a report already carrying one for the same claim needs no second, and a report holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its clock starts; every status other than `pending` and `active` is terminal. `run_state` says where an open check is: `waiting_on_report`, `paused`, `scheduled`, `due`, `queued`, `running`, or `stale`. For an `agent` check, `waiting_on_run`, `dispatched_run_id`, and `dispatched_at` name the run the coordinator dispatched and when.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsScoutReportCheckListInput",
+            "field": "report_id",
+            "effectiveDescription": "The report whose checks to list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report whose checks to list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/runs/report-checks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "effectiveDescription": "One check as a scout run reads it back.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One check as a scout run reads it back.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "check_id",
+            "effectiveDescription": "The check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The check.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/check_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "report_id",
+            "effectiveDescription": "The report it is attached to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report it is attached to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/report_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "title",
+            "effectiveDescription": "The expectation the check states.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The expectation the check states.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "kind",
+            "effectiveDescription": "`metric_threshold` (the coordinator measures it) or `agent` (a run does).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`metric_threshold` (the coordinator measures it) or `agent` (a run does).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "status",
+            "effectiveDescription": "`pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "next_run_at",
+            "effectiveDescription": "When the check next runs. Provisional while it is `pending`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the check next runs. Provisional while it is `pending`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/next_run_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "last_outcome",
+            "effectiveDescription": "Verdict of the most recent run; null before the first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Verdict of the most recent run; null before the first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/last_outcome"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "run_state",
+            "effectiveDescription": "Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/run_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "waiting_on_run",
+            "effectiveDescription": "True while an `agent` check waits on a dispatched run to record its verdict.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True while an `agent` check waits on a dispatched run to record its verdict.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/waiting_on_run"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "dispatched_run_id",
+            "effectiveDescription": "The scout run the coordinator dispatched for the check, once it started. Null while queued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scout run the coordinator dispatched for the check, once it started. Null while queued.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/dispatched_run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutReportCheckListResponseShape1",
+            "field": "dispatched_at",
+            "effectiveDescription": "When the coordinator last dispatched a run for the check. Null when no run waits.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the coordinator last dispatched a run for the check. Null when no run waits.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/dispatched_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

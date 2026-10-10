@@ -1,0 +1,403 @@
+{
+    "method": "tracing.apmSpansLatencyHeatmap",
+    "toolName": "apm-spans-latency-heatmap",
+    "operationId": "tracing_spans_latency_heatmap_create",
+    "title": "Latency over time (heatmap)",
+    "category": "Tracing",
+    "description": "Latency over time — trace counts per (time bucket, duration bucket) cell, combining `apm-spans-sparkline` and `apm-spans-duration-histogram` into one call: \"when did latency change, and how\".\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"serviceNames\": [\"api\"], \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nReturns one row per non-empty `(time bucket, duration bucket)` cell:\n\n- `time` — ISO 8601 bucket start (UTC)\n- `bucket_ns` — duration bucket floor in nanoseconds, on the 1-2-5 series (1ms, 2ms, 5ms, 10ms, 20ms, ...)\n- `count` — traces whose ROOT span duration falls in that cell (or spans, when `rootSpans` is false)\n\nTime buckets are sized adaptively to the window (roughly 50 buckets regardless of range, e.g. `-1h` → ~minute buckets, `-7d` → ~4-hour buckets). A time bucket with no matching traces returns a single sentinel row `{time, bucket_ns: 0, count: 0}`, so the full time axis can be read off the response — ignore sentinel rows when reading densities.\n\nUse to answer:\n\n- \"When did this service get slow?\" — the slow band's first non-empty `time` is the onset.\n- \"Is the latency regression a shift (whole distribution moved) or a new mode (a second band appeared)?\"\n- \"Did the deploy at 14:00 change the latency profile, not just the p95?\"\n- \"Is the slow tail constant background or bursty?\"\n\nFor a single distribution with per-service breakdown, use `apm-spans-duration-histogram`; for counts over time, `apm-spans-sparkline`; for per-operation percentiles, `apm-spans-aggregate`.\n\n# Reading the grid\n\nGroup rows by `bucket_ns` and read each duration bucket as a horizontal band over time:\n\n- A band that exists in every time bucket at similar counts = steady-state population.\n- A band that starts at a specific `time` = something changed then (deploy, dependency, cache).\n- The whole distribution stepping up one or two buckets at once = a uniform slowdown.\n\n# Parameters\n\n## query.dateRange\n\nDate range for the grid. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nList of service names to restrict the grid to. Use `apm-services-list` to discover services.\n\n## query.statusCodes\n\nFilter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.\n\n## query.rootSpans\n\nWhen true (default), cells count **traces by their root span's duration** — the request the user experienced, lining up with `apm-spans-duration-histogram`. Set false to count every matching span instead; combine with a `name` filter for one operation's latency over time.\n\n## query.filterGroup\n\nProperty filters applied to the counted spans. Same filter shape and operators as `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\n# Examples\n\n## When did api-gateway get slow, over the last day?\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## One operation's latency over time (span-level, not per trace)\n\n```json\n{\n  \"query\": {\n    \"rootSpans\": false,\n    \"filterGroup\": [{ \"key\": \"name\", \"operator\": \"exact\", \"type\": \"span\", \"value\": [\"SELECT orders\"] }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n# Reminders\n\n- `bucket_ns` is nanoseconds: 1ms = 1,000,000; 1s = 1,000,000,000. Buckets follow the 1-2-5 series; a 3.5ms trace lands in the 2ms bucket (bucket floor).\n- `{bucket_ns: 0, count: 0}` rows are the sentinel time-axis filler described above — skip them when reading densities.\n- Default counts are **traces** (one per root span); they line up with `apm-spans-duration-histogram`, not with `apm-spans-count`.\n- Cells carry no service breakdown — narrow with `serviceNames` instead.\n- After spotting when the slow band appeared, pull the actual traces with `query-apm-spans` filtered to that time window plus a `duration` filter (milliseconds, not nanoseconds), `orderBy: \"duration\"`.",
+    "requiredScopes": ["tracing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: tracing"],
+    "methodSource": "src/generated/tracing/client.ts",
+    "input": {
+        "name": "TracingApmSpansLatencyHeatmapInput",
+        "importPath": "@posthog/sdk/tracing",
+        "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+        "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+    },
+    "output": {
+        "name": "TracingApmSpansLatencyHeatmapOutput",
+        "importPath": "@posthog/sdk/tracing",
+        "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+        "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema2",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema3",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema0",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema4",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema6",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema8ItemType",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema8ItemOperator",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema8Item",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema8",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema10",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapRequestSchema11",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapInputQuery",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapResponseShape2",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        },
+        {
+            "name": "TracingApmSpansLatencyHeatmapData",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-spans-latency-heatmap.ts",
+            "declaration": "dist/generated/tracing/apm-spans-latency-heatmap.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Latency over time — trace counts per (time bucket, duration bucket) cell, combining `apm-spans-sparkline` and `apm-spans-duration-histogram` into one call: \"when did latency change, and how\".\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"serviceNames\": [\"api\"], \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nReturns one row per non-empty `(time bucket, duration bucket)` cell:\n\n- `time` — ISO 8601 bucket start (UTC)\n- `bucket_ns` — duration bucket floor in nanoseconds, on the 1-2-5 series (1ms, 2ms, 5ms, 10ms, 20ms, ...)\n- `count` — traces whose ROOT span duration falls in that cell (or spans, when `rootSpans` is false)\n\nTime buckets are sized adaptively to the window (roughly 50 buckets regardless of range, e.g. `-1h` → ~minute buckets, `-7d` → ~4-hour buckets). A time bucket with no matching traces returns a single sentinel row `{time, bucket_ns: 0, count: 0}`, so the full time axis can be read off the response — ignore sentinel rows when reading densities.\n\nUse to answer:\n\n- \"When did this service get slow?\" — the slow band's first non-empty `time` is the onset.\n- \"Is the latency regression a shift (whole distribution moved) or a new mode (a second band appeared)?\"\n- \"Did the deploy at 14:00 change the latency profile, not just the p95?\"\n- \"Is the slow tail constant background or bursty?\"\n\nFor a single distribution with per-service breakdown, use `apm-spans-duration-histogram`; for counts over time, `apm-spans-sparkline`; for per-operation percentiles, `apm-spans-aggregate`.\n\n# Reading the grid\n\nGroup rows by `bucket_ns` and read each duration bucket as a horizontal band over time:\n\n- A band that exists in every time bucket at similar counts = steady-state population.\n- A band that starts at a specific `time` = something changed then (deploy, dependency, cache).\n- The whole distribution stepping up one or two buckets at once = a uniform slowdown.\n\n# Parameters\n\n## query.dateRange\n\nDate range for the grid. Defaults to the last hour.\n\n- `date_from`: Start of the range. ISO 8601 or relative: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.serviceNames\n\nList of service names to restrict the grid to. Use `apm-services-list` to discover services.\n\n## query.statusCodes\n\nFilter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error) — **not** HTTP status codes. Use `[2]` to select error spans.\n\n## query.rootSpans\n\nWhen true (default), cells count **traces by their root span's duration** — the request the user experienced, lining up with `apm-spans-duration-histogram`. Set false to count every matching span instead; combine with a `name` filter for one operation's latency over time.\n\n## query.filterGroup\n\nProperty filters applied to the counted spans. Same filter shape and operators as `query-apm-spans`:\n\n- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). A `duration` filter value is in milliseconds (1 second = `1000`).\n- `span_attribute` — span-level attributes\n- `span_resource_attribute` — resource-level attributes\n\n# Examples\n\n## When did api-gateway get slow, over the last day?\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## One operation's latency over time (span-level, not per trace)\n\n```json\n{\n  \"query\": {\n    \"rootSpans\": false,\n    \"filterGroup\": [{ \"key\": \"name\", \"operator\": \"exact\", \"type\": \"span\", \"value\": [\"SELECT orders\"] }],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n# Reminders\n\n- `bucket_ns` is nanoseconds: 1ms = 1,000,000; 1s = 1,000,000,000. Buckets follow the 1-2-5 series; a 3.5ms trace lands in the 2ms bucket (bucket floor).\n- `{bucket_ns: 0, count: 0}` rows are the sentinel time-axis filler described above — skip them when reading densities.\n- Default counts are **traces** (one per root span); they line up with `apm-spans-duration-histogram`, not with `apm-spans-count`.\n- Cells carry no service breakdown — narrow with `serviceNames` instead.\n- After spotting when the slow band appeared, pull the actual traces with `query-apm-spans` filtered to that time window plus a `duration` filter (milliseconds, not nanoseconds), `orderBy: \"duration\"`.",
+            "source": {
+                "kind": "description_file",
+                "file": "products/tracing/mcp/prompts/apm-spans-latency-heatmap.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema0",
+            "effectiveDescription": "Date range for the query. Defaults to last hour.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query. Defaults to last hour.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema0",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema1/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema0",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema1/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema4",
+            "effectiveDescription": "Filter by service names.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by service names.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema6",
+            "effectiveDescription": "Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema8",
+            "effectiveDescription": "Property filters for the query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for the query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema8",
+            "field": "[].key",
+            "effectiveDescription": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute key. For type \"span\", use built-in fields (trace_id, span_id, duration, name, kind, status_code, is_root_span). For \"span_attribute\"/\"span_resource_attribute\", use the attribute key (e.g. \"http.method\").",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema9/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema8",
+            "field": "[].type",
+            "effectiveDescription": "\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "\"span\" filters built-in span fields. \"span_attribute\" filters span-level attributes. \"span_resource_attribute\" filters resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema9/items/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema8",
+            "field": "[].operator",
+            "effectiveDescription": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema9/items/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema8",
+            "field": "[].value",
+            "effectiveDescription": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema9/items/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapRequest_Schema11",
+            "effectiveDescription": "When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/$defs/__schema11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapInput",
+            "field": "query",
+            "effectiveDescription": "The latency-heatmap query to execute.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The latency-heatmap query to execute.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tracing/spans/latency-heatmap/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapResponseShape2",
+            "field": "time",
+            "effectiveDescription": "ISO 8601 UTC start of the time bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 UTC start of the time bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapResponseShape2",
+            "field": "bucket_ns",
+            "effectiveDescription": "Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). 0 on the sentinel row that enumerates a time bucket with no matching spans.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lower edge of the 1-2-5 series duration bucket in nanoseconds (1ms, 2ms, 5ms, 10ms, ...). 0 on the sentinel row that enumerates a time bucket with no matching spans.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/bucket_ns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapResponseShape2",
+            "field": "count",
+            "effectiveDescription": "Traces in this cell, bucketed by root-span duration (the default, rootSpans=true). When rootSpans is false, every matching span is counted instead. 0 only on sentinel rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Traces in this cell, bucketed by root-span duration (the default, rootSpans=true). When rootSpans is false, every matching span is counted instead. 0 only on sentinel rows.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape2/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmSpansLatencyHeatmapData",
+            "field": "results",
+            "effectiveDescription": "Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the window appears in at least one row, so the full x axis can be derived from the response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sparse heatmap cells ordered by time then duration bucket. Every time bucket in the window appears in at least one row, so the full x axis can be derived from the response.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "apm-spans-sparkline",
+            "method": "tracing.apmSpansSparkline"
+        },
+        {
+            "toolName": "apm-spans-duration-histogram",
+            "method": "tracing.apmSpansDurationHistogram"
+        },
+        {
+            "toolName": "apm-spans-aggregate",
+            "method": "tracing.apmSpansAggregate"
+        },
+        {
+            "toolName": "apm-services-list",
+            "method": "tracing.apmServicesList"
+        },
+        {
+            "toolName": "query-apm-spans",
+            "method": "tracing.queryApmSpans"
+        },
+        {
+            "toolName": "apm-spans-count",
+            "method": "tracing.apmSpansCount"
+        }
+    ]
+}

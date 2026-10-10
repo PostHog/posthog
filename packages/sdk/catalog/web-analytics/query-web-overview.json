@@ -1,0 +1,827 @@
+{
+    "method": "webAnalytics.queryWebOverview",
+    "toolName": "query-web-overview",
+    "title": "Run a web analytics overview query",
+    "category": "Web analytics",
+    "description": "Run a web analytics overview query — high-level KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. Returns a small list of metric tuples with optional period-over-period comparison. Mirrors the in-product **Web analytics** scene.\n\n# When to use this vs `query-trends`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-overview` when the question references just the aggregate values across the period instead of time series for those session-level values: bounce rate, session duration, sessions as a count, or entry/initial values (entry page, initial channel, initial UTM).\n\nUse `query-trends` instead for per-event counts — pageviews, sign-ups, button clicks. Faster.\n\n# Inputs\n\n- `dateRange` — defaults to last 7 days when omitted. Keep ranges short — there is no enforced upper bound and large windows on the slow path can be expensive.\n- `compareFilter: { compare: true }` — return prior-period values for change %. **Roughly doubles query cost** because it runs the same aggregation over the previous period — leave it off unless the user explicitly asks for a comparison.\n- `properties` — event/person/session/cohort filters. Same operator semantics as `query-trends` — see that prompt. Defaults to `[]`.\n- `filterTestAccounts` — exclude internal/test users.\n- `doPathCleaning` — apply team's path-cleaning rules.\n- `conversionGoal` — pass an `actionId` (must belong to the current project) or a `customEventName`. Only set when the user asks about a conversion.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\n```json\n{\n  \"kind\": \"WebOverviewQuery\",\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+    "requiredScopes": ["query:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/web-analytics/client.ts",
+    "input": {
+        "name": "WebAnalyticsQueryWebOverviewInput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/query-web-overview.ts",
+        "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+    },
+    "output": {
+        "name": "WebAnalyticsQueryWebOverviewOutput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/query-web-overview.ts",
+        "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema0",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema5",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema7",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema6",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema4",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema4Variant1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema4Variant2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema4Variant3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema4Variant4",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema2Variant1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema2Variant2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema8",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema10",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema9",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema11",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewRequestSchema12",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewInputCompareFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseCompareFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseInteger",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponsePropertyOperator",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponsePropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponsePropertyFilterValue",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseSessionPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseCohortPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseWebAnalyticsPropertyFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseWebAnalyticsPropertyFilters",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseActionConversionGoal",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseCustomEventConversionGoal",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseWebAnalyticsConversionGoal",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseAssistantDateRange",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseAssistantDurationRange",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseAssistantDateRangeFilter",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseWebAnalyticsItemKind",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewResponseWebOverviewItem",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewDataQuery",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewDataWarningsItem",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        },
+        {
+            "name": "WebAnalyticsQueryWebOverviewData",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/query-web-overview.ts",
+            "declaration": "dist/generated/web-analytics/query-web-overview.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Run a web analytics overview query — high-level KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. Returns a small list of metric tuples with optional period-over-period comparison. Mirrors the in-product **Web analytics** scene.\n\n# When to use this vs `query-trends`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-overview` when the question references just the aggregate values across the period instead of time series for those session-level values: bounce rate, session duration, sessions as a count, or entry/initial values (entry page, initial channel, initial UTM).\n\nUse `query-trends` instead for per-event counts — pageviews, sign-ups, button clicks. Faster.\n\n# Inputs\n\n- `dateRange` — defaults to last 7 days when omitted. Keep ranges short — there is no enforced upper bound and large windows on the slow path can be expensive.\n- `compareFilter: { compare: true }` — return prior-period values for change %. **Roughly doubles query cost** because it runs the same aggregation over the previous period — leave it off unless the user explicitly asks for a comparison.\n- `properties` — event/person/session/cohort filters. Same operator semantics as `query-trends` — see that prompt. Defaults to `[]`.\n- `filterTestAccounts` — exclude internal/test users.\n- `doPathCleaning` — apply team's path-cleaning rules.\n- `conversionGoal` — pass an `actionId` (must belong to the current project) or a `customEventName`. Only set when the user asks about a conversion.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\n```json\n{\n  \"kind\": \"WebOverviewQuery\",\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+            "source": {
+                "kind": "description_file",
+                "file": "products/web_analytics/mcp/prompts/query-web-overview.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewRequest_Schema0",
+            "effectiveDescription": "Whether to compare the current date range to a previous date range.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to compare the current date range to a previous date range.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewRequest_Schema1",
+            "effectiveDescription": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewRequest_Schema9",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema9/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewRequest_Schema9",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema9/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewRequest_Schema11",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema11/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewInput",
+            "field": "compareFilter",
+            "effectiveDescription": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/compareFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewInput",
+            "field": "conversionGoal",
+            "effectiveDescription": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/conversionGoal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewInput",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewInput",
+            "field": "doPathCleaning",
+            "effectiveDescription": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/doPathCleaning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewInput",
+            "field": "filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users by applying the respective filters. When omitted, follows the project's \"Filter out internal and test users\" default setting.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters. When omitted, follows the project's \"Filter out internal and test users\" default setting.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/filterTestAccounts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewInput",
+            "field": "properties",
+            "effectiveDescription": "Property filters applied to the query. Accepts event, person, session, or cohort filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters applied to the query. Accepts event, person, session, or cohort filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponseCompareFilter",
+            "field": "compare",
+            "effectiveDescription": "Whether to compare the current date range to a previous date range.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to compare the current date range to a previous date range.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CompareFilter/properties/compare"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponseCompareFilter",
+            "field": "compare_to",
+            "effectiveDescription": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CompareFilter/properties/compare_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponseEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponsePropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponsePersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponseCohortPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CohortPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponseAssistantDateRange",
+            "effectiveDescription": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponseAssistantDateRange",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponseAssistantDateRange",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponseAssistantDurationRange",
+            "effectiveDescription": "This filter only works with durations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with durations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewResponseAssistantDurationRange",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical PostHog URL returned by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/_posthogUrl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewData",
+            "field": "query",
+            "effectiveDescription": "High-level web-analytics KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. Returns a small list of metric tuples with optional period-over-period comparison.\n\nUse this when the user asks \"how is the site doing?\", \"what are the topline web numbers?\", or wants a snapshot of overall traffic health.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "High-level web-analytics KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. Returns a small list of metric tuples with optional period-over-period comparison.\n\nUse this when the user asks \"how is the site doing?\", \"what are the topline web numbers?\", or wants a snapshot of overall traffic health.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebOverviewQuery"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewData",
+            "field": "query.compareFilter",
+            "effectiveDescription": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebOverviewQuery/properties/compareFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewData",
+            "field": "query.conversionGoal",
+            "effectiveDescription": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebOverviewQuery/properties/conversionGoal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewData",
+            "field": "query.dateRange",
+            "effectiveDescription": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebOverviewQuery/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewData",
+            "field": "query.doPathCleaning",
+            "effectiveDescription": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Apply the team's path-cleaning rules to URL-style breakdowns.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebOverviewQuery/properties/doPathCleaning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewData",
+            "field": "query.filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users by applying the team's test-account filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the team's test-account filter.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebOverviewQuery/properties/filterTestAccounts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewData",
+            "field": "query.properties",
+            "effectiveDescription": "Property filters applied to the query. Accepts event, person, session, or cohort filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters applied to the query. Accepts event, person, session, or cohort filters.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantWebOverviewQuery/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsQueryWebOverviewData",
+            "field": "__formatted_results_override",
+            "effectiveDescription": "Formatted results supplied by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Formatted results supplied by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/__formatted_results_override"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-trends",
+            "method": "queries.trends"
+        },
+        {
+            "toolName": "read-data-schema",
+            "method": "dataSchema.readDataSchema"
+        },
+        {
+            "toolName": "execute-sql",
+            "method": "queries.sql"
+        }
+    ]
+}

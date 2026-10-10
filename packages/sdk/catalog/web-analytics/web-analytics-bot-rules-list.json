@@ -1,0 +1,229 @@
+{
+    "method": "webAnalytics.webAnalyticsBotRulesList",
+    "toolName": "web-analytics-bot-rules-list",
+    "operationId": "web_analytics_bot_rules_list",
+    "title": "List custom bot rules",
+    "category": "Web analytics",
+    "description": "List the project's own bot rules. Each rule names an event property, how to match it, a value, and the label reported when it matches. Rules extend PostHog's built-in bot list, so `Is bot` (isLikelyBot), `Bot name`, and `Traffic category` reflect them everywhere — insights, web analytics, session filters, and SQL.",
+    "requiredScopes": ["web_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/web-analytics/client.ts",
+    "input": {
+        "name": "WebAnalyticsWebAnalyticsBotRulesListInput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/web-analytics-bot-rules-list.ts",
+        "declaration": "dist/generated/web-analytics/web-analytics-bot-rules-list.d.ts"
+    },
+    "output": {
+        "name": "WebAnalyticsWebAnalyticsBotRulesListOutput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/web-analytics-bot-rules-list.ts",
+        "declaration": "dist/generated/web-analytics/web-analytics-bot-rules-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WebAnalyticsWebAnalyticsBotRulesListResponseShape3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-bot-rules-list.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-bot-rules-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsBotRulesListResponseShape2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-bot-rules-list.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-bot-rules-list.d.ts"
+        },
+        {
+            "name": "WebAnalyticsWebAnalyticsBotRulesListData",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/web-analytics-bot-rules-list.ts",
+            "declaration": "dist/generated/web-analytics/web-analytics-bot-rules-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The project's own bot rules, in the order they are checked at query time.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1web_analytics_bot_rules~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List the project's own bot rules. Each rule names an event property, how to match it, a value, and the label reported when it matches. Rules extend PostHog's built-in bot list, so `Is bot` (isLikelyBot), `Bot name`, and `Traffic category` reflect them everywhere — insights, web analytics, session filters, and SQL.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/web_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WebAnalyticsWebAnalyticsBotRulesListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Stable id for the rule. Pass it to the delete endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable id for the rule. Pass it to the delete endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsBotRulesListResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label reported by the `Bot name` property when the rule matches. Also the operator for a rule on a bot PostHog does not know.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsBotRulesListResponseShape2",
+            "field": "category",
+            "effectiveDescription": "Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reported by the `Traffic category` property. Defaults to 'custom'. A built-in category such as ai_crawler or search_crawler relabels the traffic type too.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsBotRulesListResponseShape2",
+            "field": "combiner",
+            "effectiveDescription": "How the conditions combine: 'AND' flags an event only when every condition matches, 'OR' when any one of them does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the conditions combine: 'AND' flags an event only when every condition matches, 'OR' when any one of them does.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/combiner"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsBotRulesListResponseShape2",
+            "field": "items",
+            "effectiveDescription": "The conditions of this rule. Each one reads a single event property.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The conditions of this rule. Each one reads a single event property.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape2/properties/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsBotRulesListResponseShape3",
+            "field": "id",
+            "effectiveDescription": "Stable id for the condition. Generated when omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable id for the condition. Generated when omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsBotRulesListResponseShape3",
+            "field": "key",
+            "effectiveDescription": "Event property the condition reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property the condition reads. One of: $raw_user_agent, $ip, $lib, $host, $pathname, $current_url, $browser, $os, $browser_language, $screen_width, $screen_height, $geoip_country_code, $referrer, $referring_domain.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsBotRulesListResponseShape3",
+            "field": "matcher",
+            "effectiveDescription": "How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How `pattern` is compared: 'contains' (case-insensitive substring), 'regex' (RE2), 'exact' (case-sensitive equality), or 'cidr' (an IP network range, only valid with the `$ip` property).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/matcher"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsBotRulesListResponseShape3",
+            "field": "pattern",
+            "effectiveDescription": "Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value matched against the property named by `key`. For 'cidr' this is a network range like 192.0.2.0/24.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/web_analytics.ts",
+                        "pointer": "#/Shape3/properties/pattern"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsWebAnalyticsBotRulesListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

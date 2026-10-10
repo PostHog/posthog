@@ -1,0 +1,96 @@
+{
+    "method": "warehouseSuggestions.warehouseSuggestionsAcceptPrepare",
+    "toolName": "warehouse-suggestions-accept-prepare",
+    "operationId": "warehouse_suggestions_accept_create",
+    "title": "Accept a warehouse suggestion (prepare)",
+    "category": "Warehouse suggestions",
+    "description": "Step 1 of 2 for accept warehouse suggestion. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. Requires human typed confirmation.",
+    "requiredScopes": ["warehouse_objects:write", "data_catalog_approval:write", "warehouse_view:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: warehouse-suggestions"],
+    "methodSource": "src/generated/warehouse-suggestions/client.ts",
+    "input": {
+        "name": "WarehouseSuggestionsWarehouseSuggestionsAcceptPrepareInput",
+        "importPath": "@posthog/sdk/warehouse-suggestions",
+        "source": "src/generated/warehouse-suggestions/warehouse-suggestions-accept-prepare.ts",
+        "declaration": "dist/generated/warehouse-suggestions/warehouse-suggestions-accept-prepare.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSuggestionsWarehouseSuggestionsAcceptPrepareOutput",
+        "importPath": "@posthog/sdk/warehouse-suggestions",
+        "source": "src/generated/warehouse-suggestions/warehouse-suggestions-accept-prepare.ts",
+        "declaration": "dist/generated/warehouse-suggestions/warehouse-suggestions-accept-prepare.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSuggestionsWarehouseSuggestionsAcceptPrepareRequestSchema0",
+            "importPath": "@posthog/sdk/warehouse-suggestions",
+            "source": "src/generated/warehouse-suggestions/warehouse-suggestions-accept-prepare.ts",
+            "declaration": "dist/generated/warehouse-suggestions/warehouse-suggestions-accept-prepare.d.ts"
+        },
+        {
+            "name": "WarehouseSuggestionsWarehouseSuggestionsAcceptPrepareData",
+            "importPath": "@posthog/sdk/warehouse-suggestions",
+            "source": "src/generated/warehouse-suggestions/warehouse-suggestions-accept-prepare.ts",
+            "declaration": "dist/generated/warehouse-suggestions/warehouse-suggestions-accept-prepare.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_suggestions/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 1 of 2 for accept warehouse suggestion. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Accept a proposed warehouse suggestion. Certify and deprecate suggestions mark the view or table as certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/warehouse-suggestions-accept-prepare/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSuggestionsWarehouseSuggestionsAcceptPrepareInput",
+            "field": "refresh_interval_seconds",
+            "effectiveDescription": "Materialize only: refresh interval to use instead of the proposed one, in seconds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Materialize only: refresh interval to use instead of the proposed one, in seconds.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/warehouse_suggestions/{id}/accept/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSuggestionsWarehouseSuggestionsAcceptPrepareData",
+            "field": "next_steps",
+            "effectiveDescription": "Hint for the model. Surfaces as text on the tool result.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hint for the model. Surfaces as text on the tool result.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_suggestions.ts",
+                        "pointer": "#/Shape1/properties/next_steps"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,589 @@
+{
+    "method": "stamphog.stamphogReviewRunsList",
+    "toolName": "stamphog-review-runs-list",
+    "operationId": "stamphog_review_runs_list",
+    "title": "List stamphog review runs",
+    "category": "Stamphog",
+    "description": "List stamphog's automated review runs for pull requests in this project, newest first. Filter by `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Leave `trigger` unset unless you want one trigger only: `trigger: all` does not mean every trigger. Each run reports its lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the reviewer ran. The reviewer's reasoning is null in list results — use `stamphog-review-runs-get` on a run to read it.",
+    "requiredScopes": ["stamphog:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: stamphog"],
+    "methodSource": "src/generated/stamphog/client.ts",
+    "input": {
+        "name": "StamphogStamphogReviewRunsListInput",
+        "importPath": "@posthog/sdk/stamphog",
+        "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+        "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+    },
+    "output": {
+        "name": "StamphogStamphogReviewRunsListOutput",
+        "importPath": "@posthog/sdk/stamphog",
+        "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+        "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StamphogStamphogReviewRunsListRequestSchema0",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogReviewRunsListRequestSchema1",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogReviewRunsListRequestSchema2",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogReviewRunsListRequestSchema3",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogReviewRunsListRequestSchema4",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogReviewRunsListRequestSchema5",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogReviewRunsListResponseShape3",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogReviewRunsListDataResultsItem",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogReviewRunsListData",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-review-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-review-runs-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "History of stamphog review runs, filterable by repository, PR number, and status, plus manual review requests.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1stamphog~1review_runs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List stamphog's automated review runs for pull requests in this project, newest first. Filter by `repository`, `pr_number`, or `status` to find why a specific PR got its verdict. Leave `trigger` unset unless you want one trigger only: `trigger: all` does not mean every trigger. Each run reports its lifecycle `status`, final `verdict`, and the deterministic gate outcome (`gate_result`) computed before the reviewer ran. The reviewer's reasoning is null in list results — use `stamphog-review-runs-get` on a run to read it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/stamphog/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "StamphogStamphogReviewRunsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/stamphog/review_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/stamphog/review_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListInput",
+            "field": "pr_number",
+            "effectiveDescription": "Filter by pull request number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by pull request number.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/stamphog/review_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListInput",
+            "field": "repository",
+            "effectiveDescription": "Filter by repository full name, e.g. 'PostHog/posthog'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by repository full name, e.g. 'PostHog/posthog'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/stamphog/review_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListInput",
+            "field": "status",
+            "effectiveDescription": "Filter by review run status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by review run status.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/stamphog/review_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListInput",
+            "field": "trigger",
+            "effectiveDescription": "Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/stamphog/review_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListResponseShape3",
+            "effectiveDescription": "Allowlisted, content-free slice of ``ReviewRun.gate_result``.\n\nThe raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry\nrepository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),\nmanifest gate messages, and declared ``policy.scopes`` — which a project member without repo\naccess must not read. Only the terminal decision is exposed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Allowlisted, content-free slice of ``ReviewRun.gate_result``.\n\nThe raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry\nrepository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),\nmanifest gate messages, and declared ``policy.scopes`` — which a project member without repo\naccess must not read. Only the terminal decision is exposed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListResponseShape3",
+            "field": "gate_blocked",
+            "effectiveDescription": "Whether the deterministic gates blocked auto-review before the reviewer ran.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the deterministic gates blocked auto-review before the reviewer ran.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape3/properties/gate_blocked"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListResponseShape3",
+            "field": "final_verdict",
+            "effectiveDescription": "The engine's raw final-verdict token, if the run reached a verdict.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The engine's raw final-verdict token, if the run reached a verdict.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape3/properties/final_verdict"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].pull_request",
+            "effectiveDescription": "ID of the pull request this review run belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the pull request this review run belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/pull_request"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].repository",
+            "effectiveDescription": "Full name of the repository this review run belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full name of the repository this review run belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/repository"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].pr_number",
+            "effectiveDescription": "Pull request number on GitHub.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pull request number on GitHub.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/pr_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].pr_url",
+            "effectiveDescription": "Full URL to the pull request on GitHub.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full URL to the pull request on GitHub.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/pr_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].title",
+            "effectiveDescription": "Pull request title as of the last webhook delivery applied.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pull request title as of the last webhook delivery applied.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].author_login",
+            "effectiveDescription": "GitHub login of the pull request author.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub login of the pull request author.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/author_login"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].head_sha",
+            "effectiveDescription": "Commit SHA of the PR head at the time this run started.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Commit SHA of the PR head at the time this run started.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/head_sha"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].head_branch",
+            "effectiveDescription": "Branch name of the PR head.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Branch name of the PR head.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/head_branch"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].delivery_id",
+            "effectiveDescription": "GitHub webhook delivery ID that triggered this run, used for deduplication.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub webhook delivery ID that triggered this run, used for deduplication.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/delivery_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].trigger",
+            "effectiveDescription": "What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.\n\n* `self_driving` - SELF_DRIVING\n* `manual` - MANUAL\n* `label` - LABEL\n* `all` - ALL",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.\n\n* `self_driving` - SELF_DRIVING\n* `manual` - MANUAL\n* `label` - LABEL\n* `all` - ALL",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/trigger"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].status",
+            "effectiveDescription": "Current stage of the review run's lifecycle.\n\n* `queued` - QUEUED\n* `gated` - GATED\n* `reviewing` - REVIEWING\n* `completed` - COMPLETED\n* `failed` - FAILED\n* `superseded` - SUPERSEDED",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current stage of the review run's lifecycle.\n\n* `queued` - QUEUED\n* `gated` - GATED\n* `reviewing` - REVIEWING\n* `completed` - COMPLETED\n* `failed` - FAILED\n* `superseded` - SUPERSEDED",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].verdict",
+            "effectiveDescription": "Final verdict reached by the reviewer, if any.\n\n* `none` - NONE\n* `approved` - APPROVED\n* `refused` - REFUSED\n* `escalate` - ESCALATE\n* `wait` - WAIT\n* `error` - ERROR",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Final verdict reached by the reviewer, if any.\n\n* `none` - NONE\n* `approved` - APPROVED\n* `refused` - REFUSED\n* `escalate` - ESCALATE\n* `wait` - WAIT\n* `error` - ERROR",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/verdict"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].gate_result",
+            "effectiveDescription": "Allowlisted deterministic gate outcome (gate_blocked, final_verdict). The nested gate, classification, and policy sub-objects are excluded — they carry changed-file paths and policy scopes, repository content a project member without repo access must not read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Allowlisted deterministic gate outcome (gate_blocked, final_verdict). The nested gate, classification, and policy sub-objects are excluded — they carry changed-file paths and policy scopes, repository content a project member without repo access must not read.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/gate_result"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].error",
+            "effectiveDescription": "Error message if the run failed, blank otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error message if the run failed, blank otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].posted_review_id",
+            "effectiveDescription": "ID of the GitHub review this run posted, null if it never posted one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the GitHub review this run posted, null if it never posted one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/posted_review_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].verdict_posted_at",
+            "effectiveDescription": "When this run's verdict reached GitHub, null if it never did.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this run's verdict reached GitHub, null if it never did.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/verdict_posted_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].approval_dismissed_at",
+            "effectiveDescription": "When this run's GitHub approval was retracted because the head moved, null if it wasn't.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this run's GitHub approval was retracted because the head moved, null if it wasn't.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/approval_dismissed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].created_at",
+            "effectiveDescription": "When the review run was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the review run was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].updated_at",
+            "effectiveDescription": "When the review run was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the review run was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "results[].completed_at",
+            "effectiveDescription": "When the review run reached a terminal state, if it has.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the review run reached a terminal state, if it has.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogReviewRunsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "stamphog-review-runs-get",
+            "method": "stamphog.stamphogReviewRunsGet"
+        }
+    ]
+}

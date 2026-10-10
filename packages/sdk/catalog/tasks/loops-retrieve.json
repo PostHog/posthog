@@ -1,0 +1,282 @@
+{
+    "method": "tasks.loopsRetrieve",
+    "toolName": "loops-retrieve",
+    "operationId": "loops_retrieve",
+    "title": "Get loop",
+    "category": "Tasks",
+    "description": "Get a specific loop by ID, including its full config (instructions, model, repositories, triggers, behaviors, connectors, notifications) and run bookkeeping.",
+    "requiredScopes": ["loop:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: loops", "hidden_when_flag_on: loops-hog-flows"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksLoopsRetrieveInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loops-retrieve.ts",
+        "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+    },
+    "output": {
+        "name": "TasksLoopsRetrieveOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loops-retrieve.ts",
+        "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksLoopsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveResponseShape4",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveResponseShape7",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveResponseShape6",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveResponseShape5",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveResponseShape9",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveResponseShape8",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveResponseShape11",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveResponseShape10",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveResponseShape12",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopsRetrieveData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loops-retrieve.ts",
+            "declaration": "dist/generated/tasks/loops-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "API for managing loops — named, cloud-executed agent automations triggered by\nschedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1loops~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get a specific loop by ID, including its full config (instructions, model, repositories, triggers, behaviors, connectors, notifications) and run bookkeeping.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksLoopsRetrieveResponseShape8",
+            "field": "outputs",
+            "effectiveDescription": "What the loop maintains in this context each run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the loop maintains in this context each run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape8/properties/outputs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRetrieveResponseShape10",
+            "effectiveDescription": "Read response for a single loop trigger.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read response for a single loop trigger.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRetrieveData",
+            "field": "repositories",
+            "effectiveDescription": "Repositories this loop operates on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repositories this loop operates on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/repositories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRetrieveData",
+            "field": "behaviors",
+            "effectiveDescription": "PR / CI-follow-up behavior configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PR / CI-follow-up behavior configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/behaviors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRetrieveData",
+            "field": "connectors",
+            "effectiveDescription": "MCP connector configuration for this loop's runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP connector configuration for this loop's runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/connectors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRetrieveData",
+            "field": "notifications",
+            "effectiveDescription": "Per-channel notification configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-channel notification configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/notifications"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRetrieveData",
+            "field": "context_target",
+            "effectiveDescription": "Context this loop is attached to, or null when unattached.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Context this loop is attached to, or null when unattached.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/context_target"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRetrieveData",
+            "field": "triggers",
+            "effectiveDescription": "Triggers attached to this loop.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Triggers attached to this loop.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/triggers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRetrieveData",
+            "field": "skill_bundles",
+            "effectiveDescription": "Skill bundles attached to this loop, seeded into every fired run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Skill bundles attached to this loop, seeded into every fired run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/skill_bundles"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopsRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

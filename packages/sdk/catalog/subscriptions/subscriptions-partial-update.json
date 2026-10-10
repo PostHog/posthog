@@ -1,0 +1,1491 @@
+{
+    "method": "subscriptions.subscriptionsPartialUpdate",
+    "toolName": "subscriptions-partial-update",
+    "operationId": "subscriptions_partial_update",
+    "title": "Update subscription",
+    "category": "Subscriptions",
+    "description": "Update a subscription's mutable fields (title, target, schedule, the `prompt` for prompt subscriptions, `enabled`). The kind (`resource_type`) is fixed at create — a PATCH that would introduce another kind's field (e.g. a `prompt` on an insight sub) is rejected with 400. For prompt subs, re-enabling a previously auto-disabled sub requires both a valid `prompt` (already persisted or supplied in the PATCH body) and that the original creator is still an active user; otherwise it is rejected with 400. Editing or re-enabling a prompt subscription additionally requires the `query:read` scope. Use `subscriptions-delete` to soft-delete — `deleted` is not settable here.\nFor Microsoft Teams, omit `target_value` to keep the stored webhook URL. To replace it, send a full Teams webhook URL; the host returned by this API is not a valid replacement.\nFor insight and dashboard subscriptions, toggle the per-delivery AI summary with `summary_enabled` and steer it with `summary_prompt_guide` (500 characters or fewer). Enabling a summary requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.\n`delivery_config` options carry the same scope rules as on create, and the update is rejected when an option you send does not apply to this subscription. On a prompt subscription the object you send merges into the stored one instead of replacing it, so set an option to the value you want rather than expecting an omitted option to be cleared.",
+    "requiredScopes": ["subscription:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/subscriptions/client.ts",
+    "input": {
+        "name": "SubscriptionsSubscriptionsPartialUpdateInput",
+        "importPath": "@posthog/sdk/subscriptions",
+        "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+        "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+    },
+    "output": {
+        "name": "SubscriptionsSubscriptionsPartialUpdateOutput",
+        "importPath": "@posthog/sdk/subscriptions",
+        "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+        "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema6",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema7",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema8",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema5",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema9",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema10",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema11",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema12",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema13",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema14",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema15",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema16",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema17",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema18",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema19",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema20",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema21",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema22",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema24",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema26",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema28",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema30",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema32",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateRequestSchema23",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateResponseShape3",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateResponseShape2",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateResponseShape4",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateResponseShape5",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateResponseShape7",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateResponseShape6",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateResponseShape8",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        },
+        {
+            "name": "SubscriptionsSubscriptionsPartialUpdateData",
+            "importPath": "@posthog/sdk/subscriptions",
+            "source": "src/generated/subscriptions/subscriptions-partial-update.ts",
+            "declaration": "dist/generated/subscriptions/subscriptions-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update a subscription's mutable fields (title, target, schedule, the `prompt` for prompt subscriptions, `enabled`). The kind (`resource_type`) is fixed at create — a PATCH that would introduce another kind's field (e.g. a `prompt` on an insight sub) is rejected with 400. For prompt subs, re-enabling a previously auto-disabled sub requires both a valid `prompt` (already persisted or supplied in the PATCH body) and that the original creator is still an active user; otherwise it is rejected with 400. Editing or re-enabling a prompt subscription additionally requires the `query:read` scope. Use `subscriptions-delete` to soft-delete — `deleted` is not settable here.\nFor Microsoft Teams, omit `target_value` to keep the stored webhook URL. To replace it, send a full Teams webhook URL; the host returned by this API is not a valid replacement.\nFor insight and dashboard subscriptions, toggle the per-delivery AI summary with `summary_enabled` and steer it with `summary_prompt_guide` (500 characters or fewer). Enabling a summary requires the organization to have approved AI data processing and to be within its active-summary cap and AI credit budget; otherwise the update is rejected.\n`delivery_config` options carry the same scope rules as on create, and the update is rejected when an option you send does not apply to this subscription. On a prompt subscription the object you send merges into the stored one instead of replacing it, so set an option to the value you want rather than expecting an omitted option to be cleared.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/subscriptions/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema4",
+            "field": "window",
+            "effectiveDescription": "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema4/properties/window"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema5",
+            "field": "mode",
+            "effectiveDescription": "What the report analyzes each run:\n* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n* `last_n_days` — a fixed trailing window of start_days_ago days\n* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the report analyzes each run:\n* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n* `last_n_days` — a fixed trailing window of start_days_ago days\n* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema5/properties/mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema5",
+            "field": "start_days_ago",
+            "effectiveDescription": "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema5/properties/start_days_ago"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema5",
+            "field": "end_days_ago",
+            "effectiveDescription": "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema5/properties/end_days_ago"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema6",
+            "effectiveDescription": "* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema9",
+            "effectiveDescription": "* `email` - Email\n* `slack` - Slack\n* `teams` - Microsoft Teams",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `email` - Email\n* `slack` - Slack\n* `teams` - Microsoft Teams",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema11",
+            "effectiveDescription": "* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema23",
+            "effectiveDescription": "Typed view over the Subscription.delivery_config JSON blob.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed view over the Subscription.delivery_config JSON blob.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema23"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema24",
+            "effectiveDescription": "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema24"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema26",
+            "effectiveDescription": "Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema26"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema28",
+            "effectiveDescription": "Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema28"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema30",
+            "effectiveDescription": "Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema30"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateRequest_Schema32",
+            "effectiveDescription": "Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/$defs/__schema32"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this subscription.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this subscription.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "dashboard",
+            "effectiveDescription": "Dashboard ID to subscribe to (mutually exclusive with insight on create).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard ID to subscribe to (mutually exclusive with insight on create).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "insight",
+            "effectiveDescription": "Insight ID to subscribe to (mutually exclusive with dashboard on create).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Insight ID to subscribe to (mutually exclusive with dashboard on create).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "dashboard_export_insights",
+            "effectiveDescription": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "prompt",
+            "effectiveDescription": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "ai_prompt_config",
+            "effectiveDescription": "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "target_type",
+            "effectiveDescription": "Delivery channel: email, slack, or teams.\n\n* `email` - Email\n* `slack` - Slack\n* `teams` - Microsoft Teams",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Delivery channel: email, slack, or teams.\n\n* `email` - Email\n* `slack` - Slack\n* `teams` - Microsoft Teams",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "target_value",
+            "effectiveDescription": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "frequency",
+            "effectiveDescription": "How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "interval",
+            "effectiveDescription": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "byweekday",
+            "effectiveDescription": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "bysetpos",
+            "effectiveDescription": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "count",
+            "effectiveDescription": "Total number of deliveries before the subscription stops. Null for unlimited.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of deliveries before the subscription stops. Null for unlimited.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "start_date",
+            "effectiveDescription": "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "until_date",
+            "effectiveDescription": "When to stop delivering (ISO 8601 datetime). Null for indefinite.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When to stop delivering (ISO 8601 datetime). Null for indefinite.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "enabled",
+            "effectiveDescription": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "title",
+            "effectiveDescription": "Human-readable name for this subscription.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for this subscription.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "integration_id",
+            "effectiveDescription": "ID of a connected Slack integration. Required when target_type is slack.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of a connected Slack integration. Required when target_type is slack.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "summary_enabled",
+            "effectiveDescription": "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "summary_prompt_guide",
+            "effectiveDescription": "Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateInput",
+            "field": "delivery_config",
+            "effectiveDescription": "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/subscriptions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape2",
+            "field": "window",
+            "effectiveDescription": "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape2/properties/window"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape3",
+            "field": "mode",
+            "effectiveDescription": "What the report analyzes each run:\n* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n* `last_n_days` — a fixed trailing window of start_days_ago days\n* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the report analyzes each run:\n* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n* `last_n_days` — a fixed trailing window of start_days_ago days\n* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape3/properties/mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape3",
+            "field": "start_days_ago",
+            "effectiveDescription": "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape3/properties/start_days_ago"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape3",
+            "field": "end_days_ago",
+            "effectiveDescription": "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape3/properties/end_days_ago"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape4",
+            "field": "dashboard_id",
+            "effectiveDescription": "Dashboard ID used to open the context dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard ID used to open the context dashboard.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape4/properties/dashboard_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape4",
+            "field": "dashboard_name",
+            "effectiveDescription": "Current display name of the context dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current display name of the context dashboard.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape4/properties/dashboard_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape5",
+            "field": "insight_id",
+            "effectiveDescription": "Database ID of the context insight.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Database ID of the context insight.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape5/properties/insight_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape5",
+            "field": "insight_short_id",
+            "effectiveDescription": "Stable insight identifier used to open the context insight.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable insight identifier used to open the context insight.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape5/properties/insight_short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape5",
+            "field": "insight_name",
+            "effectiveDescription": "Current display name of the context insight.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current display name of the context insight.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape5/properties/insight_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape8",
+            "effectiveDescription": "Typed view over the Subscription.delivery_config JSON blob.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed view over the Subscription.delivery_config JSON blob.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape8",
+            "field": "post_all_insights_in_main_message",
+            "effectiveDescription": "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack insight and dashboard subscriptions only: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false. The request is rejected when target_type is not 'slack', when the subscription sets prompt instead of insight or dashboard, or when the Slack integration does not hold the files:write permission. Omit it unless the user asks for one combined message.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape8/properties/post_all_insights_in_main_message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape8",
+            "field": "include_images",
+            "effectiveDescription": "Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt subscriptions only: include generated chart images. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape8/properties/include_images"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape8",
+            "field": "include_feedback",
+            "effectiveDescription": "Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt subscriptions only: include report feedback links. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape8/properties/include_feedback"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape8",
+            "field": "include_manage_link",
+            "effectiveDescription": "Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt subscriptions only: include a link to manage the subscription. Defaults to true when omitted. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape8/properties/include_manage_link"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateResponseShape8",
+            "field": "include_posthog_hint",
+            "effectiveDescription": "Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt subscriptions only: include PostHog product guidance. Defaults to true when omitted. Only a Slack report renders the guidance. Email and Microsoft Teams reports leave it out and accept the option without an error, unlike post_all_insights_in_main_message. The request is rejected when the subscription sets insight or dashboard instead of prompt. It does not control the AI summary on an insight or dashboard subscription: use summary_enabled and summary_prompt_guide for that.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape8/properties/include_posthog_hint"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "effectiveDescription": "Standard Subscription serializer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Standard Subscription serializer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "resource_type",
+            "effectiveDescription": "What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).\n\n* `insight` - Insight\n* `dashboard` - Dashboard\n* `ai_prompt` - AI prompt",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the subscription delivers: 'insight' (snapshot of one insight), 'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). Read-only — derived from the populated target (insight → insight, dashboard → dashboard, prompt → ai_prompt).\n\n* `insight` - Insight\n* `dashboard` - Dashboard\n* `ai_prompt` - AI prompt",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/resource_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "dashboard",
+            "effectiveDescription": "Dashboard ID to subscribe to (mutually exclusive with insight on create).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard ID to subscribe to (mutually exclusive with insight on create).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/dashboard"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "insight",
+            "effectiveDescription": "Insight ID to subscribe to (mutually exclusive with dashboard on create).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Insight ID to subscribe to (mutually exclusive with dashboard on create).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/insight"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "dashboard_export_insights",
+            "effectiveDescription": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 20.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/dashboard_export_insights"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "prompt",
+            "effectiveDescription": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "ai_prompt_config",
+            "effectiveDescription": "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/ai_prompt_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "contexts",
+            "effectiveDescription": "Dashboards and insights that ground this AI report. Deleted resources are omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboards and insights that ground this AI report. Deleted resources are omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/contexts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "ai_query_plan_status",
+            "effectiveDescription": "Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/ai_query_plan_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "target_type",
+            "effectiveDescription": "Delivery channel: email, slack, or teams.\n\n* `email` - Email\n* `slack` - Slack\n* `teams` - Microsoft Teams",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Delivery channel: email, slack, or teams.\n\n* `email` - Email\n* `slack` - Slack\n* `teams` - Microsoft Teams",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/target_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "target_value",
+            "effectiveDescription": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/target_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "frequency",
+            "effectiveDescription": "How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/frequency"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "interval",
+            "effectiveDescription": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/interval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "byweekday",
+            "effectiveDescription": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Days of week for daily or weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/byweekday"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "bysetpos",
+            "effectiveDescription": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/bysetpos"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "count",
+            "effectiveDescription": "Total number of deliveries before the subscription stops. Null for unlimited.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of deliveries before the subscription stops. Null for unlimited.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "start_date",
+            "effectiveDescription": "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/start_date"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "until_date",
+            "effectiveDescription": "When to stop delivering (ISO 8601 datetime). Null for indefinite.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When to stop delivering (ISO 8601 datetime). Null for indefinite.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/until_date"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "deleted",
+            "effectiveDescription": "Set to true to soft-delete. Subscriptions cannot be hard-deleted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set to true to soft-delete. Subscriptions cannot be hard-deleted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "enabled",
+            "effectiveDescription": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "title",
+            "effectiveDescription": "Human-readable name for this subscription.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for this subscription.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "summary",
+            "effectiveDescription": "Human-readable schedule summary, e.g. 'sent daily'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable schedule summary, e.g. 'sent daily'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "integration_id",
+            "effectiveDescription": "ID of a connected Slack integration. Required when target_type is slack.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of a connected Slack integration. Required when target_type is slack.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/integration_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "invite_message",
+            "effectiveDescription": "Optional message included in the invitation email when adding new recipients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional message included in the invitation email when adding new recipients.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/invite_message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "send_test_now",
+            "effectiveDescription": "Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to immediately deliver the subscription once on save so the editor can confirm it looks right. Defaults to true on create. When omitted on update, a delivery is sent only if the edit changed what gets delivered (recipient, channel, source) or re-enabled the subscription. The recurring schedule is unaffected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/send_test_now"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "summary_enabled",
+            "effectiveDescription": "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/summary_enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "summary_prompt_guide",
+            "effectiveDescription": "Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/summary_prompt_guide"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SubscriptionsSubscriptionsPartialUpdateData",
+            "field": "delivery_config",
+            "effectiveDescription": "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/subscriptions.ts",
+                        "pointer": "#/Shape1/properties/delivery_config"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "subscriptions-delete",
+            "method": "subscriptions.subscriptionsDelete"
+        }
+    ]
+}

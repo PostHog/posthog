@@ -1,0 +1,168 @@
+{
+    "method": "tracing.apmAttributeValuesList",
+    "toolName": "apm-attribute-values-list",
+    "operationId": "tracing_spans_values_retrieve",
+    "title": "List tracing attribute values",
+    "category": "Tracing",
+    "description": "List values for a specific span or resource attribute key. Use to discover what values exist for a given attribute before building filters.",
+    "requiredScopes": ["tracing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: tracing"],
+    "methodSource": "src/generated/tracing/client.ts",
+    "input": {
+        "name": "TracingApmAttributeValuesListInput",
+        "importPath": "@posthog/sdk/tracing",
+        "source": "src/generated/tracing/apm-attribute-values-list.ts",
+        "declaration": "dist/generated/tracing/apm-attribute-values-list.d.ts"
+    },
+    "output": {
+        "name": "TracingApmAttributeValuesListOutput",
+        "importPath": "@posthog/sdk/tracing",
+        "source": "src/generated/tracing/apm-attribute-values-list.ts",
+        "declaration": "dist/generated/tracing/apm-attribute-values-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TracingApmAttributeValuesListRequestSchema0",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-values-list.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-values-list.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeValuesListRequestSchema1",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-values-list.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-values-list.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeValuesListRequestSchema2",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-values-list.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-values-list.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeValuesListRequestSchema3",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-values-list.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-values-list.d.ts"
+        },
+        {
+            "name": "TracingApmAttributeValuesListData",
+            "importPath": "@posthog/sdk/tracing",
+            "source": "src/generated/tracing/apm-attribute-values-list.ts",
+            "declaration": "dist/generated/tracing/apm-attribute-values-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List values for a specific span or resource attribute key. Use to discover what values exist for a given attribute before building filters.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tracing/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TracingApmAttributeValuesListInput",
+            "field": "attribute_type",
+            "effectiveDescription": "Type of attribute: \"span\" for built-in span fields (e.g. name), \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type of attribute: \"span\" for built-in span fields (e.g. name), \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tracing/spans/values/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeValuesListInput",
+            "field": "key",
+            "effectiveDescription": "The attribute key to get values for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The attribute key to get values for.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tracing/spans/values/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeValuesListInput",
+            "field": "limit",
+            "effectiveDescription": "Max results (default: 100).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Max results (default: 100).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tracing/spans/values/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeValuesListInput",
+            "field": "offset",
+            "effectiveDescription": "Pagination offset (default: 0).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pagination offset (default: 0).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tracing/spans/values/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeValuesListInput",
+            "field": "value",
+            "effectiveDescription": "Search filter for attribute values.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search filter for attribute values.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tracing/spans/values/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TracingApmAttributeValuesListData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tracing.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,62 @@
+{
+    "method": "signals.scoutNotesDelete",
+    "toolName": "scout-notes-delete",
+    "operationId": "signals_scout_notes_destroy",
+    "title": "Delete a scout note",
+    "category": "Signals",
+    "description": "Delete one scout note by its `id` (from `scout-notes-list`), retiring it from every scout's view. Use this when a note has been acted on or no longer applies; notes created with `expires_at` retire themselves and don't need explicit cleanup.",
+    "requiredScopes": ["signal_scout:write", "llm_skill:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsScoutNotesDeleteInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-notes-delete.ts",
+        "declaration": "dist/generated/signals/scout-notes-delete.d.ts"
+    },
+    "output": {
+        "name": "SignalsScoutNotesDeleteOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-notes-delete.ts",
+        "declaration": "dist/generated/signals/scout-notes-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsScoutNotesDeleteData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-notes-delete.ts",
+            "declaration": "dist/generated/signals/scout-notes-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Delete one note by its `id`, retiring it from every scout's view. Use this when a note has been acted on or no longer applies; time-boxed notes can instead carry an `expires_at` and retire themselves.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1scout~1notes~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete one scout note by its `id` (from `scout-notes-list`), retiring it from every scout's view. Use this when a note has been acted on or no longer applies; notes created with `expires_at` retire themselves and don't need explicit cleanup.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": [
+        {
+            "toolName": "scout-notes-list",
+            "method": "signals.scoutNotesList"
+        }
+    ]
+}

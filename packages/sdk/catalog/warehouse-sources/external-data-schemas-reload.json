@@ -1,0 +1,89 @@
+{
+    "method": "warehouseSources.externalDataSchemasReload",
+    "toolName": "external-data-schemas-reload",
+    "operationId": "external_data_schemas_reload_create",
+    "title": "Trigger sync for a table schema",
+    "category": "Warehouse sources",
+    "description": "Trigger a sync for a single table schema using its configured sync method (incremental, full refresh, append, or CDC). Use this to manually sync a specific table without triggering all tables in the source.",
+    "requiredScopes": ["external_data_source:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/warehouse-sources/client.ts",
+    "input": {
+        "name": "WarehouseSourcesExternalDataSchemasReloadInput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-schemas-reload.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-schemas-reload.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSourcesExternalDataSchemasReloadOutput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-schemas-reload.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-schemas-reload.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSourcesExternalDataSchemasReloadData",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-reload.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-reload.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Trigger a sync for the schema using its configured sync method. Most methods keep the existing warehouse table and add or merge new rows, but a full-refresh schema rebuilds the whole table on every run. To force a rebuild from the source, use resync.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1external_data_schemas~1{id}~1reload~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Trigger a sync for a single table schema using its configured sync method (incremental, full refresh, append, or CDC). Use this to manually sync a specific table without triggering all tables in the source.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_sources/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasReloadInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this external data schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this external data schema.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/reload/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasReloadData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

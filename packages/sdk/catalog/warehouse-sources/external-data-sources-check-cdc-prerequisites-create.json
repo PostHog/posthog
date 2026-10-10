@@ -1,0 +1,106 @@
+{
+    "method": "warehouseSources.externalDataSourcesCheckCdcPrerequisitesCreate",
+    "toolName": "external-data-sources-check-cdc-prerequisites-create",
+    "operationId": "external_data_sources_check_cdc_prerequisites_create",
+    "title": "Check Postgres CDC prerequisites",
+    "category": "Warehouse sources",
+    "description": "Validate that a live Postgres database meets Change Data Capture prerequisites — logical replication enabled (wal_level=logical), replication slot available, publication present, and required permissions. Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to diagnose why an existing CDC sync has started failing.",
+    "requiredScopes": ["external_data_source:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/warehouse-sources/client.ts",
+    "input": {
+        "name": "WarehouseSourcesExternalDataSourcesCheckCdcPrerequisitesCreateInput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-sources-check-cdc-prerequisites-create.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-sources-check-cdc-prerequisites-create.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSourcesExternalDataSourcesCheckCdcPrerequisitesCreateOutput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-sources-check-cdc-prerequisites-create.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-sources-check-cdc-prerequisites-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSourcesExternalDataSourcesCheckCdcPrerequisitesCreateData",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-sources-check-cdc-prerequisites-create.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-sources-check-cdc-prerequisites-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Validate CDC prerequisites against a live Postgres connection.\n\nUsed by the source wizard to surface ✅/❌ checks before source creation,\nand by the self-managed setup popup to verify user-created publications.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1external_data_sources~1check_cdc_prerequisites~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Validate that a live Postgres database meets Change Data Capture prerequisites — logical replication enabled (wal_level=logical), replication slot available, publication present, and required permissions. Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to diagnose why an existing CDC sync has started failing.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_sources/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesCheckCdcPrerequisitesCreateInput",
+            "field": "source_type",
+            "effectiveDescription": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/properties/source_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesCheckCdcPrerequisitesCreateData",
+            "field": "valid",
+            "effectiveDescription": "Whether the source satisfies every CDC prerequisite.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the source satisfies every CDC prerequisite.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/valid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSourcesCheckCdcPrerequisitesCreateData",
+            "field": "errors",
+            "effectiveDescription": "Unmet prerequisites, empty when valid is true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unmet prerequisites, empty when valid is true.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/errors"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

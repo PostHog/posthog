@@ -1,0 +1,318 @@
+{
+    "method": "warehouseSources.externalDataDestinationsRetrieve",
+    "toolName": "external-data-destinations-retrieve",
+    "operationId": "external_data_destinations_retrieve",
+    "title": "Get a warehouse destination",
+    "category": "Warehouse sources",
+    "description": "Read one warehouse destination, including the target database or schema it writes to. Credentials live on the linked integration and are never returned here.",
+    "requiredScopes": ["external_data_source:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: warehouse-multi-destination"],
+    "methodSource": "src/generated/warehouse-sources/client.ts",
+    "input": {
+        "name": "WarehouseSourcesExternalDataDestinationsRetrieveInput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-destinations-retrieve.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-destinations-retrieve.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSourcesExternalDataDestinationsRetrieveOutput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-destinations-retrieve.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-destinations-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSourcesExternalDataDestinationsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-destinations-retrieve.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-destinations-retrieve.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-destinations-retrieve.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-destinations-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Manage where warehouse sources write their synced rows.\n\nA destination can be attached to several sources, or to a single table on a source.\nCredentials come from an integration, so one connection can be reused across syncs.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1external_data_destinations~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Read one warehouse destination, including the target database or schema it writes to. Credentials live on the linked integration and are never returned here.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_sources/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this external data destination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this external data destination.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_destinations/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveResponseShape2",
+            "effectiveDescription": "One source that writes to a destination. Shape only — never used to deserialize.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One source that writes to a destination. Shape only — never used to deserialize.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveResponseShape2",
+            "field": "id",
+            "effectiveDescription": "The source's id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source's id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveResponseShape2",
+            "field": "name",
+            "effectiveDescription": "How the source is labelled in the UI, prefix included.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the source is labelled in the UI, prefix included.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveResponseShape2",
+            "field": "source_type",
+            "effectiveDescription": "Which connector this is, e.g. Stripe or Postgres.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which connector this is, e.g. Stripe or Postgres.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape2/properties/source_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveResponseShape2",
+            "field": "via_table_override",
+            "effectiveDescription": "True when only some of the source's tables reach this destination, through their own override.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when only some of the source's tables reach this destination, through their own override.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape2/properties/via_table_override"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "field": "type",
+            "effectiveDescription": "Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n* `PostHogWarehouse` - PostHog warehouse\n* `Redshift` - Redshift\n* `Snowflake` - Snowflake\n* `BigQuery` - BigQuery\n* `Postgres` - Postgres\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `S3` - S3",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n* `PostHogWarehouse` - PostHog warehouse\n* `Redshift` - Redshift\n* `Snowflake` - Snowflake\n* `BigQuery` - BigQuery\n* `Postgres` - Postgres\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `S3` - S3",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "field": "name",
+            "effectiveDescription": "Human-readable name shown when picking destinations for a source or table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name shown when picking destinations for a source or table.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "field": "config",
+            "effectiveDescription": "Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "field": "integration",
+            "effectiveDescription": "Integration holding this destination's credentials. Required for every type except the PostHog warehouse.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integration holding this destination's credentials. Required for every type except the PostHog warehouse.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/integration"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "field": "is_posthog_warehouse",
+            "effectiveDescription": "Whether this is the managed PostHog warehouse destination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this is the managed PostHog warehouse destination.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/is_posthog_warehouse"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "field": "synced_sources",
+            "effectiveDescription": "Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sources whose tables sync to this destination, so you can see what a change or a deletion would affect. Includes sources that reach it through a single table's override, and — for the PostHog warehouse — sources that write there by default because nothing else was configured.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/synced_sources"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "field": "status",
+            "effectiveDescription": "Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.\n\n* `healthy` - Healthy\n* `failing` - Failing\n* `paused` - Paused",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether delivery to this destination works. `healthy`: the last delivery worked. `failing`: the last delivery failed. `paused`: PostHog stopped syncing to it after repeated configuration errors. Edit the destination to turn it back on.\n\n* `healthy` - Healthy\n* `failing` - Failing\n* `paused` - Paused",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "field": "latest_error",
+            "effectiveDescription": "The last delivery error, safe to show to the user. Null if no delivery has failed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The last delivery error, safe to show to the user. Null if no delivery has failed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/latest_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "field": "latest_error_at",
+            "effectiveDescription": "When the last delivery error occurred.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the last delivery error occurred.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/latest_error_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataDestinationsRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

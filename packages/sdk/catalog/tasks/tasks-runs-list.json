@@ -1,0 +1,209 @@
+{
+    "method": "tasks.tasksRunsList",
+    "toolName": "tasks-runs-list",
+    "operationId": "tasks_runs_list",
+    "title": "List task runs",
+    "category": "Tasks",
+    "description": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: tasks"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksTasksRunsListInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-runs-list.ts",
+        "declaration": "dist/generated/tasks/tasks-runs-list.d.ts"
+    },
+    "output": {
+        "name": "TasksTasksRunsListOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-runs-list.ts",
+        "declaration": "dist/generated/tasks/tasks-runs-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksTasksRunsListRequestSchema0",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-list.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-list.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsListRequestSchema1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-list.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-list.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsListDataResultsItemState",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-list.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-list.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsListDataResultsItem",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-list.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-list.d.ts"
+        },
+        {
+            "name": "TasksTasksRunsListData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-runs-list.ts",
+            "declaration": "dist/generated/tasks/tasks-runs-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get a list of runs for a specific task.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1tasks~1{task_id}~1runs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full run detail including state, output, and artifacts.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksTasksRunsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/{task_id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/{task_id}/runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsListData",
+            "field": "results[]",
+            "effectiveDescription": "Detail response for a task run.\n\nReads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the\npresigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /\n``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested\n``latest_run`` shape by the task detail response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Detail response for a task run.\n\nReads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the\npresigned ``log_url`` and parses ``runtime_adapter`` / ``provider`` / ``model`` /\n``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested\n``latest_run`` shape by the task detail response.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsListData",
+            "field": "results[].task",
+            "effectiveDescription": "Parent task id this run belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Parent task id this run belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/task"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsListData",
+            "field": "results[].scheduled_at",
+            "effectiveDescription": "Earliest start time in UTC. Null for runs without a schedule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Earliest start time in UTC. Null for runs without a schedule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/scheduled_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsListData",
+            "field": "results[].model",
+            "effectiveDescription": "Configured LLM model identifier for this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured LLM model identifier for this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsListData",
+            "field": "results[].reasoning_effort",
+            "effectiveDescription": "Configured reasoning effort for this run when the selected model supports it.\n\n* `off` - off\n* `minimal` - minimal\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured reasoning effort for this run when the selected model supports it.\n\n* `off` - off\n* `minimal` - minimal\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/reasoning_effort"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksRunsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

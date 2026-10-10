@@ -1,0 +1,222 @@
+{
+    "method": "signals.scoutMetadataGet",
+    "toolName": "scout-metadata-get",
+    "operationId": "signals_scout_metadata_get",
+    "title": "Get scout enrollment, banner, and run limits",
+    "category": "Signals",
+    "description": "Return this project's scout metadata: whether it is enrolled to run scouts, the current announcement banner (e.g. an early-access run-limit notice, or null when unset), and the enforced run limits with current usage — `max_runs_per_tick`, `max_runs_per_day` (null = unbounded), `runs_today`, and `runs_remaining_today`. Limits reflect what the scout coordinator actually applies at dispatch, so use this to size an enabled scout troop against the project's real daily run budget rather than assuming a value. Read-only and side-effect free.",
+    "requiredScopes": ["signal_scout:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsScoutMetadataGetInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-metadata-get.ts",
+        "declaration": "dist/generated/signals/scout-metadata-get.d.ts"
+    },
+    "output": {
+        "name": "SignalsScoutMetadataGetOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-metadata-get.ts",
+        "declaration": "dist/generated/signals/scout-metadata-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsScoutMetadataGetResponseShape2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-metadata-get.ts",
+            "declaration": "dist/generated/signals/scout-metadata-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutMetadataGetData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-metadata-get.ts",
+            "declaration": "dist/generated/signals/scout-metadata-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Return the project's scout metadata: whether it is enrolled, the current announcement banner (e.g. an alpha run-limit notice, or null when unset), and the enforced run limits with current usage. Limits reflect what the coordinator actually applies at dispatch, so a user can see the real throttle rather than what they assume they set. All values come from the `signals-scout` flag payload, so the banner and caps can change with no deploy.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1scout~1metadata~1current~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Return this project's scout metadata: whether it is enrolled to run scouts, the current announcement banner (e.g. an early-access run-limit notice, or null when unset), and the enforced run limits with current usage — `max_runs_per_tick`, `max_runs_per_day` (null = unbounded), `runs_today`, and `runs_remaining_today`. Limits reflect what the scout coordinator actually applies at dispatch, so use this to size an enabled scout troop against the project's real daily run budget rather than assuming a value. Read-only and side-effect free.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsScoutMetadataGetResponseShape2",
+            "effectiveDescription": "A team's enforced scout caps and current usage.\n\nThese are the values the coordinator actually applies at dispatch (resolved per-team override →\nfleet-wide default → code constant), so the UI can show the real throttle rather than what a\nuser thinks they configured.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A team's enforced scout caps and current usage.\n\nThese are the values the coordinator actually applies at dispatch (resolved per-team override →\nfleet-wide default → code constant), so the UI can show the real throttle rather than what a\nuser thinks they configured.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutMetadataGetResponseShape2",
+            "field": "max_runs_per_tick",
+            "effectiveDescription": "Most scout runs the team can start in a single 30-minute coordinator tick.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most scout runs the team can start in a single 30-minute coordinator tick.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/max_runs_per_tick"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutMetadataGetResponseShape2",
+            "field": "max_runs_per_day",
+            "effectiveDescription": "Most scout runs the team can start per rolling 24 hours, or null when uncapped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most scout runs the team can start per rolling 24 hours, or null when uncapped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/max_runs_per_day"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutMetadataGetResponseShape2",
+            "field": "runs_today",
+            "effectiveDescription": "Scout runs the team has started in the trailing 24 hours.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scout runs the team has started in the trailing 24 hours.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/runs_today"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutMetadataGetResponseShape2",
+            "field": "runs_remaining_today",
+            "effectiveDescription": "Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/runs_remaining_today"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutMetadataGetResponseShape2",
+            "field": "max_enabled_scouts",
+            "effectiveDescription": "Most scouts the project can have switched on at once. Enabling another past this is rejected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most scouts the project can have switched on at once. Enabling another past this is rejected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/max_enabled_scouts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutMetadataGetData",
+            "effectiveDescription": "Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and\nthe enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can\nchange without a deploy to either app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and\nthe enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can\nchange without a deploy to either app.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutMetadataGetData",
+            "field": "enrolled",
+            "effectiveDescription": "Whether this project runs scouts. True when the project is in the signals-scout flag's enrollment set — either listed explicitly in guaranteed_team_ids or covered by the \"*\" wildcard (every project that turns scouts on) — and not in skip_team_ids.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this project runs scouts. True when the project is in the signals-scout flag's enrollment set — either listed explicitly in guaranteed_team_ids or covered by the \"*\" wildcard (every project that turns scouts on) — and not in skip_team_ids.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/enrolled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutMetadataGetData",
+            "field": "banner_message",
+            "effectiveDescription": "Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/banner_message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutMetadataGetData",
+            "field": "limits",
+            "effectiveDescription": "The team's enforced scout run caps and current usage.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The team's enforced scout run caps and current usage.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/limits"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

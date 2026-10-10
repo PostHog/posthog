@@ -1,0 +1,888 @@
+{
+    "method": "warehouseSources.externalDataSchemasPartialUpdate",
+    "toolName": "external-data-schemas-partial-update",
+    "operationId": "external_data_schemas_partial_update",
+    "title": "Update data warehouse table schema sync config",
+    "category": "Warehouse sources",
+    "description": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.",
+    "requiredScopes": ["external_data_source:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/warehouse-sources/client.ts",
+    "input": {
+        "name": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSourcesExternalDataSchemasPartialUpdateOutput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema5",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema6",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema7",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema8",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema9",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema10",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema11",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema11Variant1",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateRequestSchema12",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape2",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape3",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape4",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape5",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape6",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape7",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        },
+        {
+            "name": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-partial-update.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update one table schema's sync configuration: enable/disable syncing (should_sync), sync_type (incremental, full_refresh, append, webhook, cdc, xmin), sync frequency and UTC time of day, scheduled full refresh interval and UTC time of day (full_refresh_interval_days, full_refresh_time_of_day), incremental field (plus type and lookback window), primary key columns, CDC table mode, column selection (enabled_columns), row filters, and vendor API version. Changes take effect on the next sync, not retroactively. Before changing incremental_field or sync_type, call 'external-data-schemas-incremental-fields-create' to see which fields and sync methods the source actually supports; before switching to cdc, validate with 'external-data-sources-check-cdc-prerequisites-create'. To run a sync immediately after reconfiguring, use 'external-data-schemas-reload'. This is also how a table reported by `incremental_sync_blocked` is resolved: send primary_key_columns, or a different sync_type, or should_sync=true to retry a table fixed at the source. For `duplicate_primary_key`, a different key is refused once data has synced, because rows already merged under the old key would repeat; delete the synced data first with 'external-data-schemas-delete-data', or fix the duplicates at the source and retry. That field reports the last run's failure, so it clears once a run succeeds rather than when the update lands.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_sources/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this external data schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this external data schema.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "sync_type",
+            "effectiveDescription": "Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "incremental_field",
+            "effectiveDescription": "Column name used to track sync progress.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column name used to track sync progress.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "incremental_field_type",
+            "effectiveDescription": "Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid\n* `xid` - xid",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid\n* `xid` - xid",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "incremental_field_lookback_seconds",
+            "effectiveDescription": "Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "sync_frequency",
+            "effectiveDescription": "How often to sync. The fastest sync frequency is 5 minutes.\n\n* `never` - never\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How often to sync. The fastest sync frequency is 5 minutes.\n\n* `never` - never\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "sync_time_of_day",
+            "effectiveDescription": "UTC time of day to run the sync (HH:MM:SS).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UTC time of day to run the sync (HH:MM:SS).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "full_refresh_interval_days",
+            "effectiveDescription": "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "full_refresh_time_of_day",
+            "effectiveDescription": "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "primary_key_columns",
+            "effectiveDescription": "Column names for primary key deduplication.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column names for primary key deduplication.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "cdc_table_mode",
+            "effectiveDescription": "For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "enabled_columns",
+            "effectiveDescription": "Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "row_filters",
+            "effectiveDescription": "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateInput",
+            "field": "api_version",
+            "effectiveDescription": "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape3",
+            "field": "operator",
+            "effectiveDescription": "One of: > >= < <= = != IN \"NOT IN\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One of: > >= < <= = != IN \"NOT IN\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape3/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape3",
+            "field": "value",
+            "effectiveDescription": "Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison value; must match the column's type. For `IN` / `NOT IN`, a comma-separated list (e.g. `1, 2, 3` or `'a','b'`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape3/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape4",
+            "field": "name",
+            "effectiveDescription": "Column name to use as `column` in a row filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column name to use as `column` in a row filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape4/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape4",
+            "field": "data_type",
+            "effectiveDescription": "Column type, which decides the format of the filter value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column type, which decides the format of the filter value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape4/properties/data_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape4",
+            "field": "operators",
+            "effectiveDescription": "Operators a row filter on this column may use.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Operators a row filter on this column may use.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape4/properties/operators"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape7",
+            "field": "version",
+            "effectiveDescription": "The deprecated vendor API version this source is pinned to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The deprecated vendor API version this source is pinned to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape7/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape7",
+            "field": "sunset_at",
+            "effectiveDescription": "Date the vendor stops serving this version; null if not announced.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date the vendor stops serving this version; null if not announced.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape7/properties/sunset_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateResponseShape7",
+            "field": "default_version",
+            "effectiveDescription": "The source's current default vendor API version — the migration target.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source's current default vendor API version — the migration target.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape7/properties/default_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "effectiveDescription": "A schema of an external data source: its sync configuration and the warehouse table it syncs into.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A schema of an external data source: its sync configuration and the warehouse table it syncs into.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "latest_error",
+            "effectiveDescription": "The latest error that occurred when syncing this schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The latest error that occurred when syncing this schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/latest_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "sync_type",
+            "effectiveDescription": "Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/sync_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "incremental_field",
+            "effectiveDescription": "Column name used to track sync progress.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column name used to track sync progress.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/incremental_field"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "incremental_field_type",
+            "effectiveDescription": "Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid\n* `xid` - xid",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Data type of the incremental field.\n\n* `integer` - integer\n* `numeric` - numeric\n* `datetime` - datetime\n* `date` - date\n* `timestamp` - timestamp\n* `objectid` - objectid\n* `xid` - xid",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/incremental_field_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "incremental_field_lookback_seconds",
+            "effectiveDescription": "Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/incremental_field_lookback_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "sync_frequency",
+            "effectiveDescription": "How often to sync. The fastest sync frequency is 5 minutes.\n\n* `never` - never\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How often to sync. The fastest sync frequency is 5 minutes.\n\n* `never` - never\n* `5min` - 5min\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/sync_frequency"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "sync_time_of_day",
+            "effectiveDescription": "UTC time of day to run the sync (HH:MM:SS).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UTC time of day to run the sync (HH:MM:SS).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/sync_time_of_day"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "full_refresh_interval_days",
+            "effectiveDescription": "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Days between scheduled full refreshes, from 1 to 90, or null for none. A full refresh wipes the table and re-imports every row, so rows deleted at the source are removed. It runs on the first scheduled sync once the interval has passed, counted from when it was saved or from the last full resync (or, when full_refresh_time_of_day is set, from the slot of that time the last refresh served), and can start up to an hour early. Queries keep returning the current rows until a full refresh finishes, and workflows and destinations that run on new rows of the table run again for every row. Available for incremental, append, and xmin syncs only, and never shorter than the sync frequency.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/full_refresh_interval_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "full_refresh_time_of_day",
+            "effectiveDescription": "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UTC time of day (HH:MM:SS) that scheduled full refreshes are due, for example outside working hours. The refresh runs on the first scheduled sync from up to an hour before this time, so on a table that syncs every few hours it can run hours later. Each interval counts from the slot of this time that the last refresh or save served, where a slot less than an hour away counts as served. Saving a new time restarts the clock, so the first refresh after a save can come up to a day before a full interval has passed. Null counts the interval from when it was saved or from the last full resync. Cleared when full_refresh_interval_days is null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/full_refresh_time_of_day"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "next_full_refresh_at",
+            "effectiveDescription": "When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one interval ahead, onto full_refresh_time_of_day when that is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour before this time re-imports the table. Saving a new interval or time, or any full resync, moves it one interval ahead, onto full_refresh_time_of_day when that is set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/next_full_refresh_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "primary_key_columns",
+            "effectiveDescription": "Column names for primary key deduplication.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column names for primary key deduplication.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/primary_key_columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "cdc_table_mode",
+            "effectiveDescription": "For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For CDC syncs: consolidated, cdc_only, or both.\n\n* `consolidated` - consolidated\n* `cdc_only` - cdc_only\n* `both` - both",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/cdc_table_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "incremental_sync_blocked",
+            "effectiveDescription": "Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.\n\n* `missing_primary_key` - Missing primary key\n* `duplicate_primary_key` - Duplicate primary key",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.\n\n* `missing_primary_key` - Missing primary key\n* `duplicate_primary_key` - Duplicate primary key",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/incremental_sync_blocked"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "enabled_columns",
+            "effectiveDescription": "Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/enabled_columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "row_filters",
+            "effectiveDescription": "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN \"NOT IN\"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/row_filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "row_filter_columns",
+            "effectiveDescription": "Columns a row filter on this schema may use, with the operators each accepts. `null` means any column in `available_columns` with any operator, which is the case for SQL sources. A list means the source can filter on these columns only; an empty list means this schema accepts no row filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Columns a row filter on this schema may use, with the operators each accepts. `null` means any column in `available_columns` with any operator, which is the case for SQL sources. A list means the source can filter on these columns only; an empty list means this schema accepts no row filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/row_filter_columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "available_columns",
+            "effectiveDescription": "Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/available_columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "source_column_metadata_available",
+            "effectiveDescription": "Whether exact source-side column metadata is available for safe source-query projection.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether exact source-side column metadata is available for safe source-query projection.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/source_column_metadata_available"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "source",
+            "effectiveDescription": "Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "api_version",
+            "effectiveDescription": "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Vendor API version override for this schema. `null` (default) syncs on the source's pinned version. Must be one of the source type's supported versions. User-managed: version-migration tooling never changes it. Not available for webhook-sync schemas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/api_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "api_version_deprecation",
+            "effectiveDescription": "Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set when this schema's version override is deprecated by the vendor; null when there is no override or it is not deprecated. The source-level field covers the source pin.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/api_version_deprecation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasPartialUpdateData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,65 @@
+{
+    "method": "warehouseSources.externalDataSchemasCancel",
+    "toolName": "external-data-schemas-cancel",
+    "operationId": "external_data_schemas_cancel_create",
+    "title": "Cancel running sync",
+    "category": "Warehouse sources",
+    "description": "Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error. Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.",
+    "requiredScopes": ["external_data_source:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/warehouse-sources/client.ts",
+    "input": {
+        "name": "WarehouseSourcesExternalDataSchemasCancelInput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-schemas-cancel.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-schemas-cancel.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSourcesExternalDataSchemasCancelOutput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-schemas-cancel.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-schemas-cancel.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSourcesExternalDataSchemasCancelData",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-cancel.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-cancel.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error. Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_sources/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasCancelInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this external data schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this external data schema.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/cancel/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

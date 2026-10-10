@@ -1,0 +1,437 @@
+{
+    "method": "webAnalytics.heatmapsEvents",
+    "toolName": "heatmaps-events",
+    "operationId": "heatmaps_events_retrieve",
+    "title": "Get sessions behind heatmap coordinates",
+    "category": "Web analytics",
+    "description": "Drill into the individual session interactions behind one or more heatmap coordinates. Pass `points` as a JSON array of the spots you want to inspect (the `pointer_relative_x` / `pointer_y` values from `heatmaps-list`), plus the same page/date filters. Returns the underlying per-session interactions so you can open the session recordings that produced a hotspot.",
+    "requiredScopes": ["heatmap:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/web-analytics/client.ts",
+    "input": {
+        "name": "WebAnalyticsHeatmapsEventsInput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/heatmaps-events.ts",
+        "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+    },
+    "output": {
+        "name": "WebAnalyticsHeatmapsEventsOutput",
+        "importPath": "@posthog/sdk/web-analytics",
+        "source": "src/generated/web-analytics/heatmaps-events.ts",
+        "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema0",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema1",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema3",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema4",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema5",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema6",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema7",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema8",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema9",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema10",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema11",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema12",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema13",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema14",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsRequestSchema15",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsResponseShape2",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        },
+        {
+            "name": "WebAnalyticsHeatmapsEventsData",
+            "importPath": "@posthog/sdk/web-analytics",
+            "source": "src/generated/web-analytics/heatmaps-events.ts",
+            "declaration": "dist/generated/web-analytics/heatmaps-events.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Drill into the individual session interactions behind one or more heatmap coordinates. Pass the 'points' you want to inspect (from the heatmaps list response) to get the underlying per-session events, so you can jump to the session recordings that produced a hotspot.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1heatmaps~1events~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Drill into the individual session interactions behind one or more heatmap coordinates. Pass `points` as a JSON array of the spots you want to inspect (the `pointer_relative_x` / `pointer_y` values from `heatmaps-list`), plus the same page/date filters. Returns the underlying per-session interactions so you can open the session recordings that produced a hotspot.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/web_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "aggregation",
+            "effectiveDescription": "How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).\n\n* `unique_visitors` - unique_visitors\n* `total_count` - total_count",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to aggregate counts: 'total_count' (every interaction, default) or 'unique_visitors' (distinct people).\n\n* `unique_visitors` - unique_visitors\n* `total_count` - total_count",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "cohort_ids",
+            "effectiveDescription": "JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. Feature-flagged; ignored when the cohort filter is not enabled for the caller.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "date_from",
+            "effectiveDescription": "Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the window. Relative (e.g. '-7d', '-30d', '-1mStart') or an absolute 'YYYY-MM-DD' date. Defaults to '-7d'. Heatmap data is retained for 90 days.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "date_to",
+            "effectiveDescription": "End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "events",
+            "effectiveDescription": "JSON array of event filters (e.g. '[{\"id\": \"purchase\", \"properties\": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON array of event filters (e.g. '[{\"id\": \"purchase\", \"properties\": []}]') to restrict results to sessions in which those events occurred. Each entry needs a string 'id' (the event name) and may carry a 'properties' array of property filters applied to that event, each of type 'event' or 'element'. Several entries are combined with AND: the session must contain a matching event for every entry. At most 10 entries, each with at most 20 property filters. Requires project-wide heatmap access, since the filter reads the project's events rather than one saved heatmap. Feature-flagged; ignored when the event filter is not enabled for the caller.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "filter_test_accounts",
+            "effectiveDescription": "When true, exclude sessions from internal/test accounts using the project's test-account filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, exclude sessions from internal/test accounts using the project's test-account filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "hide_zero_coordinates",
+            "effectiveDescription": "When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true (default), drop interactions recorded at the (0, 0) origin, which are usually noise.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum interactions to return (1-100).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum interactions to return (1-100).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "offset",
+            "effectiveDescription": "Number of interactions to skip, for pagination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of interactions to skip, for pagination.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "points",
+            "effectiveDescription": "JSON array of the heatmap coordinates to drill into, e.g. '[{\"x\": 0.5, \"y\": 100}]'. Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. Returns the individual session interactions behind those spots.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON array of the heatmap coordinates to drill into, e.g. '[{\"x\": 0.5, \"y\": 100}]'. Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. Returns the individual session interactions behind those spots.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "timestamp_from",
+            "effectiveDescription": "Inclusive UTC instant. Supply with timestamp_to to override date bounds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Inclusive UTC instant. Supply with timestamp_to to override date bounds.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "timestamp_to",
+            "effectiveDescription": "Exclusive UTC instant. Supply with timestamp_from to override date bounds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclusive UTC instant. Supply with timestamp_from to override date bounds.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "type",
+            "effectiveDescription": "The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The interaction type to return. One of: 'click' (default), 'rageclick', 'mousemove', or 'scrolldepth'. Scrolldepth returns scroll buckets instead of x/y coordinates.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "url_exact",
+            "effectiveDescription": "Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match a single page by exact URL (trailing slash is ignored). Mutually exclusive with url_pattern.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "url_pattern",
+            "effectiveDescription": "Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match pages by regex against the full current_url (anchored automatically). Use this to aggregate across query strings or path segments. Mutually exclusive with url_exact.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "viewport_width_max",
+            "effectiveDescription": "Only include interactions captured at a viewport at most this wide, in CSS pixels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only include interactions captured at a viewport at most this wide, in CSS pixels.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WebAnalyticsHeatmapsEventsInput",
+            "field": "viewport_width_min",
+            "effectiveDescription": "Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only include interactions captured at a viewport at least this wide, in CSS pixels. Use with viewport_width_max to isolate a device class (e.g. 360-768 for mobile).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/heatmaps/events/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "heatmaps-list",
+            "method": "webAnalytics.heatmapsList"
+        }
+    ]
+}

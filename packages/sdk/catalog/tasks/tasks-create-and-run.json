@@ -1,0 +1,389 @@
+{
+    "method": "tasks.tasksCreateAndRun",
+    "toolName": "tasks-create-and-run",
+    "operationId": "tasks_create",
+    "title": "Create task and start or schedule run",
+    "category": "Tasks",
+    "description": "Create a task and start its first background run, or set `scheduled_at` for a one-off run within 30 days. Times without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model fields to use saved defaults. Use `tasks-models-retrieve` before an explicit model choice. Set `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. Omit `branch` to use the default branch. Check `run_error` if the run does not start. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. If the response is lost, search for the task before you retry. A repeated call can create another task.",
+    "requiredScopes": ["task:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: tasks-mcp-agent-run-start"],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksTasksCreateAndRunInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-create-and-run.ts",
+        "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+    },
+    "output": {
+        "name": "TasksTasksCreateAndRunOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/tasks-create-and-run.ts",
+        "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksTasksCreateAndRunRequestSchema0",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-create-and-run.ts",
+            "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+        },
+        {
+            "name": "TasksTasksCreateAndRunRequestSchema1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-create-and-run.ts",
+            "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+        },
+        {
+            "name": "TasksTasksCreateAndRunRequestSchema2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-create-and-run.ts",
+            "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+        },
+        {
+            "name": "TasksTasksCreateAndRunRequestSchema4",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-create-and-run.ts",
+            "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+        },
+        {
+            "name": "TasksTasksCreateAndRunRequestSchema6",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-create-and-run.ts",
+            "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+        },
+        {
+            "name": "TasksTasksCreateAndRunRequestSchema8",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-create-and-run.ts",
+            "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+        },
+        {
+            "name": "TasksTasksCreateAndRunRequestSchema10",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-create-and-run.ts",
+            "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+        },
+        {
+            "name": "TasksTasksCreateAndRunDataLatestRun",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-create-and-run.ts",
+            "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+        },
+        {
+            "name": "TasksTasksCreateAndRunDataLatestRunVariant1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-create-and-run.ts",
+            "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+        },
+        {
+            "name": "TasksTasksCreateAndRunData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/tasks-create-and-run.ts",
+            "declaration": "dist/generated/tasks/tasks-create-and-run.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "API for managing tasks within a project. Tasks represent units of work to be performed by an agent.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1tasks~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Create a task and start its first background run, or set `scheduled_at` for a one-off run within 30 days. Times without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model fields to use saved defaults. Use `tasks-models-retrieve` before an explicit model choice. Set `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. Omit `branch` to use the default branch. Check `run_error` if the run does not start. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. If the response is lost, search for the task before you retry. A repeated call can create another task.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksTasksCreateAndRunRequest_Schema1",
+            "effectiveDescription": "Instructions for the agent.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Instructions for the agent.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunRequest_Schema2",
+            "effectiveDescription": "Repository in organization/repo format.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repository in organization/repo format.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunRequest_Schema4",
+            "effectiveDescription": "Base branch for the run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Base branch for the run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunRequest_Schema6",
+            "effectiveDescription": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Earliest start time for a one-off run. Use a future ISO 8601 timestamp within 30 days. Times without an offset use UTC. Omit to start immediately.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunRequest_Schema8",
+            "effectiveDescription": "Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Omit to use saved defaults, or the prior model on resume. For an explicit choice, first call tasks-models-retrieve. The server derives the runtime adapter and saves the choice now.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunRequest_Schema10",
+            "effectiveDescription": "Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional effort supported by the selected model. Requires model. See tasks-models-retrieve.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunInput",
+            "field": "title",
+            "effectiveDescription": "Short human-readable title. Auto-generated from `description` when omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short human-readable title. Auto-generated from `description` when omitted.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunInput",
+            "field": "description",
+            "effectiveDescription": "Free-form description of the work to be done. Used as the prompt passed to the agent.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form description of the work to be done. Used as the prompt passed to the agent.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunInput",
+            "field": "repository",
+            "effectiveDescription": "Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunInput",
+            "field": "branch",
+            "effectiveDescription": "Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Base branch for the first run when start_run is true, or for matching a pre-warmed run. Omit to use the repository's default branch. Write-only and not persisted on the task.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunInput",
+            "field": "scheduled_at",
+            "effectiveDescription": "Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunInput",
+            "field": "model",
+            "effectiveDescription": "LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "LLM model for the first run when start_run is true, or for matching a pre-warmed run. Write-only.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunInput",
+            "field": "reasoning_effort",
+            "effectiveDescription": "Reasoning effort for the first run when start_run is true, or for matching a pre-warmed run. Write-only.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reasoning effort for the first run when start_run is true, or for matching a pre-warmed run. Write-only.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `xhigh` - xhigh\n* `max` - max\n* `ultracode` - ultracode",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/tasks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunData",
+            "effectiveDescription": "Detail response for a task.\n\nReads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /\n``github_user_integration`` are integration ids, ``signal_report`` is the report id, and\n``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Detail response for a task.\n\nReads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /\n``github_user_integration`` are integration ids, ``signal_report`` is the report id, and\n``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunData",
+            "field": "latest_run",
+            "effectiveDescription": "Latest run details for this task",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest run details for this task",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/latest_run"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunData",
+            "field": "run_error",
+            "effectiveDescription": "Error returned when the task was created but its first run could not start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error returned when the task was created but its first run could not start.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1/properties/run_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksTasksCreateAndRunData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "tasks-models-retrieve",
+            "method": "tasks.tasksModelsRetrieve"
+        },
+        {
+            "toolName": "tasks-runs-list",
+            "method": "tasks.tasksRunsList"
+        },
+        {
+            "toolName": "tasks-runs-retrieve",
+            "method": "tasks.tasksRunsRetrieve"
+        }
+    ]
+}

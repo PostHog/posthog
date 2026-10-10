@@ -1,0 +1,116 @@
+{
+    "method": "tasks.loopChannelInstructionsRetrieve",
+    "toolName": "loop-channel-instructions-retrieve",
+    "operationId": "task_channels_instructions_retrieve",
+    "title": "Read fallback loop context",
+    "category": "Tasks",
+    "description": "Read legacy channel context when an unattended loop cannot access an initialized context wiki.",
+    "requiredScopes": ["task:read", "loop_context_internal:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksLoopChannelInstructionsRetrieveInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loop-channel-instructions-retrieve.ts",
+        "declaration": "dist/generated/tasks/loop-channel-instructions-retrieve.d.ts"
+    },
+    "output": {
+        "name": "TasksLoopChannelInstructionsRetrieveOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/loop-channel-instructions-retrieve.ts",
+        "declaration": "dist/generated/tasks/loop-channel-instructions-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksLoopChannelInstructionsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loop-channel-instructions-retrieve.ts",
+            "declaration": "dist/generated/tasks/loop-channel-instructions-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopChannelInstructionsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loop-channel-instructions-retrieve.ts",
+            "declaration": "dist/generated/tasks/loop-channel-instructions-retrieve.d.ts"
+        },
+        {
+            "name": "TasksLoopChannelInstructionsRetrieveData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/loop-channel-instructions-retrieve.ts",
+            "declaration": "dist/generated/tasks/loop-channel-instructions-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The channel's latest CONTEXT.md instructions. A channel with no published instructions reads as a blank version 0 — publish against base_version 0 to create version 1.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1task_channels~1{id}~1instructions~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Read legacy channel context when an unattended loop cannot access an initialized context wiki.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksLoopChannelInstructionsRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "ID of the loop's context channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the loop's context channel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopChannelInstructionsRetrieveResponseShape2",
+            "effectiveDescription": "Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksLoopChannelInstructionsRetrieveData",
+            "effectiveDescription": "Response shape for a channel's CONTEXT.md instructions version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for a channel's CONTEXT.md instructions version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

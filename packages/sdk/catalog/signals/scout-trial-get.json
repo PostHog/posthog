@@ -1,0 +1,660 @@
+{
+    "method": "signals.scoutTrialGet",
+    "toolName": "scout-trial-get",
+    "operationId": "signals_scout_config_trial_result",
+    "title": "Read a private scout result",
+    "category": "Signals",
+    "description": "Read an operator-owned trial's status, privately captured report payloads, proposed edits, and memory changes. These combine saved context with protected execution state and are available only through this API, not SQL. A null cost means unknown. Sandbox agents cannot use this tool to inspect trials. Use the returned task and run IDs with ordinary log tools.",
+    "requiredScopes": ["signal_scout:write", "llm_skill:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: scout-trials"],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsScoutTrialGetInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-trial-get.ts",
+        "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+    },
+    "output": {
+        "name": "SignalsScoutTrialGetOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-trial-get.ts",
+        "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsScoutTrialGetResponseShape4",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutTrialGetResponseShape3",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutTrialGetResponseShape5",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutTrialGetResponseShape6",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutTrialGetResponseShape7",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutTrialGetResponseShape8",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutTrialGetResponseShape9",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutTrialGetResponseShape2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutTrialGetResponseShape11",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutTrialGetResponseShape10",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutTrialGetData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-trial-get.ts",
+            "declaration": "dist/generated/signals/scout-trial-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Read a trial's existing run status and its privately captured reports and memory changes.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1scout~1configs~1{id}~1trial_result~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Read an operator-owned trial's status, privately captured report payloads, proposed edits, and memory changes. These combine saved context with protected execution state and are available only through this API, not SQL. A null cost means unknown. Sandbox agents cannot use this tool to inspect trials. Use the returned task and run IDs with ordinary log tools.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsScoutTrialGetInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this Signal scout config.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this Signal scout config.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/configs/{id}/trial_result/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetInput",
+            "field": "launch_id",
+            "effectiveDescription": "Launch identity returned by the trial action.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Launch identity returned by the trial action.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/configs/{id}/trial_result/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetResponseShape10",
+            "effectiveDescription": "Private memory replacements and deleted keys for this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Private memory replacements and deleted keys for this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetResponseShape11",
+            "effectiveDescription": "`SignalScratchpad` projection used by `search-memory` and `remember`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`SignalScratchpad` projection used by `search-memory` and `remember`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetResponseShape11",
+            "field": "key",
+            "effectiveDescription": "Agent-chosen semantic key, unique per team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Agent-chosen semantic key, unique per team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetResponseShape11",
+            "field": "content",
+            "effectiveDescription": "Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prose content for prompt injection. Blank when the search projected it out (`keys_only=true`); truncated to a preview when `content_max_chars` was set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetResponseShape11",
+            "field": "created_at",
+            "effectiveDescription": "ISO-8601 creation timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 creation timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetResponseShape11",
+            "field": "updated_at",
+            "effectiveDescription": "ISO-8601 last-write timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 last-write timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetResponseShape11",
+            "field": "expires_at",
+            "effectiveDescription": "ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 expiry, or null for a durable memory that stays until it's forgotten.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/expires_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetResponseShape11",
+            "field": "created_by_run_id",
+            "effectiveDescription": "Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scout run that wrote this entry, or null when a report-pipeline stage or a human wrote it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/created_by_run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetResponseShape11",
+            "field": "created_by_skill",
+            "effectiveDescription": "Who created this entry: the canonical skill name of the scout that wrote it (e.g. `signals-scout-apm`), or the report-pipeline stage that did (`pipeline:report-research`, `pipeline:implementation`). Null if human-authored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Who created this entry: the canonical skill name of the scout that wrote it (e.g. `signals-scout-apm`), or the report-pipeline stage that did (`pipeline:report-research`, `pipeline:implementation`). Null if human-authored.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/created_by_skill"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetResponseShape11",
+            "field": "created_by_run_url",
+            "effectiveDescription": "Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/created_by_run_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "launch_id",
+            "effectiveDescription": "Launch identity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Launch identity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/launch_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "context_id",
+            "effectiveDescription": "Saved starting context identity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Saved starting context identity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/context_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "model",
+            "effectiveDescription": "Resolved model identifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved model identifier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "reasoning_effort",
+            "effectiveDescription": "Resolved reasoning effort.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved reasoning effort.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/reasoning_effort"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "skill_body_sha256",
+            "effectiveDescription": "Hash of the skill body delivered to this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hash of the skill body delivered to this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/skill_body_sha256"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "result_key",
+            "effectiveDescription": "Private object-storage result reference, when exported.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Private object-storage result reference, when exported.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/result_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "export_error",
+            "effectiveDescription": "Whether the durable export needs a retry; inline results remain available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the durable export needs a retry; inline results remain available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/export_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "started_at",
+            "effectiveDescription": "Execution start time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Execution start time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "completed_at",
+            "effectiveDescription": "Execution completion time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Execution completion time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "run_id",
+            "effectiveDescription": "Scout run identity once the sandbox is prepared.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scout run identity once the sandbox is prepared.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "task_id",
+            "effectiveDescription": "Task identity for existing log and cancellation tools.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task identity for existing log and cancellation tools.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/task_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "task_run_id",
+            "effectiveDescription": "Task execution identity for logs and usage.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task execution identity for logs and usage.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/task_run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "status",
+            "effectiveDescription": "Execution status, or pending while the workflow prepares the run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Execution status, or pending while the workflow prepares the run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "task_status",
+            "effectiveDescription": "Underlying task status; cancel an active task if its workflow failed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Underlying task status; cancel an active task if its workflow failed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/task_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "error",
+            "effectiveDescription": "Setup or workflow failure, including failures before a task was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Setup or workflow failure, including failures before a task was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "summary",
+            "effectiveDescription": "Scout close-out summary.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scout close-out summary.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "invalid_reason",
+            "effectiveDescription": "Why this execution cannot be used for comparison.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this execution cannot be used for comparison.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/invalid_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "reports",
+            "effectiveDescription": "Privately captured report creations and edits.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Privately captured report creations and edits.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/reports"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "memory",
+            "effectiveDescription": "Private memory replacements and deleted keys for this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Private memory replacements and deleted keys for this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/memory"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "cost_usd",
+            "effectiveDescription": "Attributed model cost when available; null means unknown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attributed model cost when available; null means unknown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/cost_usd"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "input_tokens",
+            "effectiveDescription": "Input tokens reported by the agent runtime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Input tokens reported by the agent runtime.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/input_tokens"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutTrialGetData",
+            "field": "output_tokens",
+            "effectiveDescription": "Output tokens reported by the agent runtime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Output tokens reported by the agent runtime.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/output_tokens"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

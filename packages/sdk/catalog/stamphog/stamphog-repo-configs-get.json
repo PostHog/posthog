@@ -1,0 +1,186 @@
+{
+    "method": "stamphog.stamphogRepoConfigsGet",
+    "toolName": "stamphog-repo-configs-get",
+    "operationId": "stamphog_repo_configs_retrieve",
+    "title": "Get stamphog repo config",
+    "category": "Stamphog",
+    "description": "Get a single repo config by id. Returns the provider, repository full name, installation id, and the enabled / digest_enabled flags.",
+    "requiredScopes": ["stamphog:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: stamphog"],
+    "methodSource": "src/generated/stamphog/client.ts",
+    "input": {
+        "name": "StamphogStamphogRepoConfigsGetInput",
+        "importPath": "@posthog/sdk/stamphog",
+        "source": "src/generated/stamphog/stamphog-repo-configs-get.ts",
+        "declaration": "dist/generated/stamphog/stamphog-repo-configs-get.d.ts"
+    },
+    "output": {
+        "name": "StamphogStamphogRepoConfigsGetOutput",
+        "importPath": "@posthog/sdk/stamphog",
+        "source": "src/generated/stamphog/stamphog-repo-configs-get.ts",
+        "declaration": "dist/generated/stamphog/stamphog-repo-configs-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StamphogStamphogRepoConfigsGetData",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-repo-configs-get.ts",
+            "declaration": "dist/generated/stamphog/stamphog-repo-configs-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Per-repo stamphog settings — enable/disable review, GitHub App installation, policy overrides.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1stamphog~1repo_configs~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get a single repo config by id. Returns the provider, repository full name, installation id, and the enabled / digest_enabled flags.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/stamphog/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "StamphogStamphogRepoConfigsGetData",
+            "field": "provider",
+            "effectiveDescription": "SCM provider this config talks to. Defaults to 'github'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "SCM provider this config talks to. Defaults to 'github'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogRepoConfigsGetData",
+            "field": "repository",
+            "effectiveDescription": "Repository full name, e.g. 'PostHog/posthog'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repository full name, e.g. 'PostHog/posthog'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/repository"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogRepoConfigsGetData",
+            "field": "enabled",
+            "effectiveDescription": "Whether stamphog actively reviews pull requests for this repo.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether stamphog actively reviews pull requests for this repo.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogRepoConfigsGetData",
+            "field": "installation_id",
+            "effectiveDescription": "Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Provider app installation ID that authorizes API calls for this repo. Set only by the verified sync_installation flow; ignored on direct writes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/installation_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogRepoConfigsGetData",
+            "field": "digest_enabled",
+            "effectiveDescription": "Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether merged PRs on this repo are captured for the daily Slack digest. Requires 'enabled', since the digest reports what stamphog approved.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/digest_enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogRepoConfigsGetData",
+            "field": "review_mode",
+            "effectiveDescription": "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n* `all` - All pull requests\n* `label` - Labeled pull requests",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.\n\n* `all` - All pull requests\n* `label` - Labeled pull requests",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/review_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogRepoConfigsGetData",
+            "field": "trigger_label",
+            "effectiveDescription": "Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/trigger_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogRepoConfigsGetData",
+            "field": "user_access_level",
+            "effectiveDescription": "The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode or trigger_label.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode or trigger_label.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,3554 @@
+{
+    "method": "signals.scoutProjectProfileGet",
+    "toolName": "scout-project-profile-get",
+    "operationId": "signals_scout_project_profile_get",
+    "title": "Get the project profile",
+    "category": "Signals",
+    "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`. The response opens with a compact `summary` envelope holding `emit_eligibility` (the gate deciding whether anything you emit reaches the inbox, with a one-line `remediation`) and the inbox report counts, then the full `payload.inventory`. Read the gate from `summary`, not from deep inside `payload`, because the inventory runs to tens of kilobytes and can be cut off before you reach it. Pass `summary_only=true` when you want the gate and the counts without the inventory. Distinct from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
+    "requiredScopes": ["signal_scout:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsScoutProjectProfileGetInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-project-profile-get.ts",
+        "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+    },
+    "output": {
+        "name": "SignalsScoutProjectProfileGetOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-project-profile-get.ts",
+        "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsScoutProjectProfileGetRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetRequestSchema1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetRequestSchema2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape3",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape5",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape4",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape8",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape9",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape10",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape11",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape13",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape12",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape15",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape14",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape17",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape16",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape19",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape18",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape20",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape22",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape21",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape24",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape23",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape26",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape25",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape28",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape27",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape30",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape29",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape32",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape31",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape34",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape33",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape36",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape35",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape38",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape37",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape39",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape7",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetResponseShape6",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        },
+        {
+            "name": "SignalsScoutProjectProfileGetData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-project-profile-get.ts",
+            "declaration": "dist/generated/signals/scout-project-profile-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Return the team's deterministic project profile. The response opens with a compact `summary` envelope carrying the emit gate and the inbox report counts, then the full `payload`. The inventory runs to tens of kilobytes, so a client that truncates a long tool result still keeps the gate. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1scout~1project_profile~1current~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `advanced-activity-logs-list`. The response opens with a compact `summary` envelope holding `emit_eligibility` (the gate deciding whether anything you emit reaches the inbox, with a one-line `remediation`) and the inbox report counts, then the full `payload.inventory`. Read the gate from `summary`, not from deep inside `payload`, because the inventory runs to tens of kilobytes and can be cut off before you reach it. Pass `summary_only=true` when you want the gate and the counts without the inventory. Distinct from `scout-scratchpad-search`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsScoutProjectProfileGetInput",
+            "field": "force_refresh",
+            "effectiveDescription": "When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/project_profile/current/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetInput",
+            "field": "run_id",
+            "effectiveDescription": "The run whose scout's write posture `emit_eligibility` should answer for. A scout sandbox never needs this: its token is bound to the task that dispatched the run, and that binding is what the endpoint reads, so it wins over any value passed here. Pass it to inspect one scout's effective eligibility from outside a run — a run id from another project is ignored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The run whose scout's write posture `emit_eligibility` should answer for. A scout sandbox never needs this: its token is bound to the task that dispatched the run, and that binding is what the endpoint reads, so it wins over any value passed here. Pass it to inspect one scout's effective eligibility from outside a run — a run id from another project is ignored.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/project_profile/current/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetInput",
+            "field": "summary_only",
+            "effectiveDescription": "When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/project_profile/current/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape2",
+            "effectiveDescription": "The compact envelope returned ahead of the verbose `payload`.\n\nBoth sections are repeated from `payload.inventory`. They lead the response because a\nclient that truncates a long tool result keeps the prefix, and these are the two things a\nscout has to know before it does anything: whether its output can reach the inbox at all,\nand what is already there. Read `summary` rather than digging for the same keys inside\n`payload.inventory`, because it is the same data and it is guaranteed to be in the part you\nreceived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The compact envelope returned ahead of the verbose `payload`.\n\nBoth sections are repeated from `payload.inventory`. They lead the response because a\nclient that truncates a long tool result keeps the prefix, and these are the two things a\nscout has to know before it does anything: whether its output can reach the inbox at all,\nand what is already there. Read `summary` rather than digging for the same keys inside\n`payload.inventory`, because it is the same data and it is guaranteed to be in the part you\nreceived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape2",
+            "field": "emit_eligibility",
+            "effectiveDescription": "The delivery gate: whether scout findings can reach the inbox for this team, with a one-line `remediation` when they cannot. Check `can_emit` before investigating anything, because when it is False every emit is silently dropped. Null only for a stored profile built before this section existed, which the caller should treat as unknown rather than as permission to emit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The delivery gate: whether scout findings can reach the inbox for this team, with a one-line `remediation` when they cannot. Check `can_emit` before investigating anything, because when it is False every emit is silently dropped. Null only for a stored profile built before this section existed, which the caller should treat as unknown rather than as permission to emit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/emit_eligibility"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape2",
+            "field": "existing_inbox_reports",
+            "effectiveDescription": "Counts of reports already in the inbox, grouped by status, which is what a new finding would be deduped against. Null for a stored profile built before this section existed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counts of reports already in the inbox, grouped by status, which is what a new finding would be deduped against. Null for a stored profile built before this section existed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/existing_inbox_reports"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape3",
+            "effectiveDescription": "`inventory.emit_eligibility` — whether the calling scout's findings and reports can reach the inbox.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.emit_eligibility` — whether the calling scout's findings and reports can reach the inbox.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape3",
+            "field": "ai_processing_approved",
+            "effectiveDescription": "Whether the organization has approved AI data processing (an org-level gate on all scout emits).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the organization has approved AI data processing (an org-level gate on all scout emits).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/ai_processing_approved"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape3",
+            "field": "source_enabled",
+            "effectiveDescription": "Whether the `signals_scout` signal source is enabled for this team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the `signals_scout` signal source is enabled for this team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/source_enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape3",
+            "field": "scout_emit_enabled",
+            "effectiveDescription": "Whether the calling scout's own config can write, as opposed to running in dry-run (`emit=false`), where it investigates but everything it writes is discarded. Null when the read is not from a scout run, so no single scout's config applies.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the calling scout's own config can write, as opposed to running in dry-run (`emit=false`), where it investigates but everything it writes is discarded. Null when the read is not from a scout run, so no single scout's config applies.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/scout_emit_enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape3",
+            "field": "can_emit",
+            "effectiveDescription": "True only when every gate passes, so this scout's findings and reports (both channels) actually reach the inbox. When False, every write is dropped or refused — quick-close instead of doing throwaway investigation. Read this one value: it accounts for the calling scout's own dry-run posture as well as the team-wide gates, and it is the same gate `emit-report` and `edit-report` apply at write time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True only when every gate passes, so this scout's findings and reports (both channels) actually reach the inbox. When False, every write is dropped or refused — quick-close instead of doing throwaway investigation. Read this one value: it accounts for the calling scout's own dry-run posture as well as the team-wide gates, and it is the same gate `emit-report` and `edit-report` apply at write time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/can_emit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape3",
+            "field": "blocking_reason",
+            "effectiveDescription": "Which gate blocks the write: `scout_emit_disabled`, `scout_config_missing`, `ai_processing_not_approved`, or `source_disabled`. Null when `can_emit` is True. Matches the `skipped_reason` `emit-report` returns for the same block.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which gate blocks the write: `scout_emit_disabled`, `scout_config_missing`, `ai_processing_not_approved`, or `source_disabled`. Null when `can_emit` is True. Matches the `skipped_reason` `emit-report` returns for the same block.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/blocking_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape3",
+            "field": "remediation",
+            "effectiveDescription": "One-line next step to unblock writes when `can_emit` is False; null when writes can flow.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One-line next step to unblock writes when `can_emit` is False; null when writes can flow.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/remediation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape4",
+            "effectiveDescription": "`inventory.existing_inbox_reports` — what's already been surfaced to the inbox.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.existing_inbox_reports` — what's already been surfaced to the inbox.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape4",
+            "field": "total",
+            "effectiveDescription": "Total non-deleted, non-suppressed reports for this team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total non-deleted, non-suppressed reports for this team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape4",
+            "field": "by_status",
+            "effectiveDescription": "Per-status breakdown of inbox reports.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-status breakdown of inbox reports.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/by_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape5",
+            "effectiveDescription": "One bucket in `inventory.existing_inbox_reports.by_status`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One bucket in `inventory.existing_inbox_reports.by_status`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape5",
+            "field": "status",
+            "effectiveDescription": "Report status (e.g. `potential`, `candidate`, `ready`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Report status (e.g. `potential`, `candidate`, `ready`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape5",
+            "field": "count",
+            "effectiveDescription": "Number of reports in this status (excludes deleted/suppressed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of reports in this status (excludes deleted/suppressed).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape6",
+            "effectiveDescription": "Top-level `payload` shape on a `SignalProjectProfile` row.\n\nv1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and\n`narrative` slots — they're absent (not null) in v1 responses.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top-level `payload` shape on a `SignalProjectProfile` row.\n\nv1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and\n`narrative` slots — they're absent (not null) in v1 responses.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape6",
+            "field": "inventory",
+            "effectiveDescription": "Deterministic snapshot of what's true about the project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Deterministic snapshot of what's true about the project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/inventory"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "effectiveDescription": "The deterministic inventory layer of a project profile.\n\nRead this to orient on the team's product mix, integrations, warehouse sources, signal\ncoverage, and existing inbox surface in one tool call. Distinct from `SignalScratchpad`:\nprofile is ground truth from authoritative tables; memory is agent inference.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The deterministic inventory layer of a project profile.\n\nRead this to orient on the team's product mix, integrations, warehouse sources, signal\ncoverage, and existing inbox surface in one tool call. Distinct from `SignalScratchpad`:\nprofile is ground truth from authoritative tables; memory is agent inference.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "project_context",
+            "effectiveDescription": "Free-form orientation: human-set product description + registered app URLs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form orientation: human-set product description + registered app URLs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/project_context"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "products_in_use",
+            "effectiveDescription": "Product keys this team has completed onboarding for, sorted alphabetically.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Product keys this team has completed onboarding for, sorted alphabetically.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/products_in_use"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "product_intents",
+            "effectiveDescription": "Products the team signaled intent to use; useful for spotting stuck onboardings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Products the team signaled intent to use; useful for spotting stuck onboardings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/product_intents"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "integrations",
+            "effectiveDescription": "Connected integrations (kind + connection time only — config never surfaced).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connected integrations (kind + connection time only — config never surfaced).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/integrations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "external_data_sources",
+            "effectiveDescription": "Connected warehouse sources (excludes soft-deleted).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connected warehouse sources (excludes soft-deleted).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/external_data_sources"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "signal_source_configs",
+            "effectiveDescription": "Signal source configs split into enabled / disabled buckets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Signal source configs split into enabled / disabled buckets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/signal_source_configs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "emit_eligibility",
+            "effectiveDescription": "Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether scout findings can actually reach the inbox for this team — the org-level AI data-processing consent gate and the `signals_scout` source toggle, plus a one-line remediation pointer. Read at cold start to quick-close before doing throwaway work.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/emit_eligibility"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "scout_fleet",
+            "effectiveDescription": "The other scouts configured on this project, split into enabled / disabled, each with its cadence, dry-run posture, last run, and last emit. Read it to see who else is watching this project before investigating a surface a sibling already covers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The other scouts configured on this project, split into enabled / disabled, each with its cadence, dry-run posture, last run, and last emit. Read it to see who else is watching this project before investigating a surface a sibling already covers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/scout_fleet"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "existing_inbox_reports",
+            "effectiveDescription": "Counts of reports already in the inbox, grouped by status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counts of reports already in the inbox, grouped by status.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/existing_inbox_reports"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_activity",
+            "effectiveDescription": "Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `advanced-activity-logs-list`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_activity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_reviewer_corrections",
+            "effectiveDescription": "Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_reviewer_corrections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_dashboards",
+            "effectiveDescription": "Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_dashboards"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_surveys",
+            "effectiveDescription": "Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_surveys"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_feature_flags",
+            "effectiveDescription": "Feature flag orientation: total + active count, plus the 5 most recently updated non-deleted flags with id, key, name, active, and updated_at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Feature flag orientation: total + active count, plus the 5 most recently updated non-deleted flags with id, key, name, active, and updated_at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_feature_flags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_experiments",
+            "effectiveDescription": "Experiment orientation: total + running count, plus the 5 most recently updated experiments. The feature_flag_key on each row lets the scout correlate experiments with the `recent_feature_flags` section.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment orientation: total + running count, plus the 5 most recently updated experiments. The feature_flag_key on each row lets the scout correlate experiments with the `recent_feature_flags` section.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_experiments"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_alerts",
+            "effectiveDescription": "Alert orientation: total + enabled count, plus the 5 most recently created alerts with their state and threshold metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Alert orientation: total + enabled count, plus the 5 most recently created alerts with their state and threshold metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_alerts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_hog_functions",
+            "effectiveDescription": "Hog function orientation: total + enabled count, plus the 5 most recently updated destinations / transformations the team has wired up via the CDP pipelines.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog function orientation: total + enabled count, plus the 5 most recently updated destinations / transformations the team has wired up via the CDP pipelines.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_hog_functions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_hog_flows",
+            "effectiveDescription": "Hog flow orientation: total + non-archived count, plus the 5 most recently updated automation flows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog flow orientation: total + non-archived count, plus the 5 most recently updated automation flows.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_hog_flows"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_notebooks",
+            "effectiveDescription": "Notebook orientation: total + the 5 most recently modified notebooks — useful signal for what the team has been investigating.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook orientation: total + the 5 most recently modified notebooks — useful signal for what the team has been investigating.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_notebooks"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_cohorts",
+            "effectiveDescription": "Cohort orientation: total + the 5 most recently created cohorts on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cohort orientation: total + the 5 most recently created cohorts on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_cohorts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "recent_actions",
+            "effectiveDescription": "Action orientation: total + the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action orientation: total + the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/recent_actions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape7",
+            "field": "top_events",
+            "effectiveDescription": "Top ~50 events by count over a recent rolling window (each row carries `window_days`), with first/last seen timestamps within that window. These are WINDOWED counts, not lifetime totals: a capture gap can collapse a real, high-volume project's counts to near-zero here, so rule out an ingestion gap (compare against a trailing baseline via a direct `execute-sql`) before reading thinness as a genuinely low-volume project. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen_in_window` and `now` to spot new event types or recent bursts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top ~50 events by count over a recent rolling window (each row carries `window_days`), with first/last seen timestamps within that window. These are WINDOWED counts, not lifetime totals: a capture gap can collapse a real, high-volume project's counts to near-zero here, so rule out an ingestion gap (compare against a trailing baseline via a direct `execute-sql`) before reading thinness as a genuinely low-volume project. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen_in_window` and `now` to spot new event types or recent bursts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/top_events"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape8",
+            "effectiveDescription": "`inventory.project_context` — free-form orientation about the project's product.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.project_context` — free-form orientation about the project's product.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape8",
+            "field": "product_description",
+            "effectiveDescription": "Human-set product description on the project (max 1000 chars). When present, the most direct \"what does this team's product do\" answer. `null` when unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-set product description on the project (max 1000 chars). When present, the most direct \"what does this team's product do\" answer. `null` when unset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape8/properties/product_description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape8",
+            "field": "app_urls",
+            "effectiveDescription": "Registered app URLs for this team (toolbar / replay). The team's actual product surface; complements `$pageview.$host` discovery via `read-data-schema`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Registered app URLs for this team (toolbar / replay). The team's actual product surface; complements `$pageview.$host` discovery via `read-data-schema`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape8/properties/app_urls"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape9",
+            "effectiveDescription": "One row in `inventory.product_intents`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.product_intents`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape9",
+            "field": "product_type",
+            "effectiveDescription": "Product key the team signaled intent to use.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Product key the team signaled intent to use.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/product_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape9",
+            "field": "activated_at",
+            "effectiveDescription": "ISO-8601 timestamp the team activated the product, or null if intent only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp the team activated the product, or null if intent only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/activated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape9",
+            "field": "created_at",
+            "effectiveDescription": "ISO-8601 timestamp the intent was first recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp the intent was first recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape10",
+            "effectiveDescription": "One row in `inventory.integrations`. Sensitive config is intentionally excluded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.integrations`. Sensitive config is intentionally excluded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape10",
+            "field": "kind",
+            "effectiveDescription": "Integration kind (e.g. `slack`, `github`, `linear`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integration kind (e.g. `slack`, `github`, `linear`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape10",
+            "field": "created_at",
+            "effectiveDescription": "ISO-8601 timestamp the integration was connected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp the integration was connected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape11",
+            "effectiveDescription": "One row in `inventory.external_data_sources`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.external_data_sources`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape11",
+            "field": "source_type",
+            "effectiveDescription": "Warehouse source type (e.g. `Stripe`, `Postgres`, `BigQuery`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warehouse source type (e.g. `Stripe`, `Postgres`, `BigQuery`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/source_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape11",
+            "field": "status",
+            "effectiveDescription": "Current sync status (`Running`, `Failed`, `Paused`, etc.).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current sync status (`Running`, `Failed`, `Paused`, etc.).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape11",
+            "field": "prefix",
+            "effectiveDescription": "Schema prefix used by this source, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schema prefix used by this source, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/prefix"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape11",
+            "field": "created_at",
+            "effectiveDescription": "ISO-8601 timestamp the source was connected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp the source was connected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape11",
+            "field": "last_run_at",
+            "effectiveDescription": "ISO-8601 timestamp of the most recent completed sync job, or null if this source has never completed a sync. Use this to tell a healthy source apart from one stuck in `Running` that has imported zero rows — `status` alone conflates the two.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp of the most recent completed sync job, or null if this source has never completed a sync. Use this to tell a healthy source apart from one stuck in `Running` that has imported zero rows — `status` alone conflates the two.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/last_run_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape11",
+            "field": "latest_error",
+            "effectiveDescription": "Newest schema-level sync error for this source, or null if no schema is erroring.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Newest schema-level sync error for this source, or null if no schema is erroring.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11/properties/latest_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape12",
+            "effectiveDescription": "`inventory.signal_source_configs` split into enabled and disabled buckets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.signal_source_configs` split into enabled and disabled buckets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape12",
+            "field": "enabled",
+            "effectiveDescription": "Source configs the team has explicitly enabled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source configs the team has explicitly enabled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape12/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape12",
+            "field": "disabled",
+            "effectiveDescription": "Source configs the team has explicitly disabled (different from never wired up).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source configs the team has explicitly disabled (different from never wired up).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape12/properties/disabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape13",
+            "effectiveDescription": "One row in either bucket of `inventory.signal_source_configs`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in either bucket of `inventory.signal_source_configs`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape13",
+            "field": "source_product",
+            "effectiveDescription": "Source product the config applies to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source product the config applies to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape13/properties/source_product"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape13",
+            "field": "source_type",
+            "effectiveDescription": "Source type within the product.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source type within the product.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape13/properties/source_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape14",
+            "effectiveDescription": "`inventory.scout_fleet` — the other scouts running on this project, split by enablement.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.scout_fleet` — the other scouts running on this project, split by enablement.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape14",
+            "field": "enabled",
+            "effectiveDescription": "Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scouts that actually run on this team: enabled, with a live skill the coordinator dispatches.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape14/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape14",
+            "field": "disabled",
+            "effectiveDescription": "Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a skill that can't dispatch. Different from a surface no scout ever covered.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scouts that do not run, each carrying a `not_running_reason` — turned off, or left on with a skill that can't dispatch. Different from a surface no scout ever covered.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape14/properties/disabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape14",
+            "field": "emitted_lookback_days",
+            "effectiveDescription": "The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The window `last_emitted_at` was resolved over, so a null reads as 'quiet', not 'never'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape14/properties/emitted_lookback_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape15",
+            "effectiveDescription": "One scout in either bucket of `inventory.scout_fleet`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One scout in either bucket of `inventory.scout_fleet`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape15",
+            "field": "skill_name",
+            "effectiveDescription": "The skill this config schedules as a scout.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The skill this config schedules as a scout.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape15/properties/skill_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape15",
+            "field": "run_interval_minutes",
+            "effectiveDescription": "Minutes between runs when no cron schedule is set (default 1440, every 24 hours).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minutes between runs when no cron schedule is set (default 1440, every 24 hours).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape15/properties/run_interval_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape15",
+            "field": "run_cron_schedule",
+            "effectiveDescription": "Optional cron expression, evaluated in the project timezone. Takes precedence over the interval.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional cron expression, evaluated in the project timezone. Takes precedence over the interval.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape15/properties/run_cron_schedule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape15",
+            "field": "emit",
+            "effectiveDescription": "Whether this scout's findings actually reach the inbox. False means dry-run: it runs and logs but emits nothing, so its silence says nothing about the surface it watches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this scout's findings actually reach the inbox. False means dry-run: it runs and logs but emits nothing, so its silence says nothing about the surface it watches.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape15/properties/emit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape15",
+            "field": "last_run_at",
+            "effectiveDescription": "ISO-8601 timestamp the coordinator last dispatched this scout, or null if it has never run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp the coordinator last dispatched this scout, or null if it has never run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape15/properties/last_run_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape15",
+            "field": "last_emitted_at",
+            "effectiveDescription": "ISO-8601 timestamp this scout last produced output on either channel (a finding, or an authored/edited report), within `emitted_lookback_days`. Null means quiet for at least that window, not never.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp this scout last produced output on either channel (a finding, or an authored/edited report), within `emitted_lookback_days`. Null means quiet for at least that window, not never.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape15/properties/last_emitted_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape15",
+            "field": "not_running_reason",
+            "effectiveDescription": "Why this scout is in the `disabled` bucket: `turned_off` (a person or seed posture set it off), `auto_paused` (the system paused it), or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this scout is in the `disabled` bucket: `turned_off` (a person or seed posture set it off), `auto_paused` (the system paused it), or `skill_unavailable` (left on, but its skill was deleted, superseded, or withheld, so it never dispatches). Null for scouts that actually run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape15/properties/not_running_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape15",
+            "field": "pause_reason",
+            "effectiveDescription": "The cause behind an `auto_paused` entry: `no_output`, `ignored`, or `repeated_failures`. Null for every other entry.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The cause behind an `auto_paused` entry: `no_output`, `ignored`, or `repeated_failures`. Null for every other entry.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape15/properties/pause_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape16",
+            "effectiveDescription": "`inventory.recent_activity` — per-scope counts off the activity log.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_activity` — per-scope counts off the activity log.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape16",
+            "field": "window_days",
+            "effectiveDescription": "Lookback window in days the per-scope counts cover.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lookback window in days the per-scope counts cover.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape16/properties/window_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape16",
+            "field": "by_scope",
+            "effectiveDescription": "Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape16/properties/by_scope"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape17",
+            "effectiveDescription": "One row in `inventory.recent_activity.by_scope`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_activity.by_scope`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape17"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape17",
+            "field": "scope",
+            "effectiveDescription": "Activity-log scope (entity type), e.g. `FeatureFlag`, `Dashboard`, `Survey`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Activity-log scope (entity type), e.g. `FeatureFlag`, `Dashboard`, `Survey`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape17/properties/scope"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape17",
+            "field": "edits",
+            "effectiveDescription": "Total activity-log entries for this scope in the window (write velocity).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total activity-log entries for this scope in the window (write velocity).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape17/properties/edits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape17",
+            "field": "users",
+            "effectiveDescription": "Distinct users who edited this scope in the window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct users who edited this scope in the window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape17/properties/users"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape17",
+            "field": "last_edit",
+            "effectiveDescription": "ISO-8601 timestamp of the most recent edit in the window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp of the most recent edit in the window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape17/properties/last_edit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape18",
+            "effectiveDescription": "`inventory.recent_reviewer_corrections` — human edits to report reviewer lists.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_reviewer_corrections` — human edits to report reviewer lists.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape18",
+            "field": "window_days",
+            "effectiveDescription": "Lookback window in days the corrections cover.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lookback window in days the corrections cover.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape18/properties/window_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape18",
+            "field": "corrections",
+            "effectiveDescription": "Human reviewer edits, newest first. A human swapping a report's suggested reviewers is authoritative ownership precedent — route to who they chose.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human reviewer edits, newest first. A human swapping a report's suggested reviewers is authoritative ownership precedent — route to who they chose.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape18/properties/corrections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape19",
+            "effectiveDescription": "One row in `inventory.recent_reviewer_corrections.corrections`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_reviewer_corrections.corrections`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape19"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape19",
+            "field": "report_id",
+            "effectiveDescription": "UUID of the report whose reviewers a human edited.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the report whose reviewers a human edited.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape19/properties/report_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape19",
+            "field": "report_title",
+            "effectiveDescription": "Report title at the time of the edit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Report title at the time of the edit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape19/properties/report_title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape19",
+            "field": "before",
+            "effectiveDescription": "GitHub logins on the report before the human edit (lowercased).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub logins on the report before the human edit (lowercased).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape19/properties/before"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape19",
+            "field": "after",
+            "effectiveDescription": "GitHub logins on the report after the human edit (lowercased).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub logins on the report after the human edit (lowercased).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape19/properties/after"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape19",
+            "field": "at",
+            "effectiveDescription": "ISO-8601 timestamp of the edit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp of the edit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape19/properties/at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape20",
+            "effectiveDescription": "One row in `inventory.recent_dashboards`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_dashboards`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape20",
+            "field": "id",
+            "effectiveDescription": "Dashboard ID — pass to `dashboard-get` to pull the full payload.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard ID — pass to `dashboard-get` to pull the full payload.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape20/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape20",
+            "field": "name",
+            "effectiveDescription": "Dashboard name (may be blank if unnamed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard name (may be blank if unnamed).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape20/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape20",
+            "field": "last_accessed_at",
+            "effectiveDescription": "ISO-8601 timestamp of the most recent view in the PostHog UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp of the most recent view in the PostHog UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape20/properties/last_accessed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape20",
+            "field": "last_refresh",
+            "effectiveDescription": "ISO-8601 timestamp of the most recent data refresh. Distinct from access — a dashboard can be refreshed without anyone viewing it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp of the most recent data refresh. Distinct from access — a dashboard can be refreshed without anyone viewing it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape20/properties/last_refresh"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape20",
+            "field": "created_at",
+            "effectiveDescription": "ISO-8601 timestamp the dashboard was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp the dashboard was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape20/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape21",
+            "effectiveDescription": "`inventory.recent_surveys` — total + active count, plus the 5 most recently modified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_surveys` — total + active count, plus the 5 most recently modified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape21"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape21",
+            "field": "total_count",
+            "effectiveDescription": "Total surveys on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total surveys on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape21/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape21",
+            "field": "active_count",
+            "effectiveDescription": "Surveys that are live (not archived, started, and not yet ended).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Surveys that are live (not archived, started, and not yet ended).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape21/properties/active_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape21",
+            "field": "recent",
+            "effectiveDescription": "The 5 most recently updated surveys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 5 most recently updated surveys.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape21/properties/recent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape22",
+            "effectiveDescription": "One row in `inventory.recent_surveys.recent`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_surveys.recent`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape22"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape22",
+            "field": "id",
+            "effectiveDescription": "Survey UUID — pass to `survey-get` for full question shape.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Survey UUID — pass to `survey-get` for full question shape.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape22/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape22",
+            "field": "name",
+            "effectiveDescription": "Survey name (may be blank if unnamed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Survey name (may be blank if unnamed).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape22/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape22",
+            "field": "type",
+            "effectiveDescription": "Survey mode: `popover`, `widget`, `external_survey`, or `api`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Survey mode: `popover`, `widget`, `external_survey`, or `api`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape22/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape22",
+            "field": "status",
+            "effectiveDescription": "Derived status: `draft`, `running`, `stopped`, or `archived`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Derived status: `draft`, `running`, `stopped`, or `archived`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape22/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape22",
+            "field": "updated_at",
+            "effectiveDescription": "ISO-8601 last-modified timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 last-modified timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape22/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape23",
+            "effectiveDescription": "`inventory.recent_feature_flags` — total + active count, plus the 5 most recently modified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_feature_flags` — total + active count, plus the 5 most recently modified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape23"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape23",
+            "field": "total_count",
+            "effectiveDescription": "Total non-deleted feature flags on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total non-deleted feature flags on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape23/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape23",
+            "field": "active_count",
+            "effectiveDescription": "Flags currently evaluating (`active=true`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Flags currently evaluating (`active=true`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape23/properties/active_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape23",
+            "field": "recent",
+            "effectiveDescription": "The 5 most recently updated non-deleted flags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 5 most recently updated non-deleted flags.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape23/properties/recent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape24",
+            "effectiveDescription": "One row in `inventory.recent_feature_flags.recent`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_feature_flags.recent`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape24"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape24",
+            "field": "id",
+            "effectiveDescription": "Feature flag ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Feature flag ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape24/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape24",
+            "field": "key",
+            "effectiveDescription": "Flag key used in code (`posthog.isFeatureEnabled('<key>')`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Flag key used in code (`posthog.isFeatureEnabled('<key>')`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape24/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape24",
+            "field": "name",
+            "effectiveDescription": "Human-set description; falls back to the key when blank.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-set description; falls back to the key when blank.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape24/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape24",
+            "field": "active",
+            "effectiveDescription": "Whether the flag is currently evaluating (a user could be hitting it).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the flag is currently evaluating (a user could be hitting it).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape24/properties/active"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape24",
+            "field": "updated_at",
+            "effectiveDescription": "ISO-8601 last-modified timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 last-modified timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape24/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape25",
+            "effectiveDescription": "`inventory.recent_experiments` — total + currently-running count, plus the 5 most recently modified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_experiments` — total + currently-running count, plus the 5 most recently modified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape25"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape25",
+            "field": "total_count",
+            "effectiveDescription": "Total experiments on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total experiments on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape25/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape25",
+            "field": "running_count",
+            "effectiveDescription": "Experiments currently running (started, not ended, not archived).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiments currently running (started, not ended, not archived).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape25/properties/running_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape25",
+            "field": "recent",
+            "effectiveDescription": "The 5 most recently updated experiments.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 5 most recently updated experiments.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape25/properties/recent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape26",
+            "effectiveDescription": "One row in `inventory.recent_experiments.recent`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_experiments.recent`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape26"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape26",
+            "field": "id",
+            "effectiveDescription": "Experiment ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape26/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape26",
+            "field": "name",
+            "effectiveDescription": "Experiment name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape26/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape26",
+            "field": "status",
+            "effectiveDescription": "Derived status: `draft`, `running`, `stopped`, or `archived`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Derived status: `draft`, `running`, `stopped`, or `archived`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape26/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape26",
+            "field": "feature_flag_key",
+            "effectiveDescription": "Key of the experiment's feature flag — cross-ref into `recent_feature_flags`. Null if unlinked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the experiment's feature flag — cross-ref into `recent_feature_flags`. Null if unlinked.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape26/properties/feature_flag_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape26",
+            "field": "updated_at",
+            "effectiveDescription": "ISO-8601 last-modified timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 last-modified timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape26/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape27",
+            "effectiveDescription": "`inventory.recent_alerts` — total + currently-enabled count, plus the 5 most recently created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_alerts` — total + currently-enabled count, plus the 5 most recently created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape27"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape27",
+            "field": "total_count",
+            "effectiveDescription": "Total insight alerts on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total insight alerts on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape27/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape27",
+            "field": "enabled_count",
+            "effectiveDescription": "Alerts currently armed (`enabled=true`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Alerts currently armed (`enabled=true`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape27/properties/enabled_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape27",
+            "field": "recent",
+            "effectiveDescription": "The 5 most recently created alerts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 5 most recently created alerts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape27/properties/recent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape28",
+            "effectiveDescription": "One row in `inventory.recent_alerts.recent`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_alerts.recent`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape28"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape28",
+            "field": "id",
+            "effectiveDescription": "Alert configuration UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Alert configuration UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape28/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape28",
+            "field": "name",
+            "effectiveDescription": "Alert name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Alert name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape28/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape28",
+            "field": "enabled",
+            "effectiveDescription": "Whether the alert is currently armed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the alert is currently armed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape28/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape28",
+            "field": "state",
+            "effectiveDescription": "Alert state (e.g. `not_firing`, `firing`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Alert state (e.g. `not_firing`, `firing`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape28/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape28",
+            "field": "calculation_interval",
+            "effectiveDescription": "How often the alert is evaluated (e.g. `daily`, `hourly`); null if unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How often the alert is evaluated (e.g. `daily`, `hourly`); null if unset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape28/properties/calculation_interval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape28",
+            "field": "insight_id",
+            "effectiveDescription": "ID of the insight the alert watches; null if none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the insight the alert watches; null if none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape28/properties/insight_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape28",
+            "field": "created_at",
+            "effectiveDescription": "ISO-8601 creation timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 creation timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape28/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape29",
+            "effectiveDescription": "`inventory.recent_hog_functions` — total + enabled count, plus the 5 most recently modified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_hog_functions` — total + enabled count, plus the 5 most recently modified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape29"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape29",
+            "field": "total_count",
+            "effectiveDescription": "Total non-deleted hog functions on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total non-deleted hog functions on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape29/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape29",
+            "field": "enabled_count",
+            "effectiveDescription": "Hog functions currently enabled (`enabled=true`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog functions currently enabled (`enabled=true`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape29/properties/enabled_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape29",
+            "field": "recent",
+            "effectiveDescription": "The 5 most recently updated hog functions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 5 most recently updated hog functions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape29/properties/recent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape30",
+            "effectiveDescription": "One row in `inventory.recent_hog_functions.recent`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_hog_functions.recent`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape30"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape30",
+            "field": "id",
+            "effectiveDescription": "Hog function UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog function UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape30/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape30",
+            "field": "name",
+            "effectiveDescription": "Hog function name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog function name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape30/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape30",
+            "field": "type",
+            "effectiveDescription": "Function type: `destination`, `transformation`, `site_app`, etc. Null if unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function type: `destination`, `transformation`, `site_app`, etc. Null if unset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape30/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape30",
+            "field": "kind",
+            "effectiveDescription": "Function kind sub-classifier; null if unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function kind sub-classifier; null if unset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape30/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape30",
+            "field": "enabled",
+            "effectiveDescription": "Whether the function is currently enabled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the function is currently enabled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape30/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape30",
+            "field": "updated_at",
+            "effectiveDescription": "ISO-8601 last-modified timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 last-modified timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape30/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape31",
+            "effectiveDescription": "`inventory.recent_hog_flows` — total + non-archived count, plus the 5 most recently modified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_hog_flows` — total + non-archived count, plus the 5 most recently modified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape31"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape31",
+            "field": "total_count",
+            "effectiveDescription": "Total hog flows on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total hog flows on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape31/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape31",
+            "field": "active_count",
+            "effectiveDescription": "Hog flows that are not archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog flows that are not archived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape31/properties/active_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape31",
+            "field": "recent",
+            "effectiveDescription": "The 5 most recently updated hog flows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 5 most recently updated hog flows.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape31/properties/recent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape32",
+            "effectiveDescription": "One row in `inventory.recent_hog_flows.recent`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_hog_flows.recent`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape32"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape32",
+            "field": "id",
+            "effectiveDescription": "Hog flow UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog flow UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape32/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape32",
+            "field": "name",
+            "effectiveDescription": "Hog flow name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog flow name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape32/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape32",
+            "field": "status",
+            "effectiveDescription": "Flow lifecycle state (e.g. `draft`, `active`, `archived`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Flow lifecycle state (e.g. `draft`, `active`, `archived`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape32/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape32",
+            "field": "updated_at",
+            "effectiveDescription": "ISO-8601 last-modified timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 last-modified timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape32/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape33",
+            "effectiveDescription": "`inventory.recent_notebooks` — total + the 5 most recently modified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_notebooks` — total + the 5 most recently modified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape33"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape33",
+            "field": "total_count",
+            "effectiveDescription": "Total non-deleted notebooks on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total non-deleted notebooks on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape33/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape33",
+            "field": "recent",
+            "effectiveDescription": "The 5 most recently modified notebooks.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 5 most recently modified notebooks.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape33/properties/recent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape34",
+            "effectiveDescription": "One row in `inventory.recent_notebooks.recent`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_notebooks.recent`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape34"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape34",
+            "field": "short_id",
+            "effectiveDescription": "Notebook short ID — pass to the notebooks API to open it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook short ID — pass to the notebooks API to open it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape34/properties/short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape34",
+            "field": "title",
+            "effectiveDescription": "Notebook title (may be blank if untitled).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notebook title (may be blank if untitled).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape34/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape34",
+            "field": "last_modified_at",
+            "effectiveDescription": "ISO-8601 last-modified timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 last-modified timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape34/properties/last_modified_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape35",
+            "effectiveDescription": "`inventory.recent_cohorts` — total + the 5 most recently created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_cohorts` — total + the 5 most recently created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape35"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape35",
+            "field": "total_count",
+            "effectiveDescription": "Total non-deleted cohorts on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total non-deleted cohorts on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape35/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape35",
+            "field": "recent",
+            "effectiveDescription": "The 5 most recently created cohorts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 5 most recently created cohorts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape35/properties/recent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape36",
+            "effectiveDescription": "One row in `inventory.recent_cohorts.recent`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_cohorts.recent`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape36"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape36",
+            "field": "id",
+            "effectiveDescription": "Cohort ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cohort ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape36/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape36",
+            "field": "name",
+            "effectiveDescription": "Cohort name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cohort name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape36/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape36",
+            "field": "is_static",
+            "effectiveDescription": "True for a one-shot snapshot cohort; false for a dynamic-filter cohort.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True for a one-shot snapshot cohort; false for a dynamic-filter cohort.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape36/properties/is_static"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape36",
+            "field": "count",
+            "effectiveDescription": "Membership size when last calculated; null if never calculated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Membership size when last calculated; null if never calculated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape36/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape36",
+            "field": "created_at",
+            "effectiveDescription": "ISO-8601 creation timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 creation timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape36/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape37",
+            "effectiveDescription": "`inventory.recent_actions` — total + the 5 most recently modified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`inventory.recent_actions` — total + the 5 most recently modified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape37"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape37",
+            "field": "total_count",
+            "effectiveDescription": "Total non-deleted actions on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total non-deleted actions on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape37/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape37",
+            "field": "recent",
+            "effectiveDescription": "The 5 most recently updated actions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 5 most recently updated actions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape37/properties/recent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape38",
+            "effectiveDescription": "One row in `inventory.recent_actions.recent`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.recent_actions.recent`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape38"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape38",
+            "field": "id",
+            "effectiveDescription": "Action ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape38/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape38",
+            "field": "name",
+            "effectiveDescription": "Action name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape38/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape38",
+            "field": "updated_at",
+            "effectiveDescription": "ISO-8601 last-modified timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 last-modified timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape38/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape39",
+            "effectiveDescription": "One row in `inventory.top_events`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One row in `inventory.top_events`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape39"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape39",
+            "field": "window_days",
+            "effectiveDescription": "Rolling lookback window (in days) that every count and timestamp on this row is measured over — these are windowed figures, NOT lifetime totals. A capture gap can collapse a real, high-volume project's in-window counts to near-zero, so a thin `count` here does not by itself mean the project is low-volume: rule out an ingestion gap (compare against a trailing baseline via a direct `execute-sql`) before closing out a surface as unused.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rolling lookback window (in days) that every count and timestamp on this row is measured over — these are windowed figures, NOT lifetime totals. A capture gap can collapse a real, high-volume project's in-window counts to near-zero, so a thin `count` here does not by itself mean the project is low-volume: rule out an ingestion gap (compare against a trailing baseline via a direct `execute-sql`) before closing out a surface as unused.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape39/properties/window_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape39",
+            "field": "event",
+            "effectiveDescription": "Event name as captured.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name as captured.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape39/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape39",
+            "field": "count",
+            "effectiveDescription": "Number of occurrences within the last `window_days` (windowed, not lifetime).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of occurrences within the last `window_days` (windowed, not lifetime).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape39/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape39",
+            "field": "distinct_users",
+            "effectiveDescription": "`uniq(person_id)` over the window — reach. Distinguishes a high-count event firing on one power user from one firing on many users.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`uniq(person_id)` over the window — reach. Distinguishes a high-count event firing on one power user from one firing on many users.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape39/properties/distinct_users"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape39",
+            "field": "recent_24h_count",
+            "effectiveDescription": "Count in just the last 24 hours. Compare to `count / window_days` to spot bursts: a ratio well above `1 / window_days` means the event is concentrated in the last day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count in just the last 24 hours. Compare to `count / window_days` to spot bursts: a ratio well above `1 / window_days` means the event is concentrated in the last day.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape39/properties/recent_24h_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape39",
+            "field": "recent_24h_users",
+            "effectiveDescription": "`uniq(person_id)` over just the last 24 hours. A burst across many users is qualitatively different from one user in a loop.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`uniq(person_id)` over just the last 24 hours. A burst across many users is qualitatively different from one user in a loop.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape39/properties/recent_24h_users"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape39",
+            "field": "first_seen_in_window",
+            "effectiveDescription": "ISO-8601 timestamp of the earliest occurrence within the `window_days` window. Compare to the window start to spot new event types: close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp of the earliest occurrence within the `window_days` window. Compare to the window start to spot new event types: close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape39/properties/first_seen_in_window"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetResponseShape39",
+            "field": "last_seen_in_window",
+            "effectiveDescription": "ISO-8601 timestamp of the most recent occurrence within the `window_days` window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp of the most recent occurrence within the `window_days` window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape39/properties/last_seen_in_window"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetData",
+            "effectiveDescription": "Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.\n\nRead this once at the start of a run (after `skill-get`) to orient on the team. Cache\nis per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the\nlatest cached profile or a freshly-built one if the cache was stale or the caller passed\n`force_refresh=true`.\n\n`summary` leads the response and `payload` trails it: the inventory runs to tens of\nkilobytes, so a client that truncates a long tool result would otherwise cut off the emit\ngate the scout has to read before doing any work.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.\n\nRead this once at the start of a run (after `skill-get`) to orient on the team. Cache\nis per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the\nlatest cached profile or a freshly-built one if the cache was stale or the caller passed\n`force_refresh=true`.\n\n`summary` leads the response and `payload` trails it: the inventory runs to tens of\nkilobytes, so a client that truncates a long tool result would otherwise cut off the emit\ngate the scout has to read before doing any work.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetData",
+            "field": "summary",
+            "effectiveDescription": "Compact envelope repeating the emit gate and the inbox report counts from `payload.inventory`. Declared first so it survives a truncated response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compact envelope repeating the emit gate and the inbox report counts from `payload.inventory`. Declared first so it survives a truncated response.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetData",
+            "field": "profile_id",
+            "effectiveDescription": "UUID of the `SignalProjectProfile` row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the `SignalProjectProfile` row.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/profile_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetData",
+            "field": "computed_at",
+            "effectiveDescription": "ISO-8601 timestamp the profile was built.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp the profile was built.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/computed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetData",
+            "field": "expires_at",
+            "effectiveDescription": "ISO-8601 timestamp after which the profile is considered stale.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO-8601 timestamp after which the profile is considered stale.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/expires_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetData",
+            "field": "source_version",
+            "effectiveDescription": "Schema version of the inventory builder. Bumps invalidate older cached rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schema version of the inventory builder. Bumps invalidate older cached rows.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/source_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutProjectProfileGetData",
+            "field": "payload",
+            "effectiveDescription": "Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/payload"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "skill-get",
+            "method": "skills.skillGet"
+        },
+        {
+            "toolName": "inbox-source-configs-list",
+            "method": "signals.inboxSourceConfigsList"
+        },
+        {
+            "toolName": "inbox-reports-list",
+            "method": "signals.inboxReportsList"
+        },
+        {
+            "toolName": "read-data-schema",
+            "method": "dataSchema.readDataSchema"
+        },
+        {
+            "toolName": "advanced-activity-logs-list",
+            "method": "platformFeatures.advancedActivityLogsList"
+        },
+        {
+            "toolName": "scout-scratchpad-search",
+            "method": "signals.scoutScratchpadSearch"
+        }
+    ]
+}

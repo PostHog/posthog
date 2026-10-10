@@ -1,0 +1,57 @@
+{
+    "method": "visualReview.visualReviewRunsCountsRetrieve",
+    "toolName": "visual-review-runs-counts-retrieve",
+    "operationId": "visual_review_runs_counts_retrieve",
+    "title": "Visual review run counts",
+    "category": "Visual review",
+    "description": "Review state counts (`needs_review`, `clean`, `processing`, `stale`) across every run in the project.",
+    "requiredScopes": ["visual_review:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: visual-review"],
+    "methodSource": "src/generated/visual-review/client.ts",
+    "input": {
+        "name": "VisualReviewVisualReviewRunsCountsRetrieveInput",
+        "importPath": "@posthog/sdk/visual-review",
+        "source": "src/generated/visual-review/visual-review-runs-counts-retrieve.ts",
+        "declaration": "dist/generated/visual-review/visual-review-runs-counts-retrieve.d.ts"
+    },
+    "output": {
+        "name": "VisualReviewVisualReviewRunsCountsRetrieveOutput",
+        "importPath": "@posthog/sdk/visual-review",
+        "source": "src/generated/visual-review/visual-review-runs-counts-retrieve.ts",
+        "declaration": "dist/generated/visual-review/visual-review-runs-counts-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "VisualReviewVisualReviewRunsCountsRetrieveData",
+            "importPath": "@posthog/sdk/visual-review",
+            "source": "src/generated/visual-review/visual-review-runs-counts-retrieve.ts",
+            "declaration": "dist/generated/visual-review/visual-review-runs-counts-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Review state counts for the runs list.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1visual_review~1runs~1counts~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Review state counts (`needs_review`, `clean`, `processing`, `stale`) across every run in the project.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/visual_review/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": []
+}

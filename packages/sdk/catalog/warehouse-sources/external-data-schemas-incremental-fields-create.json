@@ -1,0 +1,80 @@
+{
+    "method": "warehouseSources.externalDataSchemasIncrementalFieldsCreate",
+    "toolName": "external-data-schemas-incremental-fields-create",
+    "operationId": "external_data_schemas_incremental_fields_create",
+    "title": "Refresh candidate incremental fields for a schema",
+    "category": "Warehouse sources",
+    "description": "Re-inspect the source for a single table schema and return the currently available incremental fields, detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available. Use this when the source schema has changed, an incremental field has been dropped, or the user wants to switch to a different incremental_field/sync_type on an existing schema. The operation_id is external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.",
+    "requiredScopes": ["external_data_source:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/warehouse-sources/client.ts",
+    "input": {
+        "name": "WarehouseSourcesExternalDataSchemasIncrementalFieldsCreateInput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-schemas-incremental-fields-create.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-schemas-incremental-fields-create.d.ts"
+    },
+    "output": {
+        "name": "WarehouseSourcesExternalDataSchemasIncrementalFieldsCreateOutput",
+        "importPath": "@posthog/sdk/warehouse-sources",
+        "source": "src/generated/warehouse-sources/external-data-schemas-incremental-fields-create.ts",
+        "declaration": "dist/generated/warehouse-sources/external-data-schemas-incremental-fields-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "WarehouseSourcesExternalDataSchemasIncrementalFieldsCreateData",
+            "importPath": "@posthog/sdk/warehouse-sources",
+            "source": "src/generated/warehouse-sources/external-data-schemas-incremental-fields-create.ts",
+            "declaration": "dist/generated/warehouse-sources/external-data-schemas-incremental-fields-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Re-inspect the source for a single table schema and return the currently available incremental fields, detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available. Use this when the source schema has changed, an incremental field has been dropped, or the user wants to switch to a different incremental_field/sync_type on an existing schema. The operation_id is external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/warehouse_sources/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasIncrementalFieldsCreateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this external data schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this external data schema.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/external_data_schemas/{id}/incremental_fields/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "WarehouseSourcesExternalDataSchemasIncrementalFieldsCreateData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/warehouse_sources.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,290 @@
+{
+    "method": "surveys.surveyLaunch",
+    "toolName": "survey-launch",
+    "operationId": "surveys_launch",
+    "title": "Launch a survey now.",
+    "category": "Surveys",
+    "description": "Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey is already launched. Archived surveys must be unarchived first. Surveys with an end_date in the past must have that date cleared or extended before launch; do this only when the user asks to reopen the survey.",
+    "requiredScopes": ["survey:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/surveys/client.ts",
+    "input": {
+        "name": "SurveysSurveyLaunchInput",
+        "importPath": "@posthog/sdk/surveys",
+        "source": "src/generated/surveys/survey-launch.ts",
+        "declaration": "dist/generated/surveys/survey-launch.d.ts"
+    },
+    "output": {
+        "name": "SurveysSurveyLaunchOutput",
+        "importPath": "@posthog/sdk/surveys",
+        "source": "src/generated/surveys/survey-launch.ts",
+        "declaration": "dist/generated/surveys/survey-launch.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SurveysSurveyLaunchResponseShape3",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/survey-launch.ts",
+            "declaration": "dist/generated/surveys/survey-launch.d.ts"
+        },
+        {
+            "name": "SurveysSurveyLaunchResponseShape2",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/survey-launch.ts",
+            "declaration": "dist/generated/surveys/survey-launch.d.ts"
+        },
+        {
+            "name": "SurveysSurveyLaunchResponseShape4",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/survey-launch.ts",
+            "declaration": "dist/generated/surveys/survey-launch.d.ts"
+        },
+        {
+            "name": "SurveysSurveyLaunchResponseShape6",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/survey-launch.ts",
+            "declaration": "dist/generated/surveys/survey-launch.d.ts"
+        },
+        {
+            "name": "SurveysSurveyLaunchResponseShape5",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/survey-launch.ts",
+            "declaration": "dist/generated/surveys/survey-launch.d.ts"
+        },
+        {
+            "name": "SurveysSurveyLaunchResponseShape7",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/survey-launch.ts",
+            "declaration": "dist/generated/surveys/survey-launch.d.ts"
+        },
+        {
+            "name": "SurveysSurveyLaunchData",
+            "importPath": "@posthog/sdk/surveys",
+            "source": "src/generated/surveys/survey-launch.ts",
+            "declaration": "dist/generated/surveys/survey-launch.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Launch a survey by setting `start_date` to the current time. No-op if the survey is already launched (start_date set in the past) — returns the existing state unchanged. Does not affect archived surveys or surveys with an end_date in the past; unarchive or extend the end_date first.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1surveys~1{id}~1launch~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Launch a survey by setting `start_date` to the current time. Prefer this over `survey-update` with a manual `start_date` — it's an explicit lifecycle action and self-documenting in activity logs. No-op if the survey is already launched. Archived surveys must be unarchived first. Surveys with an end_date in the past must have that date cleared or extended before launch; do this only when the user asks to reopen the survey.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/surveys/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SurveysSurveyLaunchInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this survey.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this survey.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/surveys/{id}/launch/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchResponseShape2",
+            "field": "evaluation_runtime",
+            "effectiveDescription": "Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape2/properties/evaluation_runtime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchResponseShape2",
+            "field": "bucketing_identifier",
+            "effectiveDescription": "Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape2/properties/bucketing_identifier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchData",
+            "field": "questions",
+            "effectiveDescription": "The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.\n\nBasic (open-ended question)\n- `id`: The question ID\n- `type`: `open`\n- `question`: The text of the question.\n- `description`: Optional description of the question.\n- `descriptionContentType`: Content type of the description (`html` or `text`).\n- `optional`: Whether the question is optional (`boolean`).\n- `buttonText`: Text displayed on the submit button.\n- `branching`: Branching logic for the question. See branching types below for details.\n\nLink (a question with a link)\n- `id`: The question ID\n- `type`: `link`\n- `question`: The text of the question.\n- `description`: Optional description of the question.\n- `descriptionContentType`: Content type of the description (`html` or `text`).\n- `optional`: Whether the question is optional (`boolean`).\n- `buttonText`: Text displayed on the submit button.\n- `link`: The URL associated with the question.\n- `branching`: Branching logic for the question. See branching types below for details.\n\nRating (a question with a rating scale)\n- `id`: The question ID\n- `type`: `rating`\n- `question`: The text of the question.\n- `description`: Optional description of the question.\n- `descriptionContentType`: Content type of the description (`html` or `text`).\n- `optional`: Whether the question is optional (`boolean`).\n- `buttonText`: Text displayed on the submit button.\n- `display`: Display style of the rating (`number` or `emoji`).\n- `scale`: The scale of the rating (`number`).\n- `lowerBoundLabel`: Label for the lower bound of the scale.\n- `upperBoundLabel`: Label for the upper bound of the scale.\n- `isNpsQuestion`: Whether the question is an NPS rating.\n- `branching`: Branching logic for the question. See branching types below for details.\n\nMultiple choice\n- `id`: The question ID\n- `type`: `single_choice` or `multiple_choice`\n- `question`: The text of the question.\n- `description`: Optional description of the question.\n- `descriptionContentType`: Content type of the description (`html` or `text`).\n- `optional`: Whether the question is optional (`boolean`).\n- `buttonText`: Text displayed on the submit button.\n- `choices`: An array of choices for the question.\n- `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).\n- `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).\n- `branching`: Branching logic for the question. See branching types below for details.\n\nBranching logic can be one of the following types:\n\nNext question: Proceeds to the next question\n```json\n{\n    \"type\": \"next_question\"\n}\n```\n\nEnd: Ends the survey, optionally displaying a confirmation message.\n```json\n{\n    \"type\": \"end\"\n}\n```\n\nResponse-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.\n```json\n{\n    \"type\": \"response_based\",\n    \"responseValues\": {\n        \"responseKey\": \"value\"\n    }\n}\n```\n\nSpecific question: Proceeds to a specific question by index.\n```json\n{\n    \"type\": \"specific_question\",\n    \"index\": 2\n}\n```\n\nTranslations: Each question can include inline translations.\n- `translations`: Object mapping language codes to translated fields.\n- Language codes: Canonical BCP-47-ish strings (e.g., \"es\", \"es-MX\", \"zh-CN\"). Aliases like \"english\" or \"default\" are rejected. The survey's `base_language` (default \"en\") declares the language of the untranslated text and cannot also appear as a translation key.\n- Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`\n\nExample with translations:\n```json\n{\n    \"id\": \"uuid\",\n    \"type\": \"rating\",\n    \"question\": \"How satisfied are you?\",\n    \"lowerBoundLabel\": \"Not satisfied\",\n    \"upperBoundLabel\": \"Very satisfied\",\n    \"translations\": {\n        \"es\": {\n            \"question\": \"¿Qué tan satisfecho estás?\",\n            \"lowerBoundLabel\": \"No satisfecho\",\n            \"upperBoundLabel\": \"Muy satisfecho\"\n        },\n        \"fr\": {\n            \"question\": \"Dans quelle mesure êtes-vous satisfait?\"\n        }\n    }\n}\n```",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.\n\nBasic (open-ended question)\n- `id`: The question ID\n- `type`: `open`\n- `question`: The text of the question.\n- `description`: Optional description of the question.\n- `descriptionContentType`: Content type of the description (`html` or `text`).\n- `optional`: Whether the question is optional (`boolean`).\n- `buttonText`: Text displayed on the submit button.\n- `branching`: Branching logic for the question. See branching types below for details.\n\nLink (a question with a link)\n- `id`: The question ID\n- `type`: `link`\n- `question`: The text of the question.\n- `description`: Optional description of the question.\n- `descriptionContentType`: Content type of the description (`html` or `text`).\n- `optional`: Whether the question is optional (`boolean`).\n- `buttonText`: Text displayed on the submit button.\n- `link`: The URL associated with the question.\n- `branching`: Branching logic for the question. See branching types below for details.\n\nRating (a question with a rating scale)\n- `id`: The question ID\n- `type`: `rating`\n- `question`: The text of the question.\n- `description`: Optional description of the question.\n- `descriptionContentType`: Content type of the description (`html` or `text`).\n- `optional`: Whether the question is optional (`boolean`).\n- `buttonText`: Text displayed on the submit button.\n- `display`: Display style of the rating (`number` or `emoji`).\n- `scale`: The scale of the rating (`number`).\n- `lowerBoundLabel`: Label for the lower bound of the scale.\n- `upperBoundLabel`: Label for the upper bound of the scale.\n- `isNpsQuestion`: Whether the question is an NPS rating.\n- `branching`: Branching logic for the question. See branching types below for details.\n\nMultiple choice\n- `id`: The question ID\n- `type`: `single_choice` or `multiple_choice`\n- `question`: The text of the question.\n- `description`: Optional description of the question.\n- `descriptionContentType`: Content type of the description (`html` or `text`).\n- `optional`: Whether the question is optional (`boolean`).\n- `buttonText`: Text displayed on the submit button.\n- `choices`: An array of choices for the question.\n- `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).\n- `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).\n- `branching`: Branching logic for the question. See branching types below for details.\n\nBranching logic can be one of the following types:\n\nNext question: Proceeds to the next question\n```json\n{\n    \"type\": \"next_question\"\n}\n```\n\nEnd: Ends the survey, optionally displaying a confirmation message.\n```json\n{\n    \"type\": \"end\"\n}\n```\n\nResponse-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.\n```json\n{\n    \"type\": \"response_based\",\n    \"responseValues\": {\n        \"responseKey\": \"value\"\n    }\n}\n```\n\nSpecific question: Proceeds to a specific question by index.\n```json\n{\n    \"type\": \"specific_question\",\n    \"index\": 2\n}\n```\n\nTranslations: Each question can include inline translations.\n- `translations`: Object mapping language codes to translated fields.\n- Language codes: Canonical BCP-47-ish strings (e.g., \"es\", \"es-MX\", \"zh-CN\"). Aliases like \"english\" or \"default\" are rejected. The survey's `base_language` (default \"en\") declares the language of the untranslated text and cannot also appear as a translation key.\n- Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`\n\nExample with translations:\n```json\n{\n    \"id\": \"uuid\",\n    \"type\": \"rating\",\n    \"question\": \"How satisfied are you?\",\n    \"lowerBoundLabel\": \"Not satisfied\",\n    \"upperBoundLabel\": \"Very satisfied\",\n    \"translations\": {\n        \"es\": {\n            \"question\": \"¿Qué tan satisfecho estás?\",\n            \"lowerBoundLabel\": \"No satisfecho\",\n            \"upperBoundLabel\": \"Muy satisfecho\"\n        },\n        \"fr\": {\n            \"question\": \"Dans quelle mesure êtes-vous satisfait?\"\n        }\n    }\n}\n```",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/questions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchData",
+            "field": "appearance",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/appearance"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchData",
+            "field": "response_sampling_daily_limits",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/response_sampling_daily_limits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchData",
+            "field": "base_language",
+            "effectiveDescription": "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/base_language"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchData",
+            "field": "translations",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/translations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchData",
+            "field": "form_content",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/form_content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchData",
+            "field": "search_match_type",
+            "effectiveDescription": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/surveys.ts",
+                        "pointer": "#/Shape1/properties/search_match_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SurveysSurveyLaunchData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "survey-update",
+            "method": "surveys.surveyUpdate"
+        }
+    ]
+}

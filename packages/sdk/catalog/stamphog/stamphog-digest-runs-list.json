@@ -1,0 +1,491 @@
+{
+    "method": "stamphog.stamphogDigestRunsList",
+    "toolName": "stamphog-digest-runs-list",
+    "operationId": "stamphog_digest_runs_list",
+    "title": "List stamphog digest runs",
+    "category": "Stamphog",
+    "description": "List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained (a team slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel, its status, how many merged PRs it summarized, the Slack message timestamp, and the digest content (`summary`: the headline and each listed PR's number, title, URL, author, repository and one-line summary). Filter by `slack_channel_id` to see one channel's history.",
+    "requiredScopes": ["stamphog:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: stamphog"],
+    "methodSource": "src/generated/stamphog/client.ts",
+    "input": {
+        "name": "StamphogStamphogDigestRunsListInput",
+        "importPath": "@posthog/sdk/stamphog",
+        "source": "src/generated/stamphog/stamphog-digest-runs-list.ts",
+        "declaration": "dist/generated/stamphog/stamphog-digest-runs-list.d.ts"
+    },
+    "output": {
+        "name": "StamphogStamphogDigestRunsListOutput",
+        "importPath": "@posthog/sdk/stamphog",
+        "source": "src/generated/stamphog/stamphog-digest-runs-list.ts",
+        "declaration": "dist/generated/stamphog/stamphog-digest-runs-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StamphogStamphogDigestRunsListRequestSchema0",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-digest-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-digest-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogDigestRunsListRequestSchema1",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-digest-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-digest-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogDigestRunsListRequestSchema2",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-digest-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-digest-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogDigestRunsListResponseShape4",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-digest-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-digest-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogDigestRunsListResponseShape3",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-digest-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-digest-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogDigestRunsListResponseShape2",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-digest-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-digest-runs-list.d.ts"
+        },
+        {
+            "name": "StamphogStamphogDigestRunsListData",
+            "importPath": "@posthog/sdk/stamphog",
+            "source": "src/generated/stamphog/stamphog-digest-runs-list.ts",
+            "declaration": "dist/generated/stamphog/stamphog-digest-runs-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Read-only history of posted (or attempted) digests, filterable by Slack channel.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1stamphog~1digest_runs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List posted (or attempted) daily digest runs, newest first. Each run reports the audience it drained (a team slug, or `repo:owner/name`), the Slack channel it went to and why routing chose that channel, its status, how many merged PRs it summarized, the Slack message timestamp, and the digest content (`summary`: the headline and each listed PR's number, title, URL, author, repository and one-line summary). Filter by `slack_channel_id` to see one channel's history.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/stamphog/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "StamphogStamphogDigestRunsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/stamphog/digest_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/stamphog/digest_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListInput",
+            "field": "slack_channel_id",
+            "effectiveDescription": "Filter by the Slack channel the digest was posted to, e.g. 'C012AB3CD'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by the Slack channel the digest was posted to, e.g. 'C012AB3CD'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/stamphog/digest_runs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "audience_key",
+            "effectiveDescription": "Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/audience_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "slack_channel_id",
+            "effectiveDescription": "Slack channel this digest was posted to, e.g. 'C012AB3CD'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel this digest was posted to, e.g. 'C012AB3CD'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/slack_channel_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "slack_channel_name",
+            "effectiveDescription": "Human-readable name of that channel, for display.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of that channel, for display.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/slack_channel_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "resolution_source",
+            "effectiveDescription": "Why the digest went to this channel: 'slack_name_match' (no declaration anywhere, so the audience_key matched a same-named Slack channel), 'stamphog_config' (the channel the repo declared under 'digest:' in .stamphog/policy.yml), 'owners_contact' (a teams: entry in a root owners.yaml named it), or 'manual' (no longer produced).\n\n* `manual` - MANUAL\n* `slack_name_match` - SLACK_NAME_MATCH\n* `stamphog_config` - STAMPHOG_CONFIG\n* `owners_contact` - OWNERS_CONTACT",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the digest went to this channel: 'slack_name_match' (no declaration anywhere, so the audience_key matched a same-named Slack channel), 'stamphog_config' (the channel the repo declared under 'digest:' in .stamphog/policy.yml), 'owners_contact' (a teams: entry in a root owners.yaml named it), or 'manual' (no longer produced).\n\n* `manual` - MANUAL\n* `slack_name_match` - SLACK_NAME_MATCH\n* `stamphog_config` - STAMPHOG_CONFIG\n* `owners_contact` - OWNERS_CONTACT",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/resolution_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "status",
+            "effectiveDescription": "Current state of the digest run (pending, completed, failed).\n\n* `pending` - PENDING\n* `completed` - COMPLETED\n* `failed` - FAILED",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current state of the digest run (pending, completed, failed).\n\n* `pending` - PENDING\n* `completed` - COMPLETED\n* `failed` - FAILED",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "pr_count",
+            "effectiveDescription": "Number of merged PRs included in the posted digest.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of merged PRs included in the posted digest.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/pr_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "summary",
+            "effectiveDescription": "What the digest posted: its headline and the merged pull requests it listed. Both are empty on a run with nothing to post, and on runs stored before this format.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the digest posted: its headline and the merged pull requests it listed. Both are empty on a run with nothing to post, and on runs stored before this format.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "slack_message_ts",
+            "effectiveDescription": "Slack message timestamp of the posted digest, if posted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack message timestamp of the posted digest, if posted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/slack_message_ts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "error",
+            "effectiveDescription": "Error message if the run failed, blank otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error message if the run failed, blank otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the digest run was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the digest run was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape2",
+            "field": "posted_at",
+            "effectiveDescription": "When the digest was posted to Slack, if it was.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the digest was posted to Slack, if it was.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape2/properties/posted_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape3",
+            "effectiveDescription": "What the digest posted to Slack: the headline and the pull requests it listed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the digest posted to Slack: the headline and the pull requests it listed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape3",
+            "field": "headline",
+            "effectiveDescription": "Prose about the merges with real consequence. Blank when the digest led with its first line.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prose about the merges with real consequence. Blank when the digest led with its first line.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape3/properties/headline"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape3",
+            "field": "prs",
+            "effectiveDescription": "The merged pull requests the digest listed, in the order it listed them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The merged pull requests the digest listed, in the order it listed them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape3/properties/prs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape4",
+            "effectiveDescription": "One merged pull request as the digest listed it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One merged pull request as the digest listed it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape4",
+            "field": "pr_number",
+            "effectiveDescription": "Pull request number on GitHub.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pull request number on GitHub.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape4/properties/pr_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape4",
+            "field": "title",
+            "effectiveDescription": "Pull request title.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pull request title.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape4/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape4",
+            "field": "url",
+            "effectiveDescription": "Full URL to the pull request on GitHub.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full URL to the pull request on GitHub.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape4/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape4",
+            "field": "author_login",
+            "effectiveDescription": "GitHub login of the pull request author.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub login of the pull request author.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape4/properties/author_login"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape4",
+            "field": "summary",
+            "effectiveDescription": "The one-line summary of the change that the digest posted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The one-line summary of the change that the digest posted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape4/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListResponseShape4",
+            "field": "repository",
+            "effectiveDescription": "Repository full name, e.g. 'PostHog/posthog'. Blank on older runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repository full name, e.g. 'PostHog/posthog'. Blank on older runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/stamphog.ts",
+                        "pointer": "#/Shape4/properties/repository"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StamphogStamphogDigestRunsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

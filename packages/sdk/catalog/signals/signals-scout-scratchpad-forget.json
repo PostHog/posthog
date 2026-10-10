@@ -1,0 +1,126 @@
+{
+    "method": "signals.signalsScoutScratchpadForget",
+    "toolName": "signals-scout-scratchpad-forget",
+    "operationId": "signals_scout_scratchpad_forget",
+    "title": "Forget a scratchpad entry by key (deprecated)",
+    "category": "Signals",
+    "description": "DEPRECATED: renamed to scout-scratchpad-forget. This alias forwards to the same endpoint and will be removed. Call scout-scratchpad-forget directly with the same arguments.",
+    "requiredScopes": ["signal_scratchpad_internal:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsSignalsScoutScratchpadForgetInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/signals-scout-scratchpad-forget.ts",
+        "declaration": "dist/generated/signals/signals-scout-scratchpad-forget.d.ts"
+    },
+    "output": {
+        "name": "SignalsSignalsScoutScratchpadForgetOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/signals-scout-scratchpad-forget.ts",
+        "declaration": "dist/generated/signals/signals-scout-scratchpad-forget.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsSignalsScoutScratchpadForgetRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/signals-scout-scratchpad-forget.ts",
+            "declaration": "dist/generated/signals/signals-scout-scratchpad-forget.d.ts"
+        },
+        {
+            "name": "SignalsSignalsScoutScratchpadForgetData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/signals-scout-scratchpad-forget.ts",
+            "declaration": "dist/generated/signals/signals-scout-scratchpad-forget.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Delete an entry by key. Returns `deleted=false` if no row matched.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1scout~1scratchpad~1forget~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "DEPRECATED: renamed to scout-scratchpad-forget. This alias forwards to the same endpoint and will be removed. Call scout-scratchpad-forget directly with the same arguments.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsSignalsScoutScratchpadForgetRequest_Schema0",
+            "effectiveDescription": "Memory key to delete.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Memory key to delete.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutScratchpadForgetInput",
+            "effectiveDescription": "Request body for `forget`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Request body for `forget`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutScratchpadForgetInput",
+            "field": "key",
+            "effectiveDescription": "Memory key to delete.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Memory key to delete.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/scratchpad/forget/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutScratchpadForgetData",
+            "field": "deleted",
+            "effectiveDescription": "Whether a row was actually removed (false if the key didn't exist).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a row was actually removed (false if the key didn't exist).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/deleted"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

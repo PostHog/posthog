@@ -1,0 +1,161 @@
+{
+    "method": "streamlitApps.streamlitAppsStop",
+    "toolName": "streamlit-apps-stop",
+    "operationId": "streamlit_apps_stop_create",
+    "title": "Stop Streamlit app",
+    "category": "Streamlit apps",
+    "description": "Stop the app's running sandbox. Idempotent: a no-op if the app is not running. The app's code and versions are unaffected — it can be started again later.",
+    "requiredScopes": ["streamlit_app:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: streamlit-apps"],
+    "methodSource": "src/generated/streamlit-apps/client.ts",
+    "input": {
+        "name": "StreamlitAppsStreamlitAppsStopInput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-stop.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-stop.d.ts"
+    },
+    "output": {
+        "name": "StreamlitAppsStreamlitAppsStopOutput",
+        "importPath": "@posthog/sdk/streamlit-apps",
+        "source": "src/generated/streamlit-apps/streamlit-apps-stop.ts",
+        "declaration": "dist/generated/streamlit-apps/streamlit-apps-stop.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "StreamlitAppsStreamlitAppsStopResponseShape3",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-stop.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-stop.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsStopResponseShape2",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-stop.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-stop.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsStopResponseShape4",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-stop.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-stop.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsStopResponseShape5",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-stop.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-stop.d.ts"
+        },
+        {
+            "name": "StreamlitAppsStreamlitAppsStopData",
+            "importPath": "@posthog/sdk/streamlit-apps",
+            "source": "src/generated/streamlit-apps/streamlit-apps-stop.ts",
+            "declaration": "dist/generated/streamlit-apps/streamlit-apps-stop.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Stop the app sandbox",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "streamlit_apps_stop_create"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Stop the app's running sandbox. Idempotent: a no-op if the app is not running. The app's code and versions are unaffected — it can be started again later.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/streamlit_apps/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStopResponseShape4",
+            "field": "created_by",
+            "effectiveDescription": "User who uploaded this version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who uploaded this version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape4/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStopData",
+            "field": "created_by",
+            "effectiveDescription": "User who created this app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created this app.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStopData",
+            "field": "active_version",
+            "effectiveDescription": "Currently active version, or null if none uploaded yet.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Currently active version, or null if none uploaded yet.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/active_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStopData",
+            "field": "sandbox",
+            "effectiveDescription": "Current sandbox state, or null if the app has never started.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current sandbox state, or null if the app has never started.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/streamlit_apps.ts",
+                        "pointer": "#/Shape1/properties/sandbox"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "StreamlitAppsStreamlitAppsStopData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

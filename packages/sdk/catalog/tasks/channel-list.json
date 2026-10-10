@@ -1,0 +1,166 @@
+{
+    "method": "tasks.channelList",
+    "toolName": "channel-list",
+    "operationId": "task_channels_list",
+    "title": "List channels",
+    "category": "Tasks",
+    "description": "List channels the requester can access: public channels, their personal #me channel, and private channels they belong to. Use a channel ID to create or list canvases or read instructions. Private channels can have the same name, so identify them by ID. Send `limit` and `offset` to get a page with `count`, `next`, `previous`, and `results`. Without `limit`, the response is an array of all accessible channels.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/tasks/client.ts",
+    "input": {
+        "name": "TasksChannelListInput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/channel-list.ts",
+        "declaration": "dist/generated/tasks/channel-list.d.ts"
+    },
+    "output": {
+        "name": "TasksChannelListOutput",
+        "importPath": "@posthog/sdk/tasks",
+        "source": "src/generated/tasks/channel-list.ts",
+        "declaration": "dist/generated/tasks/channel-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "TasksChannelListRequestSchema0",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-list.ts",
+            "declaration": "dist/generated/tasks/channel-list.d.ts"
+        },
+        {
+            "name": "TasksChannelListRequestSchema1",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-list.ts",
+            "declaration": "dist/generated/tasks/channel-list.d.ts"
+        },
+        {
+            "name": "TasksChannelListResponseShape4",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-list.ts",
+            "declaration": "dist/generated/tasks/channel-list.d.ts"
+        },
+        {
+            "name": "TasksChannelListResponseShape3",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-list.ts",
+            "declaration": "dist/generated/tasks/channel-list.d.ts"
+        },
+        {
+            "name": "TasksChannelListResponseShape2",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-list.ts",
+            "declaration": "dist/generated/tasks/channel-list.d.ts"
+        },
+        {
+            "name": "TasksChannelListData",
+            "importPath": "@posthog/sdk/tasks",
+            "source": "src/generated/tasks/channel-list.ts",
+            "declaration": "dist/generated/tasks/channel-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List channels the requester can access, sorted by name and ID. Includes public channels, their personal #me channel, and private channels they belong to. Call provision_defaults to create missing default channels. Send limit and offset to get a page with count, next, previous, and results. Without limit, the response is an array of all accessible channels.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1task_channels~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List channels the requester can access: public channels, their personal #me channel, and private channels they belong to. Use a channel ID to create or list canvases or read instructions. Private channels can have the same name, so identify them by ID. Send `limit` and `offset` to get a page with `count`, `next`, `previous`, and `results`. Without `limit`, the response is an array of all accessible channels.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/tasks/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "TasksChannelListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/task_channels/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/task_channels/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelListResponseShape2",
+            "effectiveDescription": "Response shape for a task channel, read from a frozen ``ChannelDTO``.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for a task channel, read from a frozen ``ChannelDTO``.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelListResponseShape2",
+            "field": "system_role",
+            "effectiveDescription": "Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.\n\n* `personal` - Personal\n* `general` - General",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifies this channel as one of the two system-provisioned spaces ('personal' for the user's own #me space, 'general' for the team's shared #general space). Null for an ordinary channel.\n\n* `personal` - Personal\n* `general` - General",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape2/properties/system_role"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "TasksChannelListResponseShape3",
+            "effectiveDescription": "Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/tasks.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
