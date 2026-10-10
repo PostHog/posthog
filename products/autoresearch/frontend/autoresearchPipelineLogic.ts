@@ -754,7 +754,7 @@ export interface autoresearchPipelineLogicMeta {
         ) => ScoringCoverage | null
         coverageSummary: (
             runs: AutoresearchRunApi[],
-            estimate: ScoringCoverage | null,
+            scoringCoverage: ScoringCoverage | null,
             pipeline: AutoresearchPipelineApi | null
         ) => CoverageSummary | null
         coverageHistory: (runs: AutoresearchRunApi[]) => CoveragePoint[]
@@ -1315,10 +1315,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (s) => [s.runs, s.scoringCoverage, s.pipeline],
             (
                 runs: AutoresearchRunApi[],
-                estimate: ScoringCoverage | null,
+                scoringCoverage: ScoringCoverage | null,
                 pipeline: AutoresearchPipelineApi | null
             ): CoverageSummary | null =>
-                coverageSummary(runs, estimate?.rescoreDays ?? Math.max(pipeline?.cadence_days ?? 1, 1)),
+                coverageSummary(runs, scoringCoverage?.rescoreDays ?? Math.max(pipeline?.cadence_days ?? 1, 1)),
         ],
         coverageHistory: [(s) => [s.runs], (runs: AutoresearchRunApi[]): CoveragePoint[] => coverageHistory(runs)],
         latestChampionPerformance: [
