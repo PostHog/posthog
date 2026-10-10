@@ -1,1 +1,1 @@
-0167_signalscoutrun_team_new_idx
+0168_signalscoutconfig_mcp_tool_grants
