@@ -357,6 +357,11 @@ class FeatureFlag(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMix
         return self._v1_filters().get("holdout", None)
 
     @property
+    def early_exit(self) -> bool:
+        "If True, evaluation stops at the first condition whose properties match, also when the user falls outside its rollout"
+        return bool(self._v1_filters().get("early_exit", False))
+
+    @property
     def _payloads(self):
         return self._v1_filters().get("payloads", {}) or {}
 
