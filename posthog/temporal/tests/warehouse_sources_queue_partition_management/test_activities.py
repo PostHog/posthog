@@ -346,6 +346,7 @@ async def test_activity_uses_partition_role_and_drops_worker_owned_partitions_as
         result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
 
     assert [c.args[0] for c in connect.call_args_list] == expected_urls
+    assert all(c.kwargs["prepare_threshold"] is None for c in connect.call_args_list)
     assert (OLD_STATUS_PART in result["dropped"]) is expect_dropped
     assert owner_conn.dropped == ([OLD_STATUS_PART] if expect_dropped else [])
     assert result["success"] is expect_dropped
