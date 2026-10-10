@@ -1,0 +1,65 @@
+{
+    "method": "logs.logsAlertsDestroy",
+    "toolName": "logs-alerts-destroy",
+    "operationId": "logs_alerts_destroy",
+    "title": "Delete log alert",
+    "category": "Logs",
+    "description": "Permanently delete a log alert configuration by ID.",
+    "requiredScopes": ["logs:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsAlertsDestroyInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-destroy.ts",
+        "declaration": "dist/generated/logs/logs-alerts-destroy.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsAlertsDestroyOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-destroy.ts",
+        "declaration": "dist/generated/logs/logs-alerts-destroy.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsAlertsDestroyData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-destroy.ts",
+            "declaration": "dist/generated/logs/logs-alerts-destroy.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Permanently delete a log alert configuration by ID.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/logs/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsAlertsDestroyInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this logs alert configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this logs alert configuration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

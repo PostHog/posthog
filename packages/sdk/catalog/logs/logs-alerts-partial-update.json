@@ -1,0 +1,1514 @@
+{
+    "method": "logs.logsAlertsPartialUpdate",
+    "toolName": "logs-alerts-partial-update",
+    "operationId": "logs_alerts_partial_update",
+    "title": "Update log alert",
+    "category": "Logs",
+    "description": "Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust thresholds, filters, quiet hours, enable/disable alerts, or snooze them.",
+    "requiredScopes": ["logs:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsAlertsPartialUpdateInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-partial-update.ts",
+        "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsAlertsPartialUpdateOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-partial-update.ts",
+        "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema7",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema8",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema9",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema10",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema11",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema13",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema14",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema15",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema12",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema12Variant1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema12Variant2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema12Variant3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema12Variant4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema12Variant5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema16",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema17",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema18",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema19",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema20",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema21",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroup",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant7",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant8",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant9",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant10",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant11",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant13",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant12",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant14",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant15",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant16",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant17",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant18",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant19",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant20",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant21",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant22",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant23",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant24",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant25",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant26",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant27",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2FilterGroupVariant1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema22",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema23",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema24",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema25",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema26",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema27",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema29",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema28",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema28Variant1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateRequestSchema30",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape7",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape8",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape9",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape10",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape11",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape12",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape13",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape15",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape14",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape16",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape17",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape18",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape19",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape20",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape21",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape22",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape23",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape24",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape25",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape26",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape27",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape28",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape29",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape31",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateResponseShape30",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsPartialUpdateData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-partial-update.ts",
+            "declaration": "dist/generated/logs/logs-alerts-partial-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust thresholds, filters, quiet hours, enable/disable alerts, or snooze them.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/logs/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateRequest_Schema23",
+            "effectiveDescription": "* `above` - Above\n* `below` - Below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `above` - Above\n* `below` - Below",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema23"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateRequest_Schema29",
+            "field": "start",
+            "effectiveDescription": "Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema29/properties/start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateRequest_Schema29",
+            "field": "end",
+            "effectiveDescription": "End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema29/properties/end"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this logs alert configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this logs alert configuration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "name",
+            "effectiveDescription": "Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "enabled",
+            "effectiveDescription": "Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "filters",
+            "effectiveDescription": "Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "threshold_count",
+            "effectiveDescription": "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "threshold_operator",
+            "effectiveDescription": "Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "window_minutes",
+            "effectiveDescription": "Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "evaluation_periods",
+            "effectiveDescription": "Total number of check periods in the sliding evaluation window for firing (M in N-of-M).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of check periods in the sliding evaluation window for firing (M in N-of-M).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "datapoints_to_alarm",
+            "effectiveDescription": "How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "cooldown_minutes",
+            "effectiveDescription": "Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "schedule_restriction",
+            "effectiveDescription": "Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateInput",
+            "field": "snooze_until",
+            "effectiveDescription": "ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape5",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape5/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape6",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape6/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape9",
+            "field": "type",
+            "effectiveDescription": "Top-level columns on the persons table (e.g. created_at), not properties JSON",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top-level columns on the persons table (e.g. created_at), not properties JSON",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape9/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape16",
+            "field": "type",
+            "effectiveDescription": "Event property with \"$feature/\" prepended",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property with \"$feature/\" prepended",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape16/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape17",
+            "field": "key",
+            "effectiveDescription": "The key should be the flag ID",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The key should be the flag ID",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape17/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape17",
+            "field": "operator",
+            "effectiveDescription": "Only flag_evaluates_to operator is allowed for flag dependencies",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only flag_evaluates_to operator is allowed for flag dependencies",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape17/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape17",
+            "field": "type",
+            "effectiveDescription": "Feature flag dependency",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Feature flag dependency",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape17/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape17",
+            "field": "value",
+            "effectiveDescription": "The value can be true, false, or a variant name",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The value can be true, false, or a variant name",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape17/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape27",
+            "field": "type",
+            "effectiveDescription": "Customer analytics account custom property — the key is the property definition id",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Customer analytics account custom property — the key is the property definition id",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape27/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape29",
+            "field": "event_filters",
+            "effectiveDescription": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape29/properties/event_filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape29",
+            "field": "explicit_datetime",
+            "effectiveDescription": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape29/properties/explicit_datetime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape29",
+            "field": "key",
+            "effectiveDescription": "Event name, or action id when event_type is 'actions'",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, or action id when event_type is 'actions'",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape29/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape29",
+            "field": "negation",
+            "effectiveDescription": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape29/properties/negation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape29",
+            "field": "operator",
+            "effectiveDescription": "Count comparison for performed_event_multiple, defaults to exact",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count comparison for performed_event_multiple, defaults to exact",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape29/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape29",
+            "field": "operator_value",
+            "effectiveDescription": "Count threshold for performed_event_multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count threshold for performed_event_multiple",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape29/properties/operator_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape29",
+            "field": "time_value",
+            "effectiveDescription": "Relative time window size, paired with time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative time window size, paired with time_interval",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape29/properties/time_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape29",
+            "field": "type",
+            "effectiveDescription": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape29/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape30",
+            "field": "blocked_windows",
+            "effectiveDescription": "Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape30/properties/blocked_windows"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape31",
+            "field": "start",
+            "effectiveDescription": "Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape31/properties/start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateResponseShape31",
+            "field": "end",
+            "effectiveDescription": "End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape31/properties/end"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "id",
+            "effectiveDescription": "Unique identifier for this alert.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier for this alert.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "name",
+            "effectiveDescription": "Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "enabled",
+            "effectiveDescription": "Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "state",
+            "effectiveDescription": "Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.\n\n* `not_firing` - Not firing\n* `firing` - Firing\n* `pending_resolve` - Pending resolve\n* `errored` - Errored\n* `snoozed` - Snoozed\n* `broken` - Broken",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.\n\n* `not_firing` - Not firing\n* `firing` - Firing\n* `pending_resolve` - Pending resolve\n* `errored` - Errored\n* `snoozed` - Snoozed\n* `broken` - Broken",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "filters",
+            "effectiveDescription": "Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "threshold_count",
+            "effectiveDescription": "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/threshold_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "threshold_operator",
+            "effectiveDescription": "Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/threshold_operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "window_minutes",
+            "effectiveDescription": "Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/window_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "check_interval_minutes",
+            "effectiveDescription": "How often the alert is evaluated, in minutes. Server-managed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How often the alert is evaluated, in minutes. Server-managed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/check_interval_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "evaluation_periods",
+            "effectiveDescription": "Total number of check periods in the sliding evaluation window for firing (M in N-of-M).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of check periods in the sliding evaluation window for firing (M in N-of-M).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/evaluation_periods"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "datapoints_to_alarm",
+            "effectiveDescription": "How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/datapoints_to_alarm"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "cooldown_minutes",
+            "effectiveDescription": "Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/cooldown_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "schedule_restriction",
+            "effectiveDescription": "Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/schedule_restriction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "snooze_until",
+            "effectiveDescription": "ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 timestamp until which the alert is snoozed. Set to null to unsnooze.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/snooze_until"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "next_check_at",
+            "effectiveDescription": "When the next evaluation is scheduled. Server-managed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the next evaluation is scheduled. Server-managed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/next_check_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "last_notified_at",
+            "effectiveDescription": "When the last notification was sent. Server-managed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the last notification was sent. Server-managed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/last_notified_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "last_checked_at",
+            "effectiveDescription": "When the alert was last evaluated. Server-managed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the alert was last evaluated. Server-managed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/last_checked_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "consecutive_failures",
+            "effectiveDescription": "Number of consecutive evaluation failures. Resets on success. Server-managed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of consecutive evaluation failures. Resets on success. Server-managed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/consecutive_failures"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "last_error_message",
+            "effectiveDescription": "Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error message from the most recent errored check, or null if the alert's most recent check was successful. Sourced from LogsAlertEvent without denormalization so retention-aware cleanup rules stay the only source of truth.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/last_error_message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "created_at",
+            "effectiveDescription": "When the alert was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the alert was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsPartialUpdateData",
+            "field": "updated_at",
+            "effectiveDescription": "When the alert was last modified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the alert was last modified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

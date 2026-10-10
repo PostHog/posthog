@@ -1,0 +1,213 @@
+{
+    "method": "featureFlags.status",
+    "toolName": "feature-flags-status-retrieve",
+    "operationId": "feature_flags_status_retrieve",
+    "title": "Get feature flag status",
+    "category": "Feature flags",
+    "description": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`. To scan the whole project for stale flags, use `feature-flag-get-all` with `active: \"STALE\"`. That filter does not return a never-called flag with an empty `groups` list in `filters`, even when this tool calls it stale.",
+    "requiredScopes": ["feature_flag:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/feature-flags/client.ts",
+    "input": {
+        "name": "FeatureFlagsStatusInput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/status.ts",
+        "declaration": "dist/generated/feature-flags/status.d.ts"
+    },
+    "output": {
+        "name": "FeatureFlagsStatusOutput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/status.ts",
+        "declaration": "dist/generated/feature-flags/status.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FeatureFlagsStatusDataRollout",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/status.ts",
+            "declaration": "dist/generated/feature-flags/status.d.ts"
+        },
+        {
+            "name": "FeatureFlagsStatusData",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/status.ts",
+            "declaration": "dist/generated/feature-flags/status.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.\n\nIf you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1{id}~1status~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`. To scan the whole project for stale flags, use `feature-flag-get-all` with `active: \"STALE\"`. That filter does not return a never-called flag with an empty `groups` list in `filters`, even when this tool calls it stale.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/feature_flags/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FeatureFlagsStatusInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this feature flag.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this feature flag.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1{id}~1status~1/get/parameters/0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsStatusData",
+            "field": "status",
+            "effectiveDescription": "Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving state, and this response carries no serving-state field: read the `active` field of the flag itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted reports 'active', because disabled flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Staleness classification: active, stale, archived, deleted, or unknown. This is not the serving state, and this response carries no serving-state field: read the `active` field of the flag itself from the list or retrieve endpoint. A disabled flag that is not archived or deleted reports 'active', because disabled flags are not evaluated for staleness. 'active' also does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagStatusResponse/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsStatusData",
+            "field": "reason",
+            "effectiveDescription": "Human-readable explanation of the status",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable explanation of the status",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagStatusResponse/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsStatusData",
+            "field": "reason_states_rollout",
+            "effectiveDescription": "True when `reason` already describes the flag's rollout, which happens when the status was reached from the configuration rather than from evaluation data. A caller that narrates the rollout separately should stay quiet rather than repeat it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when `reason` already describes the flag's rollout, which happens when the status was reached from the configuration rather than from evaluation data. A caller that narrates the rollout separately should stay quiet rather than repeat it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagStatusResponse/properties/reason_states_rollout"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsStatusData",
+            "field": "rollout",
+            "effectiveDescription": "Summary of the flag's rollout configuration, for determining whether it is fully rolled out.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Summary of the flag's rollout configuration, for determining whether it is fully rolled out.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagStatusResponse/properties/rollout"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsStatusData",
+            "field": "rollout.effectively_full_rollout",
+            "effectiveDescription": "True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters, or there are no release conditions. For multivariate flags it means every release condition a user can reach, up to the first one at 100% with no property filters, serves the same variant. In a flag of either type that mixes person and group aggregation, only a person-level condition counts as that 100% condition. This is the signal for 'fully rolled out' / GA, unlike `status`, which only reflects recent evaluation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters, or there are no release conditions. For multivariate flags it means every release condition a user can reach, up to the first one at 100% with no property filters, serves the same variant. In a flag of either type that mixes person and group aggregation, only a person-level condition counts as that 100% condition. This is the signal for 'fully rolled out' / GA, unlike `status`, which only reflects recent evaluation.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagRolloutSummary/properties/effectively_full_rollout"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsStatusData",
+            "field": "rollout.has_targeting_conditions",
+            "effectiveDescription": "True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. This says nothing about which condition produced `max_rollout_percentage`: the two fields are computed independently over the whole condition list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagRolloutSummary/properties/has_targeting_conditions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsStatusData",
+            "field": "rollout.max_rollout_percentage",
+            "effectiveDescription": "Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. The maximum can come from an untargeted condition even when `has_targeting_conditions` is true, so it cannot be attributed to a targeted condition or read as a share of a targeted segment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Highest rollout percentage (0-100) across the flag's release conditions, treating a missing percentage as 100. Null when the flag has no release conditions. The maximum can come from an untargeted condition even when `has_targeting_conditions` is true, so it cannot be attributed to a targeted condition or read as a share of a targeted segment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagRolloutSummary/properties/max_rollout_percentage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsStatusData",
+            "field": "rollout.is_multivariate",
+            "effectiveDescription": "True if the flag serves multiple variants (has a multivariate variant set).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True if the flag serves multiple variants (has a multivariate variant set).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagRolloutSummary/properties/is_multivariate"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "feature-flag-get-all",
+            "method": "featureFlags.list"
+        }
+    ]
+}

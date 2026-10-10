@@ -1,0 +1,436 @@
+{
+    "method": "featureFlags.featureFlagsCopyFlagsCreate",
+    "toolName": "feature-flags-copy-flags-create",
+    "title": "Copy feature flag across projects",
+    "category": "Feature flags",
+    "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too; existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of successful and failed copies.",
+    "requiredScopes": ["feature_flag:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/feature-flags/client.ts",
+    "input": {
+        "name": "FeatureFlagsFeatureFlagsCopyFlagsCreateInput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/feature-flags-copy-flags-create.ts",
+        "declaration": "dist/generated/feature-flags/feature-flags-copy-flags-create.d.ts"
+    },
+    "output": {
+        "name": "FeatureFlagsFeatureFlagsCopyFlagsCreateOutput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/feature-flags-copy-flags-create.ts",
+        "declaration": "dist/generated/feature-flags/feature-flags-copy-flags-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FeatureFlagsFeatureFlagsCopyFlagsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-copy-flags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-copy-flags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsCopyFlagsCreateRequestSchema1",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-copy-flags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-copy-flags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsCopyFlagsCreateRequestSchema2",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-copy-flags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-copy-flags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsCopyFlagsCreateRequestSchema3",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-copy-flags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-copy-flags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-copy-flags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-copy-flags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape3",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-copy-flags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-copy-flags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsCopyFlagsCreateData",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-copy-flags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-copy-flags-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too; existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of successful and failed copies.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/feature_flags/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateInput",
+            "field": "feature_flag_key",
+            "effectiveDescription": "Key of the feature flag to copy",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the feature flag to copy",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/properties/feature_flag_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateInput",
+            "field": "from_project",
+            "effectiveDescription": "Source project ID to copy the flag from",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source project ID to copy the flag from",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/properties/from_project"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateInput",
+            "field": "target_project_ids",
+            "effectiveDescription": "List of target project IDs to copy the flag to",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of target project IDs to copy the flag to",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/properties/target_project_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateInput",
+            "field": "copy_schedule",
+            "effectiveDescription": "Whether to also copy scheduled changes for this flag",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to also copy scheduled changes for this flag",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/properties/copy_schedule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateInput",
+            "field": "disable_copied_flag",
+            "effectiveDescription": "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/properties/disable_copied_flag"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateInput",
+            "field": "copy_dependencies",
+            "effectiveDescription": "Whether to also copy missing feature flags that this flag depends on",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to also copy missing feature flags that this flag depends on",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/properties/copy_dependencies"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "field": "id",
+            "effectiveDescription": "ID of the created feature flag",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the created feature flag",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "field": "key",
+            "effectiveDescription": "Key of the feature flag",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the feature flag",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Name of the feature flag",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the feature flag",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "field": "active",
+            "effectiveDescription": "Whether the flag is active",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the flag is active",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/active"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "field": "team_id",
+            "effectiveDescription": "Team ID the flag was copied to",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Team ID the flag was copied to",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/team_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "field": "updated_existing",
+            "effectiveDescription": "True when a flag with the same key already existed in the target project and was overwritten with the copied configuration, false when a new flag was created",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when a flag with the same key already existed in the target project and was overwritten with the copied configuration, false when a new flag was created",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/updated_existing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "field": "flag_dependency_warnings",
+            "effectiveDescription": "Warnings for flag dependencies that were dropped because no matching active flag exists in the target project",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warnings for flag dependencies that were dropped because no matching active flag exists in the target project",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/flag_dependency_warnings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "field": "schedule_copy_warning",
+            "effectiveDescription": "Warning emitted when schedules failed to copy or existing target schedules may affect the copied flag",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warning emitted when schedules failed to copy or existing target schedules may affect the copied flag",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/schedule_copy_warning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "field": "copied_dependency_keys",
+            "effectiveDescription": "Dependency flag keys that were copied before this flag",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dependency flag keys that were copied before this flag",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/copied_dependency_keys"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape2",
+            "field": "dependency_copy_warnings",
+            "effectiveDescription": "Warnings emitted while copying dependency flags",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warnings emitted while copying dependency flags",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/dependency_copy_warnings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape3",
+            "field": "project_id",
+            "effectiveDescription": "Project ID (present on failure)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project ID (present on failure)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape3/properties/project_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape3",
+            "field": "error_message",
+            "effectiveDescription": "Error message (present on failure)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error message (present on failure)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape3/properties/error_message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape3",
+            "field": "approval_pending",
+            "effectiveDescription": "True when the copy was not applied because the target project's approval policy requires approval; a change request has been created and the copy will apply once approved",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the copy was not applied because the target project's approval policy requires approval; a change request has been created and the copy will apply once approved",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape3/properties/approval_pending"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateResponseShape3",
+            "field": "change_request_id",
+            "effectiveDescription": "ID of the pending change request created in the target project (present when approval_pending is true)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the pending change request created in the target project (present when approval_pending is true)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape3/properties/change_request_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateData",
+            "field": "success",
+            "effectiveDescription": "List of successfully copied flags",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of successfully copied flags",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape1/properties/success"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyFlagsCreateData",
+            "field": "failed",
+            "effectiveDescription": "List of failed copy attempts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of failed copy attempts",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape1/properties/failed"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

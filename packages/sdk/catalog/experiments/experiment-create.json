@@ -1,0 +1,2430 @@
+{
+    "method": "experiments.experimentCreate",
+    "toolName": "experiment-create",
+    "operationId": "experiments_create",
+    "title": "Create experiment",
+    "category": "Experiments",
+    "description": "RULES (follow before calling):\n1. Load the creating-experiments skill for the full\n   creation workflow.\n\n2. If the user mentions a rollout percentage (e.g. \"25%\"),\n   load the configuring-experiment-rollout skill and\n   ask the user to clarify BEFORE calling this tool.\n   A percentage is always ambiguous — it can mean a\n   variant split change OR an overall rollout change.\n\n3. Do NOT pass metrics on creation. Create the draft\n   first, then add metrics via experiment-update. Use\n   the configuring-experiment-analytics skill for\n   metric guidance.\n\n4. If experiment-setup-context is available, call it\n   first and use its facts to choose bucketing,\n   exposure and metrics.\n\n\nCreates a new experiment in draft status (ignore the \"type\" param, since no-code/toolbar experiments must be created in the PostHog UI). Requires name and feature_flag_key. Feature flag is auto-created — do not create one separately, except for device-id bucketing, which this tool cannot set: create the flag first with `create-feature-flag`. Defaults: 50/50 control/test, 100% rollout, the team's default stats method. Launch the experiment with the launch tool when ready. The description accepts at most 3,000 characters and longer text is rejected, so keep the hypothesis summary short.",
+    "requiredScopes": ["experiment:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentCreateInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-create.ts",
+        "declaration": "dist/generated/experiments/experiment-create.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentCreateOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-create.ts",
+        "declaration": "dist/generated/experiments/experiment-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema0",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema6",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema8",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema4Item",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema15",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema16",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema18",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema14",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema13",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema11",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema11Variant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema19",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema21",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema23",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema10",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema25",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema28",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema29",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema30",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema27",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema27Variant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema31",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema32",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema33",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema26",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema26Variant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema36",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema37",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema38",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema40",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema41",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema42",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema43",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema44",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema45",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema46",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema47",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema48",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema50",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema51",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema52",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema49",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema49Variant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema49Variant2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema49Variant3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema49Variant4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema49Variant5",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema53",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema54",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema55",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema56",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema57",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema58",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant5",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant6",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant7",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant8",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant9",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant11",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant10",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant12",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant13",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant14",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant15",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant16",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant17",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant18",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant19",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant20",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant21",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant22",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant23",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant24",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema39Variant25",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema35",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema35Variant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema59",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema60",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema61",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema63",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema64",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema65",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema66",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema67",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema68",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema69",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema70",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema71",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema73",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema74",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema75",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema72",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema72Variant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema72Variant2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema72Variant3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema72Variant4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema72Variant5",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema76",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema77",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema78",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema79",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema80",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema81",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant5",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant6",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant7",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant8",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant9",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant11",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant10",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant12",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant13",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant14",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant15",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant16",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant17",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant18",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant19",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant20",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant21",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant22",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant23",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant24",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema62Variant25",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema82",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema34",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema34Variant2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema34Variant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema83",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema85",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateRequestSchema84",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateResponseShape18",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateResponseShape17",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateResponseShape69",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateResponseShape70",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateResponseShape68",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateResponseShape25",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateResponseShape71",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateResponseShape59",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateResponseShape72",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateResponseShape67",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create.ts",
+            "declaration": "dist/generated/experiments/experiment-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create a new experiment in draft status with optional metrics.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "RULES (follow before calling):\n1. Load the creating-experiments skill for the full\n   creation workflow.\n\n2. If the user mentions a rollout percentage (e.g. \"25%\"),\n   load the configuring-experiment-rollout skill and\n   ask the user to clarify BEFORE calling this tool.\n   A percentage is always ambiguous — it can mean a\n   variant split change OR an overall rollout change.\n\n3. Do NOT pass metrics on creation. Create the draft\n   first, then add metrics via experiment-update. Use\n   the configuring-experiment-analytics skill for\n   metric guidance.\n\n4. If experiment-setup-context is available, call it\n   first and use its facts to choose bucketing,\n   exposure and metrics.\n\n\nCreates a new experiment in draft status (ignore the \"type\" param, since no-code/toolbar experiments must be created in the PostHog UI). Requires name and feature_flag_key. Feature flag is auto-created — do not create one separately, except for device-id bucketing, which this tool cannot set: create the flag first with `create-feature-flag`. Defaults: 50/50 control/test, 100% rollout, the team's default stats method. Launch the experiment with the launch tool when ready. The description accepts at most 3,000 characters and longer text is rejected, so keep the hypothesis summary short.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema1",
+            "effectiveDescription": "Flag config for experiment create/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Flag config for experiment create/update, sent through the linked feature flag's own shape.\n\nValidated both as the OpenAPI request field (via ``ExperimentWriteSerializer``) and at runtime\n(``ExperimentSerializer._normalize_feature_flag_input`` runs it against the raw feature_flag\nobject). Echoed read-only flag objects (carrying a non-null id) are handled upstream and never\nreach this validation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema2",
+            "effectiveDescription": "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Flag config to apply: `multivariate.variants` (2 to 20 variants; the baseline defaults to the variant keyed 'control' when present, else the first variant), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema4",
+            "effectiveDescription": "Overall rollout as a single group: [{\"properties\": [], \"rollout_percentage\": N}].",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Overall rollout as a single group: [{\"properties\": [], \"rollout_percentage\": N}].",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema4",
+            "field": "[]",
+            "effectiveDescription": "A single release-condition group carrying only the overall rollout percentage, the one\ngroups entry the experiment input applies.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A single release-condition group carrying only the overall rollout percentage, the one\ngroups entry the experiment input applies.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema5/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema6",
+            "effectiveDescription": "Percentage of users who enter the experiment (0-100).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage of users who enter the experiment (0-100).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema8",
+            "effectiveDescription": "Must be empty or omitted: release-condition properties are not supported via the experiment input. Edit the feature flag directly for targeting.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Must be empty or omitted: release-condition properties are not supported via the experiment input. Edit the feature flag directly for targeting.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema11",
+            "effectiveDescription": "Multivariate variant configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Multivariate variant configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema13",
+            "effectiveDescription": "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Variant definitions (2 to 20). The baseline defaults to the variant keyed 'control' when present, else the first variant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema14",
+            "effectiveDescription": "A single multivariate variant. Extra per-variant keys are dropped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A single multivariate variant. Extra per-variant keys are dropped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema15",
+            "effectiveDescription": "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique variant key. The baseline defaults to the variant keyed 'control' when present, else the first variant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema16",
+            "effectiveDescription": "Human-readable variant name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable variant name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema18",
+            "effectiveDescription": "Variant rollout percentage (0-100). Across variants these must sum to 100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Variant rollout percentage (0-100). Across variants these must sum to 100.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema19",
+            "effectiveDescription": "Group type index for group-based feature flags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index for group-based feature flags.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema19"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema21",
+            "effectiveDescription": "Optional payload values keyed by variant key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional payload values keyed by variant key.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema21"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateRequest_Schema23",
+            "effectiveDescription": "Whether the flag persists variant assignment across authentication steps.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the flag persists variant assignment across authentication steps.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema23"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateInput",
+            "field": "name",
+            "effectiveDescription": "Name of the experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateInput",
+            "field": "description",
+            "effectiveDescription": "Description of the experiment hypothesis and expected outcomes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Description of the experiment hypothesis and expected outcomes.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateInput",
+            "field": "feature_flag_key",
+            "effectiveDescription": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateInput",
+            "field": "feature_flag",
+            "effectiveDescription": "Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag's own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as \"A/B\", \"old/new\", \"original/redesign\", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag, in the flag's own filters shape. This is the canonical input for flag config. If the user mentions a specific percentage, load the configuring-experiment-rollout skill and clarify before setting these values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100) to customize the variant split. Set filters.groups to a single group [{\"properties\": [], \"rollout_percentage\": N}] (0-100) to control the overall fraction of users entering the experiment. Default: 50/50 control/test, 100% rollout. Omit this parameter entirely when feature_flag_key refers to a pre-existing flag: the experiment links to that flag as-is and explicit config is rejected. No specific variant key is required. The analysis baseline defaults to the variant keyed `control` (lowercase) when present, else the first variant; override with stats_config.baseline_variant_key. Convention: when the user describes variants as \"A/B\", \"old/new\", \"original/redesign\", or any other natural-language pair without naming explicit keys, key the baseline `control` and keep their wording in the variant `name`. When the user asks for specific keys, use them as-is and put the baseline first.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/experiments/mcp/tools.yaml",
+                        "pointer": "/tools/experiment-create/param_overrides/feature_flag"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateInput",
+            "field": "holdout_id",
+            "effectiveDescription": "ID of a holdout group to exclude from the experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of a holdout group to exclude from the experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateInput",
+            "field": "running_time_calculation",
+            "effectiveDescription": "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. When minimum_detectable_effect is omitted, the project's default MDE is stored instead, if the project has one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. When minimum_detectable_effect is omitted, the project's default MDE is stored instead, if the project has one.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/experiments/mcp/tools.yaml",
+                        "pointer": "/tools/experiment-create/param_overrides/running_time_calculation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateInput",
+            "field": "exposure_criteria",
+            "effectiveDescription": "Exposure configuration including filter test accounts and custom exposure events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exposure configuration including filter test accounts and custom exposure events.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateInput",
+            "field": "allow_unknown_events",
+            "effectiveDescription": "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateInput",
+            "field": "tags",
+            "effectiveDescription": "Organizational tags for this experiment (up to 100, 255 characters each).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Organizational tags for this experiment (up to 100, 255 characters each).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape17",
+            "field": "exposure_estimate_config",
+            "effectiveDescription": "How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape17/properties/exposure_estimate_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape17",
+            "field": "minimum_detectable_effect",
+            "effectiveDescription": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape17/properties/minimum_detectable_effect"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape17",
+            "field": "recommended_running_time",
+            "effectiveDescription": "Estimated number of days needed to reach the recommended sample size.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Estimated number of days needed to reach the recommended sample size.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape17/properties/recommended_running_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape17",
+            "field": "recommended_sample_size",
+            "effectiveDescription": "Recommended number of exposed users needed for statistical significance.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Recommended number of exposed users needed for statistical significance.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape17/properties/recommended_sample_size"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape18",
+            "field": "conversionRateInputType",
+            "effectiveDescription": "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape18/properties/conversionRateInputType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape18",
+            "field": "manualBaselineValue",
+            "effectiveDescription": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape18/properties/manualBaselineValue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape18",
+            "field": "manualExposureRate",
+            "effectiveDescription": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape18/properties/manualExposureRate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape18",
+            "field": "manualMetricType",
+            "effectiveDescription": "Metric type the manual baseline value refers to. Only used in manual mode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Metric type the manual baseline value refers to. Only used in manual mode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape18/properties/manualMetricType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "breakdownAttributionType",
+            "effectiveDescription": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/breakdownAttributionType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "breakdownAttributionValue",
+            "effectiveDescription": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/breakdownAttributionValue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "breakdownFilter",
+            "effectiveDescription": "Break the metric results down by up to 3 event, person, session or group properties.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Break the metric results down by up to 3 event, person, session or group properties.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/breakdownFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "completion_event",
+            "effectiveDescription": "For retention metrics: completion event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For retention metrics: completion event.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/completion_event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "conversion_window",
+            "effectiveDescription": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/conversion_window"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "conversion_window_unit",
+            "effectiveDescription": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/conversion_window_unit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "denominator",
+            "effectiveDescription": "For ratio metrics: denominator source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: denominator source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/denominator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "denominator_outlier_handling",
+            "effectiveDescription": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/denominator_outlier_handling"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "funnel_order_type",
+            "effectiveDescription": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/funnel_order_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "goal",
+            "effectiveDescription": "Whether higher or lower values indicate success.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether higher or lower values indicate success.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/goal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "ignore_zeros",
+            "effectiveDescription": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/ignore_zeros"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "lower_bound_percentile",
+            "effectiveDescription": "For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/lower_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "name",
+            "effectiveDescription": "Human-readable metric name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable metric name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "numerator",
+            "effectiveDescription": "For ratio metrics: numerator source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: numerator source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/numerator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "numerator_outlier_handling",
+            "effectiveDescription": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/numerator_outlier_handling"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "series",
+            "effectiveDescription": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/series"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "source",
+            "effectiveDescription": "For mean metrics: event source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: event source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "start_event",
+            "effectiveDescription": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/start_event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "threshold",
+            "effectiveDescription": "For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "upper_bound_percentile",
+            "effectiveDescription": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/upper_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape67",
+            "field": "uuid",
+            "effectiveDescription": "Unique identifier. Auto-generated if omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier. Auto-generated if omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape68",
+            "field": "breakdown_limit",
+            "effectiveDescription": "Maximum number of breakdown values to compute results for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of breakdown values to compute results for.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape68/properties/breakdown_limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape68",
+            "field": "breakdowns",
+            "effectiveDescription": "Properties to break the metric results down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties to break the metric results down by.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape68/properties/breakdowns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape69",
+            "field": "property",
+            "effectiveDescription": "Property name to break down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property name to break down by.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape69/properties/property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape69",
+            "field": "type",
+            "effectiveDescription": "Where the property lives. Defaults to 'event'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the property lives. Defaults to 'event'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape69/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape70",
+            "field": "group_type_index",
+            "effectiveDescription": "Which group type the property belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which group type the property belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape70/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape70",
+            "field": "property",
+            "effectiveDescription": "Property name to break down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property name to break down by.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape70/properties/property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape71",
+            "field": "event",
+            "effectiveDescription": "Event name, e.g. '$pageview'. Required for EventsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, e.g. '$pageview'. Required for EventsNode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape71",
+            "field": "id",
+            "effectiveDescription": "Action ID. Required for ActionsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action ID. Required for ActionsNode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape71",
+            "field": "math",
+            "effectiveDescription": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape71",
+            "field": "math_group_type_index",
+            "effectiveDescription": "Group type index to aggregate over. Required when math is 'unique_group'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index to aggregate over. Required when math is 'unique_group'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/math_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape71",
+            "field": "math_hogql",
+            "effectiveDescription": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/math_hogql"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape71",
+            "field": "math_property",
+            "effectiveDescription": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/math_property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape71",
+            "field": "properties",
+            "effectiveDescription": "Event property filters to narrow which events are counted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property filters to narrow which events are counted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape25",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape25/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape59",
+            "field": "lower_bound_percentile",
+            "effectiveDescription": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape59/properties/lower_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape59",
+            "field": "upper_bound_percentile",
+            "effectiveDescription": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape59/properties/upper_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape72",
+            "field": "event",
+            "effectiveDescription": "Event name, e.g. '$pageview'. Required for EventsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, e.g. '$pageview'. Required for EventsNode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape72",
+            "field": "id",
+            "effectiveDescription": "Action ID. Required for ActionsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action ID. Required for ActionsNode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape72",
+            "field": "kind",
+            "effectiveDescription": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape72",
+            "field": "math",
+            "effectiveDescription": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape72",
+            "field": "math_group_type_index",
+            "effectiveDescription": "Group type index to aggregate over. Required when math is 'unique_group'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index to aggregate over. Required when math is 'unique_group'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/math_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape72",
+            "field": "math_hogql",
+            "effectiveDescription": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/math_hogql"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape72",
+            "field": "math_property",
+            "effectiveDescription": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/math_property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateResponseShape72",
+            "field": "properties",
+            "effectiveDescription": "Event property filters to narrow which events are counted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property filters to narrow which events are counted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "name",
+            "effectiveDescription": "Name of the experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the experiment.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "description",
+            "effectiveDescription": "Description of the experiment hypothesis and expected outcomes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Description of the experiment hypothesis and expected outcomes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "type",
+            "effectiveDescription": "Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "feature_flag_key",
+            "effectiveDescription": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/feature_flag_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "status",
+            "effectiveDescription": "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "archived",
+            "effectiveDescription": "Whether the experiment is archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the experiment is archived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/archived"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "running_time_calculation",
+            "effectiveDescription": "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/running_time_calculation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "metrics",
+            "effectiveDescription": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "metrics_secondary",
+            "effectiveDescription": "Secondary metrics for additional measurements. Same format as primary metrics.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Secondary metrics for additional measurements. Same format as primary metrics.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/metrics_secondary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "conclusion",
+            "effectiveDescription": "Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/conclusion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "conclusion_comment",
+            "effectiveDescription": "Comment about the experiment conclusion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comment about the experiment conclusion.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/conclusion_comment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "tags",
+            "effectiveDescription": "Organizational tags for this experiment (up to 100, 255 characters each).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Organizational tags for this experiment (up to 100, 255 characters each).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "create-feature-flag",
+            "method": "featureFlags.create"
+        }
+    ]
+}

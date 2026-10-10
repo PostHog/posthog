@@ -1,0 +1,352 @@
+{
+    "method": "logs.logsAlertsDestinationsCreate",
+    "toolName": "logs-alerts-destinations-create",
+    "operationId": "logs_alerts_destinations_create",
+    "title": "Attach alert destination",
+    "category": "Logs",
+    "description": "Attach a Slack, webhook, Microsoft Teams, or PagerDuty notification destination to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved. The returned hog_function_ids identify the destination group.",
+    "requiredScopes": ["logs:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsAlertsDestinationsCreateInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+        "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsAlertsDestinationsCreateOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+        "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsAlertsDestinationsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsDestinationsCreateRequestSchema1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsDestinationsCreateRequestSchema2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsDestinationsCreateRequestSchema3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsDestinationsCreateRequestSchema4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsDestinationsCreateRequestSchema5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsDestinationsCreateRequestSchema6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsDestinationsCreateInputType",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsDestinationsCreateData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-destinations-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-destinations-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1logs~1alerts~1{id}~1destinations~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Attach a Slack, webhook, Microsoft Teams, or PagerDuty notification destination to a log alert. Without a destination an alert evaluates silently and never notifies. One HogFunction is created per event kind (firing, resolved, broken, errored) atomically. A PagerDuty destination gets the incident opened and incident closed kinds instead. They follow every start and end of a firing, cooldown included, so each incident it opens is resolved. The returned hog_function_ids identify the destination group.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/logs/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateRequest_Schema5",
+            "effectiveDescription": "* `critical` - critical\n* `error` - error\n* `warning` - warning\n* `info` - info",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `critical` - critical\n* `error` - error\n* `warning` - warning\n* `info` - info",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateRequest_Schema6",
+            "effectiveDescription": "* `us` - us\n* `eu` - eu",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `us` - us\n* `eu` - eu",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this logs alert configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this logs alert configuration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/destinations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateInput",
+            "field": "type",
+            "effectiveDescription": "Destination type. Use slack, webhook, teams, or pagerduty. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url. PagerDuty requires pagerduty_routing_key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notification destination type.\n\n* `slack` - slack\n* `webhook` - webhook\n* `teams` - teams\n* `pagerduty` - pagerduty",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Destination type. Use slack, webhook, teams, or pagerduty. Slack requires slack_workspace_id and slack_channel_id. Webhook and teams require webhook_url. PagerDuty requires pagerduty_routing_key.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/logs/mcp/tools.yaml",
+                        "pointer": "/tools/logs-alerts-destinations-create/param_overrides/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateInput",
+            "field": "slack_workspace_id",
+            "effectiveDescription": "Slack workspace integration ID. Required when type is slack.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integration ID for the Slack workspace. Required when type=slack.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Slack workspace integration ID. Required when type is slack.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/logs/mcp/tools.yaml",
+                        "pointer": "/tools/logs-alerts-destinations-create/param_overrides/slack_workspace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateInput",
+            "field": "slack_channel_id",
+            "effectiveDescription": "Slack channel ID. Required when type is slack.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel ID. Required when type=slack.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Slack channel ID. Required when type is slack.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/logs/mcp/tools.yaml",
+                        "pointer": "/tools/logs-alerts-destinations-create/param_overrides/slack_channel_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateInput",
+            "field": "slack_channel_name",
+            "effectiveDescription": "Optional Slack channel name used for display.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable channel name for display.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Optional Slack channel name used for display.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/logs/mcp/tools.yaml",
+                        "pointer": "/tools/logs-alerts-destinations-create/param_overrides/slack_channel_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateInput",
+            "field": "webhook_url",
+            "effectiveDescription": "Required when type is webhook or teams.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HTTPS endpoint to post to. Required for webhook and teams.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Required when type is webhook or teams.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/logs/mcp/tools.yaml",
+                        "pointer": "/tools/logs-alerts-destinations-create/param_overrides/webhook_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateInput",
+            "field": "pagerduty_routing_key",
+            "effectiveDescription": "The 32-character integration key of an Events API v2 integration on the PagerDuty service. Required when type is pagerduty.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "The 32-character integration key of an Events API v2 integration on the PagerDuty service. Required when type is pagerduty.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/logs/mcp/tools.yaml",
+                        "pointer": "/tools/logs-alerts-destinations-create/param_overrides/pagerduty_routing_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateInput",
+            "field": "pagerduty_severity",
+            "effectiveDescription": "Incident severity for PagerDuty. One of critical, error, warning, info. Defaults to critical.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Severity PagerDuty records on the incident. Used when type=pagerduty.\n\n* `critical` - critical\n* `error` - error\n* `warning` - warning\n* `info` - info",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Incident severity for PagerDuty. One of critical, error, warning, info. Defaults to critical.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/logs/mcp/tools.yaml",
+                        "pointer": "/tools/logs-alerts-destinations-create/param_overrides/pagerduty_severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsDestinationsCreateInput",
+            "field": "pagerduty_region",
+            "effectiveDescription": "PagerDuty service region, us or eu. Defaults to us.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PagerDuty service region of the account. Used when type=pagerduty.\n\n* `us` - us\n* `eu` - eu",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "PagerDuty service region, us or eu. Defaults to us.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/logs/mcp/tools.yaml",
+                        "pointer": "/tools/logs-alerts-destinations-create/param_overrides/pagerduty_region"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

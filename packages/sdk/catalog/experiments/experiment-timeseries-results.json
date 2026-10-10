@@ -1,0 +1,121 @@
+{
+    "method": "experiments.experimentTimeseriesResults",
+    "toolName": "experiment-timeseries-results",
+    "operationId": "experiments_timeseries_results_retrieve",
+    "title": "Get experiment metric results over time",
+    "category": "Experiments",
+    "description": "Only for the day-by-day history of a SINGLE metric — how its results moved over the course of the experiment. For an experiment's current results across all metrics, which is what \"how is this experiment doing\" almost always means, use experiment-metrics-recalculation-latest-retrieve instead.\n\nRequires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array — each metric has a uuid and the fingerprint is computed from its configuration), so you generally need to fetch the experiment first.\n\nReturns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day, overall status (\"pending\", \"completed\", \"partial\", \"failed\"), computed_at timestamp, and recalculation_status if a recalculation is in progress.",
+    "requiredScopes": ["experiment:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentTimeseriesResultsInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-timeseries-results.ts",
+        "declaration": "dist/generated/experiments/experiment-timeseries-results.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentTimeseriesResultsOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-timeseries-results.ts",
+        "declaration": "dist/generated/experiments/experiment-timeseries-results.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentTimeseriesResultsData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-timeseries-results.ts",
+            "declaration": "dist/generated/experiments/experiment-timeseries-results.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.\n\nIntercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate\ndecorator on serializer methods and converts them into the same responses the viewset path\nproduces (see decorators._result_to_response), so both paths share one contract.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1{id}~1timeseries_results~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Only for the day-by-day history of a SINGLE metric — how its results moved over the course of the experiment. For an experiment's current results across all metrics, which is what \"how is this experiment doing\" almost always means, use experiment-metrics-recalculation-latest-retrieve instead.\n\nRequires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array — each metric has a uuid and the fingerprint is computed from its configuration), so you generally need to fetch the experiment first.\n\nReturns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day, overall status (\"pending\", \"completed\", \"partial\", \"failed\"), computed_at timestamp, and recalculation_status if a recalculation is in progress.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentTimeseriesResultsInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/timeseries_results/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentTimeseriesResultsInput",
+            "field": "fingerprint",
+            "effectiveDescription": "Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/timeseries_results/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentTimeseriesResultsInput",
+            "field": "metric_uuid",
+            "effectiveDescription": "UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/timeseries_results/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentTimeseriesResultsData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

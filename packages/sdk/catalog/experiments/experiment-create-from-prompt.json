@@ -1,0 +1,1142 @@
+{
+    "method": "experiments.experimentCreateFromPrompt",
+    "toolName": "experiment-create-from-prompt",
+    "operationId": "experiments_create_from_prompt_create",
+    "title": "Create experiment from LLM prompt",
+    "category": "Experiments",
+    "description": "Create a draft experiment that compares versions of an existing LLM prompt (managed with the llma-prompt tools). Pass the prompt's exact name (call llma-prompt-list to discover names), two or more of its version numbers (the first entry becomes the control variant), and one or more metric templates — call experiment-prompt-templates for the allowed template keys. Builds one variant per version, each carrying a feature flag payload with the prompt name and version so the SDK can resolve which version to serve, and attaches one primary metric per template, scoped to the prompt. The feature flag is auto-created — do not create one separately. Launch the experiment with the launch tool when ready. The description accepts at most 3,000 characters and longer text is rejected, so keep the hypothesis summary short.",
+    "requiredScopes": ["experiment:write", "llm_prompt:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentCreateFromPromptInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+        "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentCreateFromPromptOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+        "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentCreateFromPromptRequestSchema0",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptRequestSchema1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptRequestSchema2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptRequestSchema3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptRequestSchema4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptResponseShape69",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptResponseShape70",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptResponseShape68",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptResponseShape25",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptResponseShape71",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptResponseShape59",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptResponseShape72",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentCreateFromPromptData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-create-from-prompt.ts",
+            "declaration": "dist/generated/experiments/experiment-create-from-prompt.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create an experiment that compares N versions of an LLM prompt using a metric template.\n\nThe user picks 2+ versions of an existing LLMPrompt and 1+ metric templates\n(cost / latency / eval_pass_rate). The endpoint builds the matching variants\n(control + test-N, each named after its prompt version) and attaches one\nmetric per selected template, each scoped to the prompt's $ai_prompt_name.\nResulting experiment is in draft state.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1create_from_prompt~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Create a draft experiment that compares versions of an existing LLM prompt (managed with the llma-prompt tools). Pass the prompt's exact name (call llma-prompt-list to discover names), two or more of its version numbers (the first entry becomes the control variant), and one or more metric templates — call experiment-prompt-templates for the allowed template keys. Builds one variant per version, each carrying a feature flag payload with the prompt name and version so the SDK can resolve which version to serve, and attaches one primary metric per template, scoped to the prompt. The feature flag is auto-created — do not create one separately. Launch the experiment with the launch tool when ready. The description accepts at most 3,000 characters and longer text is rejected, so keep the hypothesis summary short.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptRequest_Schema1",
+            "effectiveDescription": "* `cost` - cost\n* `latency` - latency\n* `eval_pass_rate` - eval_pass_rate",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `cost` - cost\n* `latency` - latency\n* `eval_pass_rate` - eval_pass_rate",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptInput",
+            "field": "prompt_name",
+            "effectiveDescription": "The name of the LLM prompt to experiment on. Must already exist for this team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The name of the LLM prompt to experiment on. Must already exist for this team.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/create_from_prompt/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptInput",
+            "field": "versions",
+            "effectiveDescription": "Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ordered list of prompt version numbers to assign to experiment variants. The first entry is the control variant. Must contain between 2 and 10 distinct versions.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/create_from_prompt/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptInput",
+            "field": "templates",
+            "effectiveDescription": "One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One or more metric templates to attach as primary metrics. Each template becomes one metric on the experiment. Allowed values: cost, latency, eval_pass_rate.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/create_from_prompt/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptInput",
+            "field": "name",
+            "effectiveDescription": "Optional experiment name. If omitted, a name is generated from the prompt and versions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional experiment name. If omitted, a name is generated from the prompt and versions.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/create_from_prompt/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptInput",
+            "field": "feature_flag_key",
+            "effectiveDescription": "Optional feature flag key. If omitted, a slug is derived from the experiment name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional feature flag key. If omitted, a slug is derived from the experiment name.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/create_from_prompt/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptInput",
+            "field": "description",
+            "effectiveDescription": "Optional experiment description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional experiment description.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/create_from_prompt/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "breakdownAttributionType",
+            "effectiveDescription": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/breakdownAttributionType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "breakdownAttributionValue",
+            "effectiveDescription": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/breakdownAttributionValue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "breakdownFilter",
+            "effectiveDescription": "Break the metric results down by up to 3 event, person, session or group properties.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Break the metric results down by up to 3 event, person, session or group properties.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/breakdownFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "completion_event",
+            "effectiveDescription": "For retention metrics: completion event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For retention metrics: completion event.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/completion_event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "conversion_window",
+            "effectiveDescription": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/conversion_window"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "conversion_window_unit",
+            "effectiveDescription": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/conversion_window_unit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "denominator",
+            "effectiveDescription": "For ratio metrics: denominator source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: denominator source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/denominator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "denominator_outlier_handling",
+            "effectiveDescription": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/denominator_outlier_handling"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "funnel_order_type",
+            "effectiveDescription": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/funnel_order_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "goal",
+            "effectiveDescription": "Whether higher or lower values indicate success.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether higher or lower values indicate success.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/goal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "ignore_zeros",
+            "effectiveDescription": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/ignore_zeros"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "lower_bound_percentile",
+            "effectiveDescription": "For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/lower_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "name",
+            "effectiveDescription": "Human-readable metric name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable metric name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "numerator",
+            "effectiveDescription": "For ratio metrics: numerator source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: numerator source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/numerator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "numerator_outlier_handling",
+            "effectiveDescription": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/numerator_outlier_handling"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "series",
+            "effectiveDescription": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/series"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "source",
+            "effectiveDescription": "For mean metrics: event source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: event source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "start_event",
+            "effectiveDescription": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/start_event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "threshold",
+            "effectiveDescription": "For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "upper_bound_percentile",
+            "effectiveDescription": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/upper_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape67",
+            "field": "uuid",
+            "effectiveDescription": "Unique identifier. Auto-generated if omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier. Auto-generated if omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape67/properties/uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape68",
+            "field": "breakdown_limit",
+            "effectiveDescription": "Maximum number of breakdown values to compute results for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of breakdown values to compute results for.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape68/properties/breakdown_limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape68",
+            "field": "breakdowns",
+            "effectiveDescription": "Properties to break the metric results down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties to break the metric results down by.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape68/properties/breakdowns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape69",
+            "field": "property",
+            "effectiveDescription": "Property name to break down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property name to break down by.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape69/properties/property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape69",
+            "field": "type",
+            "effectiveDescription": "Where the property lives. Defaults to 'event'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the property lives. Defaults to 'event'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape69/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape70",
+            "field": "group_type_index",
+            "effectiveDescription": "Which group type the property belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which group type the property belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape70/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape70",
+            "field": "property",
+            "effectiveDescription": "Property name to break down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property name to break down by.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape70/properties/property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape71",
+            "field": "event",
+            "effectiveDescription": "Event name, e.g. '$pageview'. Required for EventsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, e.g. '$pageview'. Required for EventsNode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape71",
+            "field": "id",
+            "effectiveDescription": "Action ID. Required for ActionsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action ID. Required for ActionsNode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape71",
+            "field": "math",
+            "effectiveDescription": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape71",
+            "field": "math_group_type_index",
+            "effectiveDescription": "Group type index to aggregate over. Required when math is 'unique_group'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index to aggregate over. Required when math is 'unique_group'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/math_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape71",
+            "field": "math_hogql",
+            "effectiveDescription": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/math_hogql"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape71",
+            "field": "math_property",
+            "effectiveDescription": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/math_property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape71",
+            "field": "properties",
+            "effectiveDescription": "Event property filters to narrow which events are counted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property filters to narrow which events are counted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape71/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape25",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape25/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape59",
+            "field": "lower_bound_percentile",
+            "effectiveDescription": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape59/properties/lower_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape59",
+            "field": "upper_bound_percentile",
+            "effectiveDescription": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape59/properties/upper_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape72",
+            "field": "event",
+            "effectiveDescription": "Event name, e.g. '$pageview'. Required for EventsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, e.g. '$pageview'. Required for EventsNode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape72",
+            "field": "id",
+            "effectiveDescription": "Action ID. Required for ActionsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action ID. Required for ActionsNode.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape72",
+            "field": "kind",
+            "effectiveDescription": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape72",
+            "field": "math",
+            "effectiveDescription": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape72",
+            "field": "math_group_type_index",
+            "effectiveDescription": "Group type index to aggregate over. Required when math is 'unique_group'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index to aggregate over. Required when math is 'unique_group'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/math_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape72",
+            "field": "math_hogql",
+            "effectiveDescription": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/math_hogql"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape72",
+            "field": "math_property",
+            "effectiveDescription": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/math_property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptResponseShape72",
+            "field": "properties",
+            "effectiveDescription": "Event property filters to narrow which events are counted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property filters to narrow which events are counted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape72/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "name",
+            "effectiveDescription": "Name of the experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the experiment.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "description",
+            "effectiveDescription": "Description of the experiment hypothesis and expected outcomes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Description of the experiment hypothesis and expected outcomes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "type",
+            "effectiveDescription": "Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "feature_flag_key",
+            "effectiveDescription": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/feature_flag_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "status",
+            "effectiveDescription": "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "archived",
+            "effectiveDescription": "Whether the experiment is archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the experiment is archived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/archived"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "metrics",
+            "effectiveDescription": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "metrics_secondary",
+            "effectiveDescription": "Secondary metrics for additional measurements. Same format as primary metrics.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Secondary metrics for additional measurements. Same format as primary metrics.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/metrics_secondary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "conclusion",
+            "effectiveDescription": "Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/conclusion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "conclusion_comment",
+            "effectiveDescription": "Comment about the experiment conclusion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comment about the experiment conclusion.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/conclusion_comment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCreateFromPromptData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

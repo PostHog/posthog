@@ -1,0 +1,139 @@
+{
+    "method": "logs.logsAlertsEventsList",
+    "toolName": "logs-alerts-events-list",
+    "operationId": "logs_alerts_events_list",
+    "title": "List alert events",
+    "category": "Logs",
+    "description": "List historical events for a log alert — fires, resolves, errors, enable/disable toggles, threshold changes. Use to evaluate how an existing alert has behaved (firing cadence, error rate, flap pattern) before tuning thresholds. Quiet no-op check rows are filtered out server-side. Optional `kind` query param narrows to a single event kind.",
+    "requiredScopes": ["logs:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsAlertsEventsListInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-events-list.ts",
+        "declaration": "dist/generated/logs/logs-alerts-events-list.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsAlertsEventsListOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-events-list.ts",
+        "declaration": "dist/generated/logs/logs-alerts-events-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsAlertsEventsListRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-events-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-events-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsEventsListRequestSchema1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-events-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-events-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsEventsListDataResultsItem",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-events-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-events-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsEventsListData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-events-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-events-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Paginated event history for this alert, newest first. Returns state transitions, errored checks, and user-initiated control-plane rows (reset, enable/disable, snooze/unsnooze, threshold change) — quiet no-op check rows (where state didn't change and there was no error) are filtered out since only the last 10 are kept and they carry no forensic value. Optional `?kind=...` narrows to a single kind.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1logs~1alerts~1{id}~1events~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List historical events for a log alert — fires, resolves, errors, enable/disable toggles, threshold changes. Use to evaluate how an existing alert has behaved (firing cadence, error rate, flap pattern) before tuning thresholds. Quiet no-op check rows are filtered out server-side. Optional `kind` query param narrows to a single event kind.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/logs/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsAlertsEventsListInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this logs alert configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this logs alert configuration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsEventsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsEventsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/{id}/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsEventsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

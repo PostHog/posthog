@@ -1,0 +1,450 @@
+{
+    "method": "logs.logsCountRanges",
+    "toolName": "logs-count-ranges",
+    "operationId": "logs_count_ranges_create",
+    "title": "Count logs by time bucket",
+    "category": "Logs",
+    "description": "Get adaptive-interval bucket counts for a filtered log stream. Returns a flat list of `{date_from, date_to, count}` buckets covering the requested window. Modeled on Elasticsearch's `auto_date_histogram` — caller specifies a target bucket count, the engine picks the interval.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"serviceNames\": [\"api\"], \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nUse this to find **where the volume is concentrated** before pulling rows. Cheaper than `query-logs`, more agent-friendly than `logs-sparkline-query` (each bucket carries explicit `date_from`/`date_to` you can feed straight back as the next call's `dateRange` to drill in).\n\n# When to use this vs other tools\n\n- **`logs-count`** — total volume in a window. Scalar.\n- **`logs-count-ranges`** (this tool) — _when_ in the window the volume sits. Time-bucketed.\n- **`query-logs`** — pull individual log rows. Most expensive; only call after counts confirm the window is right-sized.\n\n# Recursion pattern (the main reason this tool exists)\n\nUse the response to narrow into a sub-range without reasoning about interval width:\n\n1. Call `logs-count-ranges` with the user's window (e.g. last 24h).\n2. Pick the bucket(s) of interest (densest, an obvious spike, an unexpectedly empty stretch).\n3. Call `logs-count-ranges` again with that bucket's `date_from` and `date_to` as the next `dateRange`.\n4. Repeat up to ~3–4 levels — stop when buckets are shorter than your precision goal (e.g. 1 minute).\n5. Once narrowed, call `query-logs` for the actual rows.\n\nThis is the same pattern Elasticsearch users follow with `auto_date_histogram`. Keep recursion shallow — every call is cheap individually but they multiply quickly.\n\n# Parameters\n\n## query.dateRange\n\nWindow to bucket. Defaults to the last hour (`-1h`). Same format as `query-logs`.\n\n## query.targetBuckets\n\nApproximate bucket count. Defaults to **10**, max 100. The engine picks the interval adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target — actual count may differ slightly. Empty buckets are dropped, so the response can have fewer rows than `targetBuckets`.\n\nPick a value based on what you're doing:\n\n- **10** (default) — overview, finding spikes, \"is this concentrated or spread out?\"\n- **20–30** — characterising a known busy window\n- **50+** — high-resolution drill-down, only when you know the window is small\n\n## query.severityLevels, query.serviceNames, query.searchTerm, query.filterGroup\n\nSame shape as `query-logs`. Applied **before** bucketing.\n\n# Response\n\n```json\n{\n  \"ranges\": [\n    { \"date_from\": \"2026-04-26T00:00:00Z\", \"date_to\": \"2026-04-26T02:24:00Z\", \"count\": 1024 },\n    { \"date_from\": \"2026-04-26T02:24:00Z\", \"date_to\": \"2026-04-26T04:48:00Z\", \"count\": 47 }\n  ],\n  \"interval\": \"2h\"\n}\n```\n\n- `ranges` — buckets ordered by `date_from` ascending. **Empty buckets are omitted** — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`.\n- `interval` — short-form duration of the chosen bucket width (`1s` / `5m` / `1h` / `1d`). Informational only — for follow-up queries, use the per-bucket `date_from`/`date_to`.\n\n# Examples\n\n## Find when errors spiked over the last day\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"targetBuckets\": 24,\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"]\n  }\n}\n```\n\n## Drill into the densest hour from a previous call\n\nAfter picking the densest bucket from the response above (say `{date_from: \"2026-04-26T15:00:00Z\", date_to: \"2026-04-26T16:00:00Z\", count: 894}`):\n\n```json\n{\n  \"query\": {\n    \"dateRange\": {\n      \"date_from\": \"2026-04-26T15:00:00Z\",\n      \"date_to\": \"2026-04-26T16:00:00Z\"\n    },\n    \"targetBuckets\": 12,\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"]\n  }\n}\n```\n\n# Reminders\n\n- Cap recursion at ~3–4 levels. If your bucket width drops below your precision goal (e.g. 1 minute), stop and call `query-logs`.\n- Empty windows return `{\"ranges\": [], \"interval\": \"...\"}` — that's not an error, it's \"I asked, nothing matched.\"\n- Always include `serviceNames` or a resource attribute filter, just like `query-logs`. Don't bucket the entire team's log stream.",
+    "requiredScopes": ["logs:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsCountRangesInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-count-ranges.ts",
+        "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsCountRangesOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-count-ranges.ts",
+        "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsCountRangesRequestSchema2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema6Item",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema8",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema10",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema12ItemType",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema12ItemOperator",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema12Item",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema12",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesRequestSchema14",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesInputQuery",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesResponseShape2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        },
+        {
+            "name": "LogsLogsCountRangesData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-count-ranges.ts",
+            "declaration": "dist/generated/logs/logs-count-ranges.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Get adaptive-interval bucket counts for a filtered log stream. Returns a flat list of `{date_from, date_to, count}` buckets covering the requested window. Modeled on Elasticsearch's `auto_date_histogram` — caller specifies a target bucket count, the engine picks the interval.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"serviceNames\": [\"api\"], \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nUse this to find **where the volume is concentrated** before pulling rows. Cheaper than `query-logs`, more agent-friendly than `logs-sparkline-query` (each bucket carries explicit `date_from`/`date_to` you can feed straight back as the next call's `dateRange` to drill in).\n\n# When to use this vs other tools\n\n- **`logs-count`** — total volume in a window. Scalar.\n- **`logs-count-ranges`** (this tool) — _when_ in the window the volume sits. Time-bucketed.\n- **`query-logs`** — pull individual log rows. Most expensive; only call after counts confirm the window is right-sized.\n\n# Recursion pattern (the main reason this tool exists)\n\nUse the response to narrow into a sub-range without reasoning about interval width:\n\n1. Call `logs-count-ranges` with the user's window (e.g. last 24h).\n2. Pick the bucket(s) of interest (densest, an obvious spike, an unexpectedly empty stretch).\n3. Call `logs-count-ranges` again with that bucket's `date_from` and `date_to` as the next `dateRange`.\n4. Repeat up to ~3–4 levels — stop when buckets are shorter than your precision goal (e.g. 1 minute).\n5. Once narrowed, call `query-logs` for the actual rows.\n\nThis is the same pattern Elasticsearch users follow with `auto_date_histogram`. Keep recursion shallow — every call is cheap individually but they multiply quickly.\n\n# Parameters\n\n## query.dateRange\n\nWindow to bucket. Defaults to the last hour (`-1h`). Same format as `query-logs`.\n\n## query.targetBuckets\n\nApproximate bucket count. Defaults to **10**, max 100. The engine picks the interval adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target — actual count may differ slightly. Empty buckets are dropped, so the response can have fewer rows than `targetBuckets`.\n\nPick a value based on what you're doing:\n\n- **10** (default) — overview, finding spikes, \"is this concentrated or spread out?\"\n- **20–30** — characterising a known busy window\n- **50+** — high-resolution drill-down, only when you know the window is small\n\n## query.severityLevels, query.serviceNames, query.searchTerm, query.filterGroup\n\nSame shape as `query-logs`. Applied **before** bucketing.\n\n# Response\n\n```json\n{\n  \"ranges\": [\n    { \"date_from\": \"2026-04-26T00:00:00Z\", \"date_to\": \"2026-04-26T02:24:00Z\", \"count\": 1024 },\n    { \"date_from\": \"2026-04-26T02:24:00Z\", \"date_to\": \"2026-04-26T04:48:00Z\", \"count\": 47 }\n  ],\n  \"interval\": \"2h\"\n}\n```\n\n- `ranges` — buckets ordered by `date_from` ascending. **Empty buckets are omitted** — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`.\n- `interval` — short-form duration of the chosen bucket width (`1s` / `5m` / `1h` / `1d`). Informational only — for follow-up queries, use the per-bucket `date_from`/`date_to`.\n\n# Examples\n\n## Find when errors spiked over the last day\n\n```json\n{\n  \"query\": {\n    \"dateRange\": { \"date_from\": \"-1d\" },\n    \"targetBuckets\": 24,\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"]\n  }\n}\n```\n\n## Drill into the densest hour from a previous call\n\nAfter picking the densest bucket from the response above (say `{date_from: \"2026-04-26T15:00:00Z\", date_to: \"2026-04-26T16:00:00Z\", count: 894}`):\n\n```json\n{\n  \"query\": {\n    \"dateRange\": {\n      \"date_from\": \"2026-04-26T15:00:00Z\",\n      \"date_to\": \"2026-04-26T16:00:00Z\"\n    },\n    \"targetBuckets\": 12,\n    \"serviceNames\": [\"api-gateway\"],\n    \"severityLevels\": [\"error\", \"fatal\"]\n  }\n}\n```\n\n# Reminders\n\n- Cap recursion at ~3–4 levels. If your bucket width drops below your precision goal (e.g. 1 minute), stop and call `query-logs`.\n- Empty windows return `{\"ranges\": [], \"interval\": \"...\"}` — that's not an error, it's \"I asked, nothing matched.\"\n- Always include `serviceNames` or a resource attribute filter, just like `query-logs`. Don't bucket the entire team's log stream.",
+            "source": {
+                "kind": "description_file",
+                "file": "products/logs/mcp/prompts/logs-count-ranges.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema0",
+            "effectiveDescription": "Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema0",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema1/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema0",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema1/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema4",
+            "effectiveDescription": "Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Approximate number of buckets to return. The bucket interval is picked adaptively from a fixed list (1/5/10s, 1/2/5/10/15/30/60/120/240/360/720/1440m) to land near this target. Defaults to 10, capped at 100.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema6",
+            "effectiveDescription": "Filter by log severity levels. Applied before bucketing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by log severity levels. Applied before bucketing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema6",
+            "field": "[]",
+            "effectiveDescription": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema7/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema8",
+            "effectiveDescription": "Filter by service names. Applied before bucketing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by service names. Applied before bucketing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema10",
+            "effectiveDescription": "Full-text search across log bodies. Applied before bucketing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full-text search across log bodies. Applied before bucketing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema12",
+            "effectiveDescription": "Property filters applied before bucketing. Same shape as `query-logs`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters applied before bucketing. Same shape as `query-logs`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema12",
+            "field": "[].key",
+            "effectiveDescription": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema13/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema12",
+            "field": "[].type",
+            "effectiveDescription": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema13/items/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema12",
+            "field": "[].operator",
+            "effectiveDescription": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema13/items/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesRequest_Schema12",
+            "field": "[].value",
+            "effectiveDescription": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema13/items/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesInput",
+            "field": "query",
+            "effectiveDescription": "The bucketed-count query to execute.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The bucketed-count query to execute.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/count-ranges/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesResponseShape2",
+            "field": "date_from",
+            "effectiveDescription": "Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket start as ISO 8601 timestamp. Inclusive lower bound. Pass back as `dateRange.date_from` to drill in.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesResponseShape2",
+            "field": "date_to",
+            "effectiveDescription": "Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket end as ISO 8601 timestamp. Exclusive upper bound. Pass back as `dateRange.date_to` to drill in.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesResponseShape2",
+            "field": "count",
+            "effectiveDescription": "Log entries matching the filters within this bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Log entries matching the filters within this bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesData",
+            "field": "ranges",
+            "effectiveDescription": "Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Buckets ordered by `date_from` ascending. Empty buckets are omitted — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/ranges"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsCountRangesData",
+            "field": "interval",
+            "effectiveDescription": "Short-form duration of the chosen bucket width (e.g. \"1h\", \"5m\", \"30s\", \"1d\"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short-form duration of the chosen bucket width (e.g. \"1h\", \"5m\", \"30s\", \"1d\"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/interval"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-logs",
+            "method": "logs.queryLogs"
+        },
+        {
+            "toolName": "logs-sparkline-query",
+            "method": "logs.logsSparklineQuery"
+        },
+        {
+            "toolName": "logs-count",
+            "method": "logs.logsCount"
+        }
+    ]
+}

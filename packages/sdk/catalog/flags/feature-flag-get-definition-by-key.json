@@ -1,0 +1,389 @@
+{
+    "method": "flags.featureFlagGetDefinitionByKey",
+    "toolName": "feature-flag-get-definition-by-key",
+    "title": "Get feature flag definition by key",
+    "category": "Feature flags",
+    "description": "Get a feature flag by its string key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the key but not the numeric ID; use `feature-flag-get-definition` when you have the numeric ID. Archived flags are included and come back with `archived: true`.",
+    "requiredScopes": ["feature_flag:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/flags/client.ts",
+    "input": {
+        "name": "FlagsFeatureFlagGetDefinitionByKeyInput",
+        "importPath": "@posthog/sdk/flags",
+        "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+        "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+    },
+    "output": {
+        "name": "FlagsFeatureFlagGetDefinitionByKeyOutput",
+        "importPath": "@posthog/sdk/flags",
+        "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+        "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FlagsFeatureFlagGetDefinitionByKeyResponseShape2",
+            "importPath": "@posthog/sdk/flags",
+            "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+            "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+        },
+        {
+            "name": "FlagsFeatureFlagGetDefinitionByKeyResponseShape4",
+            "importPath": "@posthog/sdk/flags",
+            "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+            "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+        },
+        {
+            "name": "FlagsFeatureFlagGetDefinitionByKeyResponseShape3",
+            "importPath": "@posthog/sdk/flags",
+            "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+            "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+        },
+        {
+            "name": "FlagsFeatureFlagGetDefinitionByKeyResponseShape5",
+            "importPath": "@posthog/sdk/flags",
+            "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+            "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+        },
+        {
+            "name": "FlagsFeatureFlagGetDefinitionByKeyResponseShape6",
+            "importPath": "@posthog/sdk/flags",
+            "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+            "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+        },
+        {
+            "name": "FlagsFeatureFlagGetDefinitionByKeyResponseShape7",
+            "importPath": "@posthog/sdk/flags",
+            "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+            "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+        },
+        {
+            "name": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "importPath": "@posthog/sdk/flags",
+            "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+            "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+        },
+        {
+            "name": "FlagsFeatureFlagGetDefinitionByKeyResponseShape8",
+            "importPath": "@posthog/sdk/flags",
+            "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+            "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+        },
+        {
+            "name": "FlagsFeatureFlagGetDefinitionByKeyData",
+            "importPath": "@posthog/sdk/flags",
+            "source": "src/generated/flags/feature-flag-get-definition-by-key.ts",
+            "declaration": "dist/generated/flags/feature-flag-get-definition-by-key.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get a feature flag by its string key (e.g. \"new-checkout\") — the identifier used in code and shown in the UI. Use this when you have the key but not the numeric ID; use `feature-flag-get-definition` when you have the numeric ID. Archived flags are included and come back with `archived: true`.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/feature-flag-get-definition-by-key/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyInput",
+            "field": "key",
+            "effectiveDescription": "The feature flag key: the string identifier used in code (e.g. \"new-checkout\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The feature flag key: the string identifier used in code (e.g. \"new-checkout\").",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "name",
+            "effectiveDescription": "contains the description for the flag (field name `name` is kept for backwards-compatibility)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "contains the description for the flag (field name `name` is kept for backwards-compatibility)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "archived",
+            "effectiveDescription": "Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/archived"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "tags[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/tags/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "evaluation_contexts[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/evaluation_contexts/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "usage_dashboard",
+            "effectiveDescription": "Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/usage_dashboard"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "creation_context",
+            "effectiveDescription": "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.\n\n* `feature_flags` - feature_flags\n* `experiments` - experiments\n* `surveys` - surveys\n* `early_access_features` - early_access_features\n* `web_experiments` - web_experiments\n* `product_tours` - product_tours",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/creation_context"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "status",
+            "effectiveDescription": "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "evaluation_runtime",
+            "effectiveDescription": "Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/evaluation_runtime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "bucketing_identifier",
+            "effectiveDescription": "Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/bucketing_identifier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "last_called_at",
+            "effectiveDescription": "Last time this feature flag was called (from $feature_flag_called events)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last time this feature flag was called (from $feature_flag_called events)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/last_called_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "is_used_in_replay_settings",
+            "effectiveDescription": "Check if any team gates session recording on this flag, by linked flag or trigger group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Check if any team gates session recording on this flag, by linked flag or trigger group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/is_used_in_replay_settings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape1",
+            "field": "is_eligible_for_experiment",
+            "effectiveDescription": "Whether this flag can back an experiment: multivariate with 2 to 20 variants.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this flag can back an experiment: multivariate with 2 to 20 variants.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/is_eligible_for_experiment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape5",
+            "field": "id",
+            "effectiveDescription": "ID of the experiment linked to this flag.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the experiment linked to this flag.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape5/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape5",
+            "field": "name",
+            "effectiveDescription": "Name of the experiment linked to this flag.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the experiment linked to this flag.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape5/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape5",
+            "field": "is_running",
+            "effectiveDescription": "Whether the experiment is currently running (started and not yet stopped). A running experiment blocks deletion of the linked flag.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the experiment is currently running (started and not yet stopped). A running experiment blocks deletion of the linked flag.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape5/properties/is_running"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FlagsFeatureFlagGetDefinitionByKeyResponseShape8",
+            "effectiveDescription": "The result shape returned when no flag matches `key`. See the file doc comment for why this is data, not a thrown error.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The result shape returned when no flag matches `key`. See the file doc comment for why this is data, not a thrown error.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape8"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "feature-flag-get-definition",
+            "method": "featureFlags.get"
+        }
+    ]
+}

@@ -1,0 +1,836 @@
+{
+    "method": "logs.queryLogs",
+    "toolName": "query-logs",
+    "operationId": "logs_query_create",
+    "title": "Query logs",
+    "category": "Logs",
+    "description": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"serviceNames\": [\"api\"], \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nUse `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.\n\n# Workflow — follow this order every time\n\n1. **Discover services first.** Call `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to see available services.\n2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: \"resource\"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: \"resource\"` for relevant attributes to validate what data exists.\n3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.\n4. **Size the total volume with `logs-count`.** Call `logs-count` with the discovered `serviceNames` and filters. If it exceeds `query-logs`'s max `limit` of 1000 — or if the user's question is about _when_ something happened — continue to step 5.\n5. **Find where the volume sits with `logs-count-ranges`.** Call `logs-count-ranges` to get time-bucketed counts. Each bucket carries explicit `date_from`/`date_to` you can pass straight back as the next call's `dateRange` to drill into a sub-range. Recurse up to 3–4 levels to narrow onto a spike or a specific window. Stop when the bucket width drops below your precision goal (e.g. 1 minute).\n6. **Only then query logs.** Once the count is in range and the window is right-sized, call `query-logs` with `serviceNames` and any additional filters.\n\nMany cheap calls (attribute/value queries, counts, count-ranges) beat one expensive `query-logs`. Prefer thorough exploration over speculative log searches.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nMANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.\n\nMANDATORY: Always pass `query.dateRange` explicitly (e.g. `{ \"date_from\": \"-1h\" }`). Omitting it fails with a 400 `parse_error` (\"Input should be a valid dictionary or instance of DateRange\") — the server does not fall back to a default window.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body or a top-level log column. Use key \"message\" for the body text, or \"pattern\" and \"pattern_version\" (returned by `logs-patterns`), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\".\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-attributes-list` to discover available attribute keys** before building filters.\n- **Use `logs-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\n**Important:** The `logs-attributes-list` and `logs-attribute-values-list` tools default to `attribute_type: \"log\"` (log-level attributes). To search resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`), you must explicitly pass `attribute_type: \"resource\"`. Forgetting this will return log-level attributes when you intended resource-level ones.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Filtering logs by a PostHog person\n\nWhen the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via `log_attribute` filters. The attribute keys are configurable per project (they default to `[\"posthogDistinctId\"]`); read `logs_distinct_id_attribute_keys` from the `/api/projects/:id/logs_config/` endpoint and use those as the filter `key`s.\n\nIf a person has multiple `distinct_ids`, pass the array as the filter `value` with operator `exact` (matches any of them):\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [\n      {\n        \"key\": \"posthogDistinctId\",\n        \"operator\": \"exact\",\n        \"type\": \"log_attribute\",\n        \"value\": [\"<distinct_id_1>\", \"<distinct_id_2>\"]\n      }\n    ]\n  }\n}\n```\n\nEntries in the `filterGroup` array are combined with AND, so never put two distinct-id keys in one call — a log only carries one of them. When the team has multiple keys configured, run one query per key and merge the results.\n\nDo not invent a different attribute key based on what looks plausible — use the configured keys. If the configured keys return zero results, the customer's logs pipeline may not stamp person identity at all; tell the user rather than guessing.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window — pass it on every call. If the question doesn't mention time, use the last hour: `{ \"date_from\": \"-1h\" }`. Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\nThis filter is an **exact match against the response's `severity_text` field** using these six lowercase buckets — it is _not_ a numeric range and _not_ case-insensitive. If a service ingests non-canonical severity strings (e.g. `\"ERROR\"`, `\"Warning\"`, `\"err\"`), `severityLevels: [\"error\"]` will not match them and you will get zero rows. When a severity filter returns nothing unexpectedly, discover the actual stored values with `logs-attribute-values-list { key: \"severity_text\" }` and either filter on the value you find or fall back to a `searchTerm`. See \"Severity fields in the response\" below for the `severity_text` / `severity_number` / `level` mapping.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Required in practice: omitting it fails with a 400 `parse_error`, so always pass it (use `{ \"date_from\": \"-1h\" }` when the question doesn't mention time).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n## query.excludeAttributes\n\nSet `true` to drop the per-log `attributes` and `resource_attributes` maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n# Severity fields in the response\n\nEach returned log row carries three overlapping severity fields. Read and report `severity_text`; treat the other two as redundant:\n\n| Field             | What it is                                                      | Use it for                                                            |\n| ----------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |\n| `severity_text`   | Canonical severity string. **Prefer this.**                     | Filtering (`severityLevels`), grouping, and anything you show a user. |\n| `severity_number` | OpenTelemetry numeric severity (1–24). Redundant with the text. | Sorting by exact severity, or interop with OTel tooling.              |\n| `level`           | ClickHouse alias for `severity_text`. Redundant.                | Ignore — prefer `severity_text`.                                      |\n\n`severity_number` maps to the `severityLevels` buckets by OTel range. Use this when you only have a number and need the bucket, or vice-versa:\n\n| Bucket  | `severity_number` range | Canonical `severity_text` |\n| ------- | ----------------------- | ------------------------- |\n| `trace` | 1–4                     | `trace`                   |\n| `debug` | 5–8                     | `debug`                   |\n| `info`  | 9–12                    | `info`                    |\n| `warn`  | 13–16                   | `warn`                    |\n| `error` | 17–20                   | `error`                   |\n| `fatal` | 21–24                   | `fatal`                   |\n\nWhen the user asks for \"warnings and above\", that is `severityLevels: [\"warn\", \"error\", \"fatal\"]` — there is no numeric `>=` operator on the top-level severity filter.\n\n# If the query fails (500 / timeout)\n\nA `query-logs` call that returns a 500 almost always means the query scanned too much data and timed out server-side — it is rarely a bug in your filters. Do not retry the same call. Instead, narrow and re-size:\n\n1. Shorten `dateRange` (e.g. `-1h` instead of `-1d`).\n2. Add `serviceNames` or a `log_resource_attribute` filter to reduce the scan.\n3. Size the volume with `logs-count`, then locate the busy window with `logs-count-ranges`, before pulling rows again.\n\n# Reminders\n\n- Always set `serviceNames` or a resource attribute filter. Never run a broad unfiltered log query.\n- Limit `dateRange` to at most `-1d` (24 hours) unless the user explicitly requests a longer range.\n- When using `logs-attributes-list` or `logs-attribute-values-list`, remember they default to `attribute_type: \"log\"`. Pass `attribute_type: \"resource\"` to search resource-level attributes.\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-attributes-list` and `logs-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
+    "requiredScopes": ["logs:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsQueryLogsInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/query-logs.ts",
+        "declaration": "dist/generated/logs/query-logs.d.ts"
+    },
+    "output": {
+        "name": "LogsQueryLogsOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/query-logs.ts",
+        "declaration": "dist/generated/logs/query-logs.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsQueryLogsRequestSchema2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema4Item",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema8",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema10",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema15Type",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema16Type",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema16Operator",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema16",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema15",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema12",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema12Variant1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema12Variant2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema14",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema17",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema18",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema20",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema22",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema24",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema26",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsRequestSchema28",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsInputQuery",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsResponseShape4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsResponseShape5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsResponseShape3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        },
+        {
+            "name": "LogsQueryLogsData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/query-logs.ts",
+            "declaration": "dist/generated/logs/query-logs.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"serviceNames\": [\"api\"], \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nUse `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.\n\n# Workflow — follow this order every time\n\n1. **Discover services first.** Call `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to see available services.\n2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: \"resource\"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: \"resource\"` for relevant attributes to validate what data exists.\n3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.\n4. **Size the total volume with `logs-count`.** Call `logs-count` with the discovered `serviceNames` and filters. If it exceeds `query-logs`'s max `limit` of 1000 — or if the user's question is about _when_ something happened — continue to step 5.\n5. **Find where the volume sits with `logs-count-ranges`.** Call `logs-count-ranges` to get time-bucketed counts. Each bucket carries explicit `date_from`/`date_to` you can pass straight back as the next call's `dateRange` to drill into a sub-range. Recurse up to 3–4 levels to narrow onto a spike or a specific window. Stop when the bucket width drops below your precision goal (e.g. 1 minute).\n6. **Only then query logs.** Once the count is in range and the window is right-sized, call `query-logs` with `serviceNames` and any additional filters.\n\nMany cheap calls (attribute/value queries, counts, count-ranges) beat one expensive `query-logs`. Prefer thorough exploration over speculative log searches.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nMANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.\n\nMANDATORY: Always pass `query.dateRange` explicitly (e.g. `{ \"date_from\": \"-1h\" }`). Omitting it fails with a 400 `parse_error` (\"Input should be a valid dictionary or instance of DateRange\") — the server does not fall back to a default window.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body or a top-level log column. Use key \"message\" for the body text, or \"pattern\" and \"pattern_version\" (returned by `logs-patterns`), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\".\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-attributes-list` to discover available attribute keys** before building filters.\n- **Use `logs-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\n**Important:** The `logs-attributes-list` and `logs-attribute-values-list` tools default to `attribute_type: \"log\"` (log-level attributes). To search resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`), you must explicitly pass `attribute_type: \"resource\"`. Forgetting this will return log-level attributes when you intended resource-level ones.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Filtering logs by a PostHog person\n\nWhen the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via `log_attribute` filters. The attribute keys are configurable per project (they default to `[\"posthogDistinctId\"]`); read `logs_distinct_id_attribute_keys` from the `/api/projects/:id/logs_config/` endpoint and use those as the filter `key`s.\n\nIf a person has multiple `distinct_ids`, pass the array as the filter `value` with operator `exact` (matches any of them):\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [\n      {\n        \"key\": \"posthogDistinctId\",\n        \"operator\": \"exact\",\n        \"type\": \"log_attribute\",\n        \"value\": [\"<distinct_id_1>\", \"<distinct_id_2>\"]\n      }\n    ]\n  }\n}\n```\n\nEntries in the `filterGroup` array are combined with AND, so never put two distinct-id keys in one call — a log only carries one of them. When the team has multiple keys configured, run one query per key and merge the results.\n\nDo not invent a different attribute key based on what looks plausible — use the configured keys. If the configured keys return zero results, the customer's logs pipeline may not stamp person identity at all; tell the user rather than guessing.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window — pass it on every call. If the question doesn't mention time, use the last hour: `{ \"date_from\": \"-1h\" }`. Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\nThis filter is an **exact match against the response's `severity_text` field** using these six lowercase buckets — it is _not_ a numeric range and _not_ case-insensitive. If a service ingests non-canonical severity strings (e.g. `\"ERROR\"`, `\"Warning\"`, `\"err\"`), `severityLevels: [\"error\"]` will not match them and you will get zero rows. When a severity filter returns nothing unexpectedly, discover the actual stored values with `logs-attribute-values-list { key: \"severity_text\" }` and either filter on the value you find or fall back to a `searchTerm`. See \"Severity fields in the response\" below for the `severity_text` / `severity_number` / `level` mapping.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Required in practice: omitting it fails with a 400 `parse_error`, so always pass it (use `{ \"date_from\": \"-1h\" }` when the question doesn't mention time).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n## query.excludeAttributes\n\nSet `true` to drop the per-log `attributes` and `resource_attributes` maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n# Severity fields in the response\n\nEach returned log row carries three overlapping severity fields. Read and report `severity_text`; treat the other two as redundant:\n\n| Field             | What it is                                                      | Use it for                                                            |\n| ----------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |\n| `severity_text`   | Canonical severity string. **Prefer this.**                     | Filtering (`severityLevels`), grouping, and anything you show a user. |\n| `severity_number` | OpenTelemetry numeric severity (1–24). Redundant with the text. | Sorting by exact severity, or interop with OTel tooling.              |\n| `level`           | ClickHouse alias for `severity_text`. Redundant.                | Ignore — prefer `severity_text`.                                      |\n\n`severity_number` maps to the `severityLevels` buckets by OTel range. Use this when you only have a number and need the bucket, or vice-versa:\n\n| Bucket  | `severity_number` range | Canonical `severity_text` |\n| ------- | ----------------------- | ------------------------- |\n| `trace` | 1–4                     | `trace`                   |\n| `debug` | 5–8                     | `debug`                   |\n| `info`  | 9–12                    | `info`                    |\n| `warn`  | 13–16                   | `warn`                    |\n| `error` | 17–20                   | `error`                   |\n| `fatal` | 21–24                   | `fatal`                   |\n\nWhen the user asks for \"warnings and above\", that is `severityLevels: [\"warn\", \"error\", \"fatal\"]` — there is no numeric `>=` operator on the top-level severity filter.\n\n# If the query fails (500 / timeout)\n\nA `query-logs` call that returns a 500 almost always means the query scanned too much data and timed out server-side — it is rarely a bug in your filters. Do not retry the same call. Instead, narrow and re-size:\n\n1. Shorten `dateRange` (e.g. `-1h` instead of `-1d`).\n2. Add `serviceNames` or a `log_resource_attribute` filter to reduce the scan.\n3. Size the volume with `logs-count`, then locate the busy window with `logs-count-ranges`, before pulling rows again.\n\n# Reminders\n\n- Always set `serviceNames` or a resource attribute filter. Never run a broad unfiltered log query.\n- Limit `dateRange` to at most `-1d` (24 hours) unless the user explicitly requests a longer range.\n- When using `logs-attributes-list` or `logs-attribute-values-list`, remember they default to `attribute_type: \"log\"`. Pass `attribute_type: \"resource\"` to search resource-level attributes.\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-attributes-list` and `logs-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
+            "source": {
+                "kind": "description_file",
+                "file": "products/logs/mcp/prompts/query-logs.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsQueryLogsRequest_Schema0",
+            "effectiveDescription": "Date range for the query. Defaults to last hour.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query. Defaults to last hour.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema0",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema1/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema0",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema1/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema4",
+            "effectiveDescription": "Filter by log severity levels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by log severity levels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema4",
+            "field": "[]",
+            "effectiveDescription": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema5/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema6",
+            "effectiveDescription": "Filter by service names.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by service names.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema8",
+            "effectiveDescription": "Order results by timestamp.\n\n* `latest` - latest\n* `earliest` - earliest",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Order results by timestamp.\n\n* `latest` - latest\n* `earliest` - earliest",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema10",
+            "effectiveDescription": "Full-text search term to filter log bodies.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full-text search term to filter log bodies.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema12",
+            "effectiveDescription": "Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND/OR groups.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema15",
+            "field": "type",
+            "effectiveDescription": "How to combine the filters in `values`.\n\n* `AND` - AND\n* `OR` - OR",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to combine the filters in `values`.\n\n* `AND` - AND\n* `OR` - OR",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema15/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema15",
+            "field": "values",
+            "effectiveDescription": "Property filters in this group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters in this group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema15/properties/values"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema16",
+            "field": "key",
+            "effectiveDescription": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema16/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema16",
+            "field": "type",
+            "effectiveDescription": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema16/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema16",
+            "field": "operator",
+            "effectiveDescription": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema16/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema16",
+            "field": "value",
+            "effectiveDescription": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema16/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema18",
+            "effectiveDescription": "Max results (1-1000).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Max results (1-1000).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema20",
+            "effectiveDescription": "Pagination cursor from previous response.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pagination cursor from previous response.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema22",
+            "effectiveDescription": "Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema22"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema24",
+            "effectiveDescription": "Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. Values come back on each result row keyed by the aliases echoed in the response `columns` field.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema24"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema26",
+            "effectiveDescription": "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scope results to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema26"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsRequest_Schema28",
+            "effectiveDescription": "Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scope results to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema28"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsInput",
+            "field": "query",
+            "effectiveDescription": "The logs query to execute.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The logs query to execute.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/query/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "timestamp",
+            "effectiveDescription": "ISO 8601 timestamp of the original log event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 timestamp of the original log event.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/timestamp"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "observed_timestamp",
+            "effectiveDescription": "ISO 8601 timestamp the log pipeline observed the event (may differ from `timestamp`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 timestamp the log pipeline observed the event (may differ from `timestamp`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/observed_timestamp"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "severity_text",
+            "effectiveDescription": "Log severity as a string (e.g. \"info\", \"error\"). Preferred over severity_number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Log severity as a string (e.g. \"info\", \"error\"). Preferred over severity_number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/severity_text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "severity_number",
+            "effectiveDescription": "Log severity as a numeric code. Redundant with severity_text; kept for OpenTelemetry compatibility.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Log severity as a numeric code. Redundant with severity_text; kept for OpenTelemetry compatibility.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/severity_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "level",
+            "effectiveDescription": "ClickHouse alias for severity_text. Redundant; prefer severity_text.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ClickHouse alias for severity_text. Redundant; prefer severity_text.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "trace_id",
+            "effectiveDescription": "Trace ID. Returns \"00000000000000000000000000000000\" when not set (padding, not null).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trace ID. Returns \"00000000000000000000000000000000\" when not set (padding, not null).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "span_id",
+            "effectiveDescription": "Span ID. Returns \"0000000000000000\" when not set (padding, not null).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Span ID. Returns \"0000000000000000\" when not set (padding, not null).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/span_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "attributes",
+            "effectiveDescription": "Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/attributes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "resource_attributes",
+            "effectiveDescription": "Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/resource_attributes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "event_name",
+            "effectiveDescription": "OpenTelemetry event name, if set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenTelemetry event name, if set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/event_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "instrumentation_scope",
+            "effectiveDescription": "OpenTelemetry instrumentation scope name. Empty when not set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenTelemetry instrumentation scope name. Empty when not set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/instrumentation_scope"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "resource_fingerprint",
+            "effectiveDescription": "Hash of the resource attributes. Logs from the same pod or host share it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hash of the resource attributes. Logs from the same pod or host share it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/resource_fingerprint"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape3",
+            "field": "live_logs_checkpoint",
+            "effectiveDescription": "Latest timestamp up to which ingestion is known to be complete. The same on every row. Logs newer than it can still arrive.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest timestamp up to which ingestion is known to be complete. The same on every row. Logs newer than it can still arrive.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/live_logs_checkpoint"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape4",
+            "effectiveDescription": "Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Log-level attributes as a string-keyed map. Values are strings (numeric/datetime attributes are also accessible via materialized columns).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsResponseShape5",
+            "effectiveDescription": "Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resource-level attributes (service.name, k8s.*, host.hostname, etc.) as a string-keyed map. Repeats across all logs from the same pod/host.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsQueryLogsData",
+            "field": "results",
+            "effectiveDescription": "Log entries matching the query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Log entries matching the query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "logs-attributes-list",
+            "method": "logs.logsAttributesList"
+        },
+        {
+            "toolName": "logs-attribute-values-list",
+            "method": "logs.logsAttributeValuesList"
+        },
+        {
+            "toolName": "logs-count",
+            "method": "logs.logsCount"
+        },
+        {
+            "toolName": "logs-count-ranges",
+            "method": "logs.logsCountRanges"
+        },
+        {
+            "toolName": "logs-patterns",
+            "method": "logs.logsPatterns"
+        },
+        {
+            "toolName": "persons-retrieve",
+            "method": "persons.personsRetrieve"
+        }
+    ]
+}

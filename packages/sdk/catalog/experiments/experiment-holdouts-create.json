@@ -1,0 +1,1345 @@
+{
+    "method": "experiments.experimentHoldoutsCreate",
+    "toolName": "experiment-holdouts-create",
+    "operationId": "experiment_holdouts_create",
+    "title": "Create experiment holdout",
+    "category": "Experiments",
+    "description": "Create a holdout group — a reserved slice of users excluded from experiment exposure, used as a held-back baseline. Requires name and a non-empty filters array. Link experiments to it afterwards by passing the returned id as holdout_id on experiment-create or experiment-update. Note that you can't change which holdout an experiment points to once that experiment is running; the holdout itself stays editable (see experiment-holdouts-partial-update, whose edits cascade to all linked experiments).",
+    "requiredScopes": ["experiment_holdout:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentHoldoutsCreateInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-holdouts-create.ts",
+        "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentHoldoutsCreateOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-holdouts-create.ts",
+        "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema5",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema6",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema7",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema8",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema10",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema11",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema12",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema13",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema14",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema15",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema16",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema17",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema18",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema19",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema20",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema21",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema22",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema23",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema2Item",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema2ItemVariant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema2ItemVariant2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema2ItemVariant3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema2ItemVariant4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema2ItemVariant5",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema2ItemVariant6",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema2ItemVariant7",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema24",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema25",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema26",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema1Item",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateRequestSchema9",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateResponseShape3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateResponseShape4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateResponseShape5",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateResponseShape6",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateResponseShape7",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateResponseShape8",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateResponseShape9",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateResponseShape2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateResponseShape11",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateResponseShape10",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentHoldoutsCreateData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-create.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, read, update and delete experiment holdouts.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiment_holdouts~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Create a holdout group — a reserved slice of users excluded from experiment exposure, used as a held-back baseline. Requires name and a non-empty filters array. Link experiments to it afterwards by passing the returned id as holdout_id on experiment-create or experiment-update. Note that you can't change which holdout an experiment points to once that experiment is running; the holdout itself stays editable (see experiment-holdouts-partial-update, whose edits cascade to all linked experiments).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateRequest_Schema1",
+            "field": "[].properties",
+            "effectiveDescription": "Property conditions for this release condition group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property conditions for this release condition group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema1/items/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateRequest_Schema1",
+            "field": "[].rollout_percentage",
+            "effectiveDescription": "Rollout percentage for this release condition group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rollout percentage for this release condition group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema1/items/properties/rollout_percentage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateRequest_Schema1",
+            "field": "[].variant",
+            "effectiveDescription": "Variant key override for multivariate flags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Variant key override for multivariate flags.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema1/items/properties/variant"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateRequest_Schema1",
+            "field": "[].aggregation_group_type_index",
+            "effectiveDescription": "Group type index for this condition set. None means person-level aggregation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index for this condition set. None means person-level aggregation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema1/items/properties/aggregation_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateRequest_Schema3",
+            "effectiveDescription": "* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateRequest_Schema6",
+            "effectiveDescription": "* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateRequest_Schema10",
+            "effectiveDescription": "* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateRequest_Schema13",
+            "effectiveDescription": "* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateRequest_Schema16",
+            "effectiveDescription": "* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateInput",
+            "field": "name",
+            "effectiveDescription": "Human-readable name for the holdout group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for the holdout group.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiment_holdouts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateInput",
+            "field": "description",
+            "effectiveDescription": "Optional description of what this holdout reserves and why.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional description of what this holdout reserves and why.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiment_holdouts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateInput",
+            "field": "filters",
+            "effectiveDescription": "Non-empty list of release-condition groups defining the held-out population. Each element needs a `rollout_percentage` (0–100, may be fractional) — this is the EXCLUSION percentage, i.e. the share of users held back from every experiment that references this holdout. `properties` optionally narrows the group by person/group properties (same shape as feature-flag release conditions); pass an empty array for an unconditional holdout. Do NOT set `variant` — the server sets it to `holdout-{id}` automatically. Only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag. Example: [{ \"rollout_percentage\": 10, \"properties\": [] }].",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiment_holdouts/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Non-empty list of release-condition groups defining the held-out population. Each element needs a `rollout_percentage` (0–100, may be fractional) — this is the EXCLUSION percentage, i.e. the share of users held back from every experiment that references this holdout. `properties` optionally narrows the group by person/group properties (same shape as feature-flag release conditions); pass an empty array for an unconditional holdout. Do NOT set `variant` — the server sets it to `holdout-{id}` automatically. Only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag. Example: [{ \"rollout_percentage\": 10, \"properties\": [] }].",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/experiments/mcp/tools.yaml",
+                        "pointer": "/tools/experiment-holdouts-create/param_overrides/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape2",
+            "field": "properties",
+            "effectiveDescription": "Property conditions for this release condition group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property conditions for this release condition group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape2/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape2",
+            "field": "rollout_percentage",
+            "effectiveDescription": "Rollout percentage for this release condition group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rollout percentage for this release condition group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape2/properties/rollout_percentage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape2",
+            "field": "variant",
+            "effectiveDescription": "Variant key override for multivariate flags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Variant key override for multivariate flags.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape2/properties/variant"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape2",
+            "field": "aggregation_group_type_index",
+            "effectiveDescription": "Group type index for this condition set. None means person-level aggregation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index for this condition set. None means person-level aggregation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape2/properties/aggregation_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape3",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape3/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape3",
+            "field": "type",
+            "effectiveDescription": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape3/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape3",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape3/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape3",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape3/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape3",
+            "field": "value",
+            "effectiveDescription": "Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape3/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape3",
+            "field": "operator",
+            "effectiveDescription": "Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape3/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape4",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape4/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape4",
+            "field": "type",
+            "effectiveDescription": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape4/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape4",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape4/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape4",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape4/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape4",
+            "field": "operator",
+            "effectiveDescription": "Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape4/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape4",
+            "field": "value",
+            "effectiveDescription": "Optional value. Runtime behavior determines whether this is ignored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional value. Runtime behavior determines whether this is ignored.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape4/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape5",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape5/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape5",
+            "field": "type",
+            "effectiveDescription": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape5/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape5",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape5/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape5",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape5/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape5",
+            "field": "operator",
+            "effectiveDescription": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape5/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape5",
+            "field": "value",
+            "effectiveDescription": "Date value in ISO format or relative date expression.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date value in ISO format or relative date expression.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape5/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape6",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape6/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape6",
+            "field": "type",
+            "effectiveDescription": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape6/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape6",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape6/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape6",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape6/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape6",
+            "field": "operator",
+            "effectiveDescription": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape6/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape6",
+            "field": "value",
+            "effectiveDescription": "Semantic version string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Semantic version string.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape6/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape7",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape7/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape7",
+            "field": "type",
+            "effectiveDescription": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape7/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape7",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape7/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape7",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape7/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape7",
+            "field": "operator",
+            "effectiveDescription": "Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape7/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape7",
+            "field": "value",
+            "effectiveDescription": "List of strings to evaluate against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of strings to evaluate against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape7/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape8",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape8/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape8",
+            "field": "type",
+            "effectiveDescription": "Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape8/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape8",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape8/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape8",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape8/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape8",
+            "field": "operator",
+            "effectiveDescription": "Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape8/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape8",
+            "field": "value",
+            "effectiveDescription": "Cohort comparison value (single or list, depending on usage).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cohort comparison value (single or list, depending on usage).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape8/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape9",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape9/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape9",
+            "field": "type",
+            "effectiveDescription": "Flag property type required for flag dependency checks.\n\n* `flag` - flag",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Flag property type required for flag dependency checks.\n\n* `flag` - flag",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape9/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape9",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape9/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape9",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape9/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape9",
+            "field": "operator",
+            "effectiveDescription": "Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape9/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateResponseShape9",
+            "field": "value",
+            "effectiveDescription": "Value to compare flag evaluation against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare flag evaluation against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape9/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateData",
+            "effectiveDescription": "A holdout group — a stable slice of users excluded from experiment exposure.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A holdout group — a stable slice of users excluded from experiment exposure.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateData",
+            "field": "name",
+            "effectiveDescription": "Human-readable name for the holdout group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for the holdout group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateData",
+            "field": "description",
+            "effectiveDescription": "Optional description of what this holdout reserves and why.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional description of what this holdout reserves and why.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateData",
+            "field": "filters",
+            "effectiveDescription": "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentHoldoutsCreateData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

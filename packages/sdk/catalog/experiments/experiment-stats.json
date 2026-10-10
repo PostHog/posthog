@@ -1,0 +1,73 @@
+{
+    "method": "experiments.experimentStats",
+    "toolName": "experiment-stats",
+    "operationId": "experiments_stats_retrieve",
+    "title": "Get experiment velocity stats",
+    "category": "Experiments",
+    "description": "Get aggregate experiment velocity statistics for the current project. Returns: launched_last_30d (experiments launched in the last 30 days), launched_previous_30d (the 30 days before that), percent_change between the two periods, active_experiments (currently running count), and completed_last_30d (experiments ended in the last 30 days). No parameters needed.",
+    "requiredScopes": ["experiment:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentStatsInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-stats.ts",
+        "declaration": "dist/generated/experiments/experiment-stats.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentStatsOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-stats.ts",
+        "declaration": "dist/generated/experiments/experiment-stats.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentStatsData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-stats.ts",
+            "declaration": "dist/generated/experiments/experiment-stats.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.\n\nIntercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate\ndecorator on serializer methods and converts them into the same responses the viewset path\nproduces (see decorators._result_to_response), so both paths share one contract.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1stats~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get aggregate experiment velocity statistics for the current project. Returns: launched_last_30d (experiments launched in the last 30 days), launched_previous_30d (the 30 days before that), percent_change between the two periods, active_experiments (currently running count), and completed_last_30d (experiments ended in the last 30 days). No parameters needed.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentStatsData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,118 @@
+{
+    "method": "llmAnalytics.llmaParserRecipeCreate",
+    "toolName": "llma-parser-recipe-create",
+    "title": "Create parser recipe",
+    "category": "AI observability",
+    "description": "Writes and saves a custom LLM analytics parser recipe so an unparsed trace event renders as a readable conversation. Call `llma-parser-recipe-reference` first to get the recipe DSL syntax and worked examples. The server loads the exact event (by trace_id + event_uuid), compiles your YAML, and validates it against that event, saving the recipe only when a previously-unrecognized input or output side becomes recognized. If the result is not valid, read the error, fix the YAML, and call again in the same turn; stop after about three failed attempts and explain what is blocking you. Do not force non-conversational data into a fake conversation shape — if the event genuinely is not a conversation, say so instead of inventing rules. Samples in your context are truncated, but the server always validates against the full event.",
+    "requiredScopes": ["llm_analytics:write", "query:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/llm-analytics/client.ts",
+    "input": {
+        "name": "LlmAnalyticsLlmaParserRecipeCreateInput",
+        "importPath": "@posthog/sdk/llm-analytics",
+        "source": "src/generated/llm-analytics/llma-parser-recipe-create.ts",
+        "declaration": "dist/generated/llm-analytics/llma-parser-recipe-create.d.ts"
+    },
+    "output": {
+        "name": "LlmAnalyticsLlmaParserRecipeCreateOutput",
+        "importPath": "@posthog/sdk/llm-analytics",
+        "source": "src/generated/llm-analytics/llma-parser-recipe-create.ts",
+        "declaration": "dist/generated/llm-analytics/llma-parser-recipe-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LlmAnalyticsLlmaParserRecipeCreateData",
+            "importPath": "@posthog/sdk/llm-analytics",
+            "source": "src/generated/llm-analytics/llma-parser-recipe-create.ts",
+            "declaration": "dist/generated/llm-analytics/llma-parser-recipe-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Writes and saves a custom LLM analytics parser recipe so an unparsed trace event renders as a readable conversation. Call `llma-parser-recipe-reference` first to get the recipe DSL syntax and worked examples. The server loads the exact event (by trace_id + event_uuid), compiles your YAML, and validates it against that event, saving the recipe only when a previously-unrecognized input or output side becomes recognized. If the result is not valid, read the error, fix the YAML, and call again in the same turn; stop after about three failed attempts and explain what is blocking you. Do not force non-conversational data into a fake conversation shape — if the event genuinely is not a conversation, say so instead of inventing rules. Samples in your context are truncated, but the server always validates against the full event.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/llma-parser-recipe-create/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LlmAnalyticsLlmaParserRecipeCreateInput",
+            "field": "name",
+            "effectiveDescription": "Short human-readable name for the recipe, shown in the parser editor.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short human-readable name for the recipe, shown in the parser editor.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LlmAnalyticsLlmaParserRecipeCreateInput",
+            "field": "yaml_source",
+            "effectiveDescription": "The recipe as raw YAML. Call `llma-parser-recipe-reference` first for the DSL syntax and worked examples. The server compiles and validates this against the exact event before saving.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The recipe as raw YAML. Call `llma-parser-recipe-reference` first for the DSL syntax and worked examples. The server compiles and validates this against the exact event before saving.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/yaml_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LlmAnalyticsLlmaParserRecipeCreateInput",
+            "field": "trace_id",
+            "effectiveDescription": "The `$ai_trace_id` of the trace containing the event to parse.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The `$ai_trace_id` of the trace containing the event to parse.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LlmAnalyticsLlmaParserRecipeCreateInput",
+            "field": "event_uuid",
+            "effectiveDescription": "The UUID (`id`) of the specific event within the trace to parse.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The UUID (`id`) of the specific event within the trace to parse.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/event_uuid"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "llma-parser-recipe-reference",
+            "method": "llmAnalytics.llmaParserRecipeReference"
+        }
+    ]
+}

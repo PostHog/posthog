@@ -1,0 +1,523 @@
+{
+    "method": "logs.logsFacetValuesCreate",
+    "toolName": "logs-facet-values-create",
+    "operationId": "logs_facet_values_create",
+    "title": "Facet log counts",
+    "category": "Logs",
+    "description": "Return per-value counts for a single facet — the distribution of a log dimension across a filter set, ordered by count descending. This is the cheap way to see the _shape_ of a log stream (e.g. \"which services produce the errors?\") without pulling raw rows.\n\nAll parameters go inside `query` — top-level fields are rejected. Provide **exactly one** of `query.facetField` or `query.facetResourceAttribute` — not both, not neither:\n\n```json\n{ \"query\": { \"facetField\": \"service_name\", \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nCounts are cross-filtered: the faceted field's own filter is never applied, so you see the full distribution rather than collapsing to your own selection. Faceting `service_name` with `serviceNames: [\"api\"]` still returns every service, not just `api`. Which _other_ filters apply depends on the facet path; each parameter below says which it honors.\n\n# When to use\n\n- As the drill-down loop for an investigation: facet `service_name` filtered to `severity=error` → find the hot service → add it to `serviceNames` → facet a resource attribute like `k8s.pod.name` → find the bad pod. Each call is one cheap aggregation that narrows the search space before you pull raw rows with `query-logs`.\n- To confirm the severity mix in a window before committing to a query: facet `severity_text`.\n- To find how log volume is distributed across severity or service for one person's or session's logs — e.g. \"which services logged for this session?\" Facet `service_name` with `sessionId` set; unlike the general case this honors every other active filter, including `searchTerm`.\n\n## Pick the right tool\n\n- Counts for an arbitrary **attribute** value (any log or resource attribute key) → use `logs-attribute-values-list`. It returns `{value, count}` for any key and is the general-purpose choice for attributes.\n- Per-service log/error counts and error rates with a sparkline → use `logs-services-create`.\n- Use **this** tool for `severity_text` / `service_name` distribution cross-filtered by severity, service, and `filterGroup` — the one thing the tools above can't do. For body-search-filtered service/severity counts, scope to `personId`/`sessionId` (see below) or use `query-logs` directly.\n\n# Parameters\n\n## query.facetField\n\nTop-level column to facet on: `severity_text` or `service_name`. Provide this OR `facetResourceAttribute`, not both. Counts come from a rollup with 5-minute buckets: the window widens to the buckets that contain `date_from` and `date_to`, and this path honors `severityLevels` and `serviceNames` but not `searchTerm`, log-attribute filters, or resource-attribute filters. When `personId` or `sessionId` is set, counts come from the logs table with the exact window and every other filter. Both paths exclude this field's own filter.\n\n## query.facetResourceAttribute\n\nResource attribute key to facet on, e.g. `k8s.namespace.name`, `k8s.pod.name`, `host.name`. Provide this OR `facetField`, not both.\n\n**Limitation:** this path is served from a pre-aggregated rollup that has no body dimension. It honors `severityLevels`, `serviceNames`, and other resource-attribute filters — `searchTerm` and log-attribute filters are **ignored**. No facet path applies those two filters to resource-attribute counts. If you need them, use `query-logs` and inspect the matching rows.\n\n## query.facetSearch\n\nCase-insensitive substring match over the faceted field's _own_ values (e.g. return only service names containing `kafka`). Distinct from `searchTerm`, which searches log bodies. Use it to search past the 100-value result cap.\n\n## query.dateRange\n\nDate range for the counts. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels. Ignored when faceting on `severity_text` (that field's own filter is excluded).\n\n## query.serviceNames\n\nFilter by service names. Ignored when faceting on `service_name` (that field's own filter is excluded).\n\n## query.searchTerm\n\nFull-text search across log bodies. Ignored when faceting a resource attribute, and ignored when faceting a column (`severity_text`/`service_name`) unless `personId` or `sessionId` is set.\n\n## query.filterGroup\n\nProperty filters to narrow results. Same format as `query-logs` filters.\n\n# Examples\n\n## Severity distribution in the last hour\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"severity_text\",\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Which services produce errors over the last day\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"service_name\",\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Which pods a service's logs come from\n\n```json\n{\n  \"query\": {\n    \"facetResourceAttribute\": \"k8s.pod.name\",\n    \"serviceNames\": [\"checkout\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Which services logged for a specific session\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"service_name\",\n    \"sessionId\": \"0198f6c2-9a3b-7c9e-9e2e-6a1e8e6a9b3f\",\n    \"searchTerm\": \"connection reset\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```",
+    "requiredScopes": ["logs:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsFacetValuesCreateInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-facet-values-create.ts",
+        "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsFacetValuesCreateOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-facet-values-create.ts",
+        "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema8",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema9",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema10Item",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema10",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema12",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema14",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema16",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema18ItemType",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema18ItemOperator",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema18Item",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema18",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema20",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema21",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateRequestSchema23",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateInputQuery",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateResponseShape2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        },
+        {
+            "name": "LogsLogsFacetValuesCreateData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-facet-values-create.ts",
+            "declaration": "dist/generated/logs/logs-facet-values-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Return per-value counts for a single facet — the distribution of a log dimension across a filter set, ordered by count descending. This is the cheap way to see the _shape_ of a log stream (e.g. \"which services produce the errors?\") without pulling raw rows.\n\nAll parameters go inside `query` — top-level fields are rejected. Provide **exactly one** of `query.facetField` or `query.facetResourceAttribute` — not both, not neither:\n\n```json\n{ \"query\": { \"facetField\": \"service_name\", \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nCounts are cross-filtered: the faceted field's own filter is never applied, so you see the full distribution rather than collapsing to your own selection. Faceting `service_name` with `serviceNames: [\"api\"]` still returns every service, not just `api`. Which _other_ filters apply depends on the facet path; each parameter below says which it honors.\n\n# When to use\n\n- As the drill-down loop for an investigation: facet `service_name` filtered to `severity=error` → find the hot service → add it to `serviceNames` → facet a resource attribute like `k8s.pod.name` → find the bad pod. Each call is one cheap aggregation that narrows the search space before you pull raw rows with `query-logs`.\n- To confirm the severity mix in a window before committing to a query: facet `severity_text`.\n- To find how log volume is distributed across severity or service for one person's or session's logs — e.g. \"which services logged for this session?\" Facet `service_name` with `sessionId` set; unlike the general case this honors every other active filter, including `searchTerm`.\n\n## Pick the right tool\n\n- Counts for an arbitrary **attribute** value (any log or resource attribute key) → use `logs-attribute-values-list`. It returns `{value, count}` for any key and is the general-purpose choice for attributes.\n- Per-service log/error counts and error rates with a sparkline → use `logs-services-create`.\n- Use **this** tool for `severity_text` / `service_name` distribution cross-filtered by severity, service, and `filterGroup` — the one thing the tools above can't do. For body-search-filtered service/severity counts, scope to `personId`/`sessionId` (see below) or use `query-logs` directly.\n\n# Parameters\n\n## query.facetField\n\nTop-level column to facet on: `severity_text` or `service_name`. Provide this OR `facetResourceAttribute`, not both. Counts come from a rollup with 5-minute buckets: the window widens to the buckets that contain `date_from` and `date_to`, and this path honors `severityLevels` and `serviceNames` but not `searchTerm`, log-attribute filters, or resource-attribute filters. When `personId` or `sessionId` is set, counts come from the logs table with the exact window and every other filter. Both paths exclude this field's own filter.\n\n## query.facetResourceAttribute\n\nResource attribute key to facet on, e.g. `k8s.namespace.name`, `k8s.pod.name`, `host.name`. Provide this OR `facetField`, not both.\n\n**Limitation:** this path is served from a pre-aggregated rollup that has no body dimension. It honors `severityLevels`, `serviceNames`, and other resource-attribute filters — `searchTerm` and log-attribute filters are **ignored**. No facet path applies those two filters to resource-attribute counts. If you need them, use `query-logs` and inspect the matching rows.\n\n## query.facetSearch\n\nCase-insensitive substring match over the faceted field's _own_ values (e.g. return only service names containing `kafka`). Distinct from `searchTerm`, which searches log bodies. Use it to search past the 100-value result cap.\n\n## query.dateRange\n\nDate range for the counts. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels. Ignored when faceting on `severity_text` (that field's own filter is excluded).\n\n## query.serviceNames\n\nFilter by service names. Ignored when faceting on `service_name` (that field's own filter is excluded).\n\n## query.searchTerm\n\nFull-text search across log bodies. Ignored when faceting a resource attribute, and ignored when faceting a column (`severity_text`/`service_name`) unless `personId` or `sessionId` is set.\n\n## query.filterGroup\n\nProperty filters to narrow results. Same format as `query-logs` filters.\n\n# Examples\n\n## Severity distribution in the last hour\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"severity_text\",\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Which services produce errors over the last day\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"service_name\",\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Which pods a service's logs come from\n\n```json\n{\n  \"query\": {\n    \"facetResourceAttribute\": \"k8s.pod.name\",\n    \"serviceNames\": [\"checkout\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Which services logged for a specific session\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"service_name\",\n    \"sessionId\": \"0198f6c2-9a3b-7c9e-9e2e-6a1e8e6a9b3f\",\n    \"searchTerm\": \"connection reset\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```",
+            "source": {
+                "kind": "description_file",
+                "file": "products/logs/mcp/prompts/logs-facet-values.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema0",
+            "effectiveDescription": "Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts come from a rollup with 5-minute buckets, so the window widens to the buckets that contain date_from and date_to. The rollup honours severityLevels and serviceNames, but not body search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts come from the logs table with the exact window and every other filter. Both paths exclude this facet's own filter.\n\n* `severity_text` - severity_text\n* `service_name` - service_name",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts come from a rollup with 5-minute buckets, so the window widens to the buckets that contain date_from and date_to. The rollup honours severityLevels and serviceNames, but not body search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts come from the logs table with the exact window and every other filter. Both paths exclude this facet's own filter.\n\n* `severity_text` - severity_text\n* `service_name` - service_name",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema2",
+            "effectiveDescription": "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema4",
+            "effectiveDescription": "Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, other log-attribute filters, or this facet's own filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Log attribute key to facet on (e.g. 'log.iostream'). Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts honour severity, service and resource-attribute filters, but not body search, other log-attribute filters, or this facet's own filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema6",
+            "effectiveDescription": "Date range. Defaults to last hour.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range. Defaults to last hour.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema6",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema7/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema6",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema7/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema10",
+            "effectiveDescription": "Filter by log severity levels (ignored when faceting on severity_text).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by log severity levels (ignored when faceting on severity_text).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema10",
+            "field": "[]",
+            "effectiveDescription": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema11/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema12",
+            "effectiveDescription": "Filter by service names (ignored when faceting on service_name).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by service names (ignored when faceting on service_name).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema14",
+            "effectiveDescription": "Full-text search term to filter log bodies.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full-text search term to filter log bodies.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema16",
+            "effectiveDescription": "Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema18",
+            "effectiveDescription": "Property filters for the query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for the query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema18",
+            "field": "[].key",
+            "effectiveDescription": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema19/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema18",
+            "field": "[].type",
+            "effectiveDescription": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema19/items/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema18",
+            "field": "[].operator",
+            "effectiveDescription": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema19/items/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema18",
+            "field": "[].value",
+            "effectiveDescription": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema19/items/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema21",
+            "effectiveDescription": "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scope counts to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema21"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateRequest_Schema23",
+            "effectiveDescription": "Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scope counts to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema23"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateInput",
+            "field": "query",
+            "effectiveDescription": "The facet values query to execute.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The facet values query to execute.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/facet_values/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateResponseShape2",
+            "field": "value",
+            "effectiveDescription": "The facet value (e.g. a severity level or service name).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The facet value (e.g. a severity level or service name).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateResponseShape2",
+            "field": "count",
+            "effectiveDescription": "Number of matching log records, with all active filters applied except this facet's own selection.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of matching log records, with all active filters applied except this facet's own selection.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsFacetValuesCreateData",
+            "field": "results",
+            "effectiveDescription": "Facet values with cross-filtered counts, ordered by count descending.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Facet values with cross-filtered counts, ordered by count descending.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-logs",
+            "method": "logs.queryLogs"
+        },
+        {
+            "toolName": "logs-attribute-values-list",
+            "method": "logs.logsAttributeValuesList"
+        },
+        {
+            "toolName": "logs-services-create",
+            "method": "logs.logsServicesCreate"
+        }
+    ]
+}

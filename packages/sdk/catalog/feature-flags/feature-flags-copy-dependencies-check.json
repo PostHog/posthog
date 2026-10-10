@@ -1,0 +1,203 @@
+{
+    "method": "featureFlags.featureFlagsCopyDependenciesCheck",
+    "toolName": "feature-flags-copy-dependencies-check",
+    "title": "Check whether a flag's dependencies can be copied",
+    "category": "Feature flags",
+    "description": "Preview what a cross-project copy would do to a flag's transitive flag dependencies. Copies nothing and changes nothing. Provide `feature_flag_key`, `from_project` (the source project ID) and `target_project_ids`. Returns `can_copy_dependencies`, `dependency_count`, `copied_dependency_keys` (dependencies missing from a target project, which a copy would create), `reused_dependency_keys` (dependencies that already have an active same-key flag in every target project), plus `warnings` and a human-readable `reason`. A false `can_copy_dependencies` does not always mean the copy is blocked: it is also false when there is nothing to copy, because the flag has no dependencies or every dependency is already satisfied in each target project. Read `warnings` to tell the two apart and report a problem only when it is non-empty. Call this before every `feature-flags-copy-flags-create` copy; it is read-only and returns an empty result when the flag has no dependencies. Set that tool's `copy_dependencies` only when the user approves copying the keys this check reports. Requires write scope because it checks the same copy eligibility and edit permissions the copy itself enforces.",
+    "requiredScopes": ["feature_flag:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/feature-flags/client.ts",
+    "input": {
+        "name": "FeatureFlagsFeatureFlagsCopyDependenciesCheckInput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/feature-flags-copy-dependencies-check.ts",
+        "declaration": "dist/generated/feature-flags/feature-flags-copy-dependencies-check.d.ts"
+    },
+    "output": {
+        "name": "FeatureFlagsFeatureFlagsCopyDependenciesCheckOutput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/feature-flags-copy-dependencies-check.ts",
+        "declaration": "dist/generated/feature-flags/feature-flags-copy-dependencies-check.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FeatureFlagsFeatureFlagsCopyDependenciesCheckRequestSchema0",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-copy-dependencies-check.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-copy-dependencies-check.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsCopyDependenciesCheckData",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-copy-dependencies-check.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-copy-dependencies-check.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Preview what a cross-project copy would do to a flag's transitive flag dependencies. Copies nothing and changes nothing. Provide `feature_flag_key`, `from_project` (the source project ID) and `target_project_ids`. Returns `can_copy_dependencies`, `dependency_count`, `copied_dependency_keys` (dependencies missing from a target project, which a copy would create), `reused_dependency_keys` (dependencies that already have an active same-key flag in every target project), plus `warnings` and a human-readable `reason`. A false `can_copy_dependencies` does not always mean the copy is blocked: it is also false when there is nothing to copy, because the flag has no dependencies or every dependency is already satisfied in each target project. Read `warnings` to tell the two apart and report a problem only when it is non-empty. Call this before every `feature-flags-copy-flags-create` copy; it is read-only and returns an empty result when the flag has no dependencies. Set that tool's `copy_dependencies` only when the user approves copying the keys this check reports. Requires write scope because it checks the same copy eligibility and edit permissions the copy itself enforces.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/feature_flags/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyDependenciesCheckInput",
+            "field": "feature_flag_key",
+            "effectiveDescription": "Key of the feature flag to check",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the feature flag to check",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/properties/feature_flag_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyDependenciesCheckInput",
+            "field": "from_project",
+            "effectiveDescription": "Source project ID to copy the flag from",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source project ID to copy the flag from",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/properties/from_project"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyDependenciesCheckInput",
+            "field": "target_project_ids",
+            "effectiveDescription": "List of target project IDs to check dependency copy eligibility for",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of target project IDs to check dependency copy eligibility for",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/properties/target_project_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyDependenciesCheckData",
+            "field": "can_copy_dependencies",
+            "effectiveDescription": "Whether dependencies can be automatically copied",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether dependencies can be automatically copied",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape1/properties/can_copy_dependencies"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyDependenciesCheckData",
+            "field": "dependency_count",
+            "effectiveDescription": "Total number of transitive source dependency flags",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of transitive source dependency flags",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape1/properties/dependency_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyDependenciesCheckData",
+            "field": "copied_dependency_keys",
+            "effectiveDescription": "Dependency flag keys that would be copied because they are missing from a target project",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dependency flag keys that would be copied because they are missing from a target project",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape1/properties/copied_dependency_keys"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyDependenciesCheckData",
+            "field": "reused_dependency_keys",
+            "effectiveDescription": "Dependency flag keys that already have an active same-key flag in every target project",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dependency flag keys that already have an active same-key flag in every target project",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape1/properties/reused_dependency_keys"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyDependenciesCheckData",
+            "field": "warnings",
+            "effectiveDescription": "Reasons dependency copying is unavailable or needs user attention",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reasons dependency copying is unavailable or needs user attention",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape1/properties/warnings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsCopyDependenciesCheckData",
+            "field": "reason",
+            "effectiveDescription": "Primary human-readable eligibility result",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Primary human-readable eligibility result",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape1/properties/reason"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "feature-flags-copy-flags-create",
+            "method": "featureFlags.featureFlagsCopyFlagsCreate"
+        }
+    ]
+}

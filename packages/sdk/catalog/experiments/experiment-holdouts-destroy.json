@@ -1,0 +1,74 @@
+{
+    "method": "experiments.experimentHoldoutsDestroy",
+    "toolName": "experiment-holdouts-destroy",
+    "operationId": "experiment_holdouts_destroy",
+    "title": "Delete experiment holdout",
+    "category": "Experiments",
+    "description": "Delete a holdout group by ID. Use experiment-holdouts-list first if you don't have the ID, and always confirm by name before deleting.\n\nThis clears the holdout reference from every linked experiment and feature flag (sets the flag's holdout to null and nulls Experiment.holdout) — the affected experiments stop holding back any users. Returns 204 on success.",
+    "requiredScopes": ["experiment_holdout:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentHoldoutsDestroyInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-holdouts-destroy.ts",
+        "declaration": "dist/generated/experiments/experiment-holdouts-destroy.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentHoldoutsDestroyOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-holdouts-destroy.ts",
+        "declaration": "dist/generated/experiments/experiment-holdouts-destroy.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentHoldoutsDestroyData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-holdouts-destroy.ts",
+            "declaration": "dist/generated/experiments/experiment-holdouts-destroy.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, read, update and delete experiment holdouts.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiment_holdouts~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete a holdout group by ID. Use experiment-holdouts-list first if you don't have the ID, and always confirm by name before deleting.\n\nThis clears the holdout reference from every linked experiment and feature flag (sets the flag's holdout to null and nulls Experiment.holdout) — the affected experiments stop holding back any users. Returns 204 on success.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentHoldoutsDestroyInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this experiment holdout.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this experiment holdout.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiment_holdouts/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

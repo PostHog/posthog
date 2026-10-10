@@ -1,0 +1,352 @@
+{
+    "method": "marketingAnalytics.marketingAnalyticsConversionGoals",
+    "toolName": "marketing-analytics-conversion-goals",
+    "operationId": "marketing_analytics_conversion_goals_retrieve",
+    "title": "List conversion goals",
+    "category": "Marketing analytics",
+    "description": "List the configured marketing conversion goals for the current project. Each goal returns its conversion_goal_id — the value the explain, update and delete tools take — plus its kind (EventsNode / ActionsNode / DataWarehouseNode), target, last-30d count, and the integrated vs non-integrated split. Non-integrated breaks into two buckets with OPPOSITE fixes: events_without_utm_source (tag UTMs) vs events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count may differ from the dashboard's attribution-windowed number.",
+    "requiredScopes": ["marketing_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: marketing-analytics-mcp"],
+    "methodSource": "src/generated/marketing-analytics/client.ts",
+    "input": {
+        "name": "MarketingAnalyticsMarketingAnalyticsConversionGoalsInput",
+        "importPath": "@posthog/sdk/marketing-analytics",
+        "source": "src/generated/marketing-analytics/marketing-analytics-conversion-goals.ts",
+        "declaration": "dist/generated/marketing-analytics/marketing-analytics-conversion-goals.d.ts"
+    },
+    "output": {
+        "name": "MarketingAnalyticsMarketingAnalyticsConversionGoalsOutput",
+        "importPath": "@posthog/sdk/marketing-analytics",
+        "source": "src/generated/marketing-analytics/marketing-analytics-conversion-goals.ts",
+        "declaration": "dist/generated/marketing-analytics/marketing-analytics-conversion-goals.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-conversion-goals.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-conversion-goals.d.ts"
+        },
+        {
+            "name": "MarketingAnalyticsMarketingAnalyticsConversionGoalsData",
+            "importPath": "@posthog/sdk/marketing-analytics",
+            "source": "src/generated/marketing-analytics/marketing-analytics-conversion-goals.ts",
+            "declaration": "dist/generated/marketing-analytics/marketing-analytics-conversion-goals.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Read the configured conversion goals for the current project — each with its kind, target, last-30d count, integrated vs non-integrated split, and a misconfiguration flag. Read-only.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1marketing_analytics~1conversion_goals~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List the configured marketing conversion goals for the current project. Each goal returns its conversion_goal_id — the value the explain, update and delete tools take — plus its kind (EventsNode / ActionsNode / DataWarehouseNode), target, last-30d count, and the integrated vs non-integrated split. Non-integrated breaks into two buckets with OPPOSITE fixes: events_without_utm_source (tag UTMs) vs events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count may differ from the dashboard's attribution-windowed number.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/marketing_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "conversion_goal_id",
+            "effectiveDescription": "Id of the goal. Pass this to the explain, update and delete endpoints.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the goal. Pass this to the explain, update and delete endpoints.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/conversion_goal_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Display name of the conversion goal",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the conversion goal",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "kind",
+            "effectiveDescription": "Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)\n\n* `EventsNode` - EventsNode\n* `ActionsNode` - ActionsNode\n* `DataWarehouseNode` - DataWarehouseNode",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal type: EventsNode (PostHog event), ActionsNode (PostHog action), or DataWarehouseNode (external table)\n\n* `EventsNode` - EventsNode\n* `ActionsNode` - ActionsNode\n* `DataWarehouseNode` - DataWarehouseNode",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "target_label",
+            "effectiveDescription": "Human-readable target the goal matches (event/action name or table)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable target the goal matches (event/action name or table)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/target_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "last_30d_count",
+            "effectiveDescription": "Count of matching conversion events in the last 30 days",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count of matching conversion events in the last 30 days",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/last_30d_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "integrated_count",
+            "effectiveDescription": "Conversions whose utm_source matches a known integration. Null for DataWarehouseNode goals.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Conversions whose utm_source matches a known integration. Null for DataWarehouseNode goals.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/integrated_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "events_without_utm_source",
+            "effectiveDescription": "Conversions with no utm_source at all (fix by tagging UTMs). Null for DataWarehouseNode goals.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Conversions with no utm_source at all (fix by tagging UTMs). Null for DataWarehouseNode goals.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/events_without_utm_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "events_with_unmatched_utm_source",
+            "effectiveDescription": "Conversions with a utm_source that matches no integration (fix with custom_source_mappings). Null for DataWarehouseNode goals.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Conversions with a utm_source that matches no integration (fix with custom_source_mappings). Null for DataWarehouseNode goals.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/events_with_unmatched_utm_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "non_integrated_count",
+            "effectiveDescription": "Total non-integrated conversions (without + unmatched utm_source). Null for DataWarehouseNode goals.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total non-integrated conversions (without + unmatched utm_source). Null for DataWarehouseNode goals.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/non_integrated_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "integrated_pct",
+            "effectiveDescription": "Percentage of conversions that are integrated. Null for DataWarehouseNode goals.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage of conversions that are integrated. Null for DataWarehouseNode goals.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/integrated_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "is_misconfigured",
+            "effectiveDescription": "Whether the goal could not be evaluated (e.g. deleted action)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the goal could not be evaluated (e.g. deleted action)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_misconfigured"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "misconfig_reason",
+            "effectiveDescription": "Explanation when is_misconfigured is true",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Explanation when is_misconfigured is true",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/misconfig_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "is_approximate",
+            "effectiveDescription": "True when this 30d count may differ from the dashboard's attribution-windowed number",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when this 30d count may differ from the dashboard's attribution-windowed number",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_approximate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsResponseShape2",
+            "field": "approximation_reason",
+            "effectiveDescription": "Explanation when is_approximate is true",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Explanation when is_approximate is true",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape2/properties/approximation_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsData",
+            "field": "goals",
+            "effectiveDescription": "One summary entry per configured conversion goal",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One summary entry per configured conversion goal",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/goals"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsData",
+            "field": "attribution_window_days",
+            "effectiveDescription": "The team's configured attribution window in days",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The team's configured attribution window in days",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/attribution_window_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsData",
+            "field": "attribution_mode",
+            "effectiveDescription": "The team's attribution model (e.g. last_touch, first_touch, linear)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The team's attribution model (e.g. last_touch, first_touch, linear)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/attribution_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "MarketingAnalyticsMarketingAnalyticsConversionGoalsData",
+            "field": "has_misconfigured",
+            "effectiveDescription": "True if any goal is misconfigured",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True if any goal is misconfigured",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/marketing_analytics.ts",
+                        "pointer": "#/Shape1/properties/has_misconfigured"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

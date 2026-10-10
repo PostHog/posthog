@@ -1,0 +1,1206 @@
+{
+    "method": "errorTracking.queryErrorTrackingIssue",
+    "toolName": "query-error-tracking-issue",
+    "operationId": "error_tracking_query_issue_create",
+    "title": "Query error tracking issue",
+    "category": "Error tracking",
+    "description": "Get compact details for one Error tracking issue.\n\nUse this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, severity, name/description, first/last seen timestamps, assignee, compact impact counts, top in-app frame, and latest release metadata.\n\nDefaults are intentionally useful: last 7 days, test accounts filtered out, aggregate impact included, and no sparkline unless requested.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.\n- `includeSparkline`: set true only if a trend/sparkline helps answer the user. When true, `volumeResolution` defaults to 12 if not provided.\n- `volumeResolution`: integer count of equal-width buckets across `dateRange`, from 0 to 200, when sparkline data is needed. It is not a unit such as `hour` or `day`. For daily buckets over the default 7-day range, send `7`.\n- `includeBreakdown`: set true when the user asks where, for whom, or on which platforms the issue happens. It returns the same breakdowns as the issue page, over all matching events: the most common paths (or URLs, when events have no path, as with backend SDKs), screens, browsers, OS, libraries, library versions, and app versions, each with a count, and up to 5 `$session_id` values with the most events. It covers at most the last 30 days of `dateRange`; `range_limited` is true when it covers less than you asked for. Empty dimensions are left out.\n\n# Next steps\n\nUse `query-error-tracking-issue-events` with the same `issueId` only when the user needs a concrete event, a stack trace, code variables, OpenTelemetry trace IDs, or the handled flag. Do not fetch many events to count browsers, URLs, or versions; use `includeBreakdown` instead.\n\nWhen `sample_session_ids` is not empty and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids`.",
+    "requiredScopes": ["error_tracking:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking/client.ts",
+    "input": {
+        "name": "ErrorTrackingQueryErrorTrackingIssueInput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+        "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingQueryErrorTrackingIssueOutput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+        "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueRequestSchema1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueRequestSchema2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueRequestSchema0",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueRequestSchema3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueRequestSchema4",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueRequestSchema5",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueRequestSchema6",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueResponseShape2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueResponseShape4",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueResponseShape3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueResponseShape5",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueResponseShape6",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueResponseShape7",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueResponseShape10",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueResponseShape9",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueResponseShape8",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueData",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Fetch one error tracking issue with impact counts, top in_app frame, latest release, and optional sparkline and event breakdown.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1error_tracking~1query~1issue~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get compact details for one Error tracking issue.\n\nUse this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, severity, name/description, first/last seen timestamps, assignee, compact impact counts, top in-app frame, and latest release metadata.\n\nDefaults are intentionally useful: last 7 days, test accounts filtered out, aggregate impact included, and no sparkline unless requested.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.\n- `includeSparkline`: set true only if a trend/sparkline helps answer the user. When true, `volumeResolution` defaults to 12 if not provided.\n- `volumeResolution`: integer count of equal-width buckets across `dateRange`, from 0 to 200, when sparkline data is needed. It is not a unit such as `hour` or `day`. For daily buckets over the default 7-day range, send `7`.\n- `includeBreakdown`: set true when the user asks where, for whom, or on which platforms the issue happens. It returns the same breakdowns as the issue page, over all matching events: the most common paths (or URLs, when events have no path, as with backend SDKs), screens, browsers, OS, libraries, library versions, and app versions, each with a count, and up to 5 `$session_id` values with the most events. It covers at most the last 30 days of `dateRange`; `range_limited` is true when it covers less than you asked for. Empty dimensions are left out.\n\n# Next steps\n\nUse `query-error-tracking-issue-events` with the same `issueId` only when the user needs a concrete event, a stack trace, code variables, OpenTelemetry trace IDs, or the handled flag. Do not fetch many events to count browsers, URLs, or versions; use `includeBreakdown` instead.\n\nWhen `sample_session_ids` is not empty and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids`.",
+            "source": {
+                "kind": "description_file",
+                "file": "products/error_tracking/mcp/prompts/query-error-tracking-issue.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueRequest_Schema0",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema0/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueRequest_Schema0",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range as an ISO timestamp or relative date. Defaults to now when omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range as an ISO timestamp or relative date. Defaults to now when omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema0/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueInput",
+            "field": "issueId",
+            "effectiveDescription": "Error tracking issue ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error tracking issue ID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueInput",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for issue impact and latest-event metadata. Defaults to the last 7 days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for issue impact and latest-event metadata. Defaults to the last 7 days.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueInput",
+            "field": "filterTestAccounts",
+            "effectiveDescription": "When true, exclude internal/test account data from results. Defaults to true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, exclude internal/test account data from results. Defaults to true.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueInput",
+            "field": "volumeResolution",
+            "effectiveDescription": "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integer count of equal-width time buckets across dateRange, from 0 to 200. Not a time unit: 'hour', 'day', and 'week' are invalid. Example: 7 with a 7-day dateRange gives daily buckets. Defaults to 0, or to 12 when includeSparkline is true.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueInput",
+            "field": "includeSparkline",
+            "effectiveDescription": "Set true to include a compact numeric occurrence sparkline. Defaults to false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set true to include a compact numeric occurrence sparkline. Defaults to false.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueInput",
+            "field": "includeBreakdown",
+            "effectiveDescription": "Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set true to include the issue page breakdowns: the most common paths (or URLs when events have no path), screens, browsers, OS, libraries, library versions, and app versions, each with a count, plus the sessions with the most events. Covers at most the last 30 days of dateRange. Adds one aggregate query, so request it only to answer where, for whom, or on which platforms the issue happens. Defaults to false.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Assignee user ID or role UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Assignee user ID or role UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape2",
+            "field": "type",
+            "effectiveDescription": "Assignee type.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Assignee type.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape3",
+            "field": "occurrences",
+            "effectiveDescription": "Exception occurrence count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exception occurrence count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape3/properties/occurrences"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape3",
+            "field": "users",
+            "effectiveDescription": "Unique user count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique user count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape3/properties/users"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape3",
+            "field": "sessions",
+            "effectiveDescription": "Unique session count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique session count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape3/properties/sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape3",
+            "field": "volumeRange",
+            "effectiveDescription": "Occurrence counts per volume bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Occurrence counts per volume bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape3/properties/volumeRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape3",
+            "field": "volume_buckets",
+            "effectiveDescription": "Labeled volume buckets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Labeled volume buckets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape3/properties/volume_buckets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape4",
+            "field": "label",
+            "effectiveDescription": "Bucket timestamp label.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket timestamp label.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape4/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape4",
+            "field": "value",
+            "effectiveDescription": "Occurrence count for the bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Occurrence count for the bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape4/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape5",
+            "field": "function",
+            "effectiveDescription": "Frame function name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Frame function name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape5/properties/function"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape5",
+            "field": "source",
+            "effectiveDescription": "Frame source, filename, or module.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Frame source, filename, or module.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape5/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape5",
+            "field": "line",
+            "effectiveDescription": "Line number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Line number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape5/properties/line"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape5",
+            "field": "column",
+            "effectiveDescription": "Column number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape5/properties/column"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape5",
+            "field": "in_app",
+            "effectiveDescription": "Whether the frame is an application frame.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the frame is an application frame.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape5/properties/in_app"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape6",
+            "field": "version",
+            "effectiveDescription": "Release version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Release version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape6/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape6",
+            "field": "project",
+            "effectiveDescription": "Release project/library.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Release project/library.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape6/properties/project"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape6",
+            "field": "timestamp",
+            "effectiveDescription": "Release timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Release timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape6/properties/timestamp"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape6",
+            "field": "commit_id",
+            "effectiveDescription": "Git commit ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Git commit ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape6/properties/commit_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape6",
+            "field": "branch",
+            "effectiveDescription": "Git branch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Git branch.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape6/properties/branch"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape6",
+            "field": "repo_name",
+            "effectiveDescription": "Git repository name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Git repository name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape6/properties/repo_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape7",
+            "field": "occurrences",
+            "effectiveDescription": "Exception occurrence count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exception occurrence count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape7/properties/occurrences"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape7",
+            "field": "users",
+            "effectiveDescription": "Unique user count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique user count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape7/properties/users"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape7",
+            "field": "sessions",
+            "effectiveDescription": "Unique session count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique session count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape7/properties/sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape8",
+            "field": "date_from",
+            "effectiveDescription": "Start of the range that the breakdown covers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the range that the breakdown covers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape8/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape8",
+            "field": "date_to",
+            "effectiveDescription": "End of the range that the breakdown covers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the range that the breakdown covers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape8/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape8",
+            "field": "range_limited",
+            "effectiveDescription": "True when the requested range was longer than 30 days and the breakdown covers only the last 30.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the requested range was longer than 30 days and the breakdown covers only the last 30.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape8/properties/range_limited"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape8",
+            "field": "occurrences",
+            "effectiveDescription": "Matching exception events in the breakdown range.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Matching exception events in the breakdown range.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape8/properties/occurrences"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape8",
+            "field": "sample_session_ids",
+            "effectiveDescription": "Up to 5 $session_id values with the most matching events, for session recording lookups.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Up to 5 $session_id values with the most matching events, for session recording lookups.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape8/properties/sample_session_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape8",
+            "field": "top_values",
+            "effectiveDescription": "Most common values for each dimension. A dimension with no values is left out.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most common values for each dimension. A dimension with no values is left out.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape8/properties/top_values"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape9",
+            "field": "path",
+            "effectiveDescription": "Most common $pathname values, most frequent first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most common $pathname values, most frequent first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape9/properties/path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape9",
+            "field": "url",
+            "effectiveDescription": "Most common $current_url values, most frequent first. Returned only when events have no $pathname, as with backend SDKs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most common $current_url values, most frequent first. Returned only when events have no $pathname, as with backend SDKs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape9/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape9",
+            "field": "screen",
+            "effectiveDescription": "Most common $screen_name values, most frequent first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most common $screen_name values, most frequent first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape9/properties/screen"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape9",
+            "field": "browser",
+            "effectiveDescription": "Most common $browser values, most frequent first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most common $browser values, most frequent first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape9/properties/browser"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape9",
+            "field": "os",
+            "effectiveDescription": "Most common $os values, most frequent first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most common $os values, most frequent first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape9/properties/os"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape9",
+            "field": "library",
+            "effectiveDescription": "Most common $lib values, most frequent first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most common $lib values, most frequent first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape9/properties/library"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape9",
+            "field": "library_version",
+            "effectiveDescription": "Most common $lib_version values, most frequent first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most common $lib_version values, most frequent first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape9/properties/library_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape9",
+            "field": "app_version",
+            "effectiveDescription": "Most common $app_version values, most frequent first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Most common $app_version values, most frequent first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape9/properties/app_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape10",
+            "field": "value",
+            "effectiveDescription": "Property value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape10/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueResponseShape10",
+            "field": "count",
+            "effectiveDescription": "Number of matching events with this value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of matching events with this value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape10/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "id",
+            "effectiveDescription": "Error tracking issue ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error tracking issue ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "name",
+            "effectiveDescription": "Issue name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "description",
+            "effectiveDescription": "Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "status",
+            "effectiveDescription": "Issue status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue status.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "severity",
+            "effectiveDescription": "Issue severity, or null when no severity is assigned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue severity, or null when no severity is assigned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "first_seen",
+            "effectiveDescription": "First seen timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First seen timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/first_seen"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "last_seen",
+            "effectiveDescription": "Last seen timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last seen timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/last_seen"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "library",
+            "effectiveDescription": "SDK/library associated with the issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "SDK/library associated with the issue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/library"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "source",
+            "effectiveDescription": "Top source/file associated with the issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top source/file associated with the issue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "assignee",
+            "effectiveDescription": "Issue assignee.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue assignee.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/assignee"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "aggregations",
+            "effectiveDescription": "Aggregate counts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregate counts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/aggregations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "function",
+            "effectiveDescription": "Top function associated with the issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top function associated with the issue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/function"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "top_in_app_frame",
+            "effectiveDescription": "Top in_app application frame.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top in_app application frame.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/top_in_app_frame"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "latest_release",
+            "effectiveDescription": "Latest release metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest release metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/latest_release"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "impact",
+            "effectiveDescription": "Compact impact counts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compact impact counts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/impact"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "sparkline",
+            "effectiveDescription": "Optional compact occurrence sparkline.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional compact occurrence sparkline.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/sparkline"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "breakdown",
+            "effectiveDescription": "Aggregate over matching events. Returned only when includeBreakdown is true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregate over matching events. Returned only when includeBreakdown is true.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/breakdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-error-tracking-issues-list",
+            "method": "errorTracking.queryErrorTrackingIssuesList"
+        },
+        {
+            "toolName": "query-error-tracking-issue-events",
+            "method": "errorTracking.queryErrorTrackingIssueEvents"
+        },
+        {
+            "toolName": "query-session-recordings-list",
+            "method": "replay.querySessionRecordingsList"
+        }
+    ]
+}
