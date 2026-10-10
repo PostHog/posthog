@@ -235,8 +235,8 @@ def _step_results(
     else:
         perspective_count = turn.perspective_count
     passes = ""
-    if turn.perspective_issue_count is not None:
-        passes = pluralize(turn.perspective_issue_count, "issue")
+    if turn.perspective_issue_count is not None or turn.blind_spot_issue_count is not None:
+        passes = pluralize(turn.perspective_issue_count or 0, "issue")
         if turn.blind_spot_issue_count:
             passes += f" (+{turn.blind_spot_issue_count} blind-spot)"
     return [

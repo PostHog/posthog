@@ -118,6 +118,12 @@ _BODY_CASES: list[tuple[str, Callable[[], str], list[str]]] = [
             '| Publish | done | 1 posted ([view review](https://g/review)) · 1 held back by the author\'s "Should fix" threshold ([view in PostHog](https://ph.test/r)) |',
         ],
     ),
+    # With no perspective selected for any chunk, only the blind-spot sweep reports issues.
+    (
+        "deep_done_blind_spot_only",
+        lambda: _done(pairs=_PAIRS, **{**_DEEP, "turn": TurnStats(blind_spot_issue_count=2)}),
+        ["| Run review passes | done | 0 issues (+2 blind-spot) |"],
+    ),
     (
         "standard_done",
         lambda: _done(IssuePriority.CONSIDER, turn=TurnStats(perspective_issue_count=9), pairs=_PAIRS, **_STANDARD),
