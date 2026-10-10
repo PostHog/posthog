@@ -17,6 +17,8 @@ retry a review, so all exceptions are swallowed after logging.
 
 import random
 import logging
+from collections.abc import Sequence
+from dataclasses import field
 from datetime import timedelta
 from typing import Any
 
@@ -29,11 +31,13 @@ from posthog.models.integration import GitHubIntegration, Integration
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import (
+    ALREADY_RAISED_SHOWN,
     PRIORITIES_BY_URGENCY,
     PRIORITY_LABELS,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
+    finding_heading,
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
@@ -54,6 +58,8 @@ from products.review_hog.backend.reviewer.tools.github_client import (
     github_api_request,
     is_app_bot_author,
 )
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
+from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +125,11 @@ _NO_ISSUES_MEDIA = (
         "A white car on a quiet road",
     ),
     (
+        "https://raw.githubusercontent.com/PostHog/pr-assets/"
+        "ecedff577f7086db1ebb26557f5521dcbce9d322/2026/10/e052ee1b-41ec-406b-8c9d-2a1ea076490c.png",
+        "Four people posing together",
+    ),
+    (
         "https://media.tenor.com/v-9wvFB5nBEAAAAC/twin-peaks-dance.gif",
         "The dancing man in the red room from Twin Peaks",
     ),
@@ -167,7 +178,7 @@ def report_deep_link(team_id: int, report_id: str) -> str:
 
 
 def _product_name(review_mode: str) -> str:
-    return "PostHog Review (flash)" if review_mode == REVIEW_MODE_FLASH else "PostHog Review"
+    return "PostHog Review (standard)" if review_mode == REVIEW_MODE_FLASH else "PostHog Review"
 
 
 def _plural(count: int, noun: str) -> str:
@@ -229,6 +240,9 @@ def render_final_body(
     celebrate_clean_reviews: bool = True,
     marker: ReviewHogMarker | None = None,
     capped_lens_parts: int | None = None,
+    raised_elsewhere: Sequence[AlreadyRaised] = (),
+    raised_elsewhere_count: int = 0,
+    pr_url: str | None = None,
 ) -> str:
     """The completed-state body: the full found counts, and how many the threshold held back.
 
@@ -238,15 +252,19 @@ def render_final_body(
     and links to the report in PostHog (`report_url`, auth-gated) — the PR is otherwise the only
     place the author hears about held-back findings, so the comment must not dead-end.
     `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. The
-    note goes here and not in the review body, because a clean turn posts no review.
+    note goes here and not in the review body, because a clean turn posts no review. `raised_elsewhere`
+    lists the findings a Full turn did not post because another reviewer's PR comment raises them, each
+    linked to that comment under `pr_url`; `raised_elsewhere_count` counts all of them.
     """
     found_total = sum(counts.values())
     found_line = "Found " + ", ".join(
         f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
     )
     lines = [f"### \U0001f994 {_product_name(review_mode)} reviewed this pull request", ""]
+    if found_total == 0 and raised_elsewhere:
+        lines.append("Nothing new to raise.")
     # A flash turn is the quick pass, so a clean one gets a plain line instead of the celebration.
-    if found_total == 0 and review_mode == REVIEW_MODE_FLASH:
+    elif found_total == 0 and review_mode == REVIEW_MODE_FLASH:
         lines.append("Nothing worth raising.")
     elif found_total == 0 and celebrate_clean_reviews:
         media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
@@ -285,6 +303,15 @@ def render_final_body(
                 f"This pull request is large, so the review ran in {capped_lens_parts} parts with less depth than usual.",
             ]
         )
+    if raised_elsewhere:
+        shown = raised_elsewhere[:ALREADY_RAISED_SHOWN]
+        lines.extend(["", "Also found in comments already on this pull request, so not posted again:"])
+        for raised in shown:
+            link = f" ([comment]({pr_url}#discussion_r{raised.comment_id}))" if pr_url else ""
+            lines.append(f"- {finding_heading(raised.title, raised.level)}, raised by `{raised.commenter}`{link}")
+        hidden = max(raised_elsewhere_count, len(raised_elsewhere)) - len(shown)
+        if hidden > 0:
+            lines.append(f"- and {hidden} more")
     lines.extend(["", status_marker(report_id)])
     if marker is not None:
         lines.append(marker.hidden_comment())
@@ -345,6 +372,13 @@ def render_resolution_held_section(hold: CommitHold, *, done: int = 0, total: in
             else "Not resolving comments: other pull requests are stacked on this branch"
         )
         why = "A fix commit here would leave the stacked pull requests out of date"
+    elif hold == CommitHold.BRANCH_PROTECTED:
+        line = (
+            f"Stopped resolving comments at {done}/{total}: this branch is now protected"
+            if total
+            else "Not resolving comments: this branch is protected"
+        )
+        why = "A person decides what lands on a protected branch"
     else:
         line = (
             f"Stopped resolving comments at {done}/{total}: this pull request was submitted to the merge queue"
@@ -583,6 +617,8 @@ class FinalizeStatusCommentInput:
     celebrate_clean_reviews: bool = True
     marker: ReviewHogMarker | None = None
     capped_lens_parts: int | None = None
+    raised_elsewhere: list[AlreadyRaised] = field(default_factory=list)
+    raised_elsewhere_count: int = 0
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -600,7 +636,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         published = published_priorities_for(threshold)
         published_count = sum(count for priority, count in counts.items() if priority in published)
         held_back_count = sum(count for priority, count in counts.items() if priority not in published)
-        body = render_final_body(
+        rendered = render_final_body(
             input.report_id,
             counts=counts,
             published_count=published_count,
@@ -613,7 +649,14 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
             capped_lens_parts=input.capped_lens_parts,
+            raised_elsewhere=input.raised_elsewhere,
+            raised_elsewhere_count=input.raised_elsewhere_count,
+            pr_url=report.pr_url or None,
         )
+        # The list of findings other reviewers raised carries model-written titles, which may quote sandbox output.
+        body, redacted = redact_secrets(rendered)
+        if redacted:
+            logger.warning("Redacted %s credential-shaped string(s) from the status comment", redacted)
         _edit_and_stamp(input.team_id, report, body)
     except Exception:
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")

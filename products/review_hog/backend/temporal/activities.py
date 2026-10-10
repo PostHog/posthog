@@ -33,14 +33,17 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.review_hog.backend.automatic_reviews import authored_reviews_enabled
-from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
+from products.review_hog.backend.automatic_reviews import automatic_flash_allowed
+from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
+from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
+from products.review_hog.backend.preferences import ReviewPreferences
+from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.constants import (
+    ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
     CHUNKING_ONESHOT_MAX_ADDITIONS,
     CHUNKING_REASONING_EFFORT,
     CHUNKING_RUNTIME_ADAPTER,
-    DEFAULT_URGENCY_THRESHOLD,
     FLASH_LENSES,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
     REVIEW_MODE_FLASH,
@@ -67,7 +70,7 @@ from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_validation,
 )
 from products.review_hog.backend.reviewer.models import generate_all_schemas
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
@@ -124,12 +127,17 @@ from products.review_hog.backend.reviewer.telemetry import review_event_uuid, re
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import (
     PRFetcher,
+    PRFilter,
     fetch_branch_compare,
     find_open_pr_for_branch,
 )
 from products.review_hog.backend.reviewer.tools.issue_cleaner import clean_issues
 from products.review_hog.backend.reviewer.tools.issue_combination import combine_issues
-from products.review_hog.backend.reviewer.tools.issue_deduplicator import deduplicate_issues
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import (
+    AlreadyRaised,
+    already_raised,
+    deduplicate_issues,
+)
 from products.review_hog.backend.reviewer.tools.issue_validation import (
     VALIDATION_SYSTEM_PROMPT,
     build_validation_followup_prompt,
@@ -252,7 +260,7 @@ class ReviewMeta:
     automatic_reviewed_head_sha: str | None = None
 
 
-@dataclass
+@dataclass(frozen=False)
 class ResolveActingUserInput:
     team_id: int
     author_login: str
@@ -267,6 +275,16 @@ class ResolveActingUserInput:
     # drift from the identity the sandboxes execute under. Defaulted for old in-flight payloads.
     trigger_source: str = TRIGGER_MANUAL
     default_user_id: int | None = None
+    # `owner/name` of the PR, for the automatic trigger's re-check of the repository rules. None in
+    # payloads serialized before the field existed, which fails that re-check closed.
+    repository: str | None = None
+    installation_id: str | None = None
+    github_repo_id: int | None = None
+    # The PR's head branch, which links a self-driving PR to its Inbox report. The fetch refuses forks,
+    # so the branch is in the base repository. None in older payloads: such a PR then has no owner.
+    head_branch: str | None = None
+    # Full in older payloads, which keeps them off the Flash-after-Full check below.
+    review_mode: str = REVIEW_MODE_FULL
 
 
 @dataclass(frozen=False)
@@ -274,24 +292,29 @@ class ResolveActingUserResult:
     # The user whose enabled perspectives drive this review; None when nothing in the resolution
     # chain maps to a PostHog org user — the parent then skips the review.
     acting_user_id: int | None
-    # The acting user's `ReviewUserSettings`, snapshotted here so mid-run edits don't flip gates
-    # between stages. Defaults match the model's (and cover payloads serialized before these existed).
-    # `review_labeled_prs` is the AUTHOR's opt-out: when the acting user is the default-user
-    # fallback, it is forced True — a borrowed user's personal switch never governs someone else's PR.
+    # The acting user's preferences, snapshotted here so mid-run edits don't flip gates between
+    # stages. Defaults match the code defaults (and cover payloads serialized before these existed).
+    # `review_labeled_prs` is always True: no setting turns the label trigger off. The field stays,
+    # because recorded workflow histories carry it and their replay still reads it.
     review_labeled_prs: bool = True
     urgency_threshold: str = IssuePriority.CONSIDER.value
     review_inbox_prs: bool = False
     # Which chain link resolved: "author" | "default" | "override" (observability + tests).
     resolved_from: str = "author"
-    # Whether a published review of this user's PRs chains into the resolution stage. Defaults False
-    # — the SKIP value — so pre-field histories replay deterministically (the chained dispatch is a
-    # new workflow command; old runs must never reach it on replay). The model default is True.
+    # Whether a published Full review chains into the resolution stage: the PR owner opted in and the
+    # project has the internal features (`ResolutionGate`). Defaults False, the SKIP value, so
+    # pre-field histories replay deterministically (the chained dispatch is a workflow command).
     resolve_comments: bool = False
     # Cosmetic only: whether the clean-review media appears in the status comment. Defaults True,
     # the model default, so pre-field histories keep the media and a resolve failure falls back to it.
     celebrate_clean_reviews: bool = True
+    # Whether the repository rules allow this automatic review. False for every other trigger. The
+    # name predates the rules and stays, because recorded workflow histories carry it.
     review_authored_prs: bool = False
+    # Always the default effort. The field stays, because recorded workflow histories carry it.
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
+    # The PR owner (`pr_owner.py`): the resolution stage runs under their criteria. None when the PR has no owner.
+    owner_user_id: int | None = None
 
 
 @dataclass
@@ -413,6 +436,10 @@ class DedupResult:
     issue_ids: list[str]
     # A single-agent turn's finding counts, which the workflow hands to the completed event.
     flash_stats: FlashTurnStats | None = None
+    # A Full turn's findings that another reviewer's PR comment already raises, for the status comment: the
+    # ones it shows, and how many there are in all, so the payload stays small.
+    raised_elsewhere: list[AlreadyRaised] = field(default_factory=list)
+    raised_elsewhere_count: int = 0
 
 
 @dataclass(frozen=False)
@@ -811,22 +838,51 @@ def _login_to_user_id(team_id: int, login: str | None) -> int | None:
     return user.id if user is not None else None
 
 
+def _automatic_review_allowed(input: ResolveActingUserInput, acting_user_id: int | None) -> bool:
+    """Whether the rules still give this PR its automatic Flash review when the turn starts."""
+    if acting_user_id is None or input.repository is None:
+        return False
+    if input.report_id is not None:
+        report = ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first()
+        if full_review_published(report):
+            return False
+    return automatic_flash_allowed(
+        team_id=input.team_id,
+        repository=input.repository,
+        user_id=acting_user_id,
+        author_login=input.author_login,
+        installation_id=input.installation_id,
+        github_repo_id=input.github_repo_id,
+    )
+
+
+def _flash_after_full(input: ResolveActingUserInput) -> bool:
+    """Whether a queued Flash request now follows a Full review published while it waited."""
+    if input.review_mode != REVIEW_MODE_FLASH or input.report_id is None:
+        return False
+    return full_review_published(ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first())
+
+
 def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
-    # Resolved even on override runs: the clean-review media switch keys off the mapped author's own
-    # preference, not the requester's, so an override run still needs this identity to load it.
-    author_user_id = _login_to_user_id(input.team_id, input.author_login)
+    # Resolved even on override runs: the owner decides resolution and the clean-review media,
+    # whoever asked for the review.
+    owner = PullRequestOwnerResolver.resolve(
+        input.team_id,
+        repository=input.repository or "",
+        author_login=input.author_login,
+        head_branch=input.head_branch if input.repository else None,
+    )
     acting_user_id: int | None
     if input.override_user_id is not None:
         acting_user_id, resolved_from = input.override_user_id, "override"
     else:
-        acting_user_id, resolved_from = author_user_id, "author"
-        # Label-trigger fallback — someone explicitly asked for this review, so borrow the run user
-        # the trigger already resolved. Other triggers keep the author-only contract and skip.
+        acting_user_id, resolved_from = owner.user_id, "author"
+        # Label-trigger fallback: someone explicitly asked for this review, so borrow the run user
+        # the trigger already resolved. Other triggers keep the owner-only contract and skip.
         if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
             acting_user_id, resolved_from = input.default_user_id, "default"
-    if input.trigger_source == TRIGGER_AUTOMATIC and (
-        acting_user_id is None or not authored_reviews_enabled(team_id=input.team_id, user_id=acting_user_id)
-    ):
+    automatic_allowed = input.trigger_source == TRIGGER_AUTOMATIC and _automatic_review_allowed(input, acting_user_id)
+    if (input.trigger_source == TRIGGER_AUTOMATIC and not automatic_allowed) or _flash_after_full(input):
         if input.report_id is not None:
             ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
                 status=ReviewReport.Status.IDLE
@@ -835,53 +891,38 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
     if acting_user_id is None:
         return ResolveActingUserResult(acting_user_id=None)
     if resolved_from == "default":
-        logger.info(
-            "PR author %r has no PostHog user; acting as the default user %s", input.author_login, acting_user_id
-        )
+        logger.info("PR %r has no owner; acting as the default user %s", input.author_login, acting_user_id)
     if input.report_id is not None:
         ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(acting_user_id=acting_user_id)
-    # celebrate_clean_reviews follows the author, who can differ from the acting user on an
-    # override run, so load both rows in one query instead of a second round trip below.
-    extra_settings_ids = [author_user_id] if author_user_id is not None and author_user_id != acting_user_id else []
-    settings_by_user = ReviewUserSettings.load_many(input.team_id, [acting_user_id, *extra_settings_ids])
-    settings = settings_by_user[acting_user_id]
+    # A review that runs as a borrowed user (the run user on a label without an owner, or the user
+    # who connected GitHub on an automatic bot review) gets the default settings: that user's own
+    # preferences must not shape someone else's pull request.
+    borrowed = resolved_from == "default" or (
+        input.trigger_source == TRIGGER_AUTOMATIC and acting_user_id != owner.user_id
+    )
+    # celebrate_clean_reviews follows the owner, who can differ from the acting user on an override
+    # run, so load both users in one query instead of a second round trip below.
+    extra_settings_ids = [owner.user_id] if owner.user_id is not None and owner.user_id != acting_user_id else []
+    preferences_by_user = ReviewUserSettings.load_preferences_many(input.team_id, [acting_user_id, *extra_settings_ids])
+    defaults = ReviewPreferences.resolve({}, ReviewProjectSettings.load(input.team_id).defaults)
+    preferences = defaults if borrowed else preferences_by_user[acting_user_id]
+    owner_preferences = preferences_by_user[owner.user_id] if owner.user_id is not None else defaults
+    resolution = ResolutionGate(owner_user_id=owner.user_id, owner_opted_in=owner_preferences.resolve_comments)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
-        # The labeled-PR opt-out protects authors ("don't review my PRs") — the borrowed default
-        # user never imports their personal switch into someone else's PR.
-        review_labeled_prs=settings.review_labeled_prs if resolved_from in ("author", "override") else True,
-        # str() unwraps the TextChoices member an unsaved defaults instance carries — the payload
-        # must hold the plain value. A default-resolved run gates at the built-in default, never the
-        # borrowed run user's saved threshold — the same "borrowed settings must not leak into
-        # someone else's PR" rule that forces review_labeled_prs above.
-        urgency_threshold=(
-            str(settings.urgency_threshold)
-            if resolved_from in ("author", "override")
-            else DEFAULT_URGENCY_THRESHOLD.value
-        ),
-        review_inbox_prs=settings.review_inbox_prs,
+        review_labeled_prs=True,
+        # .value unwraps the TextChoices member, because the payload must hold the plain value.
+        urgency_threshold=preferences.urgency_threshold.value,
+        review_inbox_prs=preferences.review_inbox_prs,
         resolved_from=resolved_from,
-        # Same author-protection shape as `review_labeled_prs`: the borrowed default user's personal
-        # switch never governs someone else's PR — an unmapped author gets the default posture (on).
-        resolve_comments=settings.resolve_comments if resolved_from in ("author", "override") else True,
-        # Unlike the switches above, this one follows the AUTHOR, not the requester: its copy scopes
-        # it to "your pull requests". A teammate-triggered override still honors the mapped author's
-        # own preference. Only an unmapped author falls back to the default.
-        celebrate_clean_reviews=(
-            settings.celebrate_clean_reviews
-            if resolved_from == "author" or (resolved_from == "override" and acting_user_id == author_user_id)
-            else (
-                settings_by_user[author_user_id].celebrate_clean_reviews
-                if resolved_from == "override" and author_user_id is not None
-                else True
-            )
-        ),
-        review_authored_prs=settings.review_authored_prs if resolved_from in ("author", "override") else False,
-        flash_reasoning_effort=(
-            str(settings.flash_reasoning_effort)
-            if resolved_from in ("author", "override")
-            else ReasoningEffort.MEDIUM.value
-        ),
+        # The workflow also requires a publishing Full turn, because only it knows the turn's mode.
+        resolve_comments=resolution.allows(REVIEW_MODE_FULL),
+        # Unlike the values above, this one follows the OWNER, not the requester: its copy scopes
+        # it to "your pull requests". Only a PR without an owner falls back to the default.
+        celebrate_clean_reviews=owner_preferences.celebrate_clean_reviews,
+        review_authored_prs=automatic_allowed,
+        flash_reasoning_effort=ReasoningEffort.MEDIUM.value,
+        owner_user_id=owner.user_id,
     )
 
 
@@ -1386,7 +1427,7 @@ async def lens_review_activity(input: LensReviewInput) -> None:
 # --- Combine + scope-clean + dedup -----------------------------------------------------------------
 
 # The reviews API shows this as the finding's validator note, so it says that no validator ran.
-SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. The single-agent Flash review publishes its findings directly."
+SINGLE_AGENT_VERDICT_NOTE = "Not validated separately. A Standard review publishes its findings directly."
 
 
 def _is_final_attempt() -> bool:
@@ -1429,6 +1470,33 @@ def _changed_since_last_review(
     return ChangedSinceReview.between(reviewed.pr_files, current_files)
 
 
+def _current_pr_comments(input: SandboxStageInput, snapshot: "PRSnapshotArtefact") -> list[PRComment]:
+    """The PR's inline comments as they stand now, without outdated ones.
+
+    The fetch stage read them when the turn started, and other review bots often post while a Full turn
+    runs, so dedup reads them again. It keeps the first read when the PR moved to a new commit meanwhile,
+    because GitHub then places the comments on code the turn did not review. A comment GitHub no longer
+    places on a line is outdated: the code it was about changed.
+    """
+    comments = snapshot.pr_comments
+    pr_number = snapshot.pr_metadata.number
+    if pr_number is not None:
+        try:
+            token, installation_id = _installation_auth(input.team_id, input.repository)
+            owner, repo = input.repository.split("/", 1)
+            fetcher = PRFetcher(
+                owner=owner, repo=repo, pr_number=pr_number, token=token, installation_id=installation_id
+            )
+            if fetcher.fetch_head_sha() == input.head_sha:
+                # A complete read replaces the first one, so a comment deleted during the turn is gone.
+                comments = fetcher.fetch_pr_comments(PRFilter(), raise_errors=True)
+        except Exception:
+            logger.warning(
+                "Could not read the PR's comments again; deduplicating against the first read", exc_info=True
+            )
+    return [comment for comment in comments if comment.line is not None or comment.start_line is not None]
+
+
 @activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1465,6 +1533,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
     prior_findings = await database_sync_to_async(load_prior_findings_with_verdicts, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
     )
+    raised_elsewhere: list[AlreadyRaised] = []
     flash_selection: FlashSelection | None = None
     flash_stats: FlashTurnStats | None = None
     async with ReviewActivityHeartbeater(team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha):
@@ -1478,7 +1547,6 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 user_id=input.user_id,
                 issues=issues,
                 pr_metadata=snapshot.pr_metadata,
-                pr_comments=snapshot.pr_comments,
                 prior_findings=prior_findings,
                 branch=input.branch,
                 repository=input.repository,
@@ -1490,18 +1558,25 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             survivors = flash_selection.kept
             flash_stats = flash_turn_stats(issues, flash_selection, reviewable_lines=lens_plan.reviewable_lines)
         else:
+            # Flash posts what it finds whatever other comments say; only Full checks the PR's comments.
+            pr_comments = (
+                await database_sync_to_async(_current_pr_comments, thread_sensitive=False)(input, snapshot)
+                if input.review_mode == REVIEW_MODE_FULL
+                else []
+            )
             outcome = await deduplicate_issues(
                 team_id=input.team_id,
                 user_id=input.user_id,
                 issues=issues,
                 pr_metadata=snapshot.pr_metadata,
-                pr_comments=snapshot.pr_comments,
+                pr_comments=pr_comments,
                 prior_findings=prior_findings,
                 branch=input.branch,
                 repository=input.repository,
                 workflow_id_prefix=_sandbox_workflow_id_prefix("dedup"),
             )
             survivors = outcome.kept
+            raised_elsewhere = already_raised(outcome.duplicates, pr_comments)
     issue_ids = await database_sync_to_async(replace_deduplicated_findings, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
@@ -1538,7 +1613,12 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
             run_index=input.run_index,
         )
     await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
-    return DedupResult(issue_ids=issue_ids, flash_stats=flash_stats)
+    return DedupResult(
+        issue_ids=issue_ids,
+        flash_stats=flash_stats,
+        raised_elsewhere=raised_elsewhere[:ALREADY_RAISED_SHOWN],
+        raised_elsewhere_count=len(raised_elsewhere),
+    )
 
 
 # --- Validate (per-chunk warm-session fan-out) -----------------------------------------------------

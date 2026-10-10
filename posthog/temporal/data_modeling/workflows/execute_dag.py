@@ -7,6 +7,7 @@ from collections import defaultdict
 import temporalio.common
 import temporalio.workflow
 import temporalio.exceptions
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.exceptions_capture import capture_exception
@@ -18,6 +19,7 @@ from posthog.temporal.data_modeling.activities import (
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
     SkippedDataModelingNode,
+    check_team_managed_warehouse_shadow_eligibility_activity,
     get_dag_structure_activity,
     notify_dag_materialization_failures_activity,
     preempt_dag_run_activity,
@@ -33,6 +35,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
+    _is_cancellation,
 )
 
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
@@ -40,6 +43,24 @@ from products.data_quality.backend.facade.contracts import CHECK_SUITE_WORKFLOW_
 from products.data_quality.backend.facade.enums import SuiteRunTrigger
 
 MAX_CONCURRENT_CHILDREN = 10
+
+TRINO_SHADOW_DAG_RUN_PATCH = "data-modeling-trino-shadow-dag-run"
+TRINO_SHADOW_RUN_TIMEOUT = dt.timedelta(hours=12)
+
+
+def trino_shadow_workflow_id(workflow_id: str, dag_id: str) -> str:
+    """The fixed id of the Trino shadow run for the DAG run with this workflow id.
+
+    Tier schedule runs are `execute-dag-{dag_id}:{tier}-{timestamp}`, so each cadence tier gets
+    its own shadow id. Any other run shares one id per DAG. A fixed id lets Temporal refuse a
+    second shadow while the previous one is still running.
+    """
+    tier_prefix = f"execute-dag-{dag_id}:"
+    if workflow_id.startswith(tier_prefix):
+        tier = workflow_id[len(tier_prefix) :].split("-", 1)[0]
+        if tier:
+            return f"execute-dag-trino-{dag_id}:{tier}"
+    return f"execute-dag-trino-{dag_id}"
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -57,6 +78,8 @@ class ExecuteDAGInputs:
         dag_id: the DAG to execute.
         node_ids: optional list of specific node IDs to materialize. If not provided,
             all materializable nodes in the DAG will be processed.
+        shadow: a Trino shadow of a ClickHouse run. Its failures stay in job rows and metrics,
+            so it runs no data quality checks and sends no failure notifications.
     """
 
     team_id: int
@@ -66,6 +89,7 @@ class ExecuteDAGInputs:
     dangerously_execute_raw_sql: bool = False
     # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
     duckgres_only: bool = False
+    shadow: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -74,6 +98,13 @@ class ExecuteDAGInputs:
             "dag_id": self.dag_id,
             "node_ids": self.node_ids,
         }
+
+
+def _serving_engine(inputs: ExecuteDAGInputs) -> str:
+    engine = (
+        DataModelingJobEngine.MANAGED_WAREHOUSE if inputs.managed_warehouse_only else DataModelingJobEngine.CLICKHOUSE
+    )
+    return engine.value
 
 
 @dataclasses.dataclass(frozen=False)
@@ -217,6 +248,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 team_id=inputs.team_id,
                 dag_id=inputs.dag_id,
                 node_ids=inputs.node_ids,
+                engine=_serving_engine(inputs),
             ),
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
@@ -265,6 +297,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 node_results=[],
             )
 
+        if not inputs.managed_warehouse_only and temporalio.workflow.patched(TRINO_SHADOW_DAG_RUN_PATCH):
+            await self._maybe_start_trino_shadow(inputs)
+
         edge_lookup = _get_edge_lookup(dag_structure.edges)
         levels = _dag_execution_levels(inputs.team_id, inputs.dag_id, executable_nodes, edge_lookup)
 
@@ -283,9 +318,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         failed_node_set: set[str] = set()
         quality_failed_node_set: set[str] = set()
         managed_warehouse_only = inputs.managed_warehouse_only
-        serving_engine = (
-            DataModelingJobEngine.MANAGED_WAREHOUSE if managed_warehouse_only else DataModelingJobEngine.CLICKHOUSE
-        ).value
+        serving_engine = _serving_engine(inputs)
         suspended_node_set: set[str] = set(dag_structure.suspended_nodes.get(serving_engine, []))
         downstreams = _get_downstream_lookup(edge_lookup)
         skipped_jobs: list[SkippedDataModelingNode] = []
@@ -530,15 +563,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             dag_status = "failed"
         else:
             dag_status = "partial_failure"
-        get_dag_finished_metric(dag_status).add(1)
-        get_dag_duration_metric().record(duration_seconds)
-        get_dag_node_count_metric("successful").record(successful_nodes)
-        get_dag_node_count_metric("failed").record(failed_nodes)
-        get_dag_node_count_metric("skipped").record(skipped_nodes)
+        engine = _serving_engine(inputs)
+        get_dag_finished_metric(dag_status, engine).add(1)
+        get_dag_duration_metric(engine).record(duration_seconds)
+        get_dag_node_count_metric("successful", engine).record(successful_nodes)
+        get_dag_node_count_metric("failed", engine).record(failed_nodes)
+        get_dag_node_count_metric("skipped", engine).record(skipped_nodes)
 
-        await self._run_data_quality_checks(inputs, node_results)
+        if not inputs.shadow:
+            await self._run_data_quality_checks(inputs, node_results)
 
-        if failed_nodes:
+        if failed_nodes and not inputs.shadow:
             await temporalio.workflow.execute_activity(
                 notify_dag_materialization_failures_activity,
                 NotifyDAGMaterializationFailuresInputs(
@@ -560,6 +595,50 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             duration_seconds=duration_seconds,
             node_results=node_results,
         )
+
+    async def _maybe_start_trino_shadow(self, inputs: ExecuteDAGInputs) -> None:
+        """Start a managed_warehouse_only run of the same nodes when the org shadows into Trino.
+
+        ABANDON and never awaited, so the Trino runtime can neither delay nor fail this run. When
+        the previous shadow of this tier is still running, this one is skipped rather than
+        restarting it, so a slow Trino never builds a backlog.
+        """
+        try:
+            eligible = await temporalio.workflow.execute_activity(
+                check_team_managed_warehouse_shadow_eligibility_activity,
+                inputs.team_id,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+            )
+            if not eligible:
+                return
+            await temporalio.workflow.start_child_workflow(
+                ExecuteDAGWorkflow.run,
+                ExecuteDAGInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    node_ids=inputs.node_ids,
+                    managed_warehouse_only=True,
+                    dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                    shadow=True,
+                ),
+                id=trino_shadow_workflow_id(temporalio.workflow.info().workflow_id, inputs.dag_id),
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                # Later shadows of this tier are skipped while one runs, so a hung run must end.
+                execution_timeout=TRINO_SHADOW_RUN_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+            )
+        except WorkflowAlreadyStartedError:
+            temporalio.workflow.logger.info(
+                "Previous Trino shadow run is still running, skipping", extra=inputs.properties_to_log
+            )
+        except Exception as e:
+            if _is_cancellation(e):
+                raise
+            capture_exception(e)
+            temporalio.workflow.logger.warning(
+                "Could not start the Trino shadow run", extra={"error": str(e), **inputs.properties_to_log}
+            )
 
     async def _run_data_quality_checks(self, inputs: ExecuteDAGInputs, node_results: list[NodeResult]) -> None:
         """Fire the check suite for the nodes this run refreshed but did not audit per-node.

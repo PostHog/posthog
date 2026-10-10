@@ -10,8 +10,8 @@ from products.review_hog.backend.reviewer.constants import (
     SINGLE_AGENT_SOURCE,
     flash_max_findings,
 )
-from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRFileUpdate, PRMetadata
-from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashDuplicateIssue, FlashIssueDeduplication
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
+from products.review_hog.backend.reviewer.models.issue_deduplicator import DuplicateIssue, IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import (
     DroppedIssue,
     Issue,
@@ -228,8 +228,8 @@ class TestComposeFlashFindings:
 
 def _flash_dedup(*duplicates: tuple[str, str]) -> AsyncMock:
     return AsyncMock(
-        return_value=FlashIssueDeduplication(
-            duplicates=[FlashDuplicateIssue(id=issue_id, duplicate_of=target) for issue_id, target in duplicates]
+        return_value=IssueDeduplication(
+            duplicates=[DuplicateIssue(id=issue_id, duplicate_of=target) for issue_id, target in duplicates]
         )
     )
 
@@ -245,7 +245,6 @@ class TestDedupeFlashFindings:
         mock_llm: AsyncMock,
         *,
         prior_findings: list[ReviewIssueFinding] | None = None,
-        pr_comments: list[PRComment] | None = None,
         changed_since: ChangedSinceReview | None = None,
     ) -> FlashSelection:
         with patch(f"{_DEDUP_MODULE}.run_oneshot_openai_review", mock_llm):
@@ -254,7 +253,6 @@ class TestDedupeFlashFindings:
                 user_id=1,
                 issues=issues,
                 pr_metadata=pr_metadata,
-                pr_comments=pr_comments or [],
                 prior_findings=[(finding, None) for finding in prior_findings or []],
                 branch="feat",
                 repository="o/r",
@@ -367,7 +365,6 @@ class TestDedupeFlashFindings:
             pytest.param("2000-1-1", "dedup_anchor", "2000-1-1", id="main_finding"),
             pytest.param("2002-1-2", "dedup_sibling", "2002-1-2", id="lens_sibling"),
             pytest.param(_PRIOR_KEY, "dedup_prior", _PRIOR_KEY, id="earlier_turn"),
-            pytest.param("77", "dedup_comment", "comment:77", id="pr_comment"),
         ],
     )
     async def test_a_dedup_drop_records_what_it_repeats(
@@ -390,10 +387,9 @@ class TestDedupeFlashFindings:
             suggestion="",
             priority=IssuePriority.SHOULD_FIX,
         )
-        comment = PRComment(id=77, path="a.py", line=10, body="x", diff_hunk="", user="reviewer", created_at="c")
         mock_llm = _flash_dedup(("2002-1-1", named))
 
-        selection = await self._dedupe(pr_metadata, issues, mock_llm, prior_findings=[prior], pr_comments=[comment])
+        selection = await self._dedupe(pr_metadata, issues, mock_llm, prior_findings=[prior])
 
         [drop] = selection.dropped
         recorded = drop.duplicate_of.id if isinstance(drop.duplicate_of, Issue) else drop.duplicate_of

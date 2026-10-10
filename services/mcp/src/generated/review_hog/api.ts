@@ -56,7 +56,7 @@ export const ReviewHogReviewsRetrieveParams = () => zod.object({
 })
 
 /**
- * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, urgency threshold, and resolution criteria drive the run, and it appears under their recent reviews. `run_mode` picks the variant: a review (which chains the resolution stage per the user's resolve_comments setting), a review without resolving, resolution only, or a lower-cost Flash review that never resolves comments. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
+ * Start a ReviewHog review of any pull request the project's GitHub App installation can access, and publish it back to the PR. The requesting user is the review's acting user: their enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it appears under their recent reviews. Resolution writes to the branch only when the pull request owner opted in, whoever asks. `run_mode` picks the variant: a review (which chains the resolution stage per the owner's resolve_comments setting), a review without resolving, resolution only, or a lower-cost Standard review that never resolves comments and is refused after a published Deep review. Nonexistent, closed, and fork PRs are rejected synchronously; a PR whose current commit already has a published review returns 'already_reviewed' without starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole point), and triggering a PR whose run is currently in flight joins that run. Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in the worker.
  * @summary Start a review of a pull request
  */
 export const ReviewHogReviewsTriggerCreateParams = () => zod.object({
@@ -78,10 +78,10 @@ export const ReviewHogReviewsTriggerCreateBody = () => zod.object({
     run_mode: zod
         .enum(['review', 'review_only', 'resolve_only', 'flash'])
         .describe(
-            '\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only\n\* `flash` - flash'
+            '\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard'
         )
         .default(reviewHogReviewsTriggerCreateBodyRunModeDefault)
         .describe(
-            "What to run on the pull request. 'review' (default) reviews it and, when the requesting user's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads; 'flash' uses a lower-cost model for the review passes and validation, and never resolves comments.\n\n\* `review` - review\n\* `review_only` - review_only\n\* `resolve_only` - resolve_only\n\* `flash` - flash"
+            "What to run on the pull request. 'review' (default) reviews it and, when the pull request owner's resolve_comments setting is on, chains the resolution stage; 'review_only' reviews without resolving regardless of that setting; 'resolve_only' skips the review and only runs the resolution stage on the PR's existing unresolved review threads, which needs the owner's opt-in; 'flash' runs a Standard review: a lower-cost model for the review passes and validation, never resolves comments, and is refused once the PR has a published Deep review. The owner is the PR's author, or the Inbox reviewer of a pull request the PostHog app opened.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
         ),
 })

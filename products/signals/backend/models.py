@@ -68,6 +68,15 @@ class SignalReportWorkState(models.TextChoices):
     DONE = "done", "Done"
 
 
+class SignalReportSuppressionSource(models.TextChoices):
+    # Who or what took a suppressed report out of the inbox, derived from its artefacts. Only
+    # DISMISSED means someone chose it; the rest are verdicts nobody has reviewed yet.
+    DISMISSED = "dismissed", "Dismissed"
+    SAFETY_JUDGE = "safety_judge", "Safety judge"
+    NOT_ACTIONABLE = "not_actionable", "Not actionable"
+    SYSTEM = "system", "System"
+
+
 def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(SignalSourceConfig.SourceType.choices)
@@ -299,6 +308,7 @@ class SignalReport(UUIDModel):
         IN_PROGRESS = "in_progress"
         PENDING_INPUT = "pending_input"
         READY = "ready"
+        MONITORING = "monitoring"
         RESOLVED = "resolved"
         FAILED = "failed"
         DELETED = "deleted"
@@ -384,6 +394,7 @@ class SignalReport(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True)
     promoted_at = models.DateTimeField(null=True, blank=True)
     last_run_at = models.DateTimeField(null=True, blank=True)
+    monitoring_started_at = models.DateTimeField(null=True, blank=True)
     # When the report first became user-visible (entered READY, PENDING_INPUT, or FAILED, the statuses the
     # inbox lists). Set once and never cleared, so re-research and suppress/restore cycles don't
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
@@ -2725,6 +2736,11 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # defer an already-overdue scheduled run. Null on rows whose schedule was never edited —
     # `created_at` anchors those.
     schedule_changed_at = models.DateTimeField(null=True, blank=True)
+    # Optional HogQL query a scheduled run evaluates before it starts (`scout_harness/precheck.py`).
+    # No rows, or a single false value, skips the run, so a scout that watches something rare can
+    # run often and pay for a sandbox only when there is something new. `{since}` and `{now}` are
+    # bound as HogQL placeholders. Null turns the pre-check off.
+    precheck_query = models.TextField(null=True, blank=True)
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
@@ -3070,6 +3086,8 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # the note a person typed when triggering the run by hand, so read it as prose, not a dimension.
     # Nullable with a `{}` db_default so the AddField stays non-blocking on the populated table.
     metadata = models.JSONField(null=True, blank=True, default=dict, db_default={})
+    # Keep private trial documents separate from metadata inspected by ordinary scout history queries.
+    trial_state = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     # Last touch on the row. The `summary`, the emit and edit tallies, and `metadata` all land after
     # the row is created, so a reader keyed on `created_at` alone never sees a settled run. Nullable
@@ -3093,6 +3111,10 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
                 fields=["team", "skill_name", "-created_at"],
                 name="signal_scout_run_recent_idx",
             ),
+            # The team-wide run search and the fleet summary filter on team only, with no scout key, so
+            # the index above cannot serve their newest-first order and the planner sorts every one of
+            # the team's runs before it applies the limit.
+            models.Index(fields=["team", "-created_at"], name="signal_scout_run_team_new_idx"),
             # "which run authored this report?" is a jsonb containment lookup (`@>`) that
             # `dismissal_notes` runs on the dismissal request path, batched into one OR'd query per
             # request. Without these the planner can only seq-scan the team's runs, and this table
@@ -3236,6 +3258,15 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "-updated_at", "-id"], name="signal_scratchpad_team_upd_idx"),
+            # The unique `(team, key)` index cannot serve a `key` prefix LIKE under a non-C collation.
+            models.Index(
+                fields=["team", "key"],
+                name="signal_scratchpad_key_like_idx",
+                opclasses=["int4_ops", "varchar_pattern_ops"],
+            ),
         ]
 
 

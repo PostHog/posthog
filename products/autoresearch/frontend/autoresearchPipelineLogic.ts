@@ -56,16 +56,21 @@ import {
     type ModelExplanationFieldApi,
     type OnlinePerformanceRowApi,
 } from './generated/api.schemas'
+import type { ConfusionByCutoffApi } from './generated/api.schemas'
 import {
+    type AccuracyCutoff,
+    type PooledConfusion,
     RealizedAucPoint,
     SegmentCalibration,
     calibrationBySegment,
     firstCheckDate,
     latestChampionRow,
+    pooledConfusion,
     realizedAucSeries,
     validatedPredictionDates,
 } from './onlinePerformance'
 import { LifecycleStep, pipelineLifecycle } from './pipelineLifecycle'
+import { type CoveragePoint, type CoverageSummary, coverageHistory, coverageSummary } from './predictionCoverage'
 import {
     PREDICTION_SEGMENTS,
     PREDICTION_SEGMENT_THRESHOLDS,
@@ -267,6 +272,7 @@ export interface autoresearchPipelineLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
+    accuracyCutoff: AccuracyCutoff
     activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
     agentNotes: AgentNotes | null
@@ -275,6 +281,9 @@ export interface autoresearchPipelineLogicValues {
     artifactsByRunLoading: boolean
     breadcrumbs: Breadcrumb[]
     champion: AutoresearchModelApi | null
+    championConfusion: PooledConfusion | null
+    coverageHistory: CoveragePoint[]
+    coverageSummary: CoverageSummary | null
     dailyVolume: DailyVolumePoint[] | null
     dailyVolumeError: boolean
     dailyVolumeLoading: boolean
@@ -630,6 +639,9 @@ export interface autoresearchPipelineLogicActions {
     searchPointClicked: (point: SearchPoint) => {
         point: SearchPoint
     }
+    setAccuracyCutoff: (cutoff: AccuracyCutoff) => {
+        cutoff: keyof ConfusionByCutoffApi
+    }
     setActiveScoreRun: (run: AutoresearchRunApi | null) => {
         run: AutoresearchRunApi | null
     }
@@ -740,9 +752,19 @@ export interface autoresearchPipelineLogicMeta {
             runs: AutoresearchRunApi[],
             pipeline: AutoresearchPipelineApi | null
         ) => ScoringCoverage | null
+        coverageSummary: (
+            runs: AutoresearchRunApi[],
+            scoringCoverage: ScoringCoverage | null,
+            pipeline: AutoresearchPipelineApi | null
+        ) => CoverageSummary | null
+        coverageHistory: (runs: AutoresearchRunApi[]) => CoveragePoint[]
         latestChampionPerformance: (onlinePerformance: OnlinePerformanceRowApi[]) => OnlinePerformanceRowApi | null
         realizedAucPoints: (onlinePerformance: OnlinePerformanceRowApi[]) => RealizedAucPoint[]
         segmentCalibration: (latestChampionPerformance: OnlinePerformanceRowApi | null) => SegmentCalibration[]
+        championConfusion: (
+            onlinePerformance: OnlinePerformanceRowApi[],
+            accuracyCutoff: keyof ConfusionByCutoffApi
+        ) => PooledConfusion | null
         firstCheck: (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null) => dayjs.Dayjs | null
         probabilityHistogram: (probabilityDistribution: ProbabilityBucket[] | null) => ProbabilityBucket[] | null
         hasLiveTrainingRun: (trainingRuns: AutoresearchTrainingRunApi[]) => boolean
@@ -786,6 +808,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
         setPredictionsPeopleView: (view: PredictionsPeopleView) => ({ view }),
+        setAccuracyCutoff: (cutoff: AccuracyCutoff) => ({ cutoff }),
         setTabFromUrl: (tab: AutoresearchPipelineTab | null) => ({ tab }),
         loadDetail: true,
         toggleRunArtifacts: (runId: string) => ({ runId }),
@@ -823,6 +846,12 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             'most_likely' as PredictionsPeopleView,
             {
                 setPredictionsPeopleView: (_, { view }) => view,
+            },
+        ],
+        accuracyCutoff: [
+            'top_10' as AccuracyCutoff,
+            {
+                setAccuracyCutoff: (_, { cutoff }) => cutoff,
             },
         ],
         activeScoreRun: [
@@ -1282,6 +1311,16 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null): ScoringCoverage | null =>
                 scoringCoverage(runs, pipeline?.cadence_days ?? 1),
         ],
+        coverageSummary: [
+            (s) => [s.runs, s.scoringCoverage, s.pipeline],
+            (
+                runs: AutoresearchRunApi[],
+                scoringCoverage: ScoringCoverage | null,
+                pipeline: AutoresearchPipelineApi | null
+            ): CoverageSummary | null =>
+                coverageSummary(runs, scoringCoverage?.rescoreDays ?? Math.max(pipeline?.cadence_days ?? 1, 1)),
+        ],
+        coverageHistory: [(s) => [s.runs], (runs: AutoresearchRunApi[]): CoveragePoint[] => coverageHistory(runs)],
         latestChampionPerformance: [
             (s) => [s.onlinePerformance],
             (onlinePerformance: OnlinePerformanceRowApi[]): OnlinePerformanceRowApi | null =>
@@ -1295,6 +1334,11 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (s) => [s.latestChampionPerformance],
             (latestChampionPerformance: OnlinePerformanceRowApi | null): SegmentCalibration[] =>
                 calibrationBySegment(latestChampionPerformance?.calibration_bins ?? []),
+        ],
+        championConfusion: [
+            (s) => [s.onlinePerformance, s.accuracyCutoff],
+            (onlinePerformance: OnlinePerformanceRowApi[], accuracyCutoff: AccuracyCutoff): PooledConfusion | null =>
+                pooledConfusion(onlinePerformance, accuracyCutoff),
         ],
         firstCheck: [
             (s) => [s.runs, s.pipeline],
@@ -1580,6 +1624,9 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         },
         setPredictionsPeopleView: ({ view }) => {
             posthog.capture('autoresearch model predictions view changed', { pipeline_id: props.id, view })
+        },
+        setAccuracyCutoff: ({ cutoff }) => {
+            posthog.capture('autoresearch model accuracy cutoff changed', { pipeline_id: props.id, cutoff })
         },
         saveSegmentCohort: async ({ segment }) => {
             const { pipeline, currentProjectId } = values

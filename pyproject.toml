@@ -736,39 +736,11 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.sql.events",
     "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.service",
-    "products.batch_exports.backend.presentation.views.destination_tests.bigquery -> products.batch_exports.backend.temporal.destinations.bigquery_batch_export",
-    "products.batch_exports.backend.presentation.views.destination_tests.databricks -> products.batch_exports.backend.temporal.destinations.databricks_batch_export",
-    "products.batch_exports.backend.presentation.views.destination_tests.s3 -> products.batch_exports.backend.temporal.destinations.s3_batch_export",
-    "products.batch_exports.backend.presentation.views.destination_tests.snowflake -> products.batch_exports.backend.temporal.destinations.snowflake_batch_export",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.hogql_source",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.service",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.record_batch_model",
     "products.batch_exports.backend.presentation.views.file_download -> products.batch_exports.backend.temporal.sql.common",
-    # TODO: messaging presentation wave — the moved views still read messaging models and services
-    # directly. Each lane thins its own modules to parse -> facade -> serialize and deletes only its
-    # own entries, keeping its header. backend:contract-check stays off until this list is empty.
-    # Only delete entries here: a new import from these views goes through the facade.
-    # Lane A: suppression
-    "products.messaging.backend.presentation.views.message_suppression -> products.messaging.backend.models.message_suppression",
-    # Lane B: categories, Customer.io config and the Customer.io webhook
-    "products.messaging.backend.presentation.views.customerio_webhook -> products.messaging.backend.models.message_category",
-    "products.messaging.backend.presentation.views.customerio_webhook -> products.messaging.backend.models.message_preferences",
-    "products.messaging.backend.presentation.views.customerio_webhook -> products.messaging.backend.models.optout_sync_config",
-    "products.messaging.backend.presentation.views.message_categories -> products.messaging.backend.models.message_category",
-    "products.messaging.backend.presentation.views.message_categories -> products.messaging.backend.models.optout_sync_config",
-    "products.messaging.backend.presentation.views.message_categories -> products.messaging.backend.services.customerio_import_service",
-    # Lane C: preferences and the recipient preferences page
-    "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.models.message_category",
-    "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.models.message_preferences",
-    "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.services.opt_out_service",
-    "products.messaging.backend.presentation.views.message_preferences -> products.messaging.backend.tasks",
-    "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.models.message_category",
-    "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.models.message_preferences",
-    "products.messaging.backend.presentation.views.recipient_preferences -> products.messaging.backend.services.customerio_sync_service",
-    # Lane D: templates
-    "products.messaging.backend.presentation.views.message_templates -> products.messaging.backend.models.message_category",
-    "products.messaging.backend.presentation.views.message_templates -> products.messaging.backend.models.message_template",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the

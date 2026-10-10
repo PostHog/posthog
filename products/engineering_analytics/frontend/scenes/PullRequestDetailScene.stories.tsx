@@ -192,6 +192,7 @@ const FAILED_GATE_JOBS: WorkflowJobApi[] = [
     {
         id: 2031,
         run_id: 203,
+        steps: [],
         name: 'Django tests (Core, 3/8)',
         status: 'completed',
         conclusion: 'failure',
