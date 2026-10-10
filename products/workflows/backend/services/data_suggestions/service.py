@@ -44,7 +44,10 @@ from products.workflows.backend.services.data_suggestions.planner import (
     suggest_ideas,
 )
 from products.workflows.backend.services.data_suggestions.ranking import (
+    FLAT_WEIGHTS,
+    STAGE_WEIGHTS,
     LifecycleStage,
+    guess_stage,
     pick_one_per_stage,
     select_prompt_events,
     suggestion_score,
@@ -189,18 +192,36 @@ def build_data_suggestion(*, team: Team, user: User, suggestion_id: str) -> Buil
 
 
 def _cache_key(team: Team) -> str:
-    return f"workflows:data_suggestions:v3:{team.id}"
+    # A team's first workflow moves it from the new to the existing ranking, so the two get separate entries.
+    audience = "new" if _is_new_to_workflows(team) else "existing"
+    return f"workflows:data_suggestions:v3:{team.id}:{audience}"
+
+
+def _is_new_to_workflows(team: Team) -> bool:
+    return not HogFlow.objects.filter(team_id=team.id).exclude(status="archived").exists()
 
 
 def _suggest(*, team: Team, user: User) -> DataSuggestionsResult:
     used_events = _used_trigger_events(team)
+    is_new = _is_new_to_workflows(team)
     weekly_counts = _weekly_counts(team, exclude=used_events)
     if not weekly_counts:
         return DataSuggestionsResult(status="ready", suggestions=())
 
-    candidates = select_prompt_events(weekly_counts, limit=MAX_CLASSIFIED_EVENTS)
-    jev_stages = classify_event_stages(team_id=team.id, event_names=[name for name, _ in candidates])
-    prompt_events = select_prompt_events(weekly_counts, limit=_PROMPT_EVENTS_LIMIT, stages=jev_stages)
+    # Jev classifies a capped number of events. The existing triggers go first, because the covered stages come
+    # from them, and they take at most half of the cap so that candidate events still get classified.
+    used = sorted(used_events)[: MAX_CLASSIFIED_EVENTS // 2]
+    candidates = select_prompt_events(weekly_counts, limit=MAX_CLASSIFIED_EVENTS - len(used))
+    jev_stages = classify_event_stages(team_id=team.id, event_names=used + [name for name, _ in candidates])
+    covered_stages = {jev_stages.get(name, guess_stage(name)) for name in used_events} - {"other"}
+    weights = STAGE_WEIGHTS if is_new else FLAT_WEIGHTS
+    prompt_events = [
+        (name, count)
+        for name, count in select_prompt_events(
+            weekly_counts, limit=_PROMPT_EVENTS_LIMIT * 2, stages=jev_stages, weights=weights
+        )
+        if jev_stages.get(name, guess_stage(name)) not in covered_stages
+    ][:_PROMPT_EVENTS_LIMIT]
     if not prompt_events:
         return DataSuggestionsResult(status="ready", suggestions=())
     offered = {name for name, _ in prompt_events}
@@ -210,6 +231,7 @@ def _suggest(*, team: Team, user: User) -> DataSuggestionsResult:
         context=IdeaContext(
             events=tuple(prompt_events),
             stages=jev_stages,
+            prioritize_onboarding=is_new,
             channels=_channels(team),
             has_slack=_slack_integration_id(team) is not None,
         ),
@@ -238,7 +260,11 @@ def _suggest(*, team: Team, user: User) -> DataSuggestionsResult:
                 step_outline=outline,
             )
         )
-    ranked = sorted(suggestions, key=lambda item: suggestion_score(item.stage, item.weekly_count), reverse=True)
+    ranked = sorted(
+        (item for item in suggestions if item.stage not in covered_stages),
+        key=lambda item: suggestion_score(item.stage, item.weekly_count, weights),
+        reverse=True,
+    )
     return DataSuggestionsResult(
         status="ready",
         suggestions=tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS)),

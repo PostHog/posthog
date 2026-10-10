@@ -8,6 +8,7 @@ from parameterized import parameterized
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.models import EventDefinition
 
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
     PlannedStep,
@@ -71,7 +72,8 @@ def _email_step(step_id: str, subject: str, **overrides: object) -> PlannedStep:
 class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        cache.delete(f"workflows:data_suggestions:v3:{self.team.id}")
+        for audience in ("new", "existing"):
+            cache.delete(f"workflows:data_suggestions:v3:{self.team.id}:{audience}")
         self.jev_configured = patch(f"{SERVICE}.system_one_configured", return_value=True).start()
         patch(f"{SERVICE}.classify_event_stages", return_value={}).start()
         self.addCleanup(patch.stopall)
@@ -89,6 +91,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
                 _create_event(team=self.team, event=event, distinct_id=f"person-{index}")
         flush_persons_and_events()
 
+    def _add_sign_up_workflow(self) -> None:
+        HogFlow.objects.create(
+            team=self.team,
+            name="Existing sign-up flow",
+            status="draft",
+            trigger={"type": "event", "filters": {"events": [{"id": "signed_up", "type": "events"}]}},
+            actions=[],
+        )
+
     def _list(self, **params: str) -> dict:
         response = self.client.get(f"/api/projects/{self.team.id}/workflow_data_suggestions/current/", params)
         assert response.status_code == 200, response.json()
@@ -102,10 +113,56 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         context = suggest_ideas.call_args.kwargs["context"]
         assert dict(context.events) == {"trial_started": 3, "user_registered": 3, "query executed": 30}
+        assert context.prioritize_onboarding is True
         assert body["status"] == "ready"
         assert [(s["trigger_event"], s["weekly_count"]) for s in body["suggestions"]] == [("trial_started", 3)]
         assert self._list()["suggestions"] == body["suggestions"]
         assert suggest_ideas.call_count == 1
+
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_existing_teams_get_flat_weights_and_no_ideas_for_covered_moments(
+        self, suggest_ideas: MagicMock, _flag
+    ) -> None:
+        self._add_sign_up_workflow()
+        suggest_ideas.return_value = [
+            _idea("trial_started", stage="trial"),
+            _idea("user_registered", stage="signup"),
+            _idea("query executed", stage="other"),
+        ]
+
+        body = self._list()
+
+        context = suggest_ideas.call_args.kwargs["context"]
+        assert dict(context.events) == {"trial_started": 3, "query executed": 30}
+        assert context.prioritize_onboarding is False
+        assert [(s["trigger_event"], s["stage"]) for s in body["suggestions"]] == [
+            ("query executed", "other"),
+            ("trial_started", "trial"),
+        ]
+
+    @patch(f"{SERVICE}.MAX_CLASSIFIED_EVENTS", 2)
+    @patch(f"{SERVICE}.classify_event_stages")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_existing_triggers_reach_jev_when_candidates_fill_the_cap(
+        self, suggest_ideas: MagicMock, classify: MagicMock, _flag
+    ) -> None:
+        HogFlow.objects.create(
+            team=self.team,
+            name="Existing sign-up flow",
+            status="draft",
+            trigger={"type": "event", "filters": {"events": [{"id": "org_provisioned", "type": "events"}]}},
+            actions=[],
+        )
+        classify.side_effect = lambda team_id, event_names: {
+            name: stage
+            for name, stage in {"org_provisioned": "signup", "user_registered": "signup"}.items()
+            if name in event_names[:2]
+        }
+        suggest_ideas.return_value = [_idea("trial_started")]
+
+        self._list()
+
+        assert "user_registered" not in dict(suggest_ideas.call_args.kwargs["context"].events)
 
     @patch(f"{SERVICE}.suggest_ideas")
     def test_ranks_welcome_flows_above_busier_events(self, suggest_ideas: MagicMock, _flag) -> None:
