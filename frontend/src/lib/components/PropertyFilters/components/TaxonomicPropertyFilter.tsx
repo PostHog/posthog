@@ -58,6 +58,21 @@ export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.HogQLExpression,
 ]
 
+// A Current URL property filter with "contains" does what these groups do, without a URL search on
+// every keystroke.
+const URL_VALUE_GROUP_TYPES: ReadonlySet<TaxonomicFilterGroupType> = new Set([
+    TaxonomicFilterGroupType.PageviewUrls,
+    TaxonomicFilterGroupType.PageviewEvents,
+])
+
+export function propertyFilterGroupTypes(taxonomicGroupTypes?: TaxonomicFilterGroupType[]): TaxonomicFilterGroupType[] {
+    const requested = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
+    return [
+        TaxonomicFilterGroupType.SuggestedFilters,
+        ...requested.filter((groupType) => !URL_VALUE_GROUP_TYPES.has(groupType)),
+    ]
+}
+
 export function TaxonomicPropertyFilter({
     pageKey: pageKeyInput,
     index,
@@ -98,8 +113,7 @@ export function TaxonomicPropertyFilter({
 }: PropertyFilterInternalProps): JSX.Element {
     const generatedKey = useId()
     const pageKey = pageKeyInput || `filter-${generatedKey}`
-    const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
-    const groupTypes = [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
+    const groupTypes = propertyFilterGroupTypes(taxonomicGroupTypes)
     const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
         taxonomicGroup,
         value,
@@ -197,7 +211,6 @@ export function TaxonomicPropertyFilter({
             excludedOperators={excludedOperators}
             selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
-            collapseUrlsToContainsRow
         />
     )
 

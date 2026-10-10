@@ -36,7 +36,6 @@ import {
 } from '@posthog/quill'
 
 import type { SeriesRename } from 'lib/components/EntityFilterInfo'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
@@ -52,12 +51,6 @@ import {
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
 } from '../types'
-import {
-    COLLAPSED_TO_CONTAINS_ROW,
-    containsShortcutLeads,
-    partitionContainsShortcuts,
-    urlContainsRowLabel,
-} from '../utils/collapsedContainsRow'
 import { floatToFront } from '../utils/floatToFront'
 import { hiddenEventMatchingSearch } from '../utils/hiddenEvents'
 import { promoteMatchingBy } from '../utils/promoteProperties'
@@ -314,10 +307,6 @@ export function MenuFilterCombobox({
             opts.push({ value: 'pinned', label: 'Pinned' })
         }
         for (const g of visibleChipGroups) {
-            // Collapsed groups feed the "all" rows but aren't navigable categories.
-            if (COLLAPSED_TO_CONTAINS_ROW.has(g.type)) {
-                continue
-            }
             opts.push({ value: g.type, label: g.name })
         }
         return opts
@@ -361,36 +350,8 @@ export function MenuFilterCombobox({
             return pinnedEntries ?? []
         }
         const merged: MenuFilterEntry[] = []
-        const trimmedQuery = searchQuery.trim()
         for (const group of targetGroups) {
             const items = itemsByType[group.type] ?? []
-            // Collapse to a single "URL contains <query>" row when the contains
-            // search found at least one matching URL. The synthetic item's value
-            // is the typed query (its `name`, since the group's getValue reads
-            // `name`), so `selectItem`'s existing PageviewUrls branch commits
-            // `$current_url IContains <query>`.
-            if (COLLAPSED_TO_CONTAINS_ROW.has(group.type)) {
-                if (trimmedQuery && items.length > 0) {
-                    const label = urlContainsRowLabel(trimmedQuery)
-                    merged.push({
-                        // A plain item (not a QuickFilterItem): the commit reads its value via
-                        // `group.getValue` (the query) and the group `type` drives the host's
-                        // expansion — PageviewUrls -> `$current_url IContains`, PageviewEvents ->
-                        // a `$pageview` event with that filter (ActionFilterRow's group-type
-                        // branch). The legacy list reaches the same filter via the QuickFilterItem
-                        // `eventName` path instead — see `buildUrlContainsShortcut`.
-                        // `isContainsShortcut` tags it for commit telemetry + the lead-first ordering.
-                        item: {
-                            name: trimmedQuery,
-                            isContainsShortcut: true,
-                        } as unknown as TaxonomicDefinitionTypes,
-                        group,
-                        name: label,
-                        friendlyLabel: label,
-                    })
-                }
-                continue
-            }
             for (const item of items) {
                 merged.push(buildMenuFilterEntry(item, group))
             }
@@ -435,7 +396,6 @@ export function MenuFilterCombobox({
         showChips,
         activeChip,
         drillTo,
-        searchQuery,
         surveyQuestionLabels,
     ])
 
@@ -544,7 +504,6 @@ export function MenuFilterCombobox({
     // (matching the pill variant's per-row source tags).
     const recentKeys = useMemo(() => new Set((recentEntries ?? []).map(entryKey)), [recentEntries])
     const pinnedKeys = useMemo(() => new Set((pinnedEntries ?? []).map(entryKey)), [pinnedEntries])
-    const containsShortcutSmartLead = useFeatureFlag('TAXONOMIC_FILTER_URL_CONTAINS_SMART_LEAD')
     const recencyForEntry = useCallback(
         (entry: MenuFilterEntry): 'recent' | 'pinned' | null => {
             const key = entryKey(entry)
@@ -609,18 +568,11 @@ export function MenuFilterCombobox({
         if (scope === 'all') {
             const prefixKeys = new Set([...recentsPinnedPrefix, ...suggestedPrefix].map(entryKey))
             const content = prefixKeys.size > 0 ? base.filter((e) => !prefixKeys.has(entryKey(e))) : base
-            // The "URL contains <query>" shortcut leads the whole list — ahead of
-            // recents/pinned/content — because a URL search almost always means the user
-            // wants the contains match. Everything else keeps the recents-then-pinned order,
-            // with the promoted properties for the events in context leading the content.
-            const [shortcuts, rest] = partitionContainsShortcuts(content, (e) => e.item)
-            const others = [
+            const assembled = [
                 ...recentsPinnedPrefix,
                 ...suggestedPrefix,
-                ...promoteMatchingBy(rest, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
+                ...promoteMatchingBy(content, searchQuery, (e) => (e.item as { name?: string }).name ?? e.name),
             ]
-            const shortcutLeads = !containsShortcutSmartLead || containsShortcutLeads(searchQuery, others.length)
-            const assembled = shortcutLeads ? [...shortcuts, ...others] : [...others, ...shortcuts]
             // Idle (no search): float the committed selection to the very first row so the
             // user can see/verify what's currently chosen without leaving the All surface.
             if (!q && selectedRowId) {
@@ -642,7 +594,6 @@ export function MenuFilterCombobox({
         showChips,
         activeChip,
         drillTo,
-        containsShortcutSmartLead,
     ])
 
     // O(1) row -> rendered-position lookup, rebuilt with `filtered`. Avoids an

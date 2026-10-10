@@ -60,7 +60,6 @@ export function TaxonomicFilter({
     enableKeywordShortcuts,
     excludedOperators,
     selectingKeyOnly,
-    collapseUrlsToContainsRow,
 }: TaxonomicFilterProps): JSX.Element {
     const generatedKey = useId()
     const taxonomicFilterLogicKey = taxonomicFilterLogicKeyInput || `taxonomic-filter-${generatedKey}`
@@ -104,7 +103,6 @@ export function TaxonomicFilter({
         enableKeywordShortcuts,
         excludedOperators,
         selectingKeyOnly,
-        collapseUrlsToContainsRow,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

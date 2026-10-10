@@ -1336,7 +1336,7 @@ describe('TaxonomicFilter', () => {
         })
     })
 
-    describe('collapseUrlsToContainsRow', () => {
+    describe('pageview URLs', () => {
         function useMockPageviewUrls(urls: string[]): void {
             useMocks({
                 get: {
@@ -1347,87 +1347,7 @@ describe('TaxonomicFilter', () => {
             })
         }
 
-        it('collapses the matching URL list to a single "URL contains" shortcut row', async () => {
-            useMockPageviewUrls(['https://example.com/pricing', 'https://example.com/pricing/teams'])
-            renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
-                collapseUrlsToContainsRow: true,
-            })
-
-            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, 'pricing'))
-
-            const firstRow = await waitFor(() => screen.getByTestId('prop-filter-pageview_urls-0'))
-            // The two matching URLs collapse into one row, which is the contains shortcut.
-            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')).not.toBeNull()
-            expect(screen.queryByTestId('prop-filter-pageview_urls-1')).not.toBeInTheDocument()
-        })
-
-        it('commits $current_url IContains <query> when the shortcut row is selected', async () => {
-            const user = userEvent.setup()
-            useMockPageviewUrls(['https://example.com/pricing'])
-            renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
-                collapseUrlsToContainsRow: true,
-            })
-
-            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await withoutDebounceDelay((fakeTimerUser) => fakeTimerUser.type(searchInput, 'pricing'))
-
-            const row = await waitFor(() => {
-                const el = document.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')
-                expect(el).not.toBeNull()
-                return el as HTMLElement
-            })
-            await user.click(row)
-
-            expect(onChangeMock).toHaveBeenCalledWith(
-                expect.objectContaining({ type: TaxonomicFilterGroupType.PageviewUrls }),
-                'pricing',
-                expect.objectContaining({
-                    _type: 'quick_filter',
-                    propertyKey: '$current_url',
-                    operator: PropertyOperator.IContains,
-                    filterValue: 'pricing',
-                    propertyFilterType: PropertyFilterType.Event,
-                    // Tagged so commit telemetry can distinguish the URL-contains shortcut
-                    // from keyword shortcuts (parity with the rebuild's wasUrlContainsShortcut).
-                    isContainsShortcut: true,
-                })
-            )
-        })
-
-        it('collapses URLs in the aggregated Suggested filters tab too', async () => {
-            // Real timers: this scenario includes SuggestedFilters, whose reveal-barrier state
-            // doesn't survive the fake->real timer switch withoutDebounceDelay performs (a
-            // pending fake timer is dropped rather than carried over), so the aggregated row
-            // never appears. See withoutDebounceDelay's other uses in this describe for the
-            // debounce-skip that's safe when SuggestedFilters isn't part of the group list.
-            const user = userEvent.setup()
-            useMockPageviewUrls(['https://example.com/pricing', 'https://example.com/pricing/teams'])
-            renderFilter({
-                // Two substantive groups so the aggregated "All" tab survives (a single
-                // substantive group drops it); Events has no 'pricing' match so the URL
-                // shortcut is still the only aggregated row.
-                taxonomicGroupTypes: [
-                    TaxonomicFilterGroupType.SuggestedFilters,
-                    TaxonomicFilterGroupType.PageviewUrls,
-                    TaxonomicFilterGroupType.Events,
-                ],
-                collapseUrlsToContainsRow: true,
-            })
-
-            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await user.type(searchInput, 'pricing')
-
-            // The Suggested filters tab is the default and aggregates each group's top matches —
-            // the URL group must contribute the single shortcut there, not raw URLs.
-            const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
-            expect(firstRow.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')).not.toBeNull()
-            expect(screen.queryByTestId('prop-filter-suggested_filters-1')).not.toBeInTheDocument()
-        })
-
-        it('lists individual URLs (no collapse) when the prop is omitted', async () => {
+        it('lists each matching pageview URL as its own row', async () => {
             useMockPageviewUrls(['https://example.com/pricing'])
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
@@ -1441,54 +1361,9 @@ describe('TaxonomicFilter', () => {
             })
             expect(document.querySelector('[data-attr="taxonomic-shortcut-pricing-property"]')).toBeNull()
         })
-
-        it('shows no shortcut row when no URL matches the query', async () => {
-            // Flag set when the URL values endpoint actually responds (empty), so the negative
-            // assertions below aren't vacuously true before the async fetch path runs.
-            let valuesFetched = false
-            useMocks({
-                get: {
-                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
-                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
-                    '/api/environments/:team/events/values': () => {
-                        valuesFetched = true
-                        return [200, []]
-                    },
-                },
-            })
-            renderFilter({
-                taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls],
-                collapseUrlsToContainsRow: true,
-            })
-
-            const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            // A query unique to this test, so this stays sound even if the `apiCache` reset in
-            // beforeEach ever goes away — a cached non-empty response under the same URL would
-            // make the negative assertions below pass for the wrong reason.
-            await withoutDebounceDelay((user) => user.type(searchInput, 'nomatchquery'))
-
-            await waitFor(() => expect(valuesFetched).toBe(true))
-            await waitFor(() => {
-                expect(screen.queryByText('URL contains "nomatchquery"')).not.toBeInTheDocument()
-                expect(document.querySelector('[data-attr="taxonomic-shortcut-nomatchquery-property"]')).toBeNull()
-            })
-        })
     })
 
-    describe('series picker: pageview url-contains shortcut leads', () => {
-        beforeEach(() => {
-            useMocks({
-                get: {
-                    '/api/projects/:team/event_definitions': mockGetEventDefinitions,
-                    '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
-                    '/api/environments/:team/events/values': [
-                        { name: 'https://app.posthog.com/replay' },
-                        { name: 'https://app.posthog.com/replay/home' },
-                    ],
-                },
-            })
-        })
-
+    describe('series picker', () => {
         it('reopens on the Data warehouse tab (its own picker), not All, for a data-warehouse selection', async () => {
             renderFilter({
                 groupType: TaxonomicFilterGroupType.DataWarehouse,
@@ -1525,38 +1400,6 @@ describe('TaxonomicFilter', () => {
             expect(trigger).toHaveTextContent('All')
             expect(trigger).not.toHaveTextContent('Events')
         })
-
-        it.each([
-            { smartLead: false, query: 'purchase', firstRow: 'URL contains "purchase"' },
-            { smartLead: true, query: 'replay', firstRow: 'URL contains "replay"' },
-            { smartLead: true, query: 'purchase', firstRow: 'purchase_value' },
-        ])(
-            'with smart lead $smartLead, a search for "$query" puts $firstRow in the first Suggested-filters row',
-            async ({ smartLead, query, firstRow }) => {
-                featureFlagLogicModule.featureFlagLogic.mount()
-                featureFlagLogicModule.featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.TAXONOMIC_FILTER_URL_CONTAINS_SMART_LEAD]: smartLead,
-                })
-                const user = userEvent.setup()
-                renderFilter({
-                    taxonomicGroupTypes: [
-                        TaxonomicFilterGroupType.SuggestedFilters,
-                        TaxonomicFilterGroupType.PageviewEvents,
-                        TaxonomicFilterGroupType.EventProperties,
-                    ],
-                    collapseUrlsToContainsRow: true,
-                })
-
-                const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-                await user.type(searchInput, query)
-
-                await waitFor(() => expect(screen.getAllByText(`URL contains "${query}"`).length).toBeGreaterThan(0))
-                const row = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
-                expect(row).toHaveTextContent(firstRow)
-                // The raw matched URLs collapse into the single contains shortcut.
-                expect(screen.queryByText('https://app.posthog.com/replay')).not.toBeInTheDocument()
-            }
-        )
     })
 
     describe('category navigation', () => {

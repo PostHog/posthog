@@ -188,23 +188,6 @@ describe('PropertyFilters recent selections', () => {
 
     it.each([
         {
-            description: 'pageview URL',
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.EventProperties],
-            mockOverrides: {
-                '/api/environments/:team/events/values': [
-                    { name: 'https://example.com/pricing' },
-                    { name: 'https://example.com/blog' },
-                ],
-            },
-            tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'example',
-            itemTestId: 'prop-filter-pageview_urls-0',
-            // Pageview URLs collapse to a single `$current_url IContains <query>` shortcut,
-            // so the recorded value is the typed query, not a specific matched URL.
-            expectedRecentPattern: /Current URL.*∋.*example/i,
-            expectedValuePattern: /example/i,
-        },
-        {
             description: 'screen name',
             taxonomicGroupTypes: [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.EventProperties],
             mockOverrides: {
@@ -285,19 +268,16 @@ describe('PropertyFilters recent selections', () => {
 
     it('recents show at top of suggested filters before search', async () => {
         useSetupMocks({
-            '/api/environments/:team/events/values': [
-                { name: 'https://example.com/first' },
-                { name: 'https://example.com/second' },
-            ],
+            '/api/environments/:team/events/values': [{ name: 'FirstScreen' }, { name: 'SecondScreen' }],
         })
         const { onChange } = renderFilters({
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.EventProperties],
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.EventProperties],
         })
 
         await pickShortcutItem({
-            tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'first',
-            itemTestId: 'prop-filter-pageview_urls-0',
+            tabTestId: 'taxonomic-tab-screens',
+            searchQuery: 'First',
+            itemTestId: 'prop-filter-screens-0',
             onChange,
         })
 
@@ -308,23 +288,22 @@ describe('PropertyFilters recent selections', () => {
         await openNewFilter()
 
         await waitFor(() => {
-            // Collapsed to `$current_url IContains 'first'` — the recent shows the query.
-            expectBareKeyBeforeFullRecent(/first/i, /Current URL.*∋.*first/i)
+            expectBareKeyBeforeFullRecent(/FirstScreen/i, /Screen Name.*=.*FirstScreen/i)
         })
     })
 
     it('search hint shows alongside recents', async () => {
         useSetupMocks({
-            '/api/environments/:team/events/values': [{ name: 'https://example.com/pricing' }],
+            '/api/environments/:team/events/values': [{ name: 'PricingScreen' }],
         })
         const { onChange } = renderFilters({
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.EventProperties],
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.EventProperties],
         })
 
         await pickShortcutItem({
-            tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'pricing',
-            itemTestId: 'prop-filter-pageview_urls-0',
+            tabTestId: 'taxonomic-tab-screens',
+            searchQuery: 'Pricing',
+            itemTestId: 'prop-filter-screens-0',
             onChange,
         })
 
@@ -336,22 +315,24 @@ describe('PropertyFilters recent selections', () => {
 
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
-            expect(screen.getByText(/Type a value like a URL and we'll suggest a filter for it/)).toBeInTheDocument()
+            expect(
+                screen.getByText(/Type a value like a screen name and we'll suggest a filter for it/)
+            ).toBeInTheDocument()
         })
     })
 
     it('recents prefix disappears when searching', async () => {
         useSetupMocks({
-            '/api/environments/:team/events/values': [{ name: 'https://example.com/pricing' }],
+            '/api/environments/:team/events/values': [{ name: 'PricingScreen' }],
         })
         const { onChange } = renderFilters({
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.EventProperties],
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.EventProperties],
         })
 
         await pickShortcutItem({
-            tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'pricing',
-            itemTestId: 'prop-filter-pageview_urls-0',
+            tabTestId: 'taxonomic-tab-screens',
+            searchQuery: 'Pricing',
+            itemTestId: 'prop-filter-screens-0',
             onChange,
         })
 
@@ -402,20 +383,20 @@ describe('PropertyFilters recent selections', () => {
     })
 
     it('multiple selections limited to 3 in suggested filters', async () => {
-        const groupTypes = [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.EventProperties]
+        const groupTypes = [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.EventProperties]
 
-        const searches = ['a.com', 'b.com', 'c.com', 'd.com']
+        const searches = ['Alpha', 'Bravo', 'Charlie', 'Delta']
         for (const query of searches) {
             cleanup()
             useSetupMocks({
-                '/api/environments/:team/events/values': [{ name: `https://${query}/page` }],
+                '/api/environments/:team/events/values': [{ name: `${query}Screen` }],
             })
             const { onChange } = renderFilters({ taxonomicGroupTypes: groupTypes })
 
             await pickShortcutItem({
-                tabTestId: 'taxonomic-tab-pageview_urls',
+                tabTestId: 'taxonomic-tab-screens',
                 searchQuery: query,
-                itemTestId: 'prop-filter-pageview_urls-0',
+                itemTestId: 'prop-filter-screens-0',
                 onChange,
             })
 
@@ -443,16 +424,16 @@ describe('PropertyFilters recent selections', () => {
 
     it('searching in recents matches by property filter value', async () => {
         useSetupMocks({
-            '/api/environments/:team/events/values': [{ name: 'https://example.com/pricing' }],
+            '/api/environments/:team/events/values': [{ name: 'PricingScreen' }],
         })
         const { onChange } = renderFilters({
-            taxonomicGroupTypes: [TaxonomicFilterGroupType.PageviewUrls, TaxonomicFilterGroupType.EventProperties],
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Screens, TaxonomicFilterGroupType.EventProperties],
         })
 
         await pickShortcutItem({
-            tabTestId: 'taxonomic-tab-pageview_urls',
-            searchQuery: 'pricing',
-            itemTestId: 'prop-filter-pageview_urls-0',
+            tabTestId: 'taxonomic-tab-screens',
+            searchQuery: 'Pricing',
+            itemTestId: 'prop-filter-screens-0',
             onChange,
         })
 
@@ -464,11 +445,11 @@ describe('PropertyFilters recent selections', () => {
 
         await switchToTab('taxonomic-tab-recent_filters')
 
-        await searchFor('pricing')
+        await searchFor('Pricing')
 
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
-            expect(screen.getByTestId('prop-filter-recent_filters-0')).toHaveTextContent(/pricing/i)
+            expect(screen.getByTestId('prop-filter-recent_filters-0')).toHaveTextContent(/PricingScreen/i)
         })
     })
 

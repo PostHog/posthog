@@ -60,7 +60,6 @@ export const DashboardPropertySearch: Story = {
             TaxonomicFilterGroupType.DataWarehousePersonProperties,
         ],
         enableKeywordShortcuts: true,
-        collapseUrlsToContainsRow: true,
     },
     parameters: { testOptions: { waitForSelector: '.taxonomic-infinite-list' } },
 }
