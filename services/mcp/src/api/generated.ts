@@ -95676,7 +95676,7 @@ export namespace Schemas {
     } as const;
 
     export interface ReviewPRStatusRequestOutcome {
-      /** How the request ended: 'pending' while a run for it is queued or running, 'completed' when a turn of the requested mode or deeper finished after `requested_at` (Deep covers Standard), 'skipped' when the run ended without doing the work, 'failed' when the run died or no run answered the request, 'unknown' when the run state could not be read (retry later).
+      /** How the request ended: 'pending' while a run for it is queued or running, 'completed' when a turn of the requested mode or deeper finished after `requested_at` and either started after it or reviewed the given `head_sha` (Deep covers Standard), 'skipped' when the run ended without doing the work, 'failed' when the run died or no run answered the request, 'unknown' when the run state could not be read (retry later).
        *
        * * `pending` - Pending
        * * `completed` - Completed
@@ -126614,6 +126614,11 @@ export namespace Schemas {
     } as const;
 
     export type ReviewHogReviewsPrStatusRetrieveParams = {
+    /**
+     * The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.
+     * @minLength 1
+     */
+    head_sha?: string;
     /**
      * GitHub pull request URL to look up, e.g. 'https://github.com/PostHog/posthog/pull/123'.
      * @minLength 1

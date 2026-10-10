@@ -661,7 +661,7 @@ export const getReviewHogReviewsPrStatusRetrieveUrl = (
 }
 
 /**
- * Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the trigger's `requested_at` and `run_mode` to get `request_outcome`, which says when that request is done.
+ * Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called with, to get `request_outcome`, which says when that request is done.
  * @summary Look up a pull request's review status
  */
 export const reviewHogReviewsPrStatusRetrieve = async (

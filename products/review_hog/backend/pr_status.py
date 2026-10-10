@@ -187,8 +187,13 @@ class PRStatusLookup:
             else None,
         )
 
-    def _completed_turn(self, requested_at: datetime, requested_mode: str) -> int | None:
-        """The newest completed turn that answers the request, if any."""
+    def _completed_turn(self, requested_at: datetime, requested_mode: str, head_sha: str | None) -> int | None:
+        """The newest completed turn that answers the request, if any.
+
+        A turn answers when it covers the requested mode, finished at or after the request, and either
+        started at or after it or reviewed the request's head. A request that joins a turn already
+        running on an older head must wait for its own turn.
+        """
         report = self.report
         if report is None or self.report_id is None:
             return None
@@ -203,7 +208,9 @@ class PRStatusLookup:
                 finished_after_request = report.last_run_at >= requested_at
             else:
                 finished_after_request = marker.started_at >= requested_at
-            if finished_after_request:
+            started_after_request = marker.started_at >= requested_at
+            reviewed_requested_head = head_sha is not None and marker.head_sha == head_sha
+            if finished_after_request and (started_after_request or reviewed_requested_head):
                 return run_index
         return None
 
@@ -221,7 +228,7 @@ class PRStatusLookup:
         )
 
     def _review_outcome(
-        self, requested_at: datetime, requested_mode: str, state: ReviewPRState
+        self, requested_at: datetime, requested_mode: str, head_sha: str | None, state: ReviewPRState
     ) -> RequestOutcome | None:
         if self.report is None or self.report_id is None:
             return None
@@ -230,7 +237,7 @@ class PRStatusLookup:
             for marker in run_outcome_markers(self.team_id, [self.report_id], since=requested_at)[self.report_id]
             if marker.stage == RUN_STAGE_REVIEW
         ]
-        run_index = self._completed_turn(requested_at, requested_mode)
+        run_index = self._completed_turn(requested_at, requested_mode, head_sha)
         if run_index is not None:
             # Finalize counts the turn before it publishes, so a publish failure marks the same turn failed.
             turn_failed = [
@@ -287,7 +294,7 @@ class PRStatusLookup:
             status=ReviewRequestOutcomeStatus.FAILED, reason=NO_MATCHING_RUN_REASON, review_id=self.report_id
         )
 
-    def status(self, requested_at: datetime | None, run_mode: str) -> PRStatus:
+    def status(self, requested_at: datetime | None, run_mode: str, head_sha: str | None = None) -> PRStatus:
         state = self._state()
         resolution = (
             latest_resolution_summaries(self.team_id, [self.report]).get(self.report_id)
@@ -300,7 +307,7 @@ class PRStatusLookup:
                 request_outcome = self._resolve_outcome(requested_at, resolution, state)
             else:
                 requested_mode = REVIEW_MODE_FLASH if run_mode == RUN_MODE_FLASH else REVIEW_MODE_FULL
-                request_outcome = self._review_outcome(requested_at, requested_mode, state)
+                request_outcome = self._review_outcome(requested_at, requested_mode, head_sha, state)
             if request_outcome is None:
                 request_outcome = self._unmatched_outcome(state)
         return PRStatus(

@@ -54,13 +54,15 @@ class TestPRStatusAPI(APIBaseTest):
             **kwargs,
         )
 
-    def _turn(self, report: ReviewReport, run_index: int, review_mode: str, *, at: datetime) -> None:
+    def _turn(
+        self, report: ReviewReport, run_index: int, review_mode: str, *, at: datetime, head_sha: str = "sha1"
+    ) -> None:
         with time_machine.travel(at, tick=False):
             ReviewReportArtefact.add_turn_marker(
                 team_id=self.team.id,
                 report_id=str(report.id),
                 content=TurnMarkerArtefact(
-                    head_sha="sha1",
+                    head_sha=head_sha,
                     run_index=run_index,
                     review_mode=review_mode,
                     reviewhog_version="v",
@@ -78,6 +80,14 @@ class TestPRStatusAPI(APIBaseTest):
     def _deep_turn_after_request(self) -> None:
         report = self._report(last_run_at=AFTER + timedelta(minutes=1))
         self._turn(report, 1, REVIEW_MODE_FULL, at=AFTER)
+
+    def _running_turn_on_older_head_finished_after_request(self) -> None:
+        report = self._report(last_run_at=AFTER)
+        self._turn(report, 1, REVIEW_MODE_FULL, at=BEFORE, head_sha="sha0")
+
+    def _running_turn_on_same_head_finished_after_request(self) -> None:
+        report = self._report(last_run_at=AFTER)
+        self._turn(report, 1, REVIEW_MODE_FULL, at=BEFORE)
 
     def _deep_turn_before_then_standard_dropped(self) -> None:
         report = self._report()
@@ -207,6 +217,33 @@ class TestPRStatusAPI(APIBaseTest):
                 ("failed", "no_matching_run", None),
             ),
             ("queued", "_deep_turn_before_request", "review", WorkflowProbe.RUNNING, ("pending", None, None)),
+            # The request joined a turn that was already running on an older head, so that turn does
+            # not answer it: the request's own turn is still queued, or the queue dropped it.
+            (
+                "joined_turn_on_older_head_queued",
+                "_running_turn_on_older_head_finished_after_request",
+                "review",
+                WorkflowProbe.RUNNING,
+                ("pending", None, None),
+                "sha1",
+            ),
+            (
+                "joined_turn_on_older_head_idle",
+                "_running_turn_on_older_head_finished_after_request",
+                "review",
+                WorkflowProbe.NOT_RUNNING,
+                ("failed", "no_matching_run", None),
+                "sha1",
+            ),
+            # A duplicate request on the head a running turn already reviews is served by that turn.
+            (
+                "joined_turn_on_same_head",
+                "_running_turn_on_same_head_finished_after_request",
+                "review",
+                WorkflowProbe.NOT_RUNNING,
+                ("completed", None, 1),
+                "sha1",
+            ),
             # A Temporal error must never read as "nothing runs", or a queued request would read as failed.
             ("temporal_error", "_deep_turn_before_request", "review", WorkflowProbe.UNKNOWN, ("unknown", None, None)),
             (
@@ -239,10 +276,14 @@ class TestPRStatusAPI(APIBaseTest):
         run_mode: str,
         probe: WorkflowProbe,
         expected: tuple[str, str | None, int | None],
+        head_sha: str | None = None,
     ) -> None:
         getattr(self, setup)()
+        params = {"requested_at": REQUESTED_AT.isoformat(), "run_mode": run_mode}
+        if head_sha is not None:
+            params["head_sha"] = head_sha
 
-        body, _ = self._get(probe, requested_at=REQUESTED_AT.isoformat(), run_mode=run_mode)
+        body, _ = self._get(probe, **params)
 
         outcome = body["request_outcome"]
         assert (outcome["status"], outcome["reason"], outcome["run_index"]) == expected
