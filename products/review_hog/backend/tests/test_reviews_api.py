@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
+from typing import get_args
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -12,6 +13,7 @@ from social_django.models import UserSocialAuth
 
 from posthog.models import Team, User
 
+from products.review_hog.backend.api.reviews import ReviewDropDisposition
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     DroppedFindingArtefact,
@@ -87,6 +89,10 @@ def _issues_review(count: int) -> IssuesReview:
             for i in range(count)
         ]
     )
+
+
+def test_drop_disposition_choices_cover_every_pipeline_disposition() -> None:
+    assert set(ReviewDropDisposition.values) == set(get_args(DropDisposition))
 
 
 class TestRecentReviewsAPI(APIBaseTest):
