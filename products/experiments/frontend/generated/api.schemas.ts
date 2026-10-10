@@ -4482,7 +4482,7 @@ export interface ExperimentSetupPreviousExperimentApi {
     stats_method: string
     /** Whether the experiment uses a holdout group. */
     has_holdout: boolean
-    /** From the completed result that covers the latest data in the experiment's current run. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that run, which is also the case for older metric definitions that results are never stored for. */
+    /** From the completed result that covers the latest data under the experiment's current configuration. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that configuration, for example after a relaunch or a settings edit until the results are recalculated, and for older metric definitions that results are never stored for. */
     outcome: ExperimentSetupOutcomeApi | null
 }
 

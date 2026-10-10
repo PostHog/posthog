@@ -48,7 +48,7 @@ from products.experiments.backend.metric_resolution import (
     saved_metric_link_role,
     saved_metric_links,
 )
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, metric_display_rank
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 if TYPE_CHECKING:
@@ -212,7 +212,8 @@ class ExperimentCalculationSettings:
     def from_experiment(
         cls, experiment: Experiment, *, team_config: TeamExperimentsConfig | None = None
     ) -> "ExperimentCalculationSettings":
-        """Settings from the current fields of the experiment, which does not need to be saved."""
+        """Settings from the current fields of the experiment, which does not need to be saved. A caller that
+        builds the configs of several experiments of one team passes the team's config to read it once."""
         return cls.from_configuration(
             team=experiment.team,
             feature_flag=experiment.feature_flag,
@@ -284,16 +285,34 @@ class MetricCalculationConfig:
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-def build_calculation_configs(experiment: Experiment) -> list[MetricCalculationConfig]:
+def build_calculation_configs(
+    experiment: Experiment, *, team_config: TeamExperimentsConfig | None = None
+) -> list[MetricCalculationConfig]:
     """One calculation config per metric that `get_metrics_for_calculation` returns, in that order."""
     metrics = get_metrics_for_calculation(experiment)
     if not metrics:
         return []
-    settings = ExperimentCalculationSettings.from_experiment(experiment)
+    settings = ExperimentCalculationSettings.from_experiment(experiment, team_config=team_config)
     return [
         settings.build_metric_config(metric_id=metric.uuid, role=metric.role, definition=metric.definition)
         for metric in metrics
     ]
+
+
+def build_primary_calculation_configs(
+    experiment: Experiment, *, team_config: TeamExperimentsConfig | None = None
+) -> list[MetricCalculationConfig]:
+    """The configs of the primary metrics that the experiment calculates, inline and saved, in the order the
+    results page lists them. The first one is the metric the product calls the experiment's primary metric."""
+    rank = metric_display_rank(experiment.primary_metrics_ordered_uuids)
+    primary = [
+        calculation_config
+        for calculation_config in build_calculation_configs(experiment, team_config=team_config)
+        if calculation_config.role == "primary"
+    ]
+    # Stable, so metrics missing from the ordering keep the order of `get_metrics_for_calculation` behind the
+    # ordered ones.
+    return sorted(primary, key=lambda calculation_config: rank(calculation_config.metric_id))
 
 
 def get_metric_calculation_config(experiment: Experiment, metric_uuid: str) -> MetricCalculationConfig | None:

@@ -1,13 +1,14 @@
 """Reads and writes of stored metric results.
 
 `MetricResultStore` is the only module that reads or writes `ExperimentMetricResult`. Its named queries and writes
-hide three storage conventions from the callers:
+hide two storage conventions from the callers:
 
 - A recalculation run files its rows under a salted calculation key (`_recalc_fingerprint`), and the daily
-  timeseries workflows file theirs under the bare key. So the two families never find each other's rows.
+  timeseries workflows file theirs under the bare key. So the run reads, the reuse check and the chart never find
+  the other family's rows. Only the current outcome reads both, because both hold results of the same calculation.
 - The timeseries sync copies daily points into a run one second past the newest point (`sync_copy_window`).
-- Every writer stores the experiment's start date in `query_from`. After a relaunch moves the start date forward,
-  the rows of the earlier run have a `query_from` before it.
+
+The calculation key includes the start date, so no reader needs `query_from` to tell a relaunch apart.
 
 Several rows can share `(experiment, metric_uuid, query_to)` once the unique constraint on that key goes. Every
 query that can meet such rows returns the one with the newest `completed_at`, then the highest id. It never looks a
@@ -27,7 +28,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import F, QuerySet
+from django.db.models import F, Q, QuerySet
 from django.db.models.fields.json import KT, KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -177,17 +178,9 @@ class MetricResultStore:
             by_day.setdefault(day, row)
         return DailyTimeseries(by_day=by_day, earliest=rows[-1] if rows else None, latest=rows[0] if rows else None)
 
-    def last_completed(self, metric_uuid: str) -> ExperimentMetricResult | None:
-        """The completed row of a metric that was written last, whatever its configuration and window."""
-        return (
-            ExperimentMetricResult.objects.filter(
-                experiment_id=self.experiment_id, metric_uuid=metric_uuid, status=_COMPLETED
-            )
-            # NULLS FIRST keeps the stop-experiment check's rule. Every writer sets completed_at on a completed row,
-            # so NULLS LAST would differ only for rows that no writer creates.
-            .order_by(F("completed_at").desc(nulls_first=True), "-id")
-            .first()
-        )
+    def current_outcome(self, calculation_config: MetricCalculationConfig) -> ResultSummary | None:
+        """The current result of the metric that `calculation_config` describes. `current_outcomes` defines the rule."""
+        return self.current_outcomes({self.experiment_id: calculation_config}).get(self.experiment_id)
 
     def previous_completed(
         self, metric_uuid: str, calculation_key: str, *, before: datetime
@@ -394,27 +387,28 @@ class MetricResultStore:
         return newest_point + _SYNC_COPY_OFFSET
 
     @staticmethod
-    def current_outcomes(metric_uuid_by_experiment: Mapping[int, str]) -> dict[int, ResultSummary]:
-        """For each experiment, the completed result of the given metric that describes the current run, in one
-        query.
+    def current_outcomes(config_by_experiment: Mapping[int, MetricCalculationConfig]) -> dict[int, ResultSummary]:
+        """For each experiment, the current result of the metric that its calculation config describes, in one query.
 
-        The current run is the one since the experiment's start date, so rows from before a relaunch do not count.
-        Within the run, the row with the latest query_to counts, because a backfill stores a historical query_to
-        with completed_at set to the time of the backfill.
+        The current result is the completed row with the newest query_to among the rows filed under the config's
+        calculation key, by a recalculation run or by the daily workflows. A row under another key was computed from
+        another configuration, for example from the start date before a relaunch, so it does not count. The newest
+        window counts, not the newest write, because a backfill writes past windows after the newer ones.
         """
-        if not metric_uuid_by_experiment:
+        if not config_by_experiment:
             return {}
-        rows = (
-            ExperimentMetricResult.objects.filter(
-                experiment_id__in=metric_uuid_by_experiment.keys(),
-                metric_uuid__in=set(metric_uuid_by_experiment.values()),
-                status=_COMPLETED,
-                # `gte` rather than an exact match, so a start date edited to an earlier moment keeps its results.
-                # A draft has no start date, so nothing matches.
-                query_from__gte=F("experiment__start_date"),
+        filed_under_config = Q()
+        for experiment_id, calculation_config in config_by_experiment.items():
+            key = calculation_config.calculation_key()
+            filed_under_config |= Q(
+                experiment_id=experiment_id,
+                metric_uuid=calculation_config.metric_id,
+                fingerprint__in=[key, _recalc_fingerprint(key)],
             )
-            .order_by("experiment_id", "metric_uuid", "-query_to", F("completed_at").desc(nulls_last=True), "-id")
-            .distinct("experiment_id", "metric_uuid")
+        rows = (
+            ExperimentMetricResult.objects.filter(filed_under_config, status=_COMPLETED)
+            .order_by("experiment_id", "-query_to", F("completed_at").desc(nulls_last=True), "-id")
+            .distinct("experiment_id")
             .values(
                 "experiment_id",
                 "metric_uuid",
@@ -427,8 +421,6 @@ class MetricResultStore:
         )
         summaries: dict[int, ResultSummary] = {}
         for row in rows:
-            if metric_uuid_by_experiment.get(row["experiment_id"]) != row["metric_uuid"]:
-                continue
             variant_results = row["variant_results"] if isinstance(row["variant_results"], list) else []
             summaries[row["experiment_id"]] = ResultSummary(
                 completed_at=row["completed_at"],

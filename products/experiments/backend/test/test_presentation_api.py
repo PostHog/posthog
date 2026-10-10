@@ -8770,9 +8770,12 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
             start_date=started_at,
             metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "populated-metric"}],
         )
+        calculation_config = get_metric_calculation_config(experiment, "populated-metric")
+        assert calculation_config is not None
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="populated-metric",
+            fingerprint=calculation_config.calculation_key(),
             query_from=started_at,
             query_to=timezone.now(),
             status=ExperimentMetricResult.Status.COMPLETED,
