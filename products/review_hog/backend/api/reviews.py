@@ -23,6 +23,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.pr_status import PRStatus, PRStatusLookup, ReviewPRState, ReviewRequestOutcomeStatus
 from products.review_hog.backend.preferences import UrgencyThreshold
 from products.review_hog.backend.requested_reviews import (
     RUN_MODE_FLASH,
@@ -386,7 +387,9 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
     )
     requested_at = serializers.DateTimeField(help_text="Server time when the request was accepted.")
     resolve_will_run = serializers.BooleanField(
-        help_text="Whether this request runs the resolution stage, which can push fix commits to the pull request."
+        help_text="Whether this request plans to run the resolution stage, which can push fix commits to the pull "
+        "request. It is the plan at request time: a request queued behind a running turn on the same head can be "
+        "skipped as already published. `review-hog-reviews-pr-status` reports what actually ran."
     )
     resolve_skip_reason = serializers.ChoiceField(
         choices=ResolveSkipReason.choices,
@@ -405,6 +408,91 @@ class ReviewTriggerErrorSerializer(serializers.Serializer):
         help_text="Why the request was refused, for a client that shows its own reason: 'flash_after_full' "
         "(the PR already has a published Deep review), 'resolution_not_opted_in' (the PR owner has not "
         "turned on resolving comments). Absent for other errors.",
+    )
+
+
+class ReviewPRStatusParamsSerializer(serializers.Serializer):
+    pr_url = serializers.CharField(
+        help_text="GitHub pull request URL to look up, e.g. 'https://github.com/PostHog/posthog/pull/123'.",
+    )
+    requested_at = serializers.DateTimeField(
+        required=False,
+        help_text="The `requested_at` the trigger returned. When set, the response carries `request_outcome` "
+        "for that request.",
+    )
+    run_mode = serializers.ChoiceField(
+        required=False,
+        default=ReviewTriggerRequestRunMode.REVIEW,
+        choices=ReviewTriggerRequestRunMode.choices,
+        help_text="The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.",
+    )
+
+
+class ReviewPRStatusLatestReviewSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="The review's id, for `review-hog-reviews-get`.")
+    review_mode = serializers.ChoiceField(
+        choices=ReviewTriggerReviewMode.choices,
+        allow_null=True,
+        help_text="What the turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record it.",
+    )
+    head_sha = serializers.CharField(allow_null=True, help_text="The PR head commit the turn reviewed.")
+    run_index = serializers.IntegerField(help_text="The turn's index, for `review-hog-reviews-get`.")
+    completed_at = serializers.DateTimeField(allow_null=True, help_text="When the turn completed.")
+    must_fix_count = serializers.IntegerField(help_text="The turn's valid findings at must_fix priority.")
+    should_fix_count = serializers.IntegerField(help_text="The turn's valid findings at should_fix priority.")
+    consider_count = serializers.IntegerField(help_text="The turn's valid findings at consider priority.")
+    turn_published = serializers.BooleanField(help_text="Whether the turn was published to GitHub.")
+    status_comment_url = serializers.CharField(
+        allow_null=True, help_text="Link to the review's status comment on the pull request; null when there is none."
+    )
+
+
+class ReviewPRStatusRequestOutcomeSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=ReviewRequestOutcomeStatus.choices,
+        help_text="How the request ended: 'pending' while a run for it is queued or running, 'completed' when a "
+        "turn of the requested mode or deeper finished after `requested_at` (Deep covers Standard), 'skipped' "
+        "when the run ended without doing the work, 'failed' when the run died or no run answered the request, "
+        "'unknown' when the run state could not be read (retry later).",
+    )
+    reason = serializers.CharField(
+        allow_null=True,
+        help_text="Why it was skipped or failed: 'flash_after_full' (Standard dropped after a Deep review), "
+        "'review_failed', 'stopped' (Resolve died partway), 'no_matching_run' (nothing ran for the request and "
+        "nothing is queued, for example when the queue replaced it), or a Resolve skip reason such as "
+        "'pr_not_open', 'resolution_not_opted_in', 'no_unresolved_threads', 'pr_in_merge_queue'. Null otherwise.",
+    )
+    review_id = serializers.UUIDField(
+        allow_null=True, help_text="The review to read with `review-hog-reviews-get`; null before the PR has one."
+    )
+    run_index = serializers.IntegerField(
+        allow_null=True,
+        help_text="The review turn that answered or failed the request, for `review-hog-reviews-get`. Null for "
+        "'resolve_only' and while pending.",
+    )
+
+
+class ReviewPRStatusSerializer(serializers.Serializer):
+    repository = serializers.CharField(help_text="The pull request's repository as 'owner/repo'.")
+    pr_number = serializers.IntegerField(help_text="The pull request number.")
+    report_id = serializers.UUIDField(
+        allow_null=True, help_text="The PR's review id, for `review-hog-reviews-get`; null before its first run."
+    )
+    state = serializers.ChoiceField(
+        choices=ReviewPRState.choices,
+        help_text="Where the PR stands now: 'not_reviewed' (no completed review and nothing queued), 'queued' "
+        "(a run is queued or starting), 'reviewing' (a review turn is running), 'resolving' (Resolve is "
+        "running), 'idle' (nothing running), 'unknown' (the run state could not be read, retry later).",
+    )
+    latest_review = ReviewPRStatusLatestReviewSerializer(
+        allow_null=True, help_text="The latest completed review turn; null before the first one completes."
+    )
+    latest_resolution = ReviewLatestResolutionSerializer(
+        allow_null=True,
+        help_text="The latest Resolve run, finished ones too; null when no Resolve run has queued threads.",
+    )
+    request_outcome = ReviewPRStatusRequestOutcomeSerializer(
+        allow_null=True, help_text="How the request at `requested_at` ended; null without `requested_at`."
     )
 
 
@@ -562,6 +650,40 @@ def _latest_resolution_payload(summary: ResolutionSummary | None) -> dict[str, A
         "fixed": summary.fixed,
         "needs_attention": summary.needs_attention,
         "commits": list(summary.commits),
+    }
+
+
+def _pr_status_payload(pr_status: PRStatus) -> dict[str, Any]:
+    latest = pr_status.latest_review
+    outcome = pr_status.request_outcome
+    return {
+        "repository": pr_status.repository,
+        "pr_number": pr_status.pr_number,
+        "report_id": pr_status.report_id,
+        "state": pr_status.state,
+        "latest_review": {
+            "id": latest.review_id,
+            "review_mode": latest.review_mode,
+            "head_sha": latest.head_sha,
+            "run_index": latest.run_index,
+            "completed_at": latest.completed_at,
+            "must_fix_count": latest.must_fix_count,
+            "should_fix_count": latest.should_fix_count,
+            "consider_count": latest.consider_count,
+            "turn_published": latest.turn_published,
+            "status_comment_url": latest.status_comment_url,
+        }
+        if latest is not None
+        else None,
+        "latest_resolution": _latest_resolution_payload(pr_status.latest_resolution),
+        "request_outcome": {
+            "status": outcome.status,
+            "reason": outcome.reason,
+            "review_id": outcome.review_id,
+            "run_index": outcome.run_index,
+        }
+        if outcome is not None
+        else None,
     }
 
 
@@ -960,6 +1082,38 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             if outcome.status == PRReviewRequestStatus.ALREADY_REVIEWED
             else status.HTTP_202_ACCEPTED,
         )
+
+    @extend_schema(
+        parameters=[ReviewPRStatusParamsSerializer],
+        responses={
+            200: OpenApiResponse(response=ReviewPRStatusSerializer, description="The pull request's review status."),
+            400: OpenApiResponse(description="Not a GitHub pull request URL, or an invalid parameter."),
+        },
+        summary="Look up a pull request's review status",
+        description="Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and "
+        "the latest Resolve run. Works for any pull request on the project, also ones the caller did not "
+        "trigger. Pass the trigger's `requested_at` and `run_mode` to get `request_outcome`, which says when "
+        "that request is done.",
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
+    def pr_status(self, request: Request, **kwargs) -> Response:
+        team_id = resolve_effective_team_id(self.team_id)
+        params = ReviewPRStatusParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        try:
+            pr_info = PRParser().parse_github_pr_url(params.validated_data["pr_url"])
+        except ValueError:
+            return Response(
+                {
+                    "error": "That doesn't look like a GitHub pull request URL (expected https://github.com/OWNER/REPO/pull/NUMBER)"
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        lookup = PRStatusLookup(
+            team_id, owner=str(pr_info["owner"]), repo=str(pr_info["repo"]), pr_number=int(pr_info["pr_number"])
+        )
+        pr_status = lookup.status(params.validated_data.get("requested_at"), params.validated_data["run_mode"])
+        return Response(ReviewPRStatusSerializer(_pr_status_payload(pr_status)).data)
 
     @extend_schema(
         parameters=[ReviewDetailParamsSerializer],

@@ -21,9 +21,11 @@ import type {
     ReviewHogRepositoryOverviewRetrieveParams,
     ReviewHogReviewsListParams,
     ReviewHogReviewsPerspectiveStatsRetrieveParams,
+    ReviewHogReviewsPrStatusRetrieveParams,
     ReviewHogReviewsRetrieveParams,
     ReviewInstallationClaimApi,
     ReviewInstallationClaimCreateApi,
+    ReviewPRStatusApi,
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewProjectSettingsApi,
@@ -634,6 +636,40 @@ export const reviewHogReviewsPerspectiveStatsRetrieve = async (
     options?: RequestInit
 ): Promise<ReviewPerspectiveStatsApi> => {
     return apiMutator<ReviewPerspectiveStatsApi>(getReviewHogReviewsPerspectiveStatsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReviewHogReviewsPrStatusRetrieveUrl = (
+    projectId: string,
+    params: ReviewHogReviewsPrStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/review_hog/reviews/pr_status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/review_hog/reviews/pr_status/`
+}
+
+/**
+ * Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the trigger's `requested_at` and `run_mode` to get `request_outcome`, which says when that request is done.
+ * @summary Look up a pull request's review status
+ */
+export const reviewHogReviewsPrStatusRetrieve = async (
+    projectId: string,
+    params: ReviewHogReviewsPrStatusRetrieveParams,
+    options?: RequestInit
+): Promise<ReviewPRStatusApi> => {
+    return apiMutator<ReviewPRStatusApi>(getReviewHogReviewsPrStatusRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

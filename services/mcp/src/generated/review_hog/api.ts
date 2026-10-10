@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 4 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -61,6 +61,39 @@ export const ReviewHogReviewsRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             "The completed review turn to read, from 1 to `run_count`. Defaults to the latest completed turn. Use it to read an older turn's findings."
+        ),
+})
+
+/**
+ * Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the trigger's `requested_at` and `run_mode` to get `request_outcome`, which says when that request is done.
+ * @summary Look up a pull request's review status
+ */
+export const ReviewHogReviewsPrStatusRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const reviewHogReviewsPrStatusRetrieveQueryRunModeDefault = `review`
+
+export const ReviewHogReviewsPrStatusRetrieveQueryParams = () => zod.object({
+    pr_url: zod
+        .string()
+        .min(1)
+        .describe("GitHub pull request URL to look up, e.g. 'https:\/\/github.com\/PostHog\/posthog\/pull\/123'."),
+    requested_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'The `requested_at` the trigger returned. When set, the response carries `request_outcome` for that request.'
+        ),
+    run_mode: zod
+        .enum(['review', 'review_only', 'resolve_only', 'flash'])
+        .default(reviewHogReviewsPrStatusRetrieveQueryRunModeDefault)
+        .describe(
+            "The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
         ),
 })
 
