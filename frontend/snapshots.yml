@@ -211,7 +211,7 @@ snapshots:
     charts-sankeychart--hovered-link--dark:
         hash: v1.k794b7964.e50f64b0a2556e240047944407ec800fb78ffc2ad3eca93219f235d64883327d.X8189N1MHu1yKO4xcQgIglRR8DdqCLFhNfcqHuspBNE
     charts-sankeychart--hovered-link--light:
-        hash: v1.k794b7964.3d80ddb75942d750e8966a762b6605b9780e848478da52fbfc853336f1e1602f._wg3_fRbuh-eGfRO8WO8V6touEXs3l1g1ReCIzOYp7o
+        hash: v1.k794b7964.e13a6e93fd46df674c93764a5d35d4e880614ea11476c4aa73233dfdb26bc89d.HI4tX3ww4ZJGOZQVW95F4_VRUjg5a50dwjVm0DI3ngE
     charts-sankeychart--left-aligned-with-values--dark:
         hash: v1.k794b7964.1feb41fa4c6017593646eff1e33c11eb8ef9e224e5776a2bca43c97ff2390f9b.OQ83mEQIk1BTINe94sYI5ByoXnLHMvRo8W_9an60lrI
     charts-sankeychart--left-aligned-with-values--light:
@@ -11956,14 +11956,14 @@ snapshots:
         hash: v1.k794b7964.78c398feb22adb44344fad6c155ad42ecdbd9d77d80e4e0a60227b4a32abf14f.wmWI9S-nFvoZ5tNpxol33U3eINboLyZM9cggyHqv8hU
     scenes-app-insights-error-empty-states--validation-error--light:
         hash: v1.k794b7964.2b012576da17dc343cba68c671217dcfb23f907543fd897d65e42e8793f31958.gL9lf9tk2rIHPSZBxNHmPitiTqUvCG08VR3K9hK7xMo
-    scenes-app-insights-flag-calls-retention-notice--default--dark:
-        hash: v1.k794b7964.d9aefe5f9ce9d7a864d6bf0338965adf5c01284b0fa767b3db193cbf9102838b.F_x981isYjYR1oKf0BPU3Agkr_bpR7TqheKovVn432o
-    scenes-app-insights-flag-calls-retention-notice--default--light:
-        hash: v1.k794b7964.7923e9cd78a4bd2e62c7f95ce8eb80df0bb9fab29de527b307048b8e5b5011ff.Mrf6YkRMfO82M2uM5Fc4LKBf3vjTEjIDdw4MZ1cPIrA
     scenes-app-insights-flag-called-rebuild-banner--insight-on-flag-calls--dark:
         hash: v1.k794b7964.3d946f71319ec412299b8888e9a3fed48a7098bcf0e92cda25f6f34a43071a3f.PbH5UAwbwGY8tveYtVSlUz6TeywtNh7otO1PSPZi9vw
     scenes-app-insights-flag-called-rebuild-banner--insight-on-flag-calls--light:
         hash: v1.k794b7964.c1bca29126f3f201df46989d83af5e777ad42f21aba60febca75e2ded1a00d6e.WHUf4o3J7Uo7jwnFaGNXQgqa9jMdohuIOo1eSFbW9a4
+    scenes-app-insights-flag-calls-retention-notice--default--dark:
+        hash: v1.k794b7964.d9aefe5f9ce9d7a864d6bf0338965adf5c01284b0fa767b3db193cbf9102838b.F_x981isYjYR1oKf0BPU3Agkr_bpR7TqheKovVn432o
+    scenes-app-insights-flag-calls-retention-notice--default--light:
+        hash: v1.k794b7964.7923e9cd78a4bd2e62c7f95ce8eb80df0bb9fab29de527b307048b8e5b5011ff.Mrf6YkRMfO82M2uM5Fc4LKBf3vjTEjIDdw4MZ1cPIrA
     scenes-app-insights-insight-quick-start--default--dark:
         hash: v1.k794b7964.f190c463ee799e93ea5d408200712776460a5a9a920977e2b7a85348350fa43b.dcN7n63RW9QEXstFsPgnAaKodbV6piSN7PMhBuHkaGc
     scenes-app-insights-insight-quick-start--default--light:
