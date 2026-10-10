@@ -37,6 +37,11 @@ function cutoffDate(run: AutoresearchRunApi): string {
     return typeof predictionDate === 'string' ? predictionDate : run.created_at.slice(0, 10)
 }
 
+/** Shadow runs and backfills of past dates do not refresh live coverage, so their failures do not age it. */
+function isLiveChampionRun(run: AutoresearchRunApi): boolean {
+    return run.run_type === 'inference' && !run.metrics?.shadow && cutoffDate(run) >= run.created_at.slice(0, 10)
+}
+
 function coveragePct(coverage: AutoresearchPredictionCoverageApi): number {
     return coverage.population > 0 ? (100 * coverage.with_score) / coverage.population : 0
 }
@@ -60,7 +65,7 @@ export function coverageSummary(runs: AutoresearchRunApi[], targetRescoreDays: n
         measuredRescoreDays,
         targetRescoreDays,
         failedRunsSince: runs.filter(
-            (run) => run.run_type === 'inference' && run.status === 'failed' && run.created_at > latest.created_at
+            (run) => isLiveChampionRun(run) && run.status === 'failed' && run.created_at > latest.created_at
         ).length,
     }
 }

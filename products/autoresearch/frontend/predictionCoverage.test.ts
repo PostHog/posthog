@@ -51,6 +51,25 @@ describe('predictionCoverage', () => {
             ],
             { coveragePct: 100, measuredRescoreDays: 4, targetRescoreDays: 4, failedRunsSince: 2 },
         ],
+        [
+            'only shadow and backfill runs failed after the measure',
+            [
+                run({ metrics: { prediction_date: '2026-03-01' } }),
+                run({
+                    status: 'failed',
+                    coverage: null,
+                    metrics: { prediction_date: '2026-03-01', shadow: true },
+                    created_at: '2026-03-01T04:00:00Z',
+                }),
+                run({
+                    status: 'failed',
+                    coverage: null,
+                    metrics: { prediction_date: '2026-02-20' },
+                    created_at: '2026-03-01T05:00:00Z',
+                }),
+            ],
+            { coveragePct: 100, measuredRescoreDays: 4, targetRescoreDays: 4, failedRunsSince: 0 },
+        ],
     ])('coverageSummary when %s', (_name, runs, expected) => {
         expect(coverageSummary(runs, 4)).toMatchObject(expected)
     })
