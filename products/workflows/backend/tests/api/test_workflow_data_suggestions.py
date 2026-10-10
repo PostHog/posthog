@@ -74,6 +74,9 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.delete(f"workflows:data_suggestions:v3:{self.team.id}")
+        self.jev_configured = patch(f"{SERVICE}.system_one_configured", return_value=True).start()
+        patch(f"{SERVICE}.classify_event_stages", return_value={}).start()
+        self.addCleanup(patch.stopall)
         sync_template_to_db(_email_function_template())
         sync_template_to_db(webhook_template)
         for event, count in [
@@ -185,13 +188,35 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert counts
         assert all(count % 2 == 0 for count in counts.values())
 
+    @parameterized.expand(
+        [
+            ("without ai data processing approval", False, True, "ai_not_approved"),
+            ("without jev", True, False, "unavailable"),
+        ]
+    )
     @patch(f"{SERVICE}.suggest_ideas")
-    def test_ai_is_not_called_without_ai_data_processing_approval(self, suggest_ideas: MagicMock, _flag) -> None:
-        self.organization.is_ai_data_processing_approved = False
+    def test_ai_is_not_called(
+        self, _name: str, approved: bool, jev_configured: bool, status: str, suggest_ideas: MagicMock, _flag
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
+        self.jev_configured.return_value = jev_configured
 
-        assert self._list() == {"status": "ai_not_approved", "suggestions": []}
+        assert self._list() == {"status": status, "suggestions": []}
         suggest_ideas.assert_not_called()
+
+    @patch(f"{SERVICE}.classify_event_stages")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_failed_refresh_keeps_the_working_suggestions(
+        self, suggest_ideas: MagicMock, classify: MagicMock, _flag
+    ) -> None:
+        classify.return_value = {}
+        suggest_ideas.return_value = [_idea("trial_started")]
+        suggestions = self._list()["suggestions"]
+        classify.side_effect = StageClassificationFailed()
+
+        assert self._list(refresh="true") == {"status": "ready", "suggestions": suggestions}
+        assert self._list() == {"status": "ready", "suggestions": suggestions}
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")

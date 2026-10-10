@@ -1,6 +1,7 @@
 import re
 from urllib.parse import urljoin, urlparse
 
+import urllib3
 import requests
 import structlog
 from bs4 import BeautifulSoup
@@ -47,7 +48,9 @@ def fetch_brand_kit(domain: str) -> BrandKit | None:
     return parse_brand_kit(domain=domain, html=html, base_url=f"https://{domain}/")
 
 
-def parse_brand_kit(*, domain: str, html: str, base_url: str) -> BrandKit:
+def parse_brand_kit(*, domain: str, html: str | bytes, base_url: str) -> BrandKit:
+    # Bytes let BeautifulSoup read the page's <meta charset>, because requests assumes ISO-8859-1 for HTML that
+    # sends no charset header.
     soup = BeautifulSoup(html, "html.parser")
     return BrandKit(
         domain=domain,
@@ -89,7 +92,7 @@ def _logo_url(soup: BeautifulSoup, base_url: str) -> str | None:
     return None
 
 
-def _fetch_homepage(domain: str) -> str | None:
+def _fetch_homepage(domain: str) -> bytes | None:
     url = f"https://{domain}/"
     for _ in range(_MAX_REDIRECTS + 1):
         try:
@@ -109,9 +112,9 @@ def _fetch_homepage(domain: str) -> str | None:
                     continue
                 if response.status_code != 200 or "html" not in response.headers.get("Content-Type", ""):
                     return None
-                body = response.raw.read(_MAX_HTML_BYTES, decode_content=False)
-                return body.decode(response.encoding or "utf-8", errors="replace")
-        except (SSRFBlockedError, requests.RequestException):
+                return response.raw.read(_MAX_HTML_BYTES, decode_content=False)
+        # Reading response.raw skips the requests wrapper, so a slow or cut-off body raises urllib3 errors.
+        except (SSRFBlockedError, requests.RequestException, urllib3.exceptions.HTTPError):
             logger.info("workflows.data_suggestions.brand_fetch_failed", domain=domain)
             return None
     return None

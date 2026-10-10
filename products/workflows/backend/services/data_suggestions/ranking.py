@@ -22,8 +22,9 @@ STAGE_WEIGHTS: dict[LifecycleStage, float] = {
 
 MIN_WEEKLY_COUNT = 3
 
-# Only the fallback when Jev is unavailable, checked in order. Deletion counts only for accounts and their
-# owners, because most `*_deleted` events are routine product actions, not churn.
+# Only pick which events Jev gets to classify, so lifecycle-looking names are not cut by the limit. Checked in
+# order. Deletion counts only for accounts and their owners, because most `*_deleted` events are routine product
+# actions, not churn.
 _STAGE_REGEXES: tuple[tuple[LifecycleStage, str], ...] = (
     ("signup", r"sign.?up|signed.?up|regist|(account|user|workspace|organi[sz]ation|team).?created"),
     ("onboarding", r"onboard|activat|welcome|invite"),

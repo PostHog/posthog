@@ -17,6 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
+from posthog.llm.system_one_client import system_one_configured
 from posthog.models import EventDefinition, Team, User
 from posthog.models.integration import Integration
 
@@ -60,7 +61,7 @@ logger = structlog.get_logger(__name__)
 
 CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
 # A failed run waits this long before it tries again, so an outage does not rerun the queries on every visit.
-FAILURE_CACHE_TTL_SECONDS = 30 * 60
+FAILURE_CACHE_TTL_SECONDS = 5 * 60
 # Above this many events a week the counts are sampled. The estimate itself reads 1 in 100 events.
 _FULL_SCAN_MAX_WEEKLY_EVENTS = 20_000_000
 _ESTIMATE_SAMPLE_DENOMINATOR = 100
@@ -103,17 +104,22 @@ class BuiltSuggestion:
 def get_data_suggestions(*, team: Team, user: User, refresh: bool = False) -> DataSuggestionsResult:
     if team.organization.is_ai_data_processing_approved is not True:
         return DataSuggestionsResult(status="ai_not_approved", suggestions=())
+    # Without Jev the ranking cannot tell a sign-up from routine usage, so no suggestions are made.
+    if not system_one_configured():
+        return DataSuggestionsResult(status="unavailable", suggestions=())
 
     key = _cache_key(team)
-    if not refresh:
-        cached = cache.get(key)
-        if isinstance(cached, DataSuggestionsResult):
-            return cached
+    cached = cache.get(key)
+    if not refresh and isinstance(cached, DataSuggestionsResult):
+        return cached
 
     try:
         result = _suggest(team=team, user=user)
     except StageClassificationFailed:
         result = DataSuggestionsResult(status="unavailable", suggestions=())
+    # A failed refresh keeps the working suggestions, so builds that use their ids still find them.
+    if result.status != "ready" and isinstance(cached, DataSuggestionsResult) and cached.status == "ready":
+        return cached
     cache.set(key, result, CACHE_TTL_SECONDS if result.status == "ready" else FAILURE_CACHE_TTL_SECONDS)
     return result
 

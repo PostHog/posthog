@@ -4,11 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import urllib3
 from parameterized import parameterized
 
 from posthog.llm.system_one import ChoiceAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
 
-from products.workflows.backend.services.data_suggestions.brand import BrandKit, parse_brand_kit
+from products.workflows.backend.services.data_suggestions.brand import BrandKit, fetch_brand_kit, parse_brand_kit
 from products.workflows.backend.services.data_suggestions.branded_email import EmailCopy, render_branded_email
 from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow
 from products.workflows.backend.services.data_suggestions.planner import (
@@ -113,6 +114,35 @@ class TestDataSuggestions(SimpleTestCase):
     )
     def test_parse_brand_kit(self, _name: str, html: str, expected: BrandKit) -> None:
         assert parse_brand_kit(domain="example.com", html=html, base_url="https://example.com/") == expected
+
+    @parameterized.expand(
+        [
+            (
+                "utf-8 page without a charset header",
+                '<meta charset="utf-8"><title>Café Zürich</title>'.encode(),
+                "Café Zürich",
+            ),
+            ("body times out", urllib3.exceptions.ReadTimeoutError(None, "/", "read timed out"), None),
+            ("connection drops mid-body", urllib3.exceptions.ProtocolError("connection reset"), None),
+        ]
+    )
+    @patch("products.workflows.backend.services.data_suggestions.brand.pinned_session")
+    def test_fetch_brand_kit_reads_the_homepage_body(
+        self, _name: str, body: bytes | Exception, site_name: str | None, pinned_session: MagicMock
+    ) -> None:
+        response = pinned_session.return_value.__enter__.return_value.get.return_value
+        response.is_redirect = False
+        response.status_code = 200
+        response.headers = {"Content-Type": "text/html"}
+        response.encoding = "ISO-8859-1"
+        if isinstance(body, Exception):
+            response.raw.read.side_effect = body
+        else:
+            response.raw.read.return_value = body
+
+        brand = fetch_brand_kit("example.com")
+
+        assert (brand.site_name if brand else None) == site_name
 
     def test_branded_email_escapes_copy_and_keeps_light_brand_colors_readable(self) -> None:
         email = render_branded_email(
@@ -310,14 +340,15 @@ class TestDataSuggestions(SimpleTestCase):
             "thing_happened": "other",
         }
 
+    @parameterized.expand([("jev is not configured", True), ("jev does not answer", False)])
     @patch("products.workflows.backend.services.data_suggestions.stages.build_system_one_client")
-    def test_classify_event_stages_falls_back_when_jev_is_not_configured(self, build_client: MagicMock) -> None:
-        build_client.side_effect = SystemOneNotConfigured("no gateway")
-        assert classify_event_stages(team_id=1, event_names=["signed_up"]) == {}
-
-    @patch("products.workflows.backend.services.data_suggestions.stages.build_system_one_client")
-    def test_classify_event_stages_fails_when_a_configured_jev_does_not_answer(self, build_client: MagicMock) -> None:
-        build_client.return_value.decide.side_effect = SystemOneRequestFailed("boom", status_code=529)
+    def test_classify_event_stages_fails_without_a_working_jev(
+        self, _name: str, not_configured: bool, build_client: MagicMock
+    ) -> None:
+        if not_configured:
+            build_client.side_effect = SystemOneNotConfigured("no gateway")
+        else:
+            build_client.return_value.decide.side_effect = SystemOneRequestFailed("boom", status_code=529)
         with self.assertRaises(StageClassificationFailed):
             classify_event_stages(team_id=1, event_names=["signed_up"])
 

@@ -35,12 +35,12 @@ STAGE_CRITERIA: dict[str, str] = {
 
 
 class StageClassificationFailed(Exception):
-    """Jev is configured but did not answer, so the stages for this run are unknown."""
+    """Jev is not configured or did not answer, so the stages for this run are unknown."""
 
 
 def classify_event_stages(*, team_id: int, event_names: Sequence[str]) -> dict[str, LifecycleStage]:
-    """The stage Jev picks for each event it answers with enough confidence. Empty when Jev is not configured,
-    so callers fall back to their own guess. Raises StageClassificationFailed when a configured Jev fails."""
+    """The stage Jev picks for each event it answers with enough confidence. Raises StageClassificationFailed
+    when Jev is not configured or fails."""
     names = list(event_names)[:MAX_CLASSIFIED_EVENTS]
     if not names:
         return {}
@@ -53,8 +53,8 @@ def classify_event_stages(*, team_id: int, event_names: Sequence[str]) -> dict[s
             properties={"ai_feature": "data_suggestion_stages"},
             timeout=_TIMEOUT_SECONDS,
         )
-    except SystemOneNotConfigured:
-        return {}
+    except SystemOneNotConfigured as error:
+        raise StageClassificationFailed() from error
 
     stages: dict[str, LifecycleStage] = {}
     valid_stages = set(get_args(LifecycleStage))
