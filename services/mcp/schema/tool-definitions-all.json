@@ -15186,7 +15186,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-list": {
-        "description": "Recommendations to certify, deprecate or materialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why.",
+        "description": "Recommendations to certify, deprecate or materialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come strongest first within each kind. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For a certify suggestion, use the read counts from warehouse-suggestions-get.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "List warehouse suggestions",
