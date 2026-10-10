@@ -4,6 +4,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar logger mirrors intentional error/auth paths to the console (its job on
@@ -371,6 +372,77 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('CSP detection in the reachability check', () => {
+        const UI_HOST = 'https://selfhosted.example.com'
+        let captureSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            jest.useFakeTimers()
+            captureSpy = jest.spyOn(toolbarPosthogJS, 'capture').mockImplementation(() => undefined)
+        })
+
+        afterEach(() => {
+            captureSpy.mockRestore()
+            jest.useRealTimers()
+        })
+
+        const checkErrorTypes = (): unknown[] =>
+            captureSpy.mock.calls.filter((c) => c[0] === 'toolbar ui host check').map((c) => c[1].error_type)
+
+        const dispatchCspViolation = (blockedURI: string, effectiveDirective = 'connect-src'): void => {
+            const event = new Event('securitypolicyviolation') as any
+            event.blockedURI = blockedURI
+            event.effectiveDirective = effectiveDirective
+            event.disposition = 'enforce'
+            document.dispatchEvent(event)
+        }
+
+        /** Reject only the HEAD check, and call onCheck when it starts. Other requests succeed. */
+        const mockBlockedCheck = (onCheck: () => void): void => {
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    onCheck()
+                    return Promise.reject(new TypeError('Failed to fetch'))
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+        }
+
+        const mountAndFinishCheck = async (): Promise<ReturnType<typeof toolbarConfigLogic.build>> => {
+            const logic = toolbarConfigLogic.build({ uiHost: UI_HOST } as any)
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(100)
+            return logic
+        }
+
+        it('reports csp_blocked when a CSP violation targets the uiHost', async () => {
+            mockBlockedCheck(() => dispatchCspViolation(`${UI_HOST}/toolbar_oauth/check`))
+            const logic = await mountAndFinishCheck()
+
+            expect(logic.values).toMatchObject({ authStatus: 'error', uiHostBlockedByCsp: true })
+            expect(checkErrorTypes()).toEqual(['csp_blocked'])
+        })
+
+        it('reports csp_blocked when the violation event arrives after the fetch rejects', async () => {
+            mockBlockedCheck(() => setTimeout(() => dispatchCspViolation(UI_HOST), 10))
+            const logic = await mountAndFinishCheck()
+
+            expect(logic.values).toMatchObject({ authStatus: 'error', uiHostBlockedByCsp: true })
+            expect(checkErrorTypes()).toEqual(['csp_blocked'])
+        })
+
+        it.each([
+            ['targets a different host', 'https://other.example.com/script.js', 'connect-src'],
+            ['is not a connect-src violation', `${UI_HOST}/static/script.js`, 'script-src-elem'],
+        ])('keeps network_or_cors when the CSP violation %s', async (_, blockedURI, effectiveDirective) => {
+            mockBlockedCheck(() => dispatchCspViolation(blockedURI, effectiveDirective))
+            const logic = await mountAndFinishCheck()
+
+            expect(logic.values).toMatchObject({ authStatus: 'error', uiHostBlockedByCsp: false })
+            expect(checkErrorTypes()).toEqual(['network_or_cors'])
         })
     })
 
