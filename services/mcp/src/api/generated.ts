@@ -96280,6 +96280,15 @@ export namespace Schemas {
       body: string;
     }
 
+    export interface ReviewReviewsTablePage {
+      /** How many reviews match the scope and every filter, across all pages. */
+      count: number;
+      /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */
+      running_count: number;
+      /** One page of reviews, most recent activity first. */
+      results: ReviewRecentReview[];
+    }
+
     export interface ReviewStateCounts {
       needs_review: number;
       clean: number;
@@ -126754,6 +126763,78 @@ export namespace Schemas {
       ReviewOnly: 'review_only',
       ResolveOnly: 'resolve_only',
       Flash: 'flash',
+    } as const;
+
+    export type ReviewHogReviewsTableRetrieveParams = {
+    /**
+     * Rows per page. Defaults to 25, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many rows to skip, for paging through the table.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Only reviews whose latest completed turn was (true) or was not (false) published to GitHub.
+     * @nullable
+     */
+    published?: boolean | null;
+    /**
+     * Only reviews of this repository, as `owner/repo`. Matched case-insensitively.
+     * @minLength 1
+     */
+    repository?: string;
+    /**
+     * Only reviews whose latest completed turn ran this mode: 'full' (Deep) or 'flash' (Standard). Turns that did not record their mode match neither value.
+     *
+     * * `full` - Deep
+     * * `flash` - Standard
+     * @minLength 1
+     */
+    review_mode?: ReviewHogReviewsTableRetrieveReviewMode;
+    /**
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
+     *
+     * * `mine` - mine
+     * * `everyone` - everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsTableRetrieveScope;
+    /**
+     * Only reviews in this state: 'running' for reviews with a run in flight (activity within the last 30 minutes), 'completed' for reviews with a completed turn and nothing running now.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * @minLength 1
+     */
+    status?: ReviewHogReviewsTableRetrieveStatus;
+    };
+
+    export type ReviewHogReviewsTableRetrieveReviewMode = typeof ReviewHogReviewsTableRetrieveReviewMode[keyof typeof ReviewHogReviewsTableRetrieveReviewMode];
+
+
+    export const ReviewHogReviewsTableRetrieveReviewMode = {
+      Full: 'full',
+      Flash: 'flash',
+    } as const;
+
+    export type ReviewHogReviewsTableRetrieveScope = typeof ReviewHogReviewsTableRetrieveScope[keyof typeof ReviewHogReviewsTableRetrieveScope];
+
+
+    export const ReviewHogReviewsTableRetrieveScope = {
+      Mine: 'mine',
+      Everyone: 'everyone',
+    } as const;
+
+    export type ReviewHogReviewsTableRetrieveStatus = typeof ReviewHogReviewsTableRetrieveStatus[keyof typeof ReviewHogReviewsTableRetrieveStatus];
+
+
+    export const ReviewHogReviewsTableRetrieveStatus = {
+      Running: 'running',
+      Completed: 'completed',
     } as const;
 
     export type SandboxCustomImagesListParams = {

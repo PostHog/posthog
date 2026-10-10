@@ -14,7 +14,20 @@ from datetime import datetime, timedelta
 from functools import reduce
 from typing import Any, Final, Literal
 
-from django.db.models import Case, CharField, Func, IntegerField, JSONField, Max, Q, QuerySet, Value, When
+from django.db.models import (
+    Case,
+    CharField,
+    Exists,
+    Func,
+    IntegerField,
+    JSONField,
+    Max,
+    OuterRef,
+    Q,
+    QuerySet,
+    Value,
+    When,
+)
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -676,6 +689,17 @@ def in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str
         if last_activity is not None and last_activity >= cutoff:
             fresh.add(str(report.id))
     return fresh
+
+
+def running_q(team_id: int) -> Q:
+    """The same liveness as `in_progress_report_ids`, as a queryset filter for the paginated table."""
+    cutoff = timezone.now() - IN_PROGRESS_STALE_AFTER
+    fresh_artefact = Exists(
+        _activity_artefacts(
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id=OuterRef("id"), created_at__gte=cutoff)
+        )
+    )
+    return Q(status=ReviewReport.Status.ACTIVE) & (Q(updated_at__gte=cutoff) | Q(fresh_artefact))
 
 
 def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int | None:
