@@ -135,6 +135,11 @@ GITHUB_WEBHOOK_EVENT_CHECKLIST: str = "\n".join(
 
 _REPOSITORY_ACCESS_GUIDANCE = "Check the spelling and that your token has read access."
 
+RATE_LIMITED_MESSAGE = (
+    "This sync used up the GitHub request limit for your connection before it finished. The next "
+    "sync runs on schedule, and if this keeps happening, sync fewer tables or repositories."
+)
+
 
 def _join_validation_failures(failures: list[str]) -> str:
     """Join the per-repository failures, with one next step for the whole list rather than one each."""
@@ -388,6 +393,14 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             "UNEXPECTED_EOF_WHILE_READING",
             "EOF occurred in violation of protocol",
             "Read timed out",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Without these, a rate limit that outlasts every retry leaves the raw limiter text on the
+        # job, which names an internal budget and the installation id rather than a next step.
+        return {
+            "GitHub egress budget exhausted": RATE_LIMITED_MESSAGE,
+            "GitHub API rate limit exceeded": RATE_LIMITED_MESSAGE,
         }
 
     def get_oauth_accounts(
