@@ -73,10 +73,10 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
 )
 from products.review_hog.backend.reviewer.skill_loader import load_resolution_skill_for_run
 from products.review_hog.backend.reviewer.status_comment import (
-    render_resolution_failed_section,
-    render_resolution_final_section,
-    render_resolution_held_section,
-    render_resolution_progress_section,
+    render_resolution_failed_row,
+    render_resolution_final_row,
+    render_resolution_held_row,
+    render_resolution_progress_row,
     update_resolution_status_comment,
 )
 from products.review_hog.backend.reviewer.tools.github_client import github_api_request
@@ -389,7 +389,7 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         update_resolution_status_comment(
             input.team_id,
             report_id,
-            render_resolution_held_section(hold),
+            render_resolution_held_row(hold),
             integration_row_id=github.integration.id,
         )
         triage, overflow = [], 0
@@ -767,7 +767,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
         await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
             input.team_id,
             prepared.report_id,
-            render_resolution_progress_section(
+            render_resolution_progress_row(
                 done=sum(result.delivered_outcomes.values()),
                 total=total_queued,
                 fixed=result.delivered_outcomes.get(ThreadOutcome.FIXED.value, 0),
@@ -908,7 +908,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                 await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
                     input.team_id,
                     prepared.report_id,
-                    render_resolution_failed_section(done=sum(result.delivered_outcomes.values()), total=total_queued),
+                    render_resolution_failed_row(done=sum(result.delivered_outcomes.values()), total=total_queued),
                     integration_row_id=prepared.integration_row_id,
                 )
         raise
@@ -925,13 +925,13 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
         await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
             input.team_id,
             prepared.report_id,
-            render_resolution_held_section(
+            render_resolution_held_row(
                 result.stopped_reason, done=sum(result.delivered_outcomes.values()), total=total_queued
             )
             if result.stopped_reason
             # Undelivered threads (judged, or redelivered, without their GitHub writes landing) join
             # the couldn't-handle count: the tally must not claim an outcome the thread can't show.
-            else render_resolution_final_section(
+            else render_resolution_final_row(
                 outcomes=result.delivered_outcomes, failed_turns=result.failed_turns + result.undelivered
             ),
             integration_row_id=prepared.integration_row_id,
@@ -985,7 +985,7 @@ def _fail_resolution(input: FailResolutionInput) -> None:
     update_resolution_status_comment(
         input.team_id,
         str(report.id),
-        render_resolution_failed_section(done=state.done, total=state.total),
+        render_resolution_failed_row(done=state.done, total=state.total),
     )
 
 
