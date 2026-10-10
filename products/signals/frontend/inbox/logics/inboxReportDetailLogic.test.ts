@@ -26,6 +26,65 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
+    describe('priority editing', () => {
+        let logic: ReturnType<typeof inboxReportDetailLogic.build>
+
+        beforeEach(async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                },
+            })
+            initKeaTests()
+            logic = inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT, priority: 'P1' } })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('saves the priority and ignores another edit while the request is in flight', async () => {
+            let completeSave: () => void = () => {}
+            const pendingSave = new Promise<void>((resolve) => {
+                completeSave = resolve
+            })
+            const save = jest.fn(async () => {
+                await pendingSave
+                return [200, { ...REPORT, priority: 'P2', updated_at: '2026-10-10T12:00:00Z' }]
+            })
+            useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': save } })
+            logic.actions.updatePriority('P2')
+            await waitFor(() => expect(save).toHaveBeenCalledTimes(1))
+            expect(logic.values.prioritySaving).toBe(true)
+            expect(logic.values.report?.priority).toBe('P1')
+            logic.actions.updatePriority('P0')
+            completeSave()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(save).toHaveBeenCalledTimes(1)
+            expect(logic.values.report?.priority).toBe('P2')
+            expect(logic.values.prioritySaving).toBe(false)
+            logic.actions.updatePriority('P2')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(save).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps the saved priority after a failure and allows retrying', async () => {
+            useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': () => [500, {}] } })
+            logic.actions.updatePriority('P2')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report?.priority).toBe('P1')
+            expect(logic.values.prioritySaving).toBe(false)
+            useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': { ...REPORT, priority: 'P2' } } })
+            logic.actions.updatePriority('P2')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.report?.priority).toBe('P2')
+            expect(logic.values.prioritySaving).toBe(false)
+        })
+    })
+
     describe('check approval', () => {
         const openCheck = {
             id: 'check-1',

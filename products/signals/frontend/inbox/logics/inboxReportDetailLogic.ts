@@ -40,6 +40,7 @@ import {
     signalsReportPrReviewCommentUpdate,
     signalsReportsFeedbackCreate,
     signalsReportsSignalsRetrieve,
+    signalsReportsPriorityUpdate,
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
@@ -47,6 +48,7 @@ import type {
     PullRequestCommentApi,
     PullRequestCommentReactionApi,
     ReportChartApi,
+    ReportPriorityApi,
     SignalReportCheckApi,
 } from 'products/signals/frontend/generated/api.schemas'
 import type { SignalNodeApi } from 'products/signals/frontend/generated/api.schemas'
@@ -327,6 +329,7 @@ export interface inboxReportDetailLogicValues {
     prCommentsLoading: boolean
     primaryTask: ReportTaskEntry | null
     priorityExplanation: string | null
+    prioritySaving: boolean
     report: SignalReport | null
     reportArtefacts: SignalReportArtefact[] | null
     reportArtefactsLoading: boolean
@@ -586,6 +589,9 @@ export interface inboxReportDetailLogicActions {
     setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => {
         reviewers: EnrichedReviewer[] | null
     }
+    setPrioritySaving: (saving: boolean) => {
+        saving: boolean
+    }
     setReport: (report: SignalReport | null) => {
         report: SignalReport | null
     }
@@ -608,6 +614,9 @@ export interface inboxReportDetailLogicActions {
     ) => {
         commentId: string
         content: string
+    }
+    updatePriority: (priority: ReportPriorityApi) => {
+        priority: ReportPriorityApi
     }
     updateReviewers: (
         content: Record<string, string>[],
@@ -712,6 +721,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         setEditingCommentId: (commentId: string | null) => ({ commentId }),
         selectPullRequest: (url: string) => ({ url }),
         setReport: (report: SignalReport | null) => ({ report }),
+        updatePriority: (priority: ReportPriorityApi) => ({ priority }),
+        setPrioritySaving: (saving: boolean) => ({ saving }),
         // Optimistically replace the reviewer list while the PUT is in flight, then reload from the server.
         // Addressed by report (not artefact) so a report with no reviewers yet can still be assigned one.
         // Mirrors desktop `useUpdateSuggestedReviewers` optimistic behavior.
@@ -951,6 +962,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             },
         ],
         evidenceExpanded: [false, { expandEvidence: () => true, collapseEvidence: () => false }],
+        prioritySaving: [false, { setPrioritySaving: (_, { saving }) => saving }],
         report: [
             null as SignalReport | null,
             {
@@ -1400,6 +1412,37 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, asyncActions, values, props, selectors }) => ({
+        updatePriority: async ({ priority }) => {
+            const teamId = teamLogic.values.currentTeamId
+            const currentReport = values.report
+            if (!teamId || !currentReport || values.prioritySaving || currentReport.priority === priority) {
+                return
+            }
+            actions.setPrioritySaving(true)
+            let saved = false
+            try {
+                const updated = await signalsReportsPriorityUpdate(String(teamId), props.reportId, { priority })
+                const report: SignalReport = {
+                    ...(values.report ?? currentReport),
+                    priority,
+                    updated_at: updated.updated_at,
+                }
+                actions.setReport(report)
+                const scene = inboxSceneLogic.findMounted()
+                if (scene?.values.selectedReportId === props.reportId) {
+                    scene.actions.seedSelectedReport(report)
+                }
+                saved = true
+                actions.loadReportArtefacts()
+            } catch {
+                lemonToast.error("Couldn't save the priority. Try again.")
+            } finally {
+                actions.setPrioritySaving(false)
+            }
+            if (saved) {
+                inboxBulkActionsLogic.findMounted()?.actions.reportStateChanged()
+            }
+        },
         approveReportCheck: async ({ checkId }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {

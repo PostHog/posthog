@@ -1,5 +1,10 @@
 # Inbox ranking training examples
 
+Priority edits in the web inbox append a `priority_judgment` artefact instead of changing the original assessment.
+The correction's `adjustment` records `previous_priority`, `previous_judgment_id`, and `source="inbox_sidebar"`.
+The artefact's team/report IDs, creation timestamp, and actor attribution identify the correction and its author; the linked judgment retains the original explanation and dollar estimate.
+Selecting the current priority adds no correction. These records are available for future priority learning; they do not introduce a new ranking label or training head.
+
 The report-embedding and title-embedding ranking families use one example per report per head, from the report's birth-day snapshot.
 This prevents long-lived reports from receiving more weight in training because they appear in more daily snapshots.
 Birth days use the UTC interval returned by `snapshot_bounds`, including the start and excluding the end.
