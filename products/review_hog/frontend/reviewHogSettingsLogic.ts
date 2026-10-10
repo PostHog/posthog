@@ -22,6 +22,7 @@ import {
     reviewHogReviewsList,
     reviewHogReviewsPerspectiveStatsRetrieve,
     reviewHogReviewsRetrieve,
+    reviewHogReviewsTableRetrieve,
     reviewHogReviewsTriggerCreate,
     reviewHogSettingsPartialUpdate,
     reviewHogSettingsRetrieve,
@@ -40,12 +41,15 @@ import type {
     ReviewRecentReviewApi,
     ReviewRecentReviewsPageApi,
     ReviewResolutionConfigApi,
+    ReviewReviewsTablePageApi,
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import {
     ReviewHogReviewsListScope,
     ReviewHogReviewsPerspectiveStatsRetrieveScope,
+    ReviewHogReviewsTableRetrieveReviewMode,
+    ReviewHogReviewsTableRetrieveStatus,
     ReviewTriggerRequestRunModeEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import { llmSkillsList, llmSkillsNameDuplicateCreate } from 'products/skills/frontend/generated/api'
@@ -280,10 +284,22 @@ export interface reviewHogSettingsLogicValues {
     reviewDrawerOpen: boolean
     reviewDrawerTab: ReviewDrawerTab
     reviewFindingsSplit: ReviewFindingsSplit | null
+    reviews: ReviewRecentReviewApi[] | null
+    reviewsCurrentPage: number
     reviewsExpanding: boolean
+    reviewsFailed: boolean
+    reviewsFiltered: boolean
     reviewsLimit: number
+    reviewsMode: ReviewHogReviewsTableRetrieveReviewMode | null
+    reviewsPage: ReviewReviewsTablePageApi | null
+    reviewsPageLoading: boolean
+    reviewsPublished: boolean | null
+    reviewsRepository: string | null
+    reviewsRepositoryOptions: string[]
     reviewsScope: ReviewHogReviewsListScope
+    reviewsStatus: ReviewHogReviewsTableRetrieveStatus | null
     savingSkillNames: string[]
+    seenRepositories: string[]
     settings: ReviewUserSettingsApi | null
     settingsLoading: boolean
     showReviewAuthor: (review: ReviewRecentReviewApi) => boolean
@@ -310,6 +326,9 @@ export interface reviewHogSettingsLogicActions {
     }
     chooseAdoptSource: (source: AdoptSource) => {
         source: AdoptSource
+    }
+    clearReviewsFilters: () => {
+        value: true
     }
     closeAdoptSkillModal: () => {
         value: true
@@ -446,6 +465,21 @@ export interface reviewHogSettingsLogicActions {
         reviewDetail: ReviewDetailApi
         payload?: string
     }
+    loadReviews: (_?: any) => any
+    loadReviewsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadReviewsSuccess: (
+        reviewsPage: ReviewReviewsTablePageApi,
+        payload?: any
+    ) => {
+        reviewsPage: ReviewReviewsTablePageApi
+        payload?: any
+    }
     loadSettings: () => any
     loadSettingsFailure: (
         error: string,
@@ -531,8 +565,23 @@ export interface reviewHogSettingsLogicActions {
     setReviewDrawerTab: (tab: ReviewDrawerTab) => {
         tab: ReviewDrawerTab
     }
+    setReviewsMode: (mode: ReviewHogReviewsTableRetrieveReviewMode | null) => {
+        mode: ReviewHogReviewsTableRetrieveReviewMode | null
+    }
+    setReviewsPage: (page: number) => {
+        page: number
+    }
+    setReviewsPublished: (published: boolean | null) => {
+        published: boolean | null
+    }
+    setReviewsRepository: (repository: string | null) => {
+        repository: string | null
+    }
     setReviewsScope: (scope: ReviewHogReviewsListScope) => {
         scope: ReviewHogReviewsListScope
+    }
+    setReviewsStatus: (status: ReviewHogReviewsTableRetrieveStatus | null) => {
+        status: ReviewHogReviewsTableRetrieveStatus | null
     }
     setSkillSaving: (
         skillName: string,
@@ -637,6 +686,14 @@ export interface reviewHogSettingsLogicMeta {
         ) => string | null
         recentReviews: (recentReviewsPage: ReviewRecentReviewsPageApi | null) => ReviewRecentReviewApi[] | null
         moreReviewsAvailable: (recentReviewsPage: ReviewRecentReviewsPageApi | null, reviewsLimit: number) => boolean
+        reviews: (reviewsPage: ReviewReviewsTablePageApi | null) => ReviewRecentReviewApi[] | null
+        reviewsFiltered: (
+            reviewsRepository: string | null,
+            reviewsMode: ReviewHogReviewsTableRetrieveReviewMode | null,
+            reviewsStatus: ReviewHogReviewsTableRetrieveStatus | null,
+            reviewsPublished: boolean | null
+        ) => boolean
+        reviewsRepositoryOptions: (seenRepositories: string[], reviewsRepository: string | null) => string[]
         reviewFindingsSplit: (
             reviewDetail: ReviewDetailApi | null,
             settings: ReviewUserSettingsApi | null
@@ -694,6 +751,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         setReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
         showMoreReviews: true,
         showFewerReviews: true,
+        setReviewsPage: (page: number) => ({ page }),
+        setReviewsRepository: (repository: string | null) => ({ repository }),
+        setReviewsMode: (mode: ReviewHogReviewsTableRetrieveReviewMode | null) => ({ mode }),
+        setReviewsStatus: (status: ReviewHogReviewsTableRetrieveStatus | null) => ({ status }),
+        setReviewsPublished: (published: boolean | null) => ({ published }),
+        clearReviewsFilters: true,
         // Auto-select a default scope (Everyone when the user has no reviews of their own)
         // without marking it as an explicit user choice, so a later real choice still wins.
         applyDefaultReviewsScope: (scope: ReviewHogReviewsListScope) => ({ scope }),
@@ -804,6 +867,28 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                     const { reviewsScope: scope, reviewsLimit: limit } = values
                     const response = await reviewHogReviewsList(currentProjectId(), { scope, limit })
                     // A scope or limit change mid-flight dispatched a newer load — drop this stale response.
+                    breakpoint()
+                    return response
+                },
+            },
+        ],
+        reviewsPage: [
+            null as ReviewReviewsTablePageApi | null,
+            {
+                // The default param keeps the action zero-arg in the generated logic type.
+                loadReviews: async (_ = null, breakpoint) => {
+                    // urlToAction replays each deep-link filter in turn; debounce so only the settled set loads.
+                    await breakpoint(1)
+                    const response = await reviewHogReviewsTableRetrieve(currentProjectId(), {
+                        scope: values.reviewsScope,
+                        limit: REVIEWS_PAGE_SIZE,
+                        offset: (values.reviewsCurrentPage - 1) * REVIEWS_PAGE_SIZE,
+                        ...(values.reviewsRepository ? { repository: values.reviewsRepository } : {}),
+                        ...(values.reviewsMode ? { review_mode: values.reviewsMode } : {}),
+                        ...(values.reviewsStatus ? { status: values.reviewsStatus } : {}),
+                        ...(values.reviewsPublished !== null ? { published: values.reviewsPublished } : {}),
+                    })
+                    // A filter or page change mid-flight dispatched a newer load — drop this stale response.
                     breakpoint()
                     return response
                 },
@@ -999,6 +1084,80 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 showFewerReviews: () => false,
                 loadRecentReviewsSuccess: () => false,
                 loadRecentReviewsFailure: () => false,
+            },
+        ],
+        reviewsPage: {
+            // Drop rows that no longer match the controls so the table shows loading. Poll refreshes keep them.
+            setReviewsScope: () => null,
+            applyDefaultReviewsScope: () => null,
+            setReviewsPage: () => null,
+            setReviewsRepository: () => null,
+            setReviewsMode: () => null,
+            setReviewsStatus: () => null,
+            setReviewsPublished: () => null,
+            clearReviewsFilters: () => null,
+        },
+        // A failed poll keeps its rows; the table shows the error only when it has none.
+        reviewsFailed: [
+            false,
+            {
+                loadReviews: () => false,
+                loadReviewsSuccess: () => false,
+                loadReviewsFailure: () => true,
+            },
+        ],
+        // A page number rarely exists once the row set narrows, so every scope and filter change resets it.
+        reviewsCurrentPage: [
+            1,
+            {
+                setReviewsPage: (_, { page }) => page,
+                setReviewsScope: () => 1,
+                applyDefaultReviewsScope: () => 1,
+                setReviewsRepository: () => 1,
+                setReviewsMode: () => 1,
+                setReviewsStatus: () => 1,
+                setReviewsPublished: () => 1,
+                clearReviewsFilters: () => 1,
+            },
+        ],
+        reviewsRepository: [
+            null as string | null,
+            {
+                setReviewsRepository: (_, { repository }) => repository,
+                clearReviewsFilters: () => null,
+            },
+        ],
+        reviewsMode: [
+            null as ReviewHogReviewsTableRetrieveReviewMode | null,
+            {
+                setReviewsMode: (_, { mode }) => mode,
+                clearReviewsFilters: () => null,
+            },
+        ],
+        reviewsStatus: [
+            null as ReviewHogReviewsTableRetrieveStatus | null,
+            {
+                setReviewsStatus: (_, { status }) => status,
+                clearReviewsFilters: () => null,
+            },
+        ],
+        reviewsPublished: [
+            null as boolean | null,
+            {
+                setReviewsPublished: (_, { published }) => published,
+                clearReviewsFilters: () => null,
+            },
+        ],
+        // Kept across filter changes so picking one repository does not empty the other options.
+        seenRepositories: [
+            [] as string[],
+            {
+                loadReviewsSuccess: (state, { reviewsPage }) => {
+                    const merged = Array.from(
+                        new Set([...state, ...reviewsPage.results.map((review) => review.repository)])
+                    ).sort()
+                    return merged.length === state.length ? state : merged
+                },
             },
         ],
         // The "Mine / Everyone" filter on the recent-reviews list: it scopes the list AND every stat
@@ -1226,6 +1385,28 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 // offering it would send a limit the server rejects.
                 (recentReviewsPage?.has_more ?? false) && reviewsLimit < MAX_REVIEWS_LIMIT,
         ],
+        reviews: [
+            (s) => [s.reviewsPage],
+            (reviewsPage: ReviewReviewsTablePageApi | null): ReviewRecentReviewApi[] | null =>
+                reviewsPage?.results ?? null,
+        ],
+        reviewsFiltered: [
+            (s) => [s.reviewsRepository, s.reviewsMode, s.reviewsStatus, s.reviewsPublished],
+            (
+                repository: string | null,
+                mode: ReviewHogReviewsTableRetrieveReviewMode | null,
+                status: ReviewHogReviewsTableRetrieveStatus | null,
+                published: boolean | null
+            ): boolean => repository !== null || mode !== null || status !== null || published !== null,
+        ],
+        // The selected repository stays an option even before a page with it has loaded (a deep link).
+        reviewsRepositoryOptions: [
+            (s) => [s.seenRepositories, s.reviewsRepository],
+            (seenRepositories: string[], reviewsRepository: string | null): string[] =>
+                reviewsRepository && !seenRepositories.includes(reviewsRepository)
+                    ? [...seenRepositories, reviewsRepository].sort()
+                    : seenRepositories,
+        ],
         // Splits the detail's valid findings by the threshold the run actually gated on
         // (`run_urgency_threshold`, stamped at finalize). Only rows that predate the stamp fall
         // back to the viewer's current setting — an approximation that can misbucket when the
@@ -1391,6 +1572,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         },
         showMoreReviews: () => actions.loadRecentReviews(),
         showFewerReviews: () => actions.loadRecentReviews(),
+        setReviewsPage: () => actions.loadReviews(),
+        setReviewsRepository: () => actions.loadReviews(),
+        setReviewsMode: () => actions.loadReviews(),
+        setReviewsStatus: () => actions.loadReviews(),
+        setReviewsPublished: () => actions.loadReviews(),
+        clearReviewsFilters: () => actions.loadReviews(),
         loadAll: () => {
             actions.loadSettings()
             actions.loadViewerGithubLogin()
@@ -1637,6 +1824,8 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
     // does NOT write the URL: hydrating from a link marks the scope as chosen (below), so mirroring
     // the fallback would silently upgrade it into a permanent explicit choice on reload.
     // The tab mirrors to `?tab=settings` so a link can open the Settings tab; Activity keeps the URL clean.
+    // The table's filters and page mirror to `reviews_*` params the same way, so a filtered view
+    // can be shared too; each default keeps its param out of the URL.
     // The drawer mirrors to `?review=<report id>` the same way — a PERMANENT PUBLIC CONTRACT (PR
     // status comments bake these links into GitHub, where they are never re-edited). Always
     // `replace`, never push, so opening/closing the drawer doesn't stack history entries.
@@ -1649,17 +1838,28 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             router.values.hashParams,
             { replace: true },
         ]
+        const withTableParams = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
+            router.values.location.pathname,
+            {
+                ...router.values.searchParams,
+                reviews_scope: values.reviewsScope === ReviewHogReviewsListScope.Mine ? undefined : values.reviewsScope,
+                reviews_repository: values.reviewsRepository ?? undefined,
+                reviews_mode: values.reviewsMode ?? undefined,
+                reviews_status: values.reviewsStatus ?? undefined,
+                reviews_published: values.reviewsPublished === null ? undefined : String(values.reviewsPublished),
+                reviews_page: values.reviewsCurrentPage > 1 ? String(values.reviewsCurrentPage) : undefined,
+            },
+            router.values.hashParams,
+            { replace: true },
+        ]
         return {
-            setReviewsScope: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
-                router.values.location.pathname,
-                {
-                    ...router.values.searchParams,
-                    reviews_scope:
-                        values.reviewsScope === ReviewHogReviewsListScope.Mine ? undefined : values.reviewsScope,
-                },
-                router.values.hashParams,
-                { replace: true },
-            ],
+            setReviewsScope: withTableParams,
+            setReviewsPage: withTableParams,
+            setReviewsRepository: withTableParams,
+            setReviewsMode: withTableParams,
+            setReviewsStatus: withTableParams,
+            setReviewsPublished: withTableParams,
+            clearReviewsFilters: withTableParams,
             setActiveTab: (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => [
                 router.values.location.pathname,
                 {
@@ -1683,6 +1883,38 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 parsed !== values.reviewsScope
             ) {
                 actions.setReviewsScope(parsed)
+            }
+            // Guard each against its current value: every filter setter resets the page, so
+            // replaying an unchanged filter on a deep link would knock the reader back to page 1.
+            // The page goes last for the same reason.
+            const repository =
+                typeof searchParams.reviews_repository === 'string' ? searchParams.reviews_repository : null
+            if (repository !== values.reviewsRepository) {
+                actions.setReviewsRepository(repository)
+            }
+            const mode = Object.values(ReviewHogReviewsTableRetrieveReviewMode).find(
+                (value) => value === searchParams.reviews_mode
+            )
+            if ((mode ?? null) !== values.reviewsMode) {
+                actions.setReviewsMode(mode ?? null)
+            }
+            const status = Object.values(ReviewHogReviewsTableRetrieveStatus).find(
+                (value) => value === searchParams.reviews_status
+            )
+            if ((status ?? null) !== values.reviewsStatus) {
+                actions.setReviewsStatus(status ?? null)
+            }
+            // kea-router parses `true` / `false` into booleans; the string forms cover a hand-edited link.
+            const publishedParam = String(searchParams.reviews_published)
+            const published = publishedParam === 'true' ? true : publishedParam === 'false' ? false : null
+            if (published !== values.reviewsPublished) {
+                actions.setReviewsPublished(published)
+            }
+            // A hand-edited link can carry 0, -1 or Infinity, which would send an offset the API rejects.
+            const pageParam = Number(searchParams.reviews_page ?? 1)
+            const page = Number.isSafeInteger(pageParam) && pageParam > 0 ? pageParam : 1
+            if (page !== values.reviewsCurrentPage) {
+                actions.setReviewsPage(page)
             }
             const tab: CodeReviewTab = searchParams.tab === 'settings' ? 'settings' : 'activity'
             if (tab !== values.activeTab) {
