@@ -852,6 +852,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
         if (params.allowed_mcp_tools !== undefined) {
             body['allowed_mcp_tools'] = params.allowed_mcp_tools
         }
@@ -860,9 +863,6 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         }
         if (params.precheck_query !== undefined) {
             body['precheck_query'] = params.precheck_query
-        }
-        if (params.lifecycle_locked !== undefined) {
-            body['lifecycle_locked'] = params.lifecycle_locked
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
@@ -1059,14 +1059,14 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.suggestion_id !== undefined) {
             body['suggestion_id'] = params.suggestion_id
         }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
         if (params.allowed_mcp_tools !== undefined) {
             body['allowed_mcp_tools'] = params.allowed_mcp_tools
         }
         if (params.tool_preset !== undefined) {
             body['tool_preset'] = params.tool_preset
-        }
-        if (params.lifecycle_locked !== undefined) {
-            body['lifecycle_locked'] = params.lifecycle_locked
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -1969,6 +1969,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
         if (params.allowed_mcp_tools !== undefined) {
             body['allowed_mcp_tools'] = params.allowed_mcp_tools
         }
@@ -1977,9 +1980,6 @@ const signalsScoutConfigCreate = (): ToolBase<
         }
         if (params.precheck_query !== undefined) {
             body['precheck_query'] = params.precheck_query
-        }
-        if (params.lifecycle_locked !== undefined) {
-            body['lifecycle_locked'] = params.lifecycle_locked
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
@@ -2147,14 +2147,14 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.suggestion_id !== undefined) {
             body['suggestion_id'] = params.suggestion_id
         }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
         if (params.allowed_mcp_tools !== undefined) {
             body['allowed_mcp_tools'] = params.allowed_mcp_tools
         }
         if (params.tool_preset !== undefined) {
             body['tool_preset'] = params.tool_preset
-        }
-        if (params.lifecycle_locked !== undefined) {
-            body['lifecycle_locked'] = params.lifecycle_locked
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
