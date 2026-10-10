@@ -24,6 +24,7 @@ import type {
     PatchedReviewProjectSettingsApi,
     PatchedReviewUserSettingsApi,
     ReviewInstallationClaimScopeEnumApi,
+    ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewProjectSettingsApi,
     ReviewRecentReviewApi,
@@ -33,6 +34,7 @@ import type {
     ReviewRepositoryPersonRequestApi,
     ReviewRepositoryWriteApi,
     ReviewUserSettingsApi,
+    ReviewValidatorConfigApi,
     UserBasicApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 
@@ -130,6 +132,31 @@ const perspectiveStats: ReviewPerspectiveStatsApi = {
         { skill_name: 'review-hog-perspective-performance-reliability', raised: 3, kept: 1, dismissed: 2 },
         { skill_name: 'review-hog-blind-spots-general', raised: 2, kept: 1, dismissed: 1 },
     ],
+}
+
+const perspectives: ReviewPerspectiveConfigApi[] = [
+    {
+        skill_name: 'review-hog-perspective-logic-correctness',
+        enabled: true,
+        description: 'Wrong results, broken edge cases, missed branches.',
+        body: '',
+    },
+    {
+        skill_name: 'review-hog-perspective-performance-reliability',
+        enabled: true,
+        description: 'Slow queries, retries, timeouts, unbounded work.',
+        body: '',
+    },
+    {
+        skill_name: 'review-hog-perspective-contracts-security',
+        enabled: false,
+        description: 'Tenant leaks, injection, secrets, auth gaps.',
+        body: '',
+    },
+]
+
+function singleSkill(skill_name: string, description: string, active: boolean): ReviewValidatorConfigApi {
+    return { skill_name, description, active, body: '' }
 }
 
 const ADA: UserBasicType = {
@@ -425,10 +452,33 @@ const meta: Meta<typeof CodeReviewScene> = {
                     },
                     '/api/projects/:team_id/review_hog/reviews/': { results: recentReviews, has_more: false },
                     '/api/projects/:team_id/review_hog/reviews/perspective_stats/': perspectiveStats,
-                    '/api/projects/:team_id/review_hog/perspectives/': [],
-                    '/api/projects/:team_id/review_hog/blind_spots/': [],
-                    '/api/projects/:team_id/review_hog/validators/': [],
-                    '/api/projects/:team_id/review_hog/resolution/': [],
+                    '/api/projects/:team_id/review_hog/perspectives/': perspectives,
+                    '/api/projects/:team_id/review_hog/blind_spots/': [
+                        singleSkill(
+                            'review-hog-blind-spots-general',
+                            'One more pass over each chunk for what every perspective missed.',
+                            true
+                        ),
+                    ],
+                    '/api/projects/:team_id/review_hog/validators/': [
+                        singleSkill(
+                            'review-hog-validation-default',
+                            'Drops speculative, noisy and low-value findings before they reach the PR.',
+                            true
+                        ),
+                    ],
+                    '/api/projects/:team_id/review_hog/resolution/': [
+                        singleSkill(
+                            'review-hog-resolution-default',
+                            'Fixes what is worth it and safe, and replies to every thread.',
+                            true
+                        ),
+                        singleSkill(
+                            'review-hog-resolution-small-fixes',
+                            'Fixes only small, local changes and leaves bigger ones as replies.',
+                            false
+                        ),
+                    ],
                 },
                 post: {
                     '/api/projects/:team_id/review_hog/repositories/': async ({ request }) => {
@@ -558,6 +608,7 @@ export const Settings: Story = {
         await expect(canvas.getByText('Reviewed in the Billing project')).toBeVisible()
         await expect(canvas.getByText('You can edit: project admin')).toBeVisible()
         await expect(canvas.getByText('Deep review settings')).toBeVisible()
+        await expect(canvas.getByText('Review skills')).toBeVisible()
         await expect(canvas.queryByText('Review a pull request')).not.toBeInTheDocument()
         await expect(canvas.getByLabelText('Resolve comments on my pull requests')).toBeVisible()
     },
