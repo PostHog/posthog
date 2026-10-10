@@ -1,0 +1,573 @@
+{
+    "method": "engineeringAnalytics.engineeringAnalyticsWorkflowJobs",
+    "toolName": "engineering-analytics-workflow-jobs",
+    "operationId": "engineering_analytics_workflow_jobs",
+    "title": "Jobs of a workflow run",
+    "category": "Engineering analytics",
+    "description": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Each job carries its steps in run order (name, status, conclusion, timestamps, duration_seconds), so you can find the step that failed or took the time; steps is empty for a Depot CI job. Returns an empty list when the job-level source isn't synced yet. Pass ci_engine with run_id when following an engine-qualified run; ambiguous integer IDs return 400.",
+    "requiredScopes": ["engineering_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: engineering-analytics"],
+    "methodSource": "src/generated/engineering-analytics/client.ts",
+    "input": {
+        "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsInput",
+        "importPath": "@posthog/sdk/engineering-analytics",
+        "source": "src/generated/engineering-analytics/engineering-analytics-workflow-jobs.ts",
+        "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-jobs.d.ts"
+    },
+    "output": {
+        "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsOutput",
+        "importPath": "@posthog/sdk/engineering-analytics",
+        "source": "src/generated/engineering-analytics/engineering-analytics-workflow-jobs.ts",
+        "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-jobs.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsRequestSchema0",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-jobs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-jobs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsRequestSchema1",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-jobs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-jobs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsRequestSchema2",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-jobs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-jobs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsRequestSchema3",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-jobs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-jobs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape3",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-jobs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-jobs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-jobs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-jobs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsData",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-jobs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-jobs.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Jobs of a single workflow run attempt, with per-job duration, runner tier, and estimated cost. Scoped to one run_attempt (the latest unless specified) so a re-run's attempts don't merge. Returns an empty list when the job-level source isn't synced yet.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1engineering_analytics~1workflow_jobs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Each job carries its steps in run order (name, status, conclusion, timestamps, duration_seconds), so you can find the step that failed or took the time; steps is empty for a Depot CI job. Returns an empty list when the job-level source isn't synced yet. Pass ci_engine with run_id when following an engine-qualified run; ambiguous integer IDs return 400.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/engineering_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsInput",
+            "field": "ci_engine",
+            "effectiveDescription": "CI engine. Required when run_id exists in both engines.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CI engine. Required when run_id exists in both engines.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_jobs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsInput",
+            "field": "repo",
+            "effectiveDescription": "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_jobs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsInput",
+            "field": "run_attempt",
+            "effectiveDescription": "Which re-run attempt to scope jobs to. Omit to use the run's latest attempt; pass an explicit attempt to avoid mixing jobs across a re-run's attempts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which re-run attempt to scope jobs to. Omit to use the run's latest attempt; pass an explicit attempt to avoid mixing jobs across a re-run's attempts.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_jobs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsInput",
+            "field": "run_id",
+            "effectiveDescription": "Workflow run id to list jobs for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Workflow run id to list jobs for.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_jobs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsInput",
+            "field": "source_id",
+            "effectiveDescription": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_jobs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "steps",
+            "effectiveDescription": "The job's steps in run order. Empty when the source reports no steps, as for a Depot CI job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The job's steps in run order. Empty when the source reports no steps, as for a Depot CI job.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/steps"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Integer job id; unique only together with ci_engine.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integer job id; unique only together with ci_engine.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "run_id",
+            "effectiveDescription": "The workflow run id this job belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The workflow run id this job belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Job name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Job name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "status",
+            "effectiveDescription": "Raw job status: 'queued', 'in_progress', 'completed', etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Raw job status: 'queued', 'in_progress', 'completed', etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "conclusion",
+            "effectiveDescription": "Job conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null while running.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Job conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null while running.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/conclusion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "started_at",
+            "effectiveDescription": "When the job started, or null while still queued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the job started, or null while still queued.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "completed_at",
+            "effectiveDescription": "When the job completed, or null while still running.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the job completed, or null while still running.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "duration_seconds",
+            "effectiveDescription": "Wall-clock duration in seconds; null until the job completes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Wall-clock duration in seconds; null until the job completes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/duration_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "runner_provider",
+            "effectiveDescription": "Where the job ran: 'github_hosted' (free for open source), 'self_hosted' (billable), or 'unknown'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the job ran: 'github_hosted' (free for open source), 'self_hosted' (billable), or 'unknown'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/runner_provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "runner_label",
+            "effectiveDescription": "Runner tier the job ran on (e.g. '16-core' or 'ubuntu-latest'), or '' when unknown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Runner tier the job ran on (e.g. '16-core' or 'ubuntu-latest'), or '' when unknown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/runner_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "estimated_cost_usd",
+            "effectiveDescription": "Estimated cost in USD from runner tier + elapsed time; null when the tier is unknown or the job hasn't finished.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Estimated cost in USD from runner tier + elapsed time; null when the tier is unknown or the job hasn't finished.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/estimated_cost_usd"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "ci_engine",
+            "effectiveDescription": "CI execution engine; null when unknown.\n\n* `github_actions` - GitHub Actions\n* `depot_ci` - Depot CI",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CI execution engine; null when unknown.\n\n* `github_actions` - GitHub Actions\n* `depot_ci` - Depot CI",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/ci_engine"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "native_run_id",
+            "effectiveDescription": "Source-native run id; use with ci_engine for identity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source-native run id; use with ci_engine for identity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/native_run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "native_workflow_run_id",
+            "effectiveDescription": "Source-native workflow run id; use with ci_engine for identity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source-native workflow run id; use with ci_engine for identity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/native_workflow_run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "native_job_id",
+            "effectiveDescription": "Source-native job id; use with ci_engine for identity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source-native job id; use with ci_engine for identity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/native_job_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape2",
+            "field": "native_attempt_id",
+            "effectiveDescription": "Source-native attempt id; use with ci_engine for identity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source-native attempt id; use with ci_engine for identity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/native_attempt_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape3",
+            "field": "number",
+            "effectiveDescription": "1-based position of the step in the job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "1-based position of the step in the job.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape3",
+            "field": "name",
+            "effectiveDescription": "Step name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Step name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape3",
+            "field": "status",
+            "effectiveDescription": "Raw step status: 'queued', 'in_progress', 'completed', etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Raw step status: 'queued', 'in_progress', 'completed', etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape3",
+            "field": "conclusion",
+            "effectiveDescription": "Step conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null until the step finishes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Step conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null until the step finishes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/conclusion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape3",
+            "field": "started_at",
+            "effectiveDescription": "When the step started, or null if it has not started.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the step started, or null if it has not started.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape3",
+            "field": "completed_at",
+            "effectiveDescription": "When the step finished, or null while it runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the step finished, or null while it runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsResponseShape3",
+            "field": "duration_seconds",
+            "effectiveDescription": "Wall-clock duration in seconds; null until the step finishes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Wall-clock duration in seconds; null until the step finishes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/duration_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowJobsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,519 @@
+{
+    "method": "errorTracking.errorTrackingAssignmentRulesCreate",
+    "toolName": "error-tracking-assignment-rules-create",
+    "operationId": "error_tracking_assignment_rules_create",
+    "title": "Create error tracking assignment rule",
+    "category": "Error tracking",
+    "description": "Create an error tracking assignment rule for the current project. Provide `filters` to match incoming errors and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.",
+    "requiredScopes": ["error_tracking:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking/client.ts",
+    "input": {
+        "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateInput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateOutput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema0",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema4",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema5",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema6",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema7",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema8",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema9",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema10",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema12",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema13",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema14",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema11",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema11Variant1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema11Variant2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema11Variant3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema11Variant4",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema11Variant5",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema15",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema16",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema17",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema18",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema19",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema20",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1Item",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant4",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant5",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant6",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant7",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant8",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant9",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant11",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant10",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant12",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant13",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant14",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant15",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant16",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant17",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant18",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant19",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant20",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant21",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant22",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant23",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant24",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1ItemVariant25",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema21",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema23",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema24",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema22",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequestSchema25",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateInputFilters",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateInputAssignee",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateResponseShape2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesCreateData",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Create an error tracking assignment rule for the current project. Provide `filters` to match incoming errors and an `assignee` with `type` (`user` or `role`) plus the matching user ID or role UUID.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/error_tracking/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequest_Schema21",
+            "effectiveDescription": "Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n* `user` - user\n* `role` - role",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Assignee type. Use `user` for a user ID or `role` for a role UUID.\n\n* `user` - user\n* `role` - role",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema21"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesCreateRequest_Schema22",
+            "effectiveDescription": "User ID when `type` is `user`, or role UUID when `type` is `role`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User ID when `type` is `user`, or role UUID when `type` is `role`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema22"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesCreateInput",
+            "field": "filters",
+            "effectiveDescription": "Property-group filters that define when this rule matches incoming error events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property-group filters that define when this rule matches incoming error events.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/assignment_rules/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesCreateInput",
+            "field": "assignee",
+            "effectiveDescription": "User or role to assign matching issues to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User or role to assign matching issues to.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/assignment_rules/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesCreateInput",
+            "field": "order_key",
+            "effectiveDescription": "Evaluation priority among rules; lower is evaluated first and the first matching rule wins. Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a deterministic order.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Evaluation priority among rules; lower is evaluated first and the first matching rule wins. Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a deterministic order.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/assignment_rules/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesCreateData",
+            "field": "filters",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesCreateData",
+            "field": "disabled_data",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/disabled_data"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

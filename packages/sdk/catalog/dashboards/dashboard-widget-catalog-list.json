@@ -1,0 +1,1180 @@
+{
+    "method": "dashboards.dashboardWidgetCatalogList",
+    "toolName": "dashboard-widget-catalog-list",
+    "operationId": "dashboards_widget_catalog_retrieve",
+    "title": "List dashboard widget catalog",
+    "category": "Dashboards",
+    "description": "List registered dashboard widget types with labels, descriptions, and per-type config_schema. Use before dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).",
+    "requiredScopes": ["dashboard:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/dashboards/client.ts",
+    "input": {
+        "name": "DashboardsDashboardWidgetCatalogListInput",
+        "importPath": "@posthog/sdk/dashboards",
+        "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+        "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+    },
+    "output": {
+        "name": "DashboardsDashboardWidgetCatalogListOutput",
+        "importPath": "@posthog/sdk/dashboards",
+        "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+        "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape3",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape2",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape6",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape8",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape7",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape9",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape5",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape4",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape12",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape13",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape11",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape10",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape16",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape15",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape14",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape18",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape17",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape20",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape19",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape22",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape21",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape24",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape23",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape26",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape25",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape28",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListResponseShape27",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardWidgetCatalogListData",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-widget-catalog-list.ts",
+            "declaration": "dist/generated/dashboards/dashboard-widget-catalog-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List registered dashboard widget types and per-type config_schema documentation for agents.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1dashboards~1widget_catalog~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List registered dashboard widget types with labels, descriptions, and per-type config_schema. Use before dashboard-widgets-batch-add to pick a widget_type and shape config. Each type documents its own config keys under config_schema (shared keys include limit, orderBy, orderDirection, dateRange, filterTestAccounts, and optional widgetFilters).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/dashboards/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape2",
+            "field": "config_schema",
+            "effectiveDescription": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape2/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape2",
+            "field": "live",
+            "effectiveDescription": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape2/properties/live"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape3",
+            "field": "notebookShortId",
+            "effectiveDescription": "Source notebook short ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source notebook short ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape3/properties/notebookShortId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape3",
+            "field": "snapshotId",
+            "effectiveDescription": "Immutable notebook widget snapshot. Add one from a notebook widget's menu.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Immutable notebook widget snapshot. Add one from a notebook widget's menu.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape3/properties/snapshotId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape4",
+            "field": "config_schema",
+            "effectiveDescription": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape4/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape4",
+            "field": "live",
+            "effectiveDescription": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape4/properties/live"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape5",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of events to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of events to return.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape5/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape5",
+            "field": "eventName",
+            "effectiveDescription": "Limit the feed to a single event name. Omit or null for all events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Limit the feed to a single event name. Omit or null for all events.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape5/properties/eventName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape5",
+            "field": "properties",
+            "effectiveDescription": "Event and person property filters, matching Activity > Explore events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event and person property filters, matching Activity > Explore events.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape5/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape10",
+            "field": "config_schema",
+            "effectiveDescription": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape10/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape10",
+            "field": "live",
+            "effectiveDescription": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape10/properties/live"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape11",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of issues to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of issues to return.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape11/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape11",
+            "field": "orderBy",
+            "effectiveDescription": "Issue ranking column.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue ranking column.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape11/properties/orderBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape11",
+            "field": "orderDirection",
+            "effectiveDescription": "Sort direction for orderBy.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort direction for orderBy.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape11/properties/orderDirection"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape11",
+            "field": "status",
+            "effectiveDescription": "Issue status filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue status filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape11/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape11",
+            "field": "assignee",
+            "effectiveDescription": "Filter by assignee ({type: user|role, id}). Omit for any assignee.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by assignee ({type: user|role, id}). Omit for any assignee.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape11/properties/assignee"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape14",
+            "field": "config_schema",
+            "effectiveDescription": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape14/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape14",
+            "field": "live",
+            "effectiveDescription": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape14/properties/live"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape15",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of recordings to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of recordings to return.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape15/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape15",
+            "field": "orderBy",
+            "effectiveDescription": "Recording ranking column.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Recording ranking column.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape15/properties/orderBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape15",
+            "field": "orderDirection",
+            "effectiveDescription": "Sort direction for orderBy.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort direction for orderBy.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape15/properties/orderDirection"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape15",
+            "field": "savedFilterId",
+            "effectiveDescription": "short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape15/properties/savedFilterId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape15",
+            "field": "collectionId",
+            "effectiveDescription": "short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape15/properties/collectionId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape17",
+            "field": "config_schema",
+            "effectiveDescription": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape17/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape17",
+            "field": "live",
+            "effectiveDescription": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape17/properties/live"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape18",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of experiments to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of experiments to return.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape18/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape18",
+            "field": "orderBy",
+            "effectiveDescription": "Experiment list sort column.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment list sort column.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape18/properties/orderBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape18",
+            "field": "orderDirection",
+            "effectiveDescription": "Sort direction for orderBy.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort direction for orderBy.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape18/properties/orderDirection"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape18",
+            "field": "status",
+            "effectiveDescription": "Experiment status filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment status filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape18/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape18",
+            "field": "createdBy",
+            "effectiveDescription": "Filter by creator (user id). Omit for any creator.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by creator (user id). Omit for any creator.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape18/properties/createdBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape19",
+            "field": "config_schema",
+            "effectiveDescription": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape19/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape19",
+            "field": "live",
+            "effectiveDescription": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape19/properties/live"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape20",
+            "field": "experimentId",
+            "effectiveDescription": "Experiment to show results for. Null until the user picks one in the widget settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment to show results for. Null until the user picks one in the widget settings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape20/properties/experimentId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape21",
+            "field": "config_schema",
+            "effectiveDescription": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape21/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape21",
+            "field": "live",
+            "effectiveDescription": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape21/properties/live"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape22",
+            "field": "dateRange",
+            "effectiveDescription": "Null or omitted means all time (the survey's full lifetime).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Null or omitted means all time (the survey's full lifetime).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape22/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape22",
+            "field": "surveyId",
+            "effectiveDescription": "Survey to show performance stats and recent responses for. Null until the user picks one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Survey to show performance stats and recent responses for. Null until the user picks one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape22/properties/surveyId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape22",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of recent responses to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of recent responses to return.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape22/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape23",
+            "field": "config_schema",
+            "effectiveDescription": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape23/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape23",
+            "field": "live",
+            "effectiveDescription": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape23/properties/live"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape24",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of log lines to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of log lines to return.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape24/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape24",
+            "field": "orderBy",
+            "effectiveDescription": "Sort by newest (latest) or oldest (earliest) first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort by newest (latest) or oldest (earliest) first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape24/properties/orderBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape24",
+            "field": "severityLevels",
+            "effectiveDescription": "Only show logs at these severity levels. Empty shows all levels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only show logs at these severity levels. Empty shows all levels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape24/properties/severityLevels"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape24",
+            "field": "serviceNames",
+            "effectiveDescription": "Only show logs from these services. Empty shows all services.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only show logs from these services. Empty shows all services.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape24/properties/serviceNames"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape24",
+            "field": "wrapLines",
+            "effectiveDescription": "Wrap long log lines instead of truncating them to a single row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Wrap long log lines instead of truncating them to a single row.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape24/properties/wrapLines"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape24",
+            "field": "timezone",
+            "effectiveDescription": "Render log timestamps in UTC or in each viewer's local timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Render log timestamps in UTC or in each viewer's local timezone.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape24/properties/timezone"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape24",
+            "field": "savedViewId",
+            "effectiveDescription": "short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape24/properties/savedViewId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape25",
+            "field": "config_schema",
+            "effectiveDescription": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape25/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape25",
+            "field": "live",
+            "effectiveDescription": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape25/properties/live"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape26",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of tickets to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of tickets to return.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape26/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape26",
+            "field": "status",
+            "effectiveDescription": "Ticket status filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket status filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape26/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape26",
+            "field": "priorities",
+            "effectiveDescription": "Only show tickets with these priorities. Empty shows all priorities.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only show tickets with these priorities. Empty shows all priorities.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape26/properties/priorities"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape26",
+            "field": "channel",
+            "effectiveDescription": "Ticket channel filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket channel filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape26/properties/channel"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape26",
+            "field": "assignees",
+            "effectiveDescription": "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape26/properties/assignees"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape26",
+            "field": "search",
+            "effectiveDescription": "Search requester name or email, ticket subject, message text, or ticket number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search requester name or email, ticket subject, message text, or ticket number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape26/properties/search"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape26",
+            "field": "savedViewId",
+            "effectiveDescription": "short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape26/properties/savedViewId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape27",
+            "field": "config_schema",
+            "effectiveDescription": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape27/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape27",
+            "field": "live",
+            "effectiveDescription": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape27/properties/live"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListResponseShape28",
+            "field": "canvasId",
+            "effectiveDescription": "Canvas to render in the tile. Null until the user picks one in the widget settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canvas to render in the tile. Null until the user picks one in the widget settings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape28/properties/canvasId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardWidgetCatalogListData",
+            "field": "results",
+            "effectiveDescription": "Registered dashboard widget types available when dashboard-widgets is enabled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Registered dashboard widget types available when dashboard-widgets is enabled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

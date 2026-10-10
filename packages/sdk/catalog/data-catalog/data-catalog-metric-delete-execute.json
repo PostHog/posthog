@@ -1,0 +1,99 @@
+{
+    "method": "dataCatalog.dataCatalogMetricDeleteExecute",
+    "toolName": "data-catalog-metric-delete-execute",
+    "operationId": "data_catalog_metrics_destroy",
+    "title": "Delete a catalog metric (execute)",
+    "category": "Data catalog",
+    "description": "Step 2 of 2 for delete metric. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Delete a canonical metric by name. The metric leaves the catalog and its name becomes available again, so a later metric can claim it, and anything that referenced the old name (saved SQL, run URLs, earlier tool results) stops resolving. Deleting an approved metric throws away a human-vouched definition. Ask the user before calling this, and prefer data-catalog-metric-update when the metric is merely wrong, stale, or badly named - delete only when the metric should not exist at all. The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
+    "requiredScopes": ["data_catalog:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-catalog/client.ts",
+    "input": {
+        "name": "DataCatalogDataCatalogMetricDeleteExecuteInput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-metric-delete-execute.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-metric-delete-execute.d.ts"
+    },
+    "output": {
+        "name": "DataCatalogDataCatalogMetricDeleteExecuteOutput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-metric-delete-execute.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-metric-delete-execute.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataCatalogDataCatalogMetricDeleteExecuteData",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-metric-delete-execute.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-metric-delete-execute.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1data_catalog~1metrics~1{name}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete a canonical metric by name. The metric leaves the catalog and its name becomes available again, so a later metric can claim it, and anything that referenced the old name (saved SQL, run URLs, earlier tool results) stops resolving. Deleting an approved metric throws away a human-vouched definition. Ask the user before calling this, and prefer data-catalog-metric-update when the metric is merely wrong, stale, or badly named - delete only when the metric should not exist at all. The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_catalog/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 2 of 2 for delete metric. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Delete a canonical metric by name. The metric leaves the catalog and its name becomes available again, so a later metric can claim it, and anything that referenced the old name (saved SQL, run URLs, earlier tool results) stops resolving. Deleting an approved metric throws away a human-vouched definition. Ask the user before calling this, and prefer data-catalog-metric-update when the metric is merely wrong, stale, or badly named - delete only when the metric should not exist at all. The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/data-catalog-metric-delete-execute/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataCatalogDataCatalogMetricDeleteExecuteInput",
+            "field": "confirmation_hash",
+            "effectiveDescription": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/properties/confirmation_hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricDeleteExecuteInput",
+            "field": "confirmation",
+            "effectiveDescription": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/properties/confirmation"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

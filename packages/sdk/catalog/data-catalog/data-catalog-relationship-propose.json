@@ -1,0 +1,446 @@
+{
+    "method": "dataCatalog.dataCatalogRelationshipPropose",
+    "toolName": "data-catalog-relationship-propose",
+    "operationId": "data_catalog_relationship_proposals_create",
+    "title": "Propose a table relationship",
+    "category": "Data catalog",
+    "description": "Propose a reviewed join between two warehouse tables, with confidence and sampling evidence (match rates, sample values). Both tables must exist. Proposals are deduped undirected, so do not propose the reverse of an existing pair.",
+    "requiredScopes": ["data_catalog:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-catalog/client.ts",
+    "input": {
+        "name": "DataCatalogDataCatalogRelationshipProposeInput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-relationship-propose.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-relationship-propose.d.ts"
+    },
+    "output": {
+        "name": "DataCatalogDataCatalogRelationshipProposeOutput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-relationship-propose.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-relationship-propose.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataCatalogDataCatalogRelationshipProposeRequestSchema0",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-relationship-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-relationship-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogRelationshipProposeRequestSchema1",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-relationship-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-relationship-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogRelationshipProposeRequestSchema2",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-relationship-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-relationship-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogRelationshipProposeRequestSchema3",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-relationship-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-relationship-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogRelationshipProposeResponseShape3",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-relationship-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-relationship-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogRelationshipProposeResponseShape2",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-relationship-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-relationship-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogRelationshipProposeData",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-relationship-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-relationship-propose.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Reviewed join facts. Accepting one promotes it to a real DataWarehouseJoin; rejections persist.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1data_catalog~1relationship_proposals~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Propose a reviewed join between two warehouse tables, with confidence and sampling evidence (match rates, sample values). Both tables must exist. Proposals are deduped undirected, so do not propose the reverse of an existing pair.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_catalog/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeInput",
+            "field": "source_table_name",
+            "effectiveDescription": "Name of the table the join starts from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the table the join starts from.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/relationship_proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeInput",
+            "field": "source_table_key",
+            "effectiveDescription": "HogQL key expression on the source table (casts allowed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL key expression on the source table (casts allowed).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/relationship_proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeInput",
+            "field": "joining_table_name",
+            "effectiveDescription": "Name of the table being joined in.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the table being joined in.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/relationship_proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeInput",
+            "field": "joining_table_key",
+            "effectiveDescription": "HogQL key expression on the joining table (casts allowed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL key expression on the joining table (casts allowed).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/relationship_proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeInput",
+            "field": "field_name",
+            "effectiveDescription": "Accessor the join adds to the source table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Accessor the join adds to the source table.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/relationship_proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeInput",
+            "field": "configuration",
+            "effectiveDescription": "Extra join configuration, e.g. a field mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra join configuration, e.g. a field mapping.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/relationship_proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeInput",
+            "field": "confidence",
+            "effectiveDescription": "Discovery confidence in this join, 0-1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Discovery confidence in this join, 0-1.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/relationship_proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeInput",
+            "field": "reasoning",
+            "effectiveDescription": "Why this join is proposed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this join is proposed.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/relationship_proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeInput",
+            "field": "evidence",
+            "effectiveDescription": "Sampling evidence: match rates, sample values.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampling evidence: match rates, sample values.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/relationship_proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "source_table_name",
+            "effectiveDescription": "Name of the table the join starts from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the table the join starts from.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/source_table_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "source_table_key",
+            "effectiveDescription": "HogQL key expression on the source table (casts allowed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL key expression on the source table (casts allowed).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/source_table_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "joining_table_name",
+            "effectiveDescription": "Name of the table being joined in.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the table being joined in.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/joining_table_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "joining_table_key",
+            "effectiveDescription": "HogQL key expression on the joining table (casts allowed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL key expression on the joining table (casts allowed).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/joining_table_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "field_name",
+            "effectiveDescription": "Accessor the join adds to the source table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Accessor the join adds to the source table.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/field_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "configuration",
+            "effectiveDescription": "Extra join configuration, e.g. a field mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra join configuration, e.g. a field mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/configuration"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "confidence",
+            "effectiveDescription": "Discovery confidence in this join, 0-1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Discovery confidence in this join, 0-1.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/confidence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "reasoning",
+            "effectiveDescription": "Why this join is proposed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this join is proposed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/reasoning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "evidence",
+            "effectiveDescription": "Sampling evidence: match rates, sample values.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampling evidence: match rates, sample values.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/evidence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "status",
+            "effectiveDescription": "proposed, accepted (promoted to a real join), or rejected (never re-proposed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "proposed, accepted (promoted to a real join), or rejected (never re-proposed).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "reviewed_by",
+            "effectiveDescription": "User who accepted or rejected the proposal.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who accepted or rejected the proposal.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/reviewed_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "rejection_reason",
+            "effectiveDescription": "Why the proposal was rejected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the proposal was rejected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/rejection_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogRelationshipProposeData",
+            "field": "created_join",
+            "effectiveDescription": "The join created when this proposal was accepted (promotion provenance).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The join created when this proposal was accepted (promotion provenance).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/created_join"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

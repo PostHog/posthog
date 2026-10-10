@@ -1,0 +1,169 @@
+{
+    "method": "errorTracking.errorTrackingIssuesSplitCreate",
+    "toolName": "error-tracking-issues-split-create",
+    "operationId": "error_tracking_issues_split_create",
+    "title": "Split error tracking issue fingerprints",
+    "category": "Error tracking",
+    "description": "Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required `fingerprint` and optional `name` or `description`.",
+    "requiredScopes": ["error_tracking:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking/client.ts",
+    "input": {
+        "name": "ErrorTrackingErrorTrackingIssuesSplitCreateInput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-issues-split-create.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-issues-split-create.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingErrorTrackingIssuesSplitCreateOutput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-issues-split-create.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-issues-split-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingErrorTrackingIssuesSplitCreateRequestSchema1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-issues-split-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-issues-split-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingIssuesSplitCreateRequestSchema2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-issues-split-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-issues-split-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingIssuesSplitCreateRequestSchema0Item",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-issues-split-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-issues-split-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingIssuesSplitCreateRequestSchema0",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-issues-split-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-issues-split-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingIssuesSplitCreateData",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-issues-split-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-issues-split-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required `fingerprint` and optional `name` or `description`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/error_tracking/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingErrorTrackingIssuesSplitCreateRequest_Schema0",
+            "field": "[].fingerprint",
+            "effectiveDescription": "Fingerprint to split into a new issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fingerprint to split into a new issue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema0/items/properties/fingerprint"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingIssuesSplitCreateRequest_Schema0",
+            "field": "[].name",
+            "effectiveDescription": "Optional name for the new issue created from this fingerprint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional name for the new issue created from this fingerprint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema0/items/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingIssuesSplitCreateRequest_Schema0",
+            "field": "[].description",
+            "effectiveDescription": "Optional description for the new issue created from this fingerprint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional description for the new issue created from this fingerprint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema0/items/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingIssuesSplitCreateInput",
+            "field": "fingerprints",
+            "effectiveDescription": "Fingerprints to split into new issues. Each fingerprint becomes its own new issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fingerprints to split into new issues. Each fingerprint becomes its own new issue.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/issues/{id}/split/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingIssuesSplitCreateData",
+            "field": "success",
+            "effectiveDescription": "Whether the split completed successfully.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the split completed successfully.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/success"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingIssuesSplitCreateData",
+            "field": "new_issue_ids",
+            "effectiveDescription": "IDs of the new issues created by the split.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "IDs of the new issues created by the split.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/new_issue_ids"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,414 @@
+{
+    "method": "errorTracking.errorTrackingSeverityRulesUpdate",
+    "toolName": "error-tracking-severity-rules-update",
+    "operationId": "error_tracking_severity_rules_update",
+    "title": "Update error tracking severity rule",
+    "category": "Error tracking",
+    "description": "Update an error tracking severity rule by ID. Include `filters`, `severity`, or both. Omitted fields keep their existing values. Supported severities are `low`, `medium`, `high`, and `critical`. Updating filters recompiles the rule and clears any auto-disable state. Changes apply only to issues created after the update.",
+    "requiredScopes": ["error_tracking:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking/client.ts",
+    "input": {
+        "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateInput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateOutput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0Type",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema5",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema6",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema7",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema8",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema9",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema11",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema12",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema13",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema10",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema10Variant1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema10Variant2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema10Variant3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema10Variant4",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema10Variant5",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema14",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema15",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema16",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema17",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema18",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema19",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItem",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant4",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant5",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant6",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant7",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant8",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant9",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant11",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant10",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant12",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant13",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant14",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant15",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant16",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant17",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant18",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant19",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant20",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant21",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant22",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant23",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant24",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0ValuesItemVariant25",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequestSchema20",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingSeverityRulesUpdateData",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-severity-rules-update.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-severity-rules-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update an error tracking severity rule by ID. Include `filters`, `severity`, or both. Omitted fields keep their existing values. Supported severities are `low`, `medium`, `high`, and `critical`. Updating filters recompiles the rule and clears any auto-disable state. Changes apply only to issues created after the update.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/error_tracking/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingErrorTrackingSeverityRulesUpdateRequest_Schema20",
+            "effectiveDescription": "* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingSeverityRulesUpdateInput",
+            "field": "filters",
+            "effectiveDescription": "Replacement property-group filters. Omit to preserve the existing filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Replacement property-group filters. Omit to preserve the existing filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/severity_rules/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingSeverityRulesUpdateInput",
+            "field": "severity",
+            "effectiveDescription": "Replacement severity. Omit to preserve the existing severity.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Replacement severity. Omit to preserve the existing severity.\n\n* `low` - low\n* `medium` - medium\n* `high` - high\n* `critical` - critical",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/severity_rules/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

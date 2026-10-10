@@ -1,0 +1,74 @@
+{
+    "method": "dataWarehouse.viewDelete",
+    "toolName": "view-delete",
+    "operationId": "warehouse_saved_queries_destroy",
+    "title": "Delete saved query",
+    "category": "Data warehouse",
+    "description": "Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed. Cannot delete views that have downstream dependencies or views from managed viewsets.",
+    "requiredScopes": ["warehouse_view:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-warehouse/client.ts",
+    "input": {
+        "name": "DataWarehouseViewDeleteInput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/view-delete.ts",
+        "declaration": "dist/generated/data-warehouse/view-delete.d.ts"
+    },
+    "output": {
+        "name": "DataWarehouseViewDeleteOutput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/view-delete.ts",
+        "declaration": "dist/generated/data-warehouse/view-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataWarehouseViewDeleteData",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/view-delete.ts",
+            "declaration": "dist/generated/data-warehouse/view-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, Read, Update and Delete Warehouse Tables.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1warehouse_saved_queries~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed. Cannot delete views that have downstream dependencies or views from managed viewsets.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_warehouse/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataWarehouseViewDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this data warehouse saved query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this data warehouse saved query.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/warehouse_saved_queries/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

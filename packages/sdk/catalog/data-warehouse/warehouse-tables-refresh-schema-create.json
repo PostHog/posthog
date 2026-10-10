@@ -1,0 +1,89 @@
+{
+    "method": "dataWarehouse.warehouseTablesRefreshSchemaCreate",
+    "toolName": "warehouse-tables-refresh-schema-create",
+    "operationId": "warehouse_tables_refresh_schema_create",
+    "title": "Refresh table schema from source",
+    "category": "Data warehouse",
+    "description": "Re-introspect a self-managed (manually linked) data warehouse table's schema from its underlying source files and overwrite its stored column list. Use this when the source schema has evolved (e.g. new columns added to the underlying Delta/Parquet/CSV files) but HogQL queries still fail to resolve the new columns — PostHog serves a cached column snapshot until the table is refreshed. Does not apply to tables managed by an external data source sync (those refresh on their own schedule); for those, trigger a sync instead.",
+    "requiredScopes": ["warehouse_table:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-warehouse/client.ts",
+    "input": {
+        "name": "DataWarehouseWarehouseTablesRefreshSchemaCreateInput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/warehouse-tables-refresh-schema-create.ts",
+        "declaration": "dist/generated/data-warehouse/warehouse-tables-refresh-schema-create.d.ts"
+    },
+    "output": {
+        "name": "DataWarehouseWarehouseTablesRefreshSchemaCreateOutput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/warehouse-tables-refresh-schema-create.ts",
+        "declaration": "dist/generated/data-warehouse/warehouse-tables-refresh-schema-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataWarehouseWarehouseTablesRefreshSchemaCreateData",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/warehouse-tables-refresh-schema-create.ts",
+            "declaration": "dist/generated/data-warehouse/warehouse-tables-refresh-schema-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying source files and overwrite its stored column list. Use when the source schema has evolved (e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the new columns, because PostHog serves a cached column snapshot until the table is refreshed. Not for tables managed by an external data source sync — those refresh on their own schedule.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1warehouse_tables~1{id}~1refresh_schema~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Re-introspect a self-managed (manually linked) data warehouse table's schema from its underlying source files and overwrite its stored column list. Use this when the source schema has evolved (e.g. new columns added to the underlying Delta/Parquet/CSV files) but HogQL queries still fail to resolve the new columns — PostHog serves a cached column snapshot until the table is refreshed. Does not apply to tables managed by an external data source sync (those refresh on their own schedule); for those, trigger a sync instead.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_warehouse/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataWarehouseWarehouseTablesRefreshSchemaCreateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this data warehouse table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this data warehouse table.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/warehouse_tables/{id}/refresh_schema/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseWarehouseTablesRefreshSchemaCreateData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

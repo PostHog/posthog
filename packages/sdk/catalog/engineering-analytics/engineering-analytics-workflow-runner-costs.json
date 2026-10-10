@@ -1,0 +1,301 @@
+{
+    "method": "engineeringAnalytics.engineeringAnalyticsWorkflowRunnerCosts",
+    "toolName": "engineering-analytics-workflow-runner-costs",
+    "operationId": "engineering_analytics_workflow_runner_costs",
+    "title": "Workflow cost by runner tier",
+    "category": "Engineering analytics",
+    "description": "One workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Each row is a tier (provider + runner_label) with its job_count, billable_minutes, and estimated_cost_usd. Use this for \"which runner tier drives this workflow's CI bill\" and to spot oversized runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns an empty list when the job-level source isn't synced yet. Suppressed relay and wait overhead is excluded; these curated estimates are not invoice totals.",
+    "requiredScopes": ["engineering_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: engineering-analytics"],
+    "methodSource": "src/generated/engineering-analytics/client.ts",
+    "input": {
+        "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsInput",
+        "importPath": "@posthog/sdk/engineering-analytics",
+        "source": "src/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.ts",
+        "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.d.ts"
+    },
+    "output": {
+        "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsOutput",
+        "importPath": "@posthog/sdk/engineering-analytics",
+        "source": "src/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.ts",
+        "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsRequestSchema0",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsRequestSchema1",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsRequestSchema2",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsRequestSchema3",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsRequestSchema4",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsResponseShape2",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsData",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-workflow-runner-costs.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Optionally scope to a single git branch via `branch` or one run group via `run_scope`. Returns an empty list when the job-level source isn't synced.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1engineering_analytics~1workflow_runner_costs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "One workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Each row is a tier (provider + runner_label) with its job_count, billable_minutes, and estimated_cost_usd. Use this for \"which runner tier drives this workflow's CI bill\" and to spot oversized runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns an empty list when the job-level source isn't synced yet. Suppressed relay and wait overhead is excluded; these curated estimates are not invoice totals.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/engineering_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsInput",
+            "field": "branch",
+            "effectiveDescription": "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_runner_costs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsInput",
+            "field": "date_from",
+            "effectiveDescription": "Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_runner_costs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsInput",
+            "field": "date_to",
+            "effectiveDescription": "Window end: relative or ISO8601. Defaults to now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Window end: relative or ISO8601. Defaults to now.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_runner_costs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsInput",
+            "field": "repo",
+            "effectiveDescription": "'owner/name' repository the workflow belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'owner/name' repository the workflow belongs to.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_runner_costs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsInput",
+            "field": "run_scope",
+            "effectiveDescription": "Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_runner_costs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsInput",
+            "field": "source_id",
+            "effectiveDescription": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_runner_costs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsInput",
+            "field": "workflow_name",
+            "effectiveDescription": "Workflow name to break down cost for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Workflow name to break down cost for.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_runner_costs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsResponseShape2",
+            "field": "provider",
+            "effectiveDescription": "'self_hosted' (billable), 'github_hosted' (free), or 'unknown'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'self_hosted' (billable), 'github_hosted' (free), or 'unknown'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsResponseShape2",
+            "field": "runner_label",
+            "effectiveDescription": "Runner tier, e.g. '16-core' or 'ubuntu-latest'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Runner tier, e.g. '16-core' or 'ubuntu-latest'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/runner_label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsResponseShape2",
+            "field": "job_count",
+            "effectiveDescription": "Jobs that ran on this tier for the workflow.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Jobs that ran on this tier for the workflow.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/job_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsResponseShape2",
+            "field": "billable_minutes",
+            "effectiveDescription": "Billable minutes on this tier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Billable minutes on this tier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/billable_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsResponseShape2",
+            "field": "estimated_cost_usd",
+            "effectiveDescription": "Estimated cost in USD on this tier; null for non-billable (github-hosted/non-Linux).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Estimated cost in USD on this tier; null for non-billable (github-hosted/non-Linux).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/estimated_cost_usd"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsWorkflowRunnerCostsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,99 @@
+{
+    "method": "dataCatalog.dataCatalogMetricApprovePrepare",
+    "toolName": "data-catalog-metric-approve-prepare",
+    "operationId": "data_catalog_metrics_approve_create",
+    "title": "Approve a catalog metric (prepare)",
+    "category": "Data catalog",
+    "description": "Step 1 of 2 for approve metric. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink it first). The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
+    "requiredScopes": ["data_catalog_approval:write", "data_catalog:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-catalog/client.ts",
+    "input": {
+        "name": "DataCatalogDataCatalogMetricApprovePrepareInput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-metric-approve-prepare.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-metric-approve-prepare.d.ts"
+    },
+    "output": {
+        "name": "DataCatalogDataCatalogMetricApprovePrepareOutput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-metric-approve-prepare.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-metric-approve-prepare.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataCatalogDataCatalogMetricApprovePrepareData",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-metric-approve-prepare.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-metric-approve-prepare.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Bless a metric as canonical. Returns 409 while the metric is drifted from its insight.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1data_catalog~1metrics~1{name}~1approve~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink it first). The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_catalog/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 1 of 2 for approve metric. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Bless a metric as canonical. Blocked while the metric is drifted from its source insight (refresh or unlink it first). The MCP workflow requires the user to reply with the literal word 'confirm' before execution.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/data-catalog-metric-approve-prepare/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataCatalogDataCatalogMetricApprovePrepareInput",
+            "field": "name",
+            "effectiveDescription": "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse; references to the old name stop resolving.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse; references to the old name stop resolving.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/metrics/{name}/approve/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricApprovePrepareData",
+            "field": "next_steps",
+            "effectiveDescription": "Hint for the model. Surfaces as text on the tool result.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hint for the model. Surfaces as text on the tool result.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/next_steps"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

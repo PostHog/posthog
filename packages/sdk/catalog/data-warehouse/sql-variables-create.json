@@ -1,0 +1,373 @@
+{
+    "method": "dataWarehouse.sqlVariablesCreate",
+    "toolName": "sql-variables-create",
+    "operationId": "insight_variables_create",
+    "title": "Create SQL variable",
+    "category": "Data warehouse",
+    "description": "Create a reusable SQL variable for HogQL queries. Provide a human-readable name and type. The code_name is generated from the name and is referenced in SQL as {variables.code_name}. For List variables, provide values as the allowed options.",
+    "requiredScopes": ["insight_variable:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-warehouse/client.ts",
+    "input": {
+        "name": "DataWarehouseSqlVariablesCreateInput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/sql-variables-create.ts",
+        "declaration": "dist/generated/data-warehouse/sql-variables-create.d.ts"
+    },
+    "output": {
+        "name": "DataWarehouseSqlVariablesCreateOutput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/sql-variables-create.ts",
+        "declaration": "dist/generated/data-warehouse/sql-variables-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataWarehouseSqlVariablesCreateRequestSchema0",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-create.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-create.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesCreateRequestSchema1",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-create.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-create.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesCreateRequestSchema2",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-create.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-create.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesCreateRequestSchema3",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-create.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-create.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesCreateRequestSchema4",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-create.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-create.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesCreateInputType",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-create.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-create.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesCreateData",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-create.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Create a reusable SQL variable for HogQL queries. Provide a human-readable name and type. The code_name is generated from the name and is referenced in SQL as {variables.code_name}. For List variables, provide values as the allowed options.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_warehouse/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateInput",
+            "field": "name",
+            "effectiveDescription": "Human-readable name for the SQL variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for the SQL variable.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateInput",
+            "field": "type",
+            "effectiveDescription": "Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateInput",
+            "field": "default_value",
+            "effectiveDescription": "Default value used when a query references this variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default value used when a query references this variable.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateInput",
+            "field": "values",
+            "effectiveDescription": "Allowed values for List variables. Null for other variable types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Allowed values for List variables. Null for other variable types.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateInput",
+            "field": "is_multi",
+            "effectiveDescription": "Whether a List variable accepts multiple selected values.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a List variable accepts multiple selected values.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateInput",
+            "field": "values_query",
+            "effectiveDescription": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateInput",
+            "field": "values_query_connection_id",
+            "effectiveDescription": "ID of the external data source connection values_query runs against. Null runs it against PostHog.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the external data source connection values_query runs against. Null runs it against PostHog.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "id",
+            "effectiveDescription": "UUID of the SQL variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the SQL variable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "name",
+            "effectiveDescription": "Human-readable name for the SQL variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for the SQL variable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "type",
+            "effectiveDescription": "Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "default_value",
+            "effectiveDescription": "Default value used when a query references this variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default value used when a query references this variable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/default_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "created_by",
+            "effectiveDescription": "ID of the user who created the SQL variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the user who created the SQL variable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "created_at",
+            "effectiveDescription": "Timestamp when the SQL variable was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp when the SQL variable was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "code_name",
+            "effectiveDescription": "Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/code_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "values",
+            "effectiveDescription": "Allowed values for List variables. Null for other variable types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Allowed values for List variables. Null for other variable types.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/values"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "is_multi",
+            "effectiveDescription": "Whether a List variable accepts multiple selected values.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a List variable accepts multiple selected values.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/is_multi"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "values_query",
+            "effectiveDescription": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/values_query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesCreateData",
+            "field": "values_query_connection_id",
+            "effectiveDescription": "ID of the external data source connection values_query runs against. Null runs it against PostHog.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the external data source connection values_query runs against. Null runs it against PostHog.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/values_query_connection_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

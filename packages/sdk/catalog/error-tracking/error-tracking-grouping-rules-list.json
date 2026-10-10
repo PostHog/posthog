@@ -1,0 +1,115 @@
+{
+    "method": "errorTracking.errorTrackingGroupingRulesList",
+    "toolName": "error-tracking-grouping-rules-list",
+    "operationId": "error_tracking_grouping_rules_list",
+    "title": "List error tracking grouping rules",
+    "category": "Error tracking",
+    "description": "List error tracking grouping rules for the current project. Returns rules in evaluation order with their filters, optional assignee, description, and linked issue when available.",
+    "requiredScopes": ["error_tracking:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking/client.ts",
+    "input": {
+        "name": "ErrorTrackingErrorTrackingGroupingRulesListInput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-grouping-rules-list.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-grouping-rules-list.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingErrorTrackingGroupingRulesListOutput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-grouping-rules-list.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-grouping-rules-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingErrorTrackingGroupingRulesListResponseShape3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-grouping-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-grouping-rules-list.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingGroupingRulesListResponseShape4",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-grouping-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-grouping-rules-list.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingGroupingRulesListResponseShape2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-grouping-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-grouping-rules-list.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingGroupingRulesListData",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-grouping-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-grouping-rules-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List error tracking grouping rules for the current project. Returns rules in evaluation order with their filters, optional assignee, description, and linked issue when available.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/error_tracking/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingErrorTrackingGroupingRulesListResponseShape2",
+            "field": "filters",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingGroupingRulesListResponseShape2",
+            "field": "issue",
+            "effectiveDescription": "Issue linked to this rule",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue linked to this rule",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/issue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingGroupingRulesListResponseShape2",
+            "field": "disabled_data",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/disabled_data"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

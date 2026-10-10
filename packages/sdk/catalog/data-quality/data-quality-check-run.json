@@ -1,0 +1,154 @@
+{
+    "method": "dataQuality.dataQualityCheckRun",
+    "toolName": "data-quality-check-run",
+    "operationId": "data_quality_checks_run_create",
+    "title": "Run a data quality check",
+    "category": "Data quality",
+    "description": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.",
+    "requiredScopes": ["query:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: data-quality-checks"],
+    "methodSource": "src/generated/data-quality/client.ts",
+    "input": {
+        "name": "DataQualityDataQualityCheckRunInput",
+        "importPath": "@posthog/sdk/data-quality",
+        "source": "src/generated/data-quality/data-quality-check-run.ts",
+        "declaration": "dist/generated/data-quality/data-quality-check-run.d.ts"
+    },
+    "output": {
+        "name": "DataQualityDataQualityCheckRunOutput",
+        "importPath": "@posthog/sdk/data-quality",
+        "source": "src/generated/data-quality/data-quality-check-run.ts",
+        "declaration": "dist/generated/data-quality/data-quality-check-run.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataQualityDataQualityCheckRunData",
+            "importPath": "@posthog/sdk/data-quality",
+            "source": "src/generated/data-quality/data-quality-check-run.ts",
+            "declaration": "dist/generated/data-quality/data-quality-check-run.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Run this check now. Returns the suite run to poll for the report.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1data_quality_checks~1{id}~1run~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Run one check now. Returns a suite run to poll; read the outcome from system.information_schema.data_quality_check_runs once it finishes.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_quality/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataQualityDataQualityCheckRunInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this data quality check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this data quality check.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_quality_checks/{id}/run/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckRunData",
+            "field": "trigger",
+            "effectiveDescription": "manual, materialization, source_sync, or scheduled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "manual, materialization, source_sync, or scheduled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape1/properties/trigger"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckRunData",
+            "field": "status",
+            "effectiveDescription": "running, completed, failed, or empty (nothing matched the trigger).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "running, completed, failed, or empty (nothing matched the trigger).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckRunData",
+            "field": "subject_type",
+            "effectiveDescription": "'table', 'view', 'metric', or 'posthog_table' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'table', 'view', 'metric', or 'posthog_table' when the run targets exactly one subject, including a run of a single check on that subject; null for a run spanning several subjects.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape1/properties/subject_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckRunData",
+            "field": "subject_uuid",
+            "effectiveDescription": "Set when the run targets exactly one subject.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set when the run targets exactly one subject.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape1/properties/subject_uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckRunData",
+            "field": "error",
+            "effectiveDescription": "Why the suite itself failed, as opposed to an individual check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the suite itself failed, as opposed to an individual check.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape1/properties/error"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

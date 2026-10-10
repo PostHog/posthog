@@ -1,0 +1,207 @@
+{
+    "method": "endpoints.endpointMaterializationSuggestion",
+    "toolName": "endpoint-materialization-suggestion",
+    "operationId": "endpoints_materialization_suggestion_create",
+    "title": "Suggest materialization fix",
+    "category": "Endpoints",
+    "description": "Ask PostHog AI to rewrite a SQL endpoint's query into a semantically equivalent form that passes the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved — apply it with the update endpoint tool if it looks right. Only for SQL (HogQL) endpoints whose materialization status reports can_materialize false. Requires the organization's AI data processing approval. Statuses: ok (validated rewrite), cannot_fix (no equivalent rewrite exists), invalid (attempts exhausted; last attempt returned), model_error. To rewrite the query yourself instead, use the materialization conditions tool.",
+    "requiredScopes": ["endpoint:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: endpoints-ai-materialization-fix"],
+    "methodSource": "src/generated/endpoints/client.ts",
+    "input": {
+        "name": "EndpointsEndpointMaterializationSuggestionInput",
+        "importPath": "@posthog/sdk/endpoints",
+        "source": "src/generated/endpoints/endpoint-materialization-suggestion.ts",
+        "declaration": "dist/generated/endpoints/endpoint-materialization-suggestion.d.ts"
+    },
+    "output": {
+        "name": "EndpointsEndpointMaterializationSuggestionOutput",
+        "importPath": "@posthog/sdk/endpoints",
+        "source": "src/generated/endpoints/endpoint-materialization-suggestion.ts",
+        "declaration": "dist/generated/endpoints/endpoint-materialization-suggestion.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EndpointsEndpointMaterializationSuggestionRequestSchema0",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-materialization-suggestion.ts",
+            "declaration": "dist/generated/endpoints/endpoint-materialization-suggestion.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointMaterializationSuggestionData",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-materialization-suggestion.ts",
+            "declaration": "dist/generated/endpoints/endpoint-materialization-suggestion.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1endpoints~1{name}~1materialization_suggestion~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Ask PostHog AI to rewrite a SQL endpoint's query into a semantically equivalent form that passes the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved — apply it with the update endpoint tool if it looks right. Only for SQL (HogQL) endpoints whose materialization status reports can_materialize false. Requires the organization's AI data processing approval. Statuses: ok (validated rewrite), cannot_fix (no equivalent rewrite exists), invalid (attempts exhausted; last attempt returned), model_error. To rewrite the query yourself instead, use the materialization conditions tool.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/endpoints/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EndpointsEndpointMaterializationSuggestionInput",
+            "field": "name",
+            "effectiveDescription": "URL-safe name for the endpoint",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL-safe name for the endpoint",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/endpoints/{name}/materialization_suggestion/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationSuggestionInput",
+            "field": "version",
+            "effectiveDescription": "Endpoint version to suggest a fix for. Defaults to the latest version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Endpoint version to suggest a fix for. Defaults to the latest version.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/endpoints/{name}/materialization_suggestion/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationSuggestionData",
+            "field": "suggestion_status",
+            "effectiveDescription": "Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion was produced but never passed validation (suggested_query carries the last attempt); 'model_error' — the model returned no usable response.\n\n* `ok` - ok\n* `cannot_fix` - cannot_fix\n* `invalid` - invalid\n* `model_error` - model_error",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion was produced but never passed validation (suggested_query carries the last attempt); 'model_error' — the model returned no usable response.\n\n* `ok` - ok\n* `cannot_fix` - cannot_fix\n* `invalid` - invalid\n* `model_error` - model_error",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/suggestion_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationSuggestionData",
+            "field": "suggested_query",
+            "effectiveDescription": "The complete rewritten SQL query, or null when no rewrite was produced.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The complete rewritten SQL query, or null when no rewrite was produced.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/suggested_query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationSuggestionData",
+            "field": "explanation",
+            "effectiveDescription": "User-facing explanation of what was changed and why, or why no fix exists.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User-facing explanation of what was changed and why, or why no fix exists.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/explanation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationSuggestionData",
+            "field": "attempts",
+            "effectiveDescription": "How many suggest→validate rounds were used.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many suggest→validate rounds were used.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/attempts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationSuggestionData",
+            "field": "error",
+            "effectiveDescription": "Last validation failure when the suggestion did not pass the checks.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last validation failure when the suggestion did not pass the checks.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationSuggestionData",
+            "field": "original_reason",
+            "effectiveDescription": "The materialization blocker that triggered the suggestion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The materialization blocker that triggered the suggestion.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/original_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationSuggestionData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

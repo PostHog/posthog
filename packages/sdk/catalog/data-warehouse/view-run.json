@@ -1,0 +1,111 @@
+{
+    "method": "dataWarehouse.viewRun",
+    "toolName": "view-run",
+    "operationId": "warehouse_saved_queries_run_create",
+    "title": "Run saved query",
+    "category": "Data warehouse",
+    "description": "Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table with the latest data. The view must already be materialized. Use 'view-run-history' to check run status.",
+    "requiredScopes": ["warehouse_view:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-warehouse/client.ts",
+    "input": {
+        "name": "DataWarehouseViewRunInput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/view-run.ts",
+        "declaration": "dist/generated/data-warehouse/view-run.d.ts"
+    },
+    "output": {
+        "name": "DataWarehouseViewRunOutput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/view-run.ts",
+        "declaration": "dist/generated/data-warehouse/view-run.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataWarehouseViewRunRequestSchema0",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/view-run.ts",
+            "declaration": "dist/generated/data-warehouse/view-run.d.ts"
+        },
+        {
+            "name": "DataWarehouseViewRunData",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/view-run.ts",
+            "declaration": "dist/generated/data-warehouse/view-run.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Run this saved query.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1warehouse_saved_queries~1{id}~1run~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table with the latest data. The view must already be materialized. Use 'view-run-history' to check run status.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_warehouse/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataWarehouseViewRunInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this data warehouse saved query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this data warehouse saved query.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/warehouse_saved_queries/{id}/run/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseViewRunInput",
+            "field": "full_refresh",
+            "effectiveDescription": "Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/warehouse_saved_queries/{id}/run/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseViewRunData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

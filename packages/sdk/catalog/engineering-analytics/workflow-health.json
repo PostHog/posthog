@@ -1,0 +1,693 @@
+{
+    "method": "engineeringAnalytics.workflowHealth",
+    "toolName": "workflow-health",
+    "operationId": "engineering_analytics_workflow_health",
+    "title": "Per-workflow CI health",
+    "category": "Engineering analytics",
+    "description": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so superseded cancels and failed runs never bias the duration percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Pass run_scope to report on one group of runs: default_branch, pull_request (PR branches only, same-repo PRs: fork PRs carry no PR attribution), merge_queue, or all. To get a trend, call this over two adjacent windows and compare.",
+    "requiredScopes": ["engineering_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: engineering-analytics"],
+    "methodSource": "src/generated/engineering-analytics/client.ts",
+    "input": {
+        "name": "EngineeringAnalyticsWorkflowHealthInput",
+        "importPath": "@posthog/sdk/engineering-analytics",
+        "source": "src/generated/engineering-analytics/workflow-health.ts",
+        "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+    },
+    "output": {
+        "name": "EngineeringAnalyticsWorkflowHealthOutput",
+        "importPath": "@posthog/sdk/engineering-analytics",
+        "source": "src/generated/engineering-analytics/workflow-health.ts",
+        "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthRequestSchema0",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthRequestSchema1",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthRequestSchema2",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthRequestSchema3",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthRequestSchema4",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthRequestSchema5",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthRequestSchema6",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthResponseShape3",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthResponseShape4",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsWorkflowHealthData",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/workflow-health.ts",
+            "declaration": "dist/generated/engineering-analytics/workflow-health.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Optionally scope to a single git branch via `branch`, to one workflow via `workflow_name`, or to one run group via `run_scope` (default_branch, pull_request, merge_queue). Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1engineering_analytics~1workflow_health~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use this for \"is CI getting faster or slower\", \"which GitHub Actions workflow is the slow or flaky long pole\", and CI duration trends. Success rate covers runs that succeeded or ended in failure, timeout, startup failure, or staleness. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so superseded cancels and failed runs never bias the duration percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Pass run_scope to report on one group of runs: default_branch, pull_request (PR branches only, same-repo PRs: fork PRs carry no PR attribution), merge_queue, or all. To get a trend, call this over two adjacent windows and compare.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/engineering_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthInput",
+            "field": "branch",
+            "effectiveDescription": "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_health/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthInput",
+            "field": "date_from",
+            "effectiveDescription": "Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_health/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthInput",
+            "field": "date_to",
+            "effectiveDescription": "Window end: relative or ISO8601. Defaults to now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Window end: relative or ISO8601. Defaults to now.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_health/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthInput",
+            "field": "repo",
+            "effectiveDescription": "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_health/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthInput",
+            "field": "run_scope",
+            "effectiveDescription": "Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which group of runs to report on: 'all' (default) is every run; 'default_branch' is runs on master or main; 'pull_request' is runs on PR branches, excluding default-branch and merge-queue runs; 'merge_queue' is the gate runs the merge queue fired before a merge landed. Fork PRs carry no PR attribution (a GitHub limitation), so they appear only under 'all'. Any other value is a 400.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_health/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthInput",
+            "field": "source_id",
+            "effectiveDescription": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_health/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthInput",
+            "field": "workflow_name",
+            "effectiveDescription": "Optional exact workflow name to scope results to, e.g. 'Backend CI'. Omit to rank every workflow. Pass it when you want one workflow's figures over the whole window rather than the top slice.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional exact workflow name to scope results to, e.g. 'Backend CI'. Omit to rank every workflow. Pass it when you want one workflow's figures over the whole window rather than the top slice.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/workflow_health/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "repo",
+            "effectiveDescription": "Repository the workflow runs in.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repository the workflow runs in.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/repo"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "buckets",
+            "effectiveDescription": "Run history across the whole window, oldest first, zero-filled, bucketed by granularity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Run history across the whole window, oldest first, zero-filled, bucketed by granularity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/buckets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "workflow_name",
+            "effectiveDescription": "GitHub Actions workflow name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub Actions workflow name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/workflow_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "run_count",
+            "effectiveDescription": "Total runs started in the window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total runs started in the window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/run_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "successful_run_count",
+            "effectiveDescription": "Completed runs with conclusion 'success'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Completed runs with conclusion 'success'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/successful_run_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "conclusive_run_count",
+            "effectiveDescription": "Completed runs that succeeded or ended in failure, timeout, startup failure, or staleness. This is the success_rate denominator.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Completed runs that succeeded or ended in failure, timeout, startup failure, or staleness. This is the success_rate denominator.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/conclusive_run_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "success_rate",
+            "effectiveDescription": "Fraction of conclusive runs that succeeded (0-1). Failures include failure, timed_out, startup_failure, and stale. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fraction of conclusive runs that succeeded (0-1). Failures include failure, timed_out, startup_failure, and stale. Skipped, cancelled, neutral, and action_required runs are excluded. Null if no run reached a verdict.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/success_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "p50_seconds",
+            "effectiveDescription": "Median duration in seconds over successful runs only: cancelled (superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if no run succeeded in the window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Median duration in seconds over successful runs only: cancelled (superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if no run succeeded in the window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/p50_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "p95_seconds",
+            "effectiveDescription": "95th-percentile duration in seconds over successful runs only: cancelled (superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if no run succeeded in the window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "95th-percentile duration in seconds over successful runs only: cancelled (superseded) and failed runs end early and would bias the percentile. Runs under 10 seconds that did no work are excluded when longer successful runs exist. An all-fast workflow uses every successful run. Null if no run succeeded in the window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/p95_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "last_failure_at",
+            "effectiveDescription": "When the most recent decisive failure started, or null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the most recent decisive failure started, or null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/last_failure_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "latest_run_failed",
+            "effectiveDescription": "Whether the most recent completed run ended in failure, timeout, startup failure, or staleness. Null when no run has completed in the window. Powers the OK/RED status badge.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the most recent completed run ended in failure, timeout, startup failure, or staleness. Null when no run has completed in the window. Powers the OK/RED status badge.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/latest_run_failed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "latest_run_conclusion",
+            "effectiveDescription": "Raw conclusion of the most recent completed run ('success', 'cancelled', 'skipped', ...), so a real pass can be told from a non-failure non-success. Null when none completed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Raw conclusion of the most recent completed run ('success', 'cancelled', 'skipped', ...), so a real pass can be told from a non-failure non-success. Null when none completed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/latest_run_conclusion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "granularity",
+            "effectiveDescription": "Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/granularity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "billable_minutes",
+            "effectiveDescription": "Billable (self-hosted) minutes over this workflow's jobs in the window. Null when the job-level source isn't synced.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Billable (self-hosted) minutes over this workflow's jobs in the window. Null when the job-level source isn't synced.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/billable_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "estimated_cost_usd",
+            "effectiveDescription": "Estimated cost in USD over this workflow's jobs in the window. Null when nothing was costable or the job source isn't synced.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Estimated cost in USD over this workflow's jobs in the window. Null when nothing was costable or the job source isn't synced.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/estimated_cost_usd"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "rerun_cycles",
+            "effectiveDescription": "Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/rerun_cycles"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "success_rate_prev",
+            "effectiveDescription": "Conclusive-run success rate over the equal-length window before date_from - the delta baseline. Null when that window had no conclusive runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Conclusive-run success rate over the equal-length window before date_from - the delta baseline. Null when that window had no conclusive runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/success_rate_prev"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "percentile_run_count",
+            "effectiveDescription": "Successful runs lasting at least 10 seconds. Zero when p50/p95 fall back to shorter successful runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Successful runs lasting at least 10 seconds. Zero when p50/p95 fall back to shorter successful runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/percentile_run_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "merge_queue_run_count",
+            "effectiveDescription": "Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest available proxy for a required check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Runs on merge-queue gate branches (trunk-merge/**) in the window, counted regardless of branch or run_scope. Non-zero marks a workflow the queue runs before a merge lands, the closest available proxy for a required check.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/merge_queue_run_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape2",
+            "field": "latest_ci_engine",
+            "effectiveDescription": "CI execution engine; null when unknown.\n\n* `github_actions` - GitHub Actions\n* `depot_ci` - Depot CI",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CI execution engine; null when unknown.\n\n* `github_actions` - GitHub Actions\n* `depot_ci` - Depot CI",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/latest_ci_engine"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape3",
+            "field": "provider",
+            "effectiveDescription": "Code host provider, e.g. 'github'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Code host provider, e.g. 'github'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape3",
+            "field": "owner",
+            "effectiveDescription": "Repository owner or organization.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repository owner or organization.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/owner"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape3",
+            "field": "name",
+            "effectiveDescription": "Repository name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repository name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape4",
+            "field": "bucket_start",
+            "effectiveDescription": "Bucket start, aligned to the item's granularity (top of hour, midnight, or Monday).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket start, aligned to the item's granularity (top of hour, midnight, or Monday).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape4/properties/bucket_start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape4",
+            "field": "run_count",
+            "effectiveDescription": "Runs started in this bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Runs started in this bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape4/properties/run_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape4",
+            "field": "completed",
+            "effectiveDescription": "Runs that completed in this bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Runs that completed in this bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape4/properties/completed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape4",
+            "field": "successes",
+            "effectiveDescription": "Completed runs with conclusion 'success' in this bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Completed runs with conclusion 'success' in this bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape4/properties/successes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthResponseShape4",
+            "field": "failures",
+            "effectiveDescription": "Completed runs with conclusion 'failure', 'timed_out', 'startup_failure', or 'stale'. Skipped, cancelled, neutral, and action_required runs are excluded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Completed runs with conclusion 'failure', 'timed_out', 'startup_failure', or 'stale'. Skipped, cancelled, neutral, and action_required runs are excluded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape4/properties/failures"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsWorkflowHealthData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

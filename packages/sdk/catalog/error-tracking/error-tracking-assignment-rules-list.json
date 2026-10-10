@@ -1,0 +1,137 @@
+{
+    "method": "errorTracking.errorTrackingAssignmentRulesList",
+    "toolName": "error-tracking-assignment-rules-list",
+    "operationId": "error_tracking_assignment_rules_list",
+    "title": "List error tracking assignment rules",
+    "category": "Error tracking",
+    "description": "List error tracking assignment rules for the current project. Returns rules in evaluation order with their filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.",
+    "requiredScopes": ["error_tracking:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking/client.ts",
+    "input": {
+        "name": "ErrorTrackingErrorTrackingAssignmentRulesListInput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-assignment-rules-list.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-list.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingErrorTrackingAssignmentRulesListOutput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-assignment-rules-list.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesListRequestSchema0",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-list.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesListRequestSchema1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-list.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesListResponseShape3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-list.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesListResponseShape2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-list.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingAssignmentRulesListData",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-assignment-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-assignment-rules-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List error tracking assignment rules for the current project. Returns rules in evaluation order with their filters, assignee, and disabled state. Supports pagination with `limit` and `offset`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/error_tracking/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/assignment_rules/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/assignment_rules/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesListResponseShape2",
+            "field": "filters",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingAssignmentRulesListResponseShape2",
+            "field": "disabled_data",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/disabled_data"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

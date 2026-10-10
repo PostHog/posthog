@@ -1,0 +1,108 @@
+{
+    "method": "dataCatalog.dataCatalogCertificationCertifyPrepare",
+    "toolName": "data-catalog-certification-certify-prepare",
+    "operationId": "data_catalog_certifications_certify_create",
+    "title": "Certify a table/view (prepare)",
+    "category": "Data catalog",
+    "description": "Step 1 of 2 for certify source. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Mark a table or view as certified (prefer this source), addressed by the certification id returned by data-catalog-certification-propose — create the proposal first if none exists. Requires human typed confirmation.",
+    "requiredScopes": ["data_catalog_approval:write", "data_catalog:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-catalog/client.ts",
+    "input": {
+        "name": "DataCatalogDataCatalogCertificationCertifyPrepareInput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-certification-certify-prepare.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-certification-certify-prepare.d.ts"
+    },
+    "output": {
+        "name": "DataCatalogDataCatalogCertificationCertifyPrepareOutput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-certification-certify-prepare.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-certification-certify-prepare.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataCatalogDataCatalogCertificationCertifyPrepareData",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-certify-prepare.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-certify-prepare.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Mark the target as certified (prefer this source).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1data_catalog~1certifications~1{id}~1certify~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Mark a table or view as certified (prefer this source), addressed by the certification id returned by data-catalog-certification-propose — create the proposal first if none exists. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_catalog/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 1 of 2 for certify source. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Mark a table or view as certified (prefer this source), addressed by the certification id returned by data-catalog-certification-propose — create the proposal first if none exists. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/data-catalog-certification-certify-prepare/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataCatalogDataCatalogCertificationCertifyPrepareInput",
+            "field": "id",
+            "effectiveDescription": "Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this table certification.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/certifications/{id}/certify/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Certification id returned by data-catalog-certification-propose (a certification UUID — not a warehouse table or view id).",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/data_catalog/mcp/tools.yaml",
+                        "pointer": "/tools/data-catalog-certification-certify/param_overrides/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationCertifyPrepareData",
+            "field": "next_steps",
+            "effectiveDescription": "Hint for the model. Surfaces as text on the tool result.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hint for the model. Surfaces as text on the tool result.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/next_steps"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,410 @@
+{
+    "method": "dataWarehouse.sqlVariablesUpdate",
+    "toolName": "sql-variables-update",
+    "operationId": "insight_variables_partial_update",
+    "title": "Update SQL variable",
+    "category": "Data warehouse",
+    "description": "Update an existing SQL variable by ID. You can change the name, type, default_value, or allowed values for List variables. If the name changes, check the response for the current code_name before writing queries that reference it.",
+    "requiredScopes": ["insight_variable:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-warehouse/client.ts",
+    "input": {
+        "name": "DataWarehouseSqlVariablesUpdateInput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/sql-variables-update.ts",
+        "declaration": "dist/generated/data-warehouse/sql-variables-update.d.ts"
+    },
+    "output": {
+        "name": "DataWarehouseSqlVariablesUpdateOutput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/sql-variables-update.ts",
+        "declaration": "dist/generated/data-warehouse/sql-variables-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataWarehouseSqlVariablesUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-update.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-update.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-update.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-update.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-update.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-update.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-update.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-update.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-update.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-update.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesUpdateRequestSchema5",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-update.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-update.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesUpdateRequestSchema6",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-update.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-update.d.ts"
+        },
+        {
+            "name": "DataWarehouseSqlVariablesUpdateData",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/sql-variables-update.ts",
+            "declaration": "dist/generated/data-warehouse/sql-variables-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update an existing SQL variable by ID. You can change the name, type, default_value, or allowed values for List variables. If the name changes, check the response for the current code_name before writing queries that reference it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_warehouse/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateRequest_Schema1",
+            "effectiveDescription": "* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this insight variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this insight variable.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateInput",
+            "field": "name",
+            "effectiveDescription": "Human-readable name for the SQL variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for the SQL variable.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateInput",
+            "field": "type",
+            "effectiveDescription": "Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateInput",
+            "field": "default_value",
+            "effectiveDescription": "Default value used when a query references this variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default value used when a query references this variable.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateInput",
+            "field": "values",
+            "effectiveDescription": "Allowed values for List variables. Null for other variable types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Allowed values for List variables. Null for other variable types.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateInput",
+            "field": "is_multi",
+            "effectiveDescription": "Whether a List variable accepts multiple selected values.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a List variable accepts multiple selected values.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateInput",
+            "field": "values_query",
+            "effectiveDescription": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateInput",
+            "field": "values_query_connection_id",
+            "effectiveDescription": "ID of the external data source connection values_query runs against. Null runs it against PostHog.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the external data source connection values_query runs against. Null runs it against PostHog.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insight_variables/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "id",
+            "effectiveDescription": "UUID of the SQL variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the SQL variable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "name",
+            "effectiveDescription": "Human-readable name for the SQL variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for the SQL variable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "type",
+            "effectiveDescription": "Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Variable type. Controls how the value is rendered and substituted in HogQL.\n\n* `String` - String\n* `Number` - Number\n* `Boolean` - Boolean\n* `List` - List\n* `Date` - Date",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "default_value",
+            "effectiveDescription": "Default value used when a query references this variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default value used when a query references this variable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/default_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "created_by",
+            "effectiveDescription": "ID of the user who created the SQL variable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the user who created the SQL variable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "created_at",
+            "effectiveDescription": "Timestamp when the SQL variable was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp when the SQL variable was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "code_name",
+            "effectiveDescription": "Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Generated code-safe name used in HogQL as {variables.code_name}. Derived from name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/code_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "values",
+            "effectiveDescription": "Allowed values for List variables. Null for other variable types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Allowed values for List variables. Null for other variable types.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/values"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "is_multi",
+            "effectiveDescription": "Whether a List variable accepts multiple selected values.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a List variable accepts multiple selected values.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/is_multi"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "values_query",
+            "effectiveDescription": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL query whose first result column supplies the allowed values for a List variable. An optional second column supplies display labels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/values_query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseSqlVariablesUpdateData",
+            "field": "values_query_connection_id",
+            "effectiveDescription": "ID of the external data source connection values_query runs against. Null runs it against PostHog.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the external data source connection values_query runs against. Null runs it against PostHog.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/values_query_connection_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

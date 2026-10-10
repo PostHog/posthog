@@ -1,0 +1,396 @@
+{
+    "method": "earlyAccessFeatures.earlyAccessFeatureCreate",
+    "toolName": "early-access-feature-create",
+    "operationId": "early_access_feature_create",
+    "title": "Create early access feature",
+    "category": "Early access features",
+    "description": "Create a new early access feature. A feature flag is automatically created unless feature_flag_id is provided. Stage determines whether opted-in users get the feature enabled.",
+    "requiredScopes": ["early_access_feature:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/early-access-features/client.ts",
+    "input": {
+        "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateInput",
+        "importPath": "@posthog/sdk/early-access-features",
+        "source": "src/generated/early-access-features/early-access-feature-create.ts",
+        "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+    },
+    "output": {
+        "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateOutput",
+        "importPath": "@posthog/sdk/early-access-features",
+        "source": "src/generated/early-access-features/early-access-feature-create.ts",
+        "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateRequestSchema0",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        },
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateRequestSchema1",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        },
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateRequestSchema2",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        },
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateRequestSchema3",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        },
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateInputStage",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        },
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateResponseShape3",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        },
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateResponseShape2",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        },
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateResponseShape4",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        },
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateResponseShape6",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        },
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateResponseShape5",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        },
+        {
+            "name": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "importPath": "@posthog/sdk/early-access-features",
+            "source": "src/generated/early-access-features/early-access-feature-create.ts",
+            "declaration": "dist/generated/early-access-features/early-access-feature-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Create a new early access feature. A feature flag is automatically created unless feature_flag_id is provided. Stage determines whether opted-in users get the feature enabled.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/early_access_features/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateInput",
+            "field": "name",
+            "effectiveDescription": "The name of the early access feature.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The name of the early access feature.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/early_access_feature/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateInput",
+            "field": "description",
+            "effectiveDescription": "A longer description of what this early access feature does, shown to users in the opt-in UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A longer description of what this early access feature does, shown to users in the opt-in UI.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/early_access_feature/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateInput",
+            "field": "stage",
+            "effectiveDescription": "Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.\n\n* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.\n\n* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/early_access_feature/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateInput",
+            "field": "documentation_url",
+            "effectiveDescription": "URL to external documentation for this feature. Shown to users in the opt-in UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL to external documentation for this feature. Shown to users in the opt-in UI.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/early_access_feature/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateInput",
+            "field": "payload",
+            "effectiveDescription": "Arbitrary JSON metadata associated with this feature.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Arbitrary JSON metadata associated with this feature.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/early_access_feature/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateInput",
+            "field": "feature_flag_id",
+            "effectiveDescription": "Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not belong to another product such as a survey or experiment, must not be group-based, and must not be multivariate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not belong to another product such as a survey or experiment, must not be group-based, and must not be multivariate.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/early_access_feature/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateResponseShape5",
+            "field": "evaluation_runtime",
+            "effectiveDescription": "Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape5/properties/evaluation_runtime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateResponseShape5",
+            "field": "bucketing_identifier",
+            "effectiveDescription": "Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape5/properties/bucketing_identifier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "field": "name",
+            "effectiveDescription": "The name of the early access feature.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The name of the early access feature.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "field": "description",
+            "effectiveDescription": "A longer description of what this early access feature does, shown to users in the opt-in UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A longer description of what this early access feature does, shown to users in the opt-in UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "field": "stage",
+            "effectiveDescription": "Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.\n\n* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.\n\n* `draft` - draft\n* `concept` - concept\n* `alpha` - alpha\n* `beta` - beta\n* `general-availability` - general availability\n* `archived` - archived",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape1/properties/stage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "field": "documentation_url",
+            "effectiveDescription": "URL to external documentation for this feature. Shown to users in the opt-in UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL to external documentation for this feature. Shown to users in the opt-in UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape1/properties/documentation_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "field": "payload",
+            "effectiveDescription": "Arbitrary JSON metadata associated with this feature.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Arbitrary JSON metadata associated with this feature.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape1/properties/payload"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "field": "created_by",
+            "effectiveDescription": "The user who created this early access feature. Null for features created before creator tracking was added.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The user who created this early access feature. Null for features created before creator tracking was added.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "field": "assignee",
+            "effectiveDescription": "The person or role responsible for this feature, e.g. {\"type\": \"user\", \"id\": 123} or {\"type\": \"role\", \"id\": \"<role uuid>\"}. Defaults to the creator. Send null to unassign.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The person or role responsible for this feature, e.g. {\"type\": \"user\", \"id\": 123} or {\"type\": \"role\", \"id\": \"<role uuid>\"}. Defaults to the creator. Send null to unassign.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape1/properties/assignee"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "field": "feature_flag_id",
+            "effectiveDescription": "Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not belong to another product such as a survey or experiment, must not be group-based, and must not be multivariate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not belong to another product such as a survey or experiment, must not be group-based, and must not be multivariate.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape1/properties/feature_flag_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/early_access_features.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EarlyAccessFeaturesEarlyAccessFeatureCreateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
