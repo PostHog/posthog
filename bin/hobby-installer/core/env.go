@@ -89,6 +89,8 @@ func LoadExistingEnv() map[string]string {
 		"ENCRYPTION_SALT_KEYS",
 		"DOMAIN",
 		"TLS_BLOCK",
+		"CADDY_HOST",
+		"CADDY_TLS_BLOCK",
 		"REGISTRY_URL",
 		"POSTHOG_APP_TAG",
 		"POSTHOG_NODE_TAG",
@@ -118,13 +120,19 @@ func UpdateEnvValue(key, value string) error {
 		if strings.HasPrefix(line, prefix) {
 			lines[i] = prefix + value
 			found = true
-			break
 		}
 	}
 	if !found {
+		if len(lines) > 0 && lines[len(lines)-1] == "" {
+			lines = lines[:len(lines)-1]
+		}
 		lines = append(lines, prefix+value)
 	}
-	return os.WriteFile(".env", []byte(strings.Join(lines, "\n")), 0600)
+	updated := strings.Join(lines, "\n")
+	if !strings.HasSuffix(updated, "\n") {
+		updated += "\n"
+	}
+	return os.WriteFile(".env", []byte(updated), 0600)
 }
 
 func UpdateEnvForUpgrade(version string) error {
@@ -142,6 +150,19 @@ func UpdateEnvForUpgrade(version string) error {
 
 	if existing["SESSION_RECORDING_V2_METADATA_SWITCHOVER"] == "" {
 		if err := AppendToEnv("SESSION_RECORDING_V2_METADATA_SWITCHOVER", time.Now().Format(time.RFC3339)); err != nil {
+			return err
+		}
+	}
+
+	// Compose fills the proxy Caddyfile from .env, so older installs without these keys serve http://localhost:8000.
+	if existing["CADDY_HOST"] == "" && existing["DOMAIN"] != "" {
+		if err := UpdateEnvValue("CADDY_HOST", fmt.Sprintf(`"%s, http://, https://"`, existing["DOMAIN"])); err != nil {
+			return err
+		}
+	}
+
+	if existing["CADDY_TLS_BLOCK"] == "" && existing["TLS_BLOCK"] != "" {
+		if err := UpdateEnvValue("CADDY_TLS_BLOCK", fmt.Sprintf(`"%s"`, existing["TLS_BLOCK"])); err != nil {
 			return err
 		}
 	}
