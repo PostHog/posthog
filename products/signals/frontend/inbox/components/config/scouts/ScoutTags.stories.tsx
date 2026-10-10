@@ -35,6 +35,7 @@ const config: SignalScoutConfigApi = {
     tool_preset: null,
     network_access: 'trusted',
     model: null,
+    precheck_query: null,
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,

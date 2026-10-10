@@ -56,6 +56,12 @@ from products.signals.backend.scout_harness.lazy_seed import (
 from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
+from products.signals.backend.scout_harness.precheck import (
+    PRECHECK_MAX_QUERY_LENGTH,
+    PRECHECK_MAX_ROWS,
+    PRECHECK_TIMEOUT_S,
+    parse_precheck_query,
+)
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
 from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.slack_delivery import MAX_SCOUT_SLACK_DM_TARGETS
@@ -3107,6 +3113,31 @@ _SCOUT_MODEL_HELP = (
 )
 
 
+_PRECHECK_QUERY_HELP = (
+    "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or "
+    "one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no "
+    "model call, and no run row. Any other result starts the run, and the scout reads the rows. A "
+    "query error also starts the run. Use `{since}` (the start of the last run that ran, or when the "
+    "scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events "
+    "WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet "
+    "it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate "
+    "it: a manual or workflow run always starts. "
+    f"The query stops after {PRECHECK_TIMEOUT_S} seconds and reads at most {PRECHECK_MAX_ROWS} rows. "
+    "Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
+)
+
+
+def _validate_precheck_query(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return None
+    query = value.strip()
+    try:
+        parse_precheck_query(query)
+    except Exception as exc:
+        raise serializers.ValidationError(f"The pre-check query is not a valid HogQL SELECT: {exc}")
+    return query
+
+
 def _validate_scout_model(value: str | None, context: dict, current: str | None = None) -> str | None:
     """Normalize a scout model pin, gate setting one on the `scouts-model-config` dogfood flag, and
     hold it to the platform's model catalog.
@@ -3500,6 +3531,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=_SCOUT_MODEL_HELP,
     )
+    precheck_query = serializers.CharField(read_only=True, allow_null=True, help_text=_PRECHECK_QUERY_HELP)
     last_run_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -3648,6 +3680,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "write_scopes",
             "allowed_mcp_tools",
             "tool_preset",
+            "precheck_query",
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
@@ -3739,6 +3772,14 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
             "Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag."
         ),
     )
+    precheck_query = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=PRECHECK_MAX_QUERY_LENGTH,
+        help_text=_PRECHECK_QUERY_HELP,
+    )
 
     def validate_allowed_mcp_tools(self, value: list[str] | None) -> list[str] | None:
         return validate_allowed_mcp_tools(value)
@@ -3780,6 +3821,9 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
 
     def validate_write_scopes(self, value: list[str]) -> list[str]:
         return _validate_write_scopes(value)
+
+    def validate_precheck_query(self, value: str | None) -> str | None:
+        return _validate_precheck_query(value)
 
 
 def _display_name_field() -> serializers.CharField:
@@ -3972,6 +4016,7 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             "mcp_gateway_server_ids",
             "repositories",
             "write_scopes",
+            "precheck_query",
             "suggestion_id",
             "allowed_mcp_tools",
             "tool_preset",
@@ -4067,6 +4112,68 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
         if error := reserved_scout_name_error(value):
             raise serializers.ValidationError(error)
         return value
+
+
+class ScoutPrecheckReason(models.TextChoices):
+    ROWS = "rows"
+    NO_ROWS = "no_rows"
+    FALSE_VALUE = "false_value"
+    QUERY_ERROR = "query_error"
+
+
+class SignalScoutPrecheckTestRequestSerializer(serializers.Serializer):
+    precheck_query = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=PRECHECK_MAX_QUERY_LENGTH,
+        help_text=(
+            "HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check "
+            "gets. Omit it, or pass null or blank, to try the query saved on the scout."
+        ),
+    )
+
+    def validate_precheck_query(self, value: str | None) -> str | None:
+        return _validate_precheck_query(value)
+
+
+class SignalScoutPrecheckTestSerializer(serializers.Serializer):
+    would_run = serializers.BooleanField(
+        help_text="Whether a scheduled run that started now would run the scout. False means it would skip the run."
+    )
+    reason = serializers.ChoiceField(
+        choices=ScoutPrecheckReason.choices,
+        help_text=(
+            "Why: `rows` (the query found rows), `no_rows` (it found none, so the run is skipped), "
+            "`false_value` (it returned one false value, so the run is skipped), or `query_error` (the "
+            "query failed, so the run starts as if there were no pre-check)."
+        ),
+    )
+    since = serializers.DateTimeField(
+        help_text="The value bound to `{since}`: the start of the last run that ran, or when the scout was created."
+    )
+    now = serializers.DateTimeField(help_text="The value bound to `{now}`.")
+    row_count = serializers.IntegerField(
+        help_text=f"How many rows the query returned, at most {PRECHECK_MAX_ROWS}.",
+    )
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The column names of the result, in order.",
+    )
+    rows_text = serializers.CharField(
+        help_text=(
+            "The rows as the scout reads them: one JSON object per line, cut before the text passes "
+            "the size limit. Empty when the query returned no rows or failed."
+        ),
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why the query failed, when it failed. A syntax or schema error is given as written; other "
+            "failures read as a general message. Null when the query ran."
+        ),
+    )
 
 
 class SignalScoutCreateSerializer(serializers.Serializer):
