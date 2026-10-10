@@ -3,12 +3,11 @@ import { router } from 'kea-router'
 import React, { useEffect, useRef } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -224,7 +223,6 @@ export function InboxScene(): JSX.Element {
     } = useValues(inboxSceneLogic)
     const { setScratchpadOpen, setFindingsOpen, setRunsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
-    const { user } = useValues(userLogic)
     const { searchParams } = useValues(router)
 
     // Surfaces that embed inbox cards (e.g. the customer analytics feed) set a `?back=` internal path;
@@ -295,21 +293,6 @@ export function InboxScene(): JSX.Element {
                 />
 
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">
-                    <LemonBanner
-                        type="info"
-                        dismissKey={`inbox-mcp-banner-${user?.uuid ?? 'anonymous'}`}
-                        className="mx-4 mb-3 mt-2 shrink-0"
-                    >
-                        Use the self-driving inbox with your agents through PostHog MCP.{' '}
-                        <Link
-                            to="https://posthog.com/docs/model-context-protocol#get-started-in-30-seconds"
-                            target="_blank"
-                            disableDocsPanel
-                            data-attr="inbox-mcp-banner-install"
-                        >
-                            Install PostHog MCP
-                        </Link>
-                    </LemonBanner>
                     {/* The inbox always renders (its own list skeleton covers loading). When self-driving
                         isn't set up, the list view itself swaps in the welcome page; the banner sits
                         above the otherwise-normal inbox when there's already work to keep. */}
