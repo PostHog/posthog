@@ -49,7 +49,7 @@ import {
 import {
     buildUrlContainsShortcut,
     COLLAPSED_TO_CONTAINS_ROW,
-    looksLikeUrl,
+    offersUrlContainsRow,
     partitionContainsShortcuts,
 } from 'lib/components/TaxonomicFilter/utils/collapsedContainsRow'
 import {
@@ -1642,7 +1642,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 // common entry path collapses identically to the dedicated group list above.
                 if (collapseUrlsToContainsRow && COLLAPSED_TO_CONTAINS_ROW.has(listGroupType)) {
                     const trimmed = searchQuery.trim()
-                    const hasMatch = looksLikeUrl(trimmed) && remoteIsFresh && remoteItems.results.length > 0
+                    const hasMatch =
+                        trimmed.length > 0 &&
+                        offersUrlContainsRow(listGroupType, trimmed) &&
+                        remoteIsFresh &&
+                        remoteItems.results.length > 0
                     return hasMatch ? [buildUrlContainsShortcut(trimmed, listGroupType)] : []
                 }
                 const results = hasRemoteDataSource ? (remoteIsFresh ? remoteItems.results : []) : localItems.results

@@ -1538,11 +1538,11 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            await user.type(searchInput, '/replay')
+            await user.type(searchInput, 'replay')
 
             const firstRow = await waitFor(() => screen.getByTestId('prop-filter-suggested_filters-0'))
             // The leading aggregated row should be the single contains shortcut, not a raw URL.
-            expect(firstRow.textContent || '').toMatch(/contains.*\/replay/i)
+            expect(firstRow.textContent || '').toMatch(/contains.*replay|replay.*contains/i)
             expect(firstRow.textContent || '').not.toContain('https://app.posthog.com/replay')
         })
     })

@@ -53,7 +53,7 @@ import {
 } from '../types'
 import {
     COLLAPSED_TO_CONTAINS_ROW,
-    looksLikeUrl,
+    offersUrlContainsRow,
     partitionContainsShortcuts,
     urlContainsRowLabel,
 } from '../utils/collapsedContainsRow'
@@ -369,7 +369,7 @@ export function MenuFilterCombobox({
             // `name`), so `selectItem`'s existing PageviewUrls branch commits
             // `$current_url IContains <query>`.
             if (COLLAPSED_TO_CONTAINS_ROW.has(group.type)) {
-                if (looksLikeUrl(trimmedQuery) && items.length > 0) {
+                if (trimmedQuery && offersUrlContainsRow(group.type, trimmedQuery) && items.length > 0) {
                     const label = urlContainsRowLabel(trimmedQuery)
                     merged.push({
                         // A plain item (not a QuickFilterItem): the commit reads its value via

@@ -799,18 +799,18 @@ describe('MenuFilterCombobox', () => {
             mockUrlValues(['https://app.posthog.com/replay', 'https://app.posthog.com/replay/home'])
             renderAll({
                 groupTypes: [TaxonomicFilterGroupType.PageviewEvents, TaxonomicFilterGroupType.Events],
-                recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'visited /replay', 'Events')],
-                pinnedEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'pinned /replay', 'Events')],
-                searchQuery: '/replay',
+                recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'replay_recent', 'Events')],
+                pinnedEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'replay_pinned', 'Events')],
+                searchQuery: 'replay',
             })
 
             // Wait on a stable post-search signal (a matching recent) so the ordering
             // assertions fail fast rather than timing out waiting for a row that never renders.
-            await waitFor(() => expect(rowTexts().some((t) => t.includes('visited /replay'))).toBe(true))
+            await waitFor(() => expect(rowTexts().some((t) => t.includes('replay_recent'))).toBe(true))
             const rows = rowTexts()
-            const shortcutIdx = rows.findIndex((t) => t.includes('URL contains "/replay"'))
-            const recentIdx = rows.findIndex((t) => t.includes('visited /replay'))
-            const pinnedIdx = rows.findIndex((t) => t.includes('pinned /replay'))
+            const shortcutIdx = rows.findIndex((t) => /contains/i.test(t) && /replay/i.test(t))
+            const recentIdx = rows.findIndex((t) => t.includes('replay_recent'))
+            const pinnedIdx = rows.findIndex((t) => t.includes('replay_pinned'))
 
             // The contains shortcut leads the whole list, ahead of recents/pinned/events.
             expect(shortcutIdx).toBe(0)
