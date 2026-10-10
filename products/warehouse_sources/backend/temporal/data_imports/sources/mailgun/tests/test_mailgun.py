@@ -481,6 +481,19 @@ class TestMetricsRows:
         assert days[-1] == today
         assert result.requests[0].json()["dimensions"] == ["time"]
 
+    def test_a_day_that_never_stops_returning_full_pages_moves_on_at_the_row_cap(self):
+        today = datetime.now(UTC).date()
+        full_page = ScriptedResponse(
+            json={"items": [_metrics_item(today, f"tag-{i}") for i in range(METRICS_PAGE_SIZE)]}
+        )
+
+        with mock.patch.object(mailgun_module, "MAX_METRICS_ROWS_PER_DAY", METRICS_PAGE_SIZE):
+            result = self._driver().run("tag_metrics", lambda _request: full_page)
+
+        assert result.raised is None
+        assert len(result.requests) == METRICS_LOOKBACK_DAYS
+        assert {request.json()["pagination"]["skip"] for request in result.requests} == {0}
+
     def test_resume_continues_from_the_saved_day_and_offset(self):
         today = datetime.now(UTC).date()
 

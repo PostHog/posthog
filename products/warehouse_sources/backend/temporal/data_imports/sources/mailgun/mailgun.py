@@ -67,6 +67,9 @@ METRICS_LOOKBACK_DAYS = 365
 # A day's counts keep moving until Mailgun's event store settles, so incremental syncs re-read
 # the days just before the watermark and merge over them.
 METRICS_REFRESH_DAYS = 2
+# Backstop for a Metrics API that ignores `skip` and keeps serving full pages for one day. Sized
+# far above the distinct values any breakdown dimension reaches in a day.
+MAX_METRICS_ROWS_PER_DAY = 1_000_000
 
 
 class MailgunRetryableError(Exception):
@@ -75,7 +78,7 @@ class MailgunRetryableError(Exception):
         self.retry_after = retry_after
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MailgunResumeConfig:
     # URL of the next page to fetch for the in-flight chain (None = start the next domain).
     next_url: Optional[str] = None
@@ -534,6 +537,12 @@ def get_metrics_rows(
         items = data.get("items") or []
 
         if len(items) < METRICS_PAGE_SIZE:
+            day, skip = day + timedelta(days=1), 0
+        elif skip + METRICS_PAGE_SIZE >= MAX_METRICS_ROWS_PER_DAY:
+            logger.warning(
+                f"Mailgun: stopping {endpoint} for {day} after {MAX_METRICS_ROWS_PER_DAY} rows; "
+                "the Metrics API kept returning full pages"
+            )
             day, skip = day + timedelta(days=1), 0
         else:
             skip += METRICS_PAGE_SIZE
