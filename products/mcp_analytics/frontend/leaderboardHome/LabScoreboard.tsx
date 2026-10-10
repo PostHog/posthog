@@ -1,8 +1,9 @@
 import { Card, CardContent, Skeleton, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
+import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { formatPercentage } from 'lib/utils/numbers'
 
-import { type LabShare, type ScoreboardMetric } from './leaderboardShares'
+import { leadingLabs, type LabShare, type ScoreboardMetric } from './leaderboardShares'
 import { LoadErrorMessage } from './LoadErrorMessage'
 
 const PODIUM_SIZE = 3
@@ -32,6 +33,8 @@ export function LabScoreboard({
         return null
     }
     const caption = METRICS.find(({ value }) => value === metric)?.caption
+    const podium = shares.slice(0, PODIUM_SIZE)
+    const leaders = leadingLabs(podium)
     return (
         <div className="flex min-w-0 flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -66,16 +69,19 @@ export function LabScoreboard({
                 <LoadErrorMessage />
             ) : (
                 <div className="grid min-w-0 grid-cols-1 gap-4 @min-[40rem]/mcp-overview:grid-cols-3">
-                    {shares.slice(0, PODIUM_SIZE).map(({ lab, share }) => (
-                        <Card key={lab} size="sm" data-attr="mcp-leaderboard-lab-tile">
-                            <CardContent className="flex flex-col gap-1">
-                                <span className="text-sm text-secondary">{lab}</span>
-                                <span className="text-3xl font-semibold tabular-nums text-primary">
-                                    {formatPercentage(share, { compact: true })}
-                                </span>
-                                <span className="text-xs text-secondary">{caption}</span>
-                            </CardContent>
-                        </Card>
+                    {podium.map(({ lab, share }) => (
+                        <div key={lab} className="relative">
+                            <TileDecorations badge={leaders.includes(lab) ? 'winner' : null} />
+                            <Card size="sm" className="h-full" data-attr="mcp-leaderboard-lab-tile">
+                                <CardContent className="flex flex-col gap-1">
+                                    <span className="text-sm text-secondary">{lab}</span>
+                                    <span className="text-3xl font-semibold tabular-nums text-primary">
+                                        {formatPercentage(share, { compact: true })}
+                                    </span>
+                                    <span className="text-xs text-secondary">{caption}</span>
+                                </CardContent>
+                            </Card>
+                        </div>
                     ))}
                 </div>
             )}
