@@ -81,21 +81,25 @@ describe('inboxReportDetailLogic', () => {
             }
         })
 
-        it('preserves review drafts on priority saves and refreshed props, but clears them for another report', async () => {
+        it('preserves drafts and expanded runs on priority saves and refreshed props, but clears them for another report', async () => {
             const draft = { path: 'src/example.ts', line: 12, side: 'RIGHT' as const }
             logic.actions.openDraftThread(draft)
             logic.actions.setEditingCommentId('comment-1')
+            logic.actions.toggleExpandedTask('task-1')
             useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': { ...REPORT, priority: 'P2' } } })
             logic.actions.updatePriority('P2')
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.draftThread).toEqual(draft)
             expect(logic.values.editingCommentId).toBe('comment-1')
+            expect(logic.values.expandedTaskIds).toEqual(['task-1'])
             inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT, priority: 'P2' } })
             expect(logic.values.draftThread).toEqual(draft)
             expect(logic.values.editingCommentId).toBe('comment-1')
+            expect(logic.values.expandedTaskIds).toEqual(['task-1'])
             logic.actions.setReport({ ...REPORT, id: 'another-report' })
             expect(logic.values.draftThread).toBeNull()
             expect(logic.values.editingCommentId).toBeNull()
+            expect(logic.values.expandedTaskIds).toEqual([])
         })
 
         it('saves the priority and ignores another edit while the request is in flight', async () => {
