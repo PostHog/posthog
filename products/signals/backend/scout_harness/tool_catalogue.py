@@ -9,7 +9,7 @@ before any of it can be configured.
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import posthoganalytics
 
@@ -23,6 +23,8 @@ from posthog.temporal.oauth import (
     resolve_scopes,
     scout_scope_posture,
 )
+
+from products.signals.backend.enums import ToolPreset
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -64,7 +66,7 @@ SCOUT_RUN_CONTEXT_TOOLS = frozenset(
 
 @frozen
 class ScoutToolPresetEntry:
-    name: Literal["read_only", "support_notes"]
+    name: ToolPreset
     label: str
     tools: tuple[str, ...]
 
@@ -149,10 +151,10 @@ def get_scout_tool_catalogue() -> ScoutToolCatalogue:
         ),
         grantable_write_scopes=tuple(sorted(SCOUT_GRANTABLE_WRITE_SCOPES)),
         tool_presets=(
-            ScoutToolPresetEntry(name="read_only", label="Read only", tools=read_tools),
+            ScoutToolPresetEntry(name=ToolPreset.READ_ONLY, label=ToolPreset.READ_ONLY.label, tools=read_tools),
             ScoutToolPresetEntry(
-                name="support_notes",
-                label="Support notes",
+                name=ToolPreset.SUPPORT_NOTES,
+                label=ToolPreset.SUPPORT_NOTES.label,
                 tools=tuple(sorted((*read_tools, "conversations-tickets-notes-create"))),
             ),
         ),

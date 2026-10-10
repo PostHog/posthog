@@ -886,10 +886,10 @@ export const SignalsScoutCreateBody = () => zod
                     ),
                 tool_preset: zod
                     .enum(['read_only', 'support_notes'])
-                    .describe('\* `read_only` - read_only\n\* `support_notes` - support_notes')
+                    .describe('\* `read_only` - Read only\n\* `support_notes` - Support notes')
                     .optional()
                     .describe(
-                        'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - read_only\n\* `support_notes` - support_notes'
+                        'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - Read only\n\* `support_notes` - Support notes'
                     ),
                 enabled: zod
                     .boolean()
@@ -1127,10 +1127,10 @@ export const SignalsScoutConfigCreateBody = () => zod
             ),
         tool_preset: zod
             .enum(['read_only', 'support_notes'])
-            .describe('\* `read_only` - read_only\n\* `support_notes` - support_notes')
+            .describe('\* `read_only` - Read only\n\* `support_notes` - Support notes')
             .optional()
             .describe(
-                'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - read_only\n\* `support_notes` - support_notes'
+                'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - Read only\n\* `support_notes` - Support notes'
             ),
         enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
         emit: zod
@@ -1455,10 +1455,10 @@ export const SignalsScoutConfigUpdateBody = () => zod
             ),
         tool_preset: zod
             .enum(['read_only', 'support_notes'])
-            .describe('\* `read_only` - read_only\n\* `support_notes` - support_notes')
+            .describe('\* `read_only` - Read only\n\* `support_notes` - Support notes')
             .optional()
             .describe(
-                'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - read_only\n\* `support_notes` - support_notes'
+                'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - Read only\n\* `support_notes` - Support notes'
             ),
     })
     .describe('Editable display name, schedule, enablement, and emit posture for one scout config.')

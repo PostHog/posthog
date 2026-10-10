@@ -1816,8 +1816,8 @@ export interface ScoutReportApi {
 }
 
 /**
- * * `read_only` - read_only
- * * `support_notes` - support_notes
+ * * `read_only` - Read only
+ * * `support_notes` - Support notes
  */
 export type ToolPresetEnumApi = (typeof ToolPresetEnumApi)[keyof typeof ToolPresetEnumApi]
 
@@ -1924,8 +1924,8 @@ export interface SignalScoutConfigOptionsApi {
     allowed_mcp_tools?: string[] | null
     /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
      *
-     * * `read_only` - read_only
-     * * `support_notes` - support_notes */
+     * * `read_only` - Read only
+     * * `support_notes` - Support notes */
     tool_preset?: ToolPresetEnumApi
     /** Whether this scout runs on its schedule. Defaults to true. */
     enabled?: boolean

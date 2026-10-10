@@ -41,7 +41,7 @@ from products.signals.backend.artefact_schemas import (
     Priority,
 )
 from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, ToolPreset
 from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
@@ -3732,7 +3732,7 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
     write_scopes = _write_scopes_field()
     allowed_mcp_tools = _allowed_mcp_tools_field()
     tool_preset = serializers.ChoiceField(
-        choices=["read_only", "support_notes"],
+        choices=ToolPreset.choices,
         required=False,
         help_text=(
             "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. "
