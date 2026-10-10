@@ -912,9 +912,10 @@ class ProductTourViewSet(
             )
 
         tour_id = kwargs["pk"]
-        tour = ProductTour.objects.filter(id=tour_id, team__project_id=self.project_id).first()
-        if not tour:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        tour = self.get_object()
+        # The viewset queryset includes archived tours, which generation never served.
+        if tour.archived:
+            raise exceptions.NotFound()
 
         user = cast(User, self.request.user)
 
@@ -1123,6 +1124,7 @@ class ProductTourAPISerializer(serializers.ModelSerializer):
 def get_product_tours_response(team: Team) -> dict:
     """Get active product tours for a team."""
     tours = ProductTourAPISerializer(
+        # nosemgrep: environment-model-scoped-by-project -- the project route stores tours on the primary environment, so every environment's SDK reads the project's tours
         ProductTour.objects.filter(
             team__project_id=team.project_id,
             archived=False,

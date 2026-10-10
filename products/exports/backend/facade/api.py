@@ -104,6 +104,7 @@ def save_export_asset_content_from_file(
 
 
 def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
+    # nosemgrep: environment-model-scoped-by-project -- insights are project-level, so deleting one removes its subscriptions in every environment
     for subscription in Subscription.objects.filter(team__project_id=project_id, insight_id__in=insight_ids):
         subscription.delete()
 
