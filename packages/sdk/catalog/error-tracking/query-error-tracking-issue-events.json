@@ -1,0 +1,616 @@
+{
+    "method": "errorTracking.queryErrorTrackingIssueEvents",
+    "toolName": "query-error-tracking-issue-events",
+    "operationId": "error_tracking_query_issue_events_create",
+    "title": "Query error tracking issue events",
+    "category": "Error tracking",
+    "description": "Fetch sampled `$exception` events for one Error tracking issue.\n\nUse this when the user asks for concrete examples, stack traces, code variables, release details, diagnostics, or trace IDs for a specific issue. To learn which URLs, browsers, OS, or versions an issue affects, call `query-error-tracking-issue` with `includeBreakdown: true` instead of fetching many events.\n\nReturns sampled events with plural exception fields (`$exception_types`, `$exception_values`), normalized `$exception_list`, `$exception_fingerprint`, `$exception_level`, `$exception_handled`, `$session_id`, OpenTelemetry and AI trace/span IDs, `$lib`, browser/OS fields, and `$current_url`.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for sampled events. Defaults to last 7 days.\n- `searchQuery`: search exception types, values, and current URL.\n- `filterGroup`: advanced flat AND property filters applied to sampled events.\n- `include`: context groups to return. Defaults to compact exception, environment, navigation, and correlation context. Add `stacktrace`, `code_variables`, `release`, or `diagnostics` only when needed. `code_variables` implies stack frames and may contain SDK-masked sensitive values.\n- `onlyAppFrames`: defaults to true to reduce vendor-frame noise.\n- `limit`: defaults to 1 and maxes at 20. Keep low unless the user asks for multiple examples.\n\n# Stack traces\n\n- A stack trace keeps at most the 50 frames closest to the error. `frames_omitted` gives the number of older frames that were left out.\n- When a stack trace is the same as one returned earlier on the page, its `stacktrace` is `{\"same_as_event\": \"<uuid>\", \"same_as_exception\": <index>}`. Read the frames from that event, at that index of its `$exception_list`. The event can be the same event, when two of its exceptions share a stack.\n\n# Session recordings\n\nWhen `$session_id` is present and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids` to fetch matching recordings. Use multiple `$session_id` values in one call when available.",
+    "requiredScopes": ["error_tracking:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking/client.ts",
+    "input": {
+        "name": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+        "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingQueryErrorTrackingIssueEventsOutput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+        "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema0",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema4ItemOperator",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema5",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema6",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema7",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema8",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema4Item",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema4",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema9",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema10",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema11",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema12",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema13Item",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema13",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsRequestSchema14",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsResponseShape3",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsResponseShape2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        },
+        {
+            "name": "ErrorTrackingQueryErrorTrackingIssueEventsData",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/query-error-tracking-issue-events.ts",
+            "declaration": "dist/generated/error-tracking/query-error-tracking-issue-events.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Fetch sampled exception events, stack traces, browser/SDK context, URL, and $session_id values for one issue.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1error_tracking~1query~1issue_events~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Fetch sampled `$exception` events for one Error tracking issue.\n\nUse this when the user asks for concrete examples, stack traces, code variables, release details, diagnostics, or trace IDs for a specific issue. To learn which URLs, browsers, OS, or versions an issue affects, call `query-error-tracking-issue` with `includeBreakdown: true` instead of fetching many events.\n\nReturns sampled events with plural exception fields (`$exception_types`, `$exception_values`), normalized `$exception_list`, `$exception_fingerprint`, `$exception_level`, `$exception_handled`, `$session_id`, OpenTelemetry and AI trace/span IDs, `$lib`, browser/OS fields, and `$current_url`.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for sampled events. Defaults to last 7 days.\n- `searchQuery`: search exception types, values, and current URL.\n- `filterGroup`: advanced flat AND property filters applied to sampled events.\n- `include`: context groups to return. Defaults to compact exception, environment, navigation, and correlation context. Add `stacktrace`, `code_variables`, `release`, or `diagnostics` only when needed. `code_variables` implies stack frames and may contain SDK-masked sensitive values.\n- `onlyAppFrames`: defaults to true to reduce vendor-frame noise.\n- `limit`: defaults to 1 and maxes at 20. Keep low unless the user asks for multiple examples.\n\n# Stack traces\n\n- A stack trace keeps at most the 50 frames closest to the error. `frames_omitted` gives the number of older frames that were left out.\n- When a stack trace is the same as one returned earlier on the page, its `stacktrace` is `{\"same_as_event\": \"<uuid>\", \"same_as_exception\": <index>}`. Read the frames from that event, at that index of its `$exception_list`. The event can be the same event, when two of its exceptions share a stack.\n\n# Session recordings\n\nWhen `$session_id` is present and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids` to fetch matching recordings. Use multiple `$session_id` values in one call when available.",
+            "source": {
+                "kind": "description_file",
+                "file": "products/error_tracking/mcp/prompts/query-error-tracking-issue-events.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsRequest_Schema0",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema0/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsRequest_Schema0",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range as an ISO timestamp or relative date. Defaults to now when omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range as an ISO timestamp or relative date. Defaults to now when omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema0/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsRequest_Schema4",
+            "field": "[].key",
+            "effectiveDescription": "Key of the property you're filtering on. For example `email` or `$current_url`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the property you're filtering on. For example `email` or `$current_url`",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema4/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsRequest_Schema4",
+            "field": "[].value",
+            "effectiveDescription": "Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `[\"test@example.com\",\"ok@example.com\"]`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `[\"test@example.com\",\"ok@example.com\"]`",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema4/items/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsRequest_Schema10",
+            "effectiveDescription": "* `ASC` - ASC\n* `DESC` - DESC",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `ASC` - ASC\n* `DESC` - DESC",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsRequest_Schema13",
+            "field": "[]",
+            "effectiveDescription": "* `exception` - exception\n* `stacktrace` - stacktrace\n* `code_variables` - code_variables\n* `environment` - environment\n* `release` - release\n* `navigation` - navigation\n* `correlation` - correlation\n* `diagnostics` - diagnostics",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `exception` - exception\n* `stacktrace` - stacktrace\n* `code_variables` - code_variables\n* `environment` - environment\n* `release` - release\n* `navigation` - navigation\n* `correlation` - correlation\n* `diagnostics` - diagnostics",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/$defs/__schema13/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+            "field": "issueId",
+            "effectiveDescription": "Error tracking issue ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Error tracking issue ID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue_events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for sampled exception events. Defaults to the last 7 days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for sampled exception events. Defaults to the last 7 days.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue_events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+            "field": "filterTestAccounts",
+            "effectiveDescription": "When true, exclude internal/test account data from results. Defaults to true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, exclude internal/test account data from results. Defaults to true.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue_events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+            "field": "filterGroup",
+            "effectiveDescription": "Advanced flat AND property filters applied to sampled events. HogQL filters are rejected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Advanced flat AND property filters applied to sampled events. HogQL filters are rejected.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue_events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+            "field": "searchQuery",
+            "effectiveDescription": "Search exception types, exception values, and current URL among sampled events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search exception types, exception values, and current URL among sampled events.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue_events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+            "field": "orderDirection",
+            "effectiveDescription": "Timestamp sort direction. Defaults to DESC.\n\n* `ASC` - ASC\n* `DESC` - DESC",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp sort direction. Defaults to DESC.\n\n* `ASC` - ASC\n* `DESC` - DESC",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue_events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+            "field": "limit",
+            "effectiveDescription": "Page size.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page size.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue_events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+            "field": "offset",
+            "effectiveDescription": "Pagination offset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pagination offset.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue_events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+            "field": "include",
+            "effectiveDescription": "Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue_events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsInput",
+            "field": "onlyAppFrames",
+            "effectiveDescription": "When true, include only stack frames marked in_app. Defaults to true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, include only stack frames marked in_app. Defaults to true.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/query/issue_events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsResponseShape2",
+            "field": "uuid",
+            "effectiveDescription": "Event UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event UUID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsResponseShape2",
+            "field": "distinct_id",
+            "effectiveDescription": "Event distinct ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event distinct ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/distinct_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsResponseShape2",
+            "field": "timestamp",
+            "effectiveDescription": "Event timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/timestamp"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsResponseShape2",
+            "field": "properties",
+            "effectiveDescription": "Normalized sampled exception event properties.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Normalized sampled exception event properties.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsResponseShape3",
+            "effectiveDescription": "Normalized sampled exception event properties.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Normalized sampled exception event properties.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsData",
+            "field": "results",
+            "effectiveDescription": "Sampled exception events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampled exception events.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsData",
+            "field": "hasMore",
+            "effectiveDescription": "Whether more results are available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether more results are available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/hasMore"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsData",
+            "field": "limit",
+            "effectiveDescription": "Page size.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page size.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsData",
+            "field": "offset",
+            "effectiveDescription": "Current offset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current offset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsData",
+            "field": "nextOffset",
+            "effectiveDescription": "Offset to fetch the next page when hasMore is true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Offset to fetch the next page when hasMore is true.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/nextOffset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingQueryErrorTrackingIssueEventsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-error-tracking-issue",
+            "method": "errorTracking.queryErrorTrackingIssue"
+        },
+        {
+            "toolName": "query-session-recordings-list",
+            "method": "replay.querySessionRecordingsList"
+        }
+    ]
+}

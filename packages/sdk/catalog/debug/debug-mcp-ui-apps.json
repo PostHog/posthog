@@ -1,0 +1,89 @@
+{
+    "method": "debug.debugMcpUiApps",
+    "toolName": "debug-mcp-ui-apps",
+    "title": "Debug MCP UI Apps",
+    "category": "Debug",
+    "description": "Debug tool for testing MCP Apps SDK integration. Returns sample data displayed in an interactive UI app with component showcase. Use this to verify that MCP Apps are working correctly.",
+    "requiredScopes": [],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/debug/client.ts",
+    "input": {
+        "name": "DebugDebugMcpUiAppsInput",
+        "importPath": "@posthog/sdk/debug",
+        "source": "src/generated/debug/debug-mcp-ui-apps.ts",
+        "declaration": "dist/generated/debug/debug-mcp-ui-apps.d.ts"
+    },
+    "output": {
+        "name": "DebugDebugMcpUiAppsOutput",
+        "importPath": "@posthog/sdk/debug",
+        "source": "src/generated/debug/debug-mcp-ui-apps.ts",
+        "declaration": "dist/generated/debug/debug-mcp-ui-apps.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DebugDebugMcpUiAppsRequestSchema0",
+            "importPath": "@posthog/sdk/debug",
+            "source": "src/generated/debug/debug-mcp-ui-apps.ts",
+            "declaration": "dist/generated/debug/debug-mcp-ui-apps.d.ts"
+        },
+        {
+            "name": "DebugDebugMcpUiAppsResponseShape2",
+            "importPath": "@posthog/sdk/debug",
+            "source": "src/generated/debug/debug-mcp-ui-apps.ts",
+            "declaration": "dist/generated/debug/debug-mcp-ui-apps.d.ts"
+        },
+        {
+            "name": "DebugDebugMcpUiAppsResponseShape4",
+            "importPath": "@posthog/sdk/debug",
+            "source": "src/generated/debug/debug-mcp-ui-apps.ts",
+            "declaration": "dist/generated/debug/debug-mcp-ui-apps.d.ts"
+        },
+        {
+            "name": "DebugDebugMcpUiAppsResponseShape3",
+            "importPath": "@posthog/sdk/debug",
+            "source": "src/generated/debug/debug-mcp-ui-apps.ts",
+            "declaration": "dist/generated/debug/debug-mcp-ui-apps.d.ts"
+        },
+        {
+            "name": "DebugDebugMcpUiAppsData",
+            "importPath": "@posthog/sdk/debug",
+            "source": "src/generated/debug/debug-mcp-ui-apps.ts",
+            "declaration": "dist/generated/debug/debug-mcp-ui-apps.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Debug tool for testing MCP Apps SDK integration. Returns sample data displayed in an interactive UI app with component showcase. Use this to verify that MCP Apps are working correctly.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/debug-mcp-ui-apps/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DebugDebugMcpUiAppsInput",
+            "field": "message",
+            "effectiveDescription": "Optional message to include in the debug data",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional message to include in the debug data",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/message"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

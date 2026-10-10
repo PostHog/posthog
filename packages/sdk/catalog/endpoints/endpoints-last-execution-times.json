@@ -1,0 +1,488 @@
+{
+    "method": "endpoints.endpointsLastExecutionTimes",
+    "toolName": "endpoints-last-execution-times",
+    "operationId": "endpoints_last_execution_times_create",
+    "title": "Get endpoints last execution times",
+    "category": "Endpoints",
+    "description": "Get the most recent execution time per endpoint (endpoint-level, personal API key calls only). Pass an array of endpoint names; returns rows shaped [name, last_executed_at]. Endpoints never called are omitted from the response. Use this for a quick endpoint-level recency check during an audit; for per-version usage or history, query the query_log table with execute-sql.",
+    "requiredScopes": ["endpoint:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/endpoints/client.ts",
+    "input": {
+        "name": "EndpointsEndpointsLastExecutionTimesInput",
+        "importPath": "@posthog/sdk/endpoints",
+        "source": "src/generated/endpoints/endpoints-last-execution-times.ts",
+        "declaration": "dist/generated/endpoints/endpoints-last-execution-times.d.ts"
+    },
+    "output": {
+        "name": "EndpointsEndpointsLastExecutionTimesOutput",
+        "importPath": "@posthog/sdk/endpoints",
+        "source": "src/generated/endpoints/endpoints-last-execution-times.ts",
+        "declaration": "dist/generated/endpoints/endpoints-last-execution-times.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EndpointsEndpointsLastExecutionTimesResponseShape3",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-last-execution-times.ts",
+            "declaration": "dist/generated/endpoints/endpoints-last-execution-times.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointsLastExecutionTimesResponseShape6",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-last-execution-times.ts",
+            "declaration": "dist/generated/endpoints/endpoints-last-execution-times.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointsLastExecutionTimesResponseShape5",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-last-execution-times.ts",
+            "declaration": "dist/generated/endpoints/endpoints-last-execution-times.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointsLastExecutionTimesResponseShape4",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-last-execution-times.ts",
+            "declaration": "dist/generated/endpoints/endpoints-last-execution-times.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointsLastExecutionTimesResponseShape2",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-last-execution-times.ts",
+            "declaration": "dist/generated/endpoints/endpoints-last-execution-times.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointsLastExecutionTimesData",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-last-execution-times.ts",
+            "declaration": "dist/generated/endpoints/endpoints-last-execution-times.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get the most recent execution time per endpoint (endpoint-level). Timestamps are recorded by the run path for personal-API-key calls. For per-version usage, query the query_log table directly.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1endpoints~1last_execution_times~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get the most recent execution time per endpoint (endpoint-level, personal API key calls only). Pass an array of endpoint names; returns rows shaped [name, last_executed_at]. Endpoints never called are omitted from the response. Use this for a quick endpoint-level recency check during an audit; for per-version usage or history, query the query_log table with execute-sql.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/endpoints/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape2",
+            "field": "cache_key",
+            "effectiveDescription": "Cache key of the run that failed, so clients can ask for its query scan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cache key of the run that failed, so clients can ask for its query scan.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/cache_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape2",
+            "field": "complete",
+            "effectiveDescription": "Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/complete"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape2",
+            "field": "end_time",
+            "effectiveDescription": "When did the query execution task finish (whether successfully or not).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When did the query execution task finish (whether successfully or not).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/end_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape2",
+            "field": "error",
+            "effectiveDescription": "If the query failed, this will be set to true. More information can be found in the error_message field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If the query failed, this will be set to true. More information can be found in the error_message field.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape2",
+            "field": "error_code",
+            "effectiveDescription": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/error_code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape2",
+            "field": "pickup_time",
+            "effectiveDescription": "When was the query execution task picked up by a worker.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When was the query execution task picked up by a worker.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/pickup_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape2",
+            "field": "query_async",
+            "effectiveDescription": "ONLY async queries use QueryStatus.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ONLY async queries use QueryStatus.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/query_async"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape2",
+            "field": "results",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape2",
+            "field": "start_time",
+            "effectiveDescription": "When was query execution task enqueued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When was query execution task enqueued.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/start_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape4",
+            "field": "analysis",
+            "effectiveDescription": "The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/analysis"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape4",
+            "field": "analysis_requested",
+            "effectiveDescription": "True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/analysis_requested"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape4",
+            "field": "duration_ms",
+            "effectiveDescription": "ClickHouse time for the last fresh run, summed over its ClickHouse queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ClickHouse time for the last fresh run, summed over its ClickHouse queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/duration_ms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape4",
+            "field": "killed",
+            "effectiveDescription": "True when ClickHouse stopped the run instead of finishing it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when ClickHouse stopped the run instead of finishing it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/killed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape4",
+            "field": "rows_read",
+            "effectiveDescription": "Rows ClickHouse read for the last fresh run, all tables included.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows ClickHouse read for the last fresh run, all tables included.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/rows_read"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape5",
+            "field": "assistant_prompt",
+            "effectiveDescription": "The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape5/properties/assistant_prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape5",
+            "field": "findings",
+            "effectiveDescription": "Every finding, fixable or not. Empty when the analysis found none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Every finding, fixable or not. Empty when the analysis found none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape5/properties/findings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape5",
+            "field": "project_share",
+            "effectiveDescription": "How much of all the project's events the query read, 0 to 1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How much of all the project's events the query read, 0 to 1.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape5/properties/project_share"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape5",
+            "field": "range_share",
+            "effectiveDescription": "How much of the project's events in the query's date range the query read, 0 to 1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How much of the project's events in the query's date range the query read, 0 to 1.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape5/properties/range_share"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape6",
+            "field": "actionable",
+            "effectiveDescription": "Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and \"Fix with AI\" only when a finding is actionable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and \"Fix with AI\" only when a finding is actionable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape6/properties/actionable"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape6",
+            "field": "by_design",
+            "effectiveDescription": "True when the query reads this much on purpose, so reading less would change the answer. Absent means no.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the query reads this much on purpose, so reading less would change the answer. Absent means no.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape6/properties/by_design"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape6",
+            "field": "cause",
+            "effectiveDescription": "A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape6/properties/cause"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape6",
+            "field": "evidence",
+            "effectiveDescription": "The one fact the finding rests on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The one fact the finding rests on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape6/properties/evidence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape6",
+            "field": "fix",
+            "effectiveDescription": "What \"Fix with AI\" and the assistant are told to do.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What \"Fix with AI\" and the assistant are told to do.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape6/properties/fix"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape6",
+            "field": "fix_location",
+            "effectiveDescription": "Where the change goes. Absent means the query itself.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the change goes. Absent means the query itself.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape6/properties/fix_location"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsLastExecutionTimesResponseShape6",
+            "field": "message",
+            "effectiveDescription": "Shown to the person: what happened and what to do.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Shown to the person: what happened and what to do.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape6/properties/message"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

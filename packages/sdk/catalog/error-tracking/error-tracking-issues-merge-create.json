@@ -1,0 +1,87 @@
+{
+    "method": "errorTracking.errorTrackingIssuesMergeCreate",
+    "toolName": "error-tracking-issues-merge-create",
+    "operationId": "error_tracking_issues_merge_create",
+    "title": "Merge error tracking issues",
+    "category": "Error tracking",
+    "description": "Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and the issues to merge into it as `ids`.",
+    "requiredScopes": ["error_tracking:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking/client.ts",
+    "input": {
+        "name": "ErrorTrackingErrorTrackingIssuesMergeCreateInput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-issues-merge-create.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-issues-merge-create.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingErrorTrackingIssuesMergeCreateOutput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-issues-merge-create.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-issues-merge-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingErrorTrackingIssuesMergeCreateRequestSchema0",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-issues-merge-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-issues-merge-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingIssuesMergeCreateData",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-issues-merge-create.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-issues-merge-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Merge one or more error tracking issues into an existing target issue. Provide the target issue as `id` and the issues to merge into it as `ids`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/error_tracking/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingErrorTrackingIssuesMergeCreateInput",
+            "field": "ids",
+            "effectiveDescription": "IDs of the issues to merge into the current issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "IDs of the issues to merge into the current issue.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/issues/{id}/merge/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingIssuesMergeCreateData",
+            "field": "success",
+            "effectiveDescription": "Whether the merge completed successfully.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the merge completed successfully.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/success"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

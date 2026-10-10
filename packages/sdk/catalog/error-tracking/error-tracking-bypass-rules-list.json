@@ -1,0 +1,195 @@
+{
+    "method": "errorTracking.errorTrackingBypassRulesList",
+    "toolName": "error-tracking-bypass-rules-list",
+    "operationId": "error_tracking_bypass_rules_list",
+    "title": "List error tracking bypass rules",
+    "category": "Error tracking",
+    "description": "List rate limit bypass rules for the current project. Exception events matching a rule skip the project-wide and per-issue exception rate limits. Returns rules in evaluation order with their filters and disabled state. Supports pagination with `limit` and `offset`.",
+    "requiredScopes": ["error_tracking:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking/client.ts",
+    "input": {
+        "name": "ErrorTrackingErrorTrackingBypassRulesListInput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-bypass-rules-list.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-bypass-rules-list.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingErrorTrackingBypassRulesListOutput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-bypass-rules-list.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-bypass-rules-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingErrorTrackingBypassRulesListRequestSchema0",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-bypass-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-bypass-rules-list.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingBypassRulesListRequestSchema1",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-bypass-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-bypass-rules-list.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingBypassRulesListResponseShape2",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-bypass-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-bypass-rules-list.d.ts"
+        },
+        {
+            "name": "ErrorTrackingErrorTrackingBypassRulesListData",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-bypass-rules-list.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-bypass-rules-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List rate limit bypass rules for the current project. Exception events matching a rule skip the project-wide and per-issue exception rate limits. Returns rules in evaluation order with their filters and disabled state. Supports pagination with `limit` and `offset`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/error_tracking/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingErrorTrackingBypassRulesListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/bypass_rules/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingBypassRulesListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/error_tracking/bypass_rules/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingBypassRulesListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Unique identifier of the bypass rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier of the bypass rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingBypassRulesListResponseShape2",
+            "field": "filters",
+            "effectiveDescription": "Property-group filters that define which incoming error events bypass rate limiting.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property-group filters that define which incoming error events bypass rate limiting.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingBypassRulesListResponseShape2",
+            "field": "order_key",
+            "effectiveDescription": "Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/order_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingBypassRulesListResponseShape2",
+            "field": "disabled_data",
+            "effectiveDescription": "Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/disabled_data"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingBypassRulesListResponseShape2",
+            "field": "created_at",
+            "effectiveDescription": "When the rule was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the rule was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingErrorTrackingBypassRulesListResponseShape2",
+            "field": "updated_at",
+            "effectiveDescription": "When the rule was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the rule was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape2/properties/updated_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

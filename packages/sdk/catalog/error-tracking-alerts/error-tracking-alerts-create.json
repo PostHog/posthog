@@ -1,0 +1,1466 @@
+{
+    "method": "errorTrackingAlerts.errorTrackingAlertsCreate",
+    "toolName": "error-tracking-alerts-create",
+    "operationId": "hog_functions_create",
+    "title": "Create error tracking alert",
+    "category": "Error tracking alerts",
+    "description": "Create an error tracking alert that fires when an issue is created, reopened, or starts spiking. An alert is a HogFunction with `type=internal_destination` whose `filters.events` references one of the three error-tracking lifecycle events. The events themselves are the trigger — there is no threshold or evaluation window to configure.\n\nTrigger events:\n- `$error_tracking_issue_created`  — fires once when a new issue first appears.\n- `$error_tracking_issue_reopened` — fires when a previously resolved issue starts emitting again.\n- `$error_tracking_issue_spiking`  — fires when the spike detector flags abnormal volume on an\n  issue. The spike threshold is configured separately via the spike detection config endpoint\n  and applies to all issues in the project.\n\n\nRecipe — deliver an error tracking alert to Slack or a webhook:\n\n1. Confirm the trigger and channel with the user. Picking `created` for a noisy project will\n   flood the channel; `spiking` is usually the safer default. Do not assume.\n\n\n2. Pick the integration. For Slack, call `integrations-list` with `kind=slack` to find the\n   integration id, then `integrations-channels-retrieve` for that integration to list channels.\n   For a webhook, the user provides the destination URL directly. Confirm the channel name or\n   webhook URL with the user before creating the alert — never wire a new alert to a production\n   channel without explicit confirmation.\n\n\n3. Dedupe. Call `error-tracking-alerts-list` and check whether an alert for the same trigger\n   event already exists. Skip creation if one is present and enabled — call\n   `error-tracking-alerts-partial-update` to adjust an existing alert instead of creating a\n   duplicate. Several alerts on the same event for the same channel produce duplicate\n   notifications.\n\n\n4. Create. Use `type=internal_destination`, the integration's `template_id`\n   (`template-slack`, `template-webhook`, `template-discord`, `template-microsoft-teams`,\n   `template-linear`, `template-github`, or `template-gitlab`), and:\n\n     filters = {\n       \"events\": [{\"id\": \"$error_tracking_issue_created\", \"type\": \"events\"}]\n     }\n\n   Optional per-issue scoping (`created`/`reopened` only): add a `filters.properties` clause\n   on `$exception_issue_id` — for example\n   `[{\"key\": \"$exception_issue_id\", \"value\": \"<issue_uuid>\", \"operator\": \"exact\", \"type\": \"event\"}]`\n   to alert only on a specific known-flaky issue. `$error_tracking_issue_spiking` events carry\n   no exception properties, so spiking alerts cannot be scoped per issue. PostHog's \"alerts\n   configured\" recommendation only checks `filters.events`, so adding property filters does\n   not affect it.\n\n\n5. Slack message body. Mirror the shape the in-product alert wizard produces so agent-created\n   and UI-created alerts look identical. The canonical payloads for every integration are in\n   the `authoring-error-tracking-alerts` skill references.\n\n   For `$error_tracking_issue_created` (Slack):\n\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"New issue created: {event.properties.name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"🔴 {event.properties.name}\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"New issue created\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\",\n           \"text\": \"```{substring(event.properties.description, 1, 150)}```\"}},\n         {\"type\": \"context\", \"elements\": [\n           {\"type\": \"plain_text\", \"text\": \"Status: {event.properties.status}\"},\n           {\"type\": \"mrkdwn\", \"text\": \"Project: <{project.url}|{project.name}>\"},\n           {\"type\": \"mrkdwn\", \"text\": \"Alert: <{source.url}|{source.name}>\"}\n         ]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Issue\"},\n            \"url\": \"{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack\"}\n         ]}\n       ]}\n     }\n\n   For `$error_tracking_issue_reopened`, use the same blocks with the header swapped to\n   `🔄 {event.properties.name}`, the section text to `Issue reopened`, and `text` to\n   `Issue reopened: {event.properties.name}`.\n\n   For `$error_tracking_issue_spiking` (Slack), use the same shape but swap the header to\n   `📈 Issue spiking` and add a context line referencing\n   `{event.properties.current_bucket_value}` and `{event.properties.computed_baseline}`. The\n   exact block layout is in the `authoring-error-tracking-alerts` skill references.\n\n\n6. Webhook body. The webhook template only requires `url`:\n\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n\n   Webhooks must be `https://` URLs.\n\n\nEvent property reference — common across all three events: `event.properties.name` (issue title), `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link), `event.properties.fingerprint`, and `event.properties.exception_timestamp`. `created`/`reopened` additionally expose `event.properties.status` and the originating exception's properties (e.g. `$exception_types`, `$exception_issue_id`). Spiking events instead expose `event.properties.current_bucket_value` and `event.properties.computed_baseline` — no status or exception properties. Project context is available as `{project.url}` (already includes `/project/<team_id>`), `{project.name}`, and the alert's own metadata as `{source.url}` and `{source.name}`.",
+    "requiredScopes": ["hog_function:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking-alerts/client.ts",
+    "input": {
+        "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+        "importPath": "@posthog/sdk/error-tracking-alerts",
+        "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+        "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateOutput",
+        "importPath": "@posthog/sdk/error-tracking-alerts",
+        "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+        "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema1",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema2",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema3",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema4",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema5ItemType",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema5ItemChoicesItem",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema5Item",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema5",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema7",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema6",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema6Variant1",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema8Source",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema8ActionsItem",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema8EventsItem",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema8DataWarehouseItem",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema8PropertiesItem",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema8",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema10",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema9",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema9Variant1",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema12",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11Variant3",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11Variant2",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11Variant5",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11Variant4",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11Variant7",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11Variant8",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11Variant9",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11Variant10",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11Variant6",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema11Variant1",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema13",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema14",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequestSchema15",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape3",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape2",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape5",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape4",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape7",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape6",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape9",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape10",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape11",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape12",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape8",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape13",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape15",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape14",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape17",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape18",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-create.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Create an error tracking alert that fires when an issue is created, reopened, or starts spiking. An alert is a HogFunction with `type=internal_destination` whose `filters.events` references one of the three error-tracking lifecycle events. The events themselves are the trigger — there is no threshold or evaluation window to configure.\n\nTrigger events:\n- `$error_tracking_issue_created`  — fires once when a new issue first appears.\n- `$error_tracking_issue_reopened` — fires when a previously resolved issue starts emitting again.\n- `$error_tracking_issue_spiking`  — fires when the spike detector flags abnormal volume on an\n  issue. The spike threshold is configured separately via the spike detection config endpoint\n  and applies to all issues in the project.\n\n\nRecipe — deliver an error tracking alert to Slack or a webhook:\n\n1. Confirm the trigger and channel with the user. Picking `created` for a noisy project will\n   flood the channel; `spiking` is usually the safer default. Do not assume.\n\n\n2. Pick the integration. For Slack, call `integrations-list` with `kind=slack` to find the\n   integration id, then `integrations-channels-retrieve` for that integration to list channels.\n   For a webhook, the user provides the destination URL directly. Confirm the channel name or\n   webhook URL with the user before creating the alert — never wire a new alert to a production\n   channel without explicit confirmation.\n\n\n3. Dedupe. Call `error-tracking-alerts-list` and check whether an alert for the same trigger\n   event already exists. Skip creation if one is present and enabled — call\n   `error-tracking-alerts-partial-update` to adjust an existing alert instead of creating a\n   duplicate. Several alerts on the same event for the same channel produce duplicate\n   notifications.\n\n\n4. Create. Use `type=internal_destination`, the integration's `template_id`\n   (`template-slack`, `template-webhook`, `template-discord`, `template-microsoft-teams`,\n   `template-linear`, `template-github`, or `template-gitlab`), and:\n\n     filters = {\n       \"events\": [{\"id\": \"$error_tracking_issue_created\", \"type\": \"events\"}]\n     }\n\n   Optional per-issue scoping (`created`/`reopened` only): add a `filters.properties` clause\n   on `$exception_issue_id` — for example\n   `[{\"key\": \"$exception_issue_id\", \"value\": \"<issue_uuid>\", \"operator\": \"exact\", \"type\": \"event\"}]`\n   to alert only on a specific known-flaky issue. `$error_tracking_issue_spiking` events carry\n   no exception properties, so spiking alerts cannot be scoped per issue. PostHog's \"alerts\n   configured\" recommendation only checks `filters.events`, so adding property filters does\n   not affect it.\n\n\n5. Slack message body. Mirror the shape the in-product alert wizard produces so agent-created\n   and UI-created alerts look identical. The canonical payloads for every integration are in\n   the `authoring-error-tracking-alerts` skill references.\n\n   For `$error_tracking_issue_created` (Slack):\n\n     inputs = {\n       \"slack_workspace\": {\"value\": <slack_integration_id_int>},\n       \"channel\": {\"value\": \"<channel_id>\"},\n       \"text\": {\"value\": \"New issue created: {event.properties.name}\"},\n       \"blocks\": {\"value\": [\n         {\"type\": \"header\", \"text\": {\"type\": \"plain_text\",\n           \"text\": \"🔴 {event.properties.name}\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"plain_text\", \"text\": \"New issue created\"}},\n         {\"type\": \"section\", \"text\": {\"type\": \"mrkdwn\",\n           \"text\": \"```{substring(event.properties.description, 1, 150)}```\"}},\n         {\"type\": \"context\", \"elements\": [\n           {\"type\": \"plain_text\", \"text\": \"Status: {event.properties.status}\"},\n           {\"type\": \"mrkdwn\", \"text\": \"Project: <{project.url}|{project.name}>\"},\n           {\"type\": \"mrkdwn\", \"text\": \"Alert: <{source.url}|{source.name}>\"}\n         ]},\n         {\"type\": \"divider\"},\n         {\"type\": \"actions\", \"elements\": [\n           {\"type\": \"button\", \"text\": {\"type\": \"plain_text\", \"text\": \"View Issue\"},\n            \"url\": \"{project.url}/error_tracking/fingerprint/{encodeURLComponent(event.properties.fingerprint)}?timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack\"}\n         ]}\n       ]}\n     }\n\n   For `$error_tracking_issue_reopened`, use the same blocks with the header swapped to\n   `🔄 {event.properties.name}`, the section text to `Issue reopened`, and `text` to\n   `Issue reopened: {event.properties.name}`.\n\n   For `$error_tracking_issue_spiking` (Slack), use the same shape but swap the header to\n   `📈 Issue spiking` and add a context line referencing\n   `{event.properties.current_bucket_value}` and `{event.properties.computed_baseline}`. The\n   exact block layout is in the `authoring-error-tracking-alerts` skill references.\n\n\n6. Webhook body. The webhook template only requires `url`:\n\n     inputs = {\"url\": {\"value\": \"<destination_url>\"}}\n\n   Webhooks must be `https://` URLs.\n\n\nEvent property reference — common across all three events: `event.properties.name` (issue title), `event.properties.description` (truncated body), `event.distinct_id` (issue id used in the deep link), `event.properties.fingerprint`, and `event.properties.exception_timestamp`. `created`/`reopened` additionally expose `event.properties.status` and the originating exception's properties (e.g. `$exception_types`, `$exception_issue_id`). Spiking events instead expose `event.properties.current_bucket_value` and `event.properties.computed_baseline` — no status or exception properties. Project context is available as `{project.url}` (already includes `/project/<team_id>`), `{project.name}`, and the alert's own metadata as `{source.url}` and `{source.name}`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/error_tracking/mcp/error_tracking_alerts.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequest_Schema5",
+            "field": "[].type",
+            "effectiveDescription": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_multi` - integration_multi\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes\n* `customer_analytics_account_properties` - customer_analytics_account_properties\n* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n* `task_model` - task_model\n* `task_repository` - task_repository\n* `task_mcp_installations` - task_mcp_installations\n* `signals_scout` - signals_scout\n* `task_skills` - task_skills",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_multi` - integration_multi\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags\n* `posthog_business_hours` - posthog_business_hours\n* `non_failure_status_codes` - non_failure_status_codes\n* `customer_analytics_account_properties` - customer_analytics_account_properties\n* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n* `task_model` - task_model\n* `task_repository` - task_repository\n* `task_mcp_installations` - task_mcp_installations\n* `signals_scout` - signals_scout\n* `task_skills` - task_skills",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/$defs/__schema5/items/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateRequest_Schema8",
+            "field": "source",
+            "effectiveDescription": "* `events` - events\n* `internal-events` - internal-events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `events` - events\n* `internal-events` - internal-events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table\n* `data-warehouse-view` - data-warehouse-view",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/$defs/__schema8/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "type",
+            "effectiveDescription": "Must be `internal_destination` for an error tracking alert. Other values create non-alert HogFunctions and should be created via `cdp-functions-create` instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log\n* `legacy_destination` - Legacy Destination",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Must be `internal_destination` for an error tracking alert. Other values create non-alert HogFunctions and should be created via `cdp-functions-create` instead.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/error_tracking/mcp/error_tracking_alerts.yaml",
+                        "pointer": "/tools/error-tracking-alerts-create/param_overrides/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "name",
+            "effectiveDescription": "Display name for the function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name for the function.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "description",
+            "effectiveDescription": "Human-readable description of what this function does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable description of what this function does.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "enabled",
+            "effectiveDescription": "Whether the alert is active. Defaults to true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the function is active and processing events.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Whether the alert is active. Defaults to true.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/error_tracking/mcp/error_tracking_alerts.yaml",
+                        "pointer": "/tools/error-tracking-alerts-create/param_overrides/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "hog",
+            "effectiveDescription": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "inputs_schema",
+            "effectiveDescription": "Schema defining the configurable input parameters for this function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schema defining the configurable input parameters for this function.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "inputs",
+            "effectiveDescription": "Values for each input defined in inputs_schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Values for each input defined in inputs_schema.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "filters",
+            "effectiveDescription": "Event filters that control which events trigger this function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event filters that control which events trigger this function.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "masking",
+            "effectiveDescription": "PII masking configuration with TTL, threshold, and hash expression.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PII masking configuration with TTL, threshold, and hash expression.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "mappings",
+            "effectiveDescription": "Event-to-destination field mappings. Only for destination and site_destination types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event-to-destination field mappings. Only for destination and site_destination types.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "icon_url",
+            "effectiveDescription": "URL for the function's icon displayed in the UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the function's icon displayed in the UI.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "template_id",
+            "effectiveDescription": "Integration template — one of `template-slack`, `template-webhook`, `template-discord`, `template-microsoft-teams`, `template-linear`, `template-github`, `template-gitlab`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the template to create this function from.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Integration template — one of `template-slack`, `template-webhook`, `template-discord`, `template-microsoft-teams`, `template-linear`, `template-github`, `template-gitlab`.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/error_tracking/mcp/error_tracking_alerts.yaml",
+                        "pointer": "/tools/error-tracking-alerts-create/param_overrides/template_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateInput",
+            "field": "execution_order",
+            "effectiveDescription": "Execution priority for transformations. Lower values run first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Execution priority for transformations. Lower values run first.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape4",
+            "field": "default",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape4/properties/default"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape6",
+            "effectiveDescription": "Values for each input defined in inputs_schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Values for each input defined in inputs_schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape7",
+            "field": "value",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape7/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape7",
+            "field": "bytecode[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape7/properties/bytecode/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape7",
+            "field": "transpiled",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape7/properties/transpiled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape8",
+            "field": "bytecode",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape8/properties/bytecode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape8",
+            "field": "transpiled",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape8/properties/transpiled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape13",
+            "field": "ttl",
+            "effectiveDescription": "Time-to-live in seconds for the masking cache (60–86400).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time-to-live in seconds for the masking cache (60–86400).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape13/properties/ttl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape13",
+            "field": "threshold",
+            "effectiveDescription": "Optional threshold count before masking applies.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional threshold count before masking applies.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape13/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape13",
+            "field": "hash",
+            "effectiveDescription": "Hog expression used to compute the masking hash.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog expression used to compute the masking hash.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape13/properties/hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape13",
+            "field": "bytecode",
+            "effectiveDescription": "Compiled bytecode for the hash expression. Auto-generated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compiled bytecode for the hash expression. Auto-generated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape13/properties/bytecode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "id",
+            "effectiveDescription": "Unique template identifier (e.g. 'template-slack').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique template identifier (e.g. 'template-slack').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "name",
+            "effectiveDescription": "Display name of the template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "description",
+            "effectiveDescription": "What this template does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this template does.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "code",
+            "effectiveDescription": "Source code of the template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source code of the template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "code_language",
+            "effectiveDescription": "Programming language: 'hog' or 'javascript'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Programming language: 'hog' or 'javascript'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/code_language"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "inputs_schema",
+            "effectiveDescription": "Schema defining configurable inputs for functions created from this template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schema defining configurable inputs for functions created from this template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/inputs_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "type",
+            "effectiveDescription": "Function type this template creates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function type this template creates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "status",
+            "effectiveDescription": "Lifecycle status: alpha, beta, stable, deprecated, or hidden.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle status: alpha, beta, stable, deprecated, or hidden.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "category",
+            "effectiveDescription": "Category tags for organizing templates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Category tags for organizing templates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "free",
+            "effectiveDescription": "Whether available on free plans.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether available on free plans.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/free"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "icon_url",
+            "effectiveDescription": "URL for the template's icon.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the template's icon.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/icon_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "filters",
+            "effectiveDescription": "Default event filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default event filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "masking",
+            "effectiveDescription": "Default PII masking configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default PII masking configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/masking"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape16",
+            "field": "mapping_templates",
+            "effectiveDescription": "Pre-defined mapping configurations for destination templates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pre-defined mapping configurations for destination templates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/mapping_templates"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape17",
+            "field": "name",
+            "effectiveDescription": "Name of this mapping template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of this mapping template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape17",
+            "field": "include_by_default",
+            "effectiveDescription": "Whether this mapping is enabled by default.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this mapping is enabled by default.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/include_by_default"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape17",
+            "field": "use_all_events_by_default",
+            "effectiveDescription": "Whether this mapping should match all events by default, hiding the event filter UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this mapping should match all events by default, hiding the event filter UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/use_all_events_by_default"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape17",
+            "field": "filters",
+            "effectiveDescription": "Event filters specific to this mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event filters specific to this mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape17",
+            "field": "inputs",
+            "effectiveDescription": "Input values specific to this mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Input values specific to this mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/inputs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateResponseShape17",
+            "field": "inputs_schema",
+            "effectiveDescription": "Additional input schema fields specific to this mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Additional input schema fields specific to this mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/inputs_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "type",
+            "effectiveDescription": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log\n* `legacy_destination` - Legacy Destination",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log\n* `legacy_destination` - Legacy Destination",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "name",
+            "effectiveDescription": "Display name for the function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name for the function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "description",
+            "effectiveDescription": "Human-readable description of what this function does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable description of what this function does.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "enabled",
+            "effectiveDescription": "Whether the function is active and processing events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the function is active and processing events.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "deleted",
+            "effectiveDescription": "Soft-delete flag. Set to true to archive the function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Soft-delete flag. Set to true to archive the function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "hog",
+            "effectiveDescription": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/hog"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "bytecode",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/bytecode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "inputs_schema",
+            "effectiveDescription": "Schema defining the configurable input parameters for this function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schema defining the configurable input parameters for this function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/inputs_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "inputs",
+            "effectiveDescription": "Values for each input defined in inputs_schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Values for each input defined in inputs_schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/inputs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "filters",
+            "effectiveDescription": "Event filters that control which events trigger this function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event filters that control which events trigger this function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "masking",
+            "effectiveDescription": "PII masking configuration with TTL, threshold, and hash expression.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PII masking configuration with TTL, threshold, and hash expression.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/masking"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "mappings",
+            "effectiveDescription": "Event-to-destination field mappings. Only for destination and site_destination types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event-to-destination field mappings. Only for destination and site_destination types.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/mappings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "icon_url",
+            "effectiveDescription": "URL for the function's icon displayed in the UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the function's icon displayed in the UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/icon_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "template_id",
+            "effectiveDescription": "ID of the template to create this function from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the template to create this function from.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/template_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "execution_order",
+            "effectiveDescription": "Execution priority for transformations. Lower values run first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Execution priority for transformations. Lower values run first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/execution_order"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "search_match_type",
+            "effectiveDescription": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/search_match_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "version",
+            "effectiveDescription": "Incremented every time the live config changes. See the revisions endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Incremented every time the live config changes. See the revisions endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "draft",
+            "effectiveDescription": "Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/draft"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "draft_updated_at",
+            "effectiveDescription": "When config was last staged for review, or null when nothing is staged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When config was last staged for review, or null when nothing is staged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/draft_updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsCreateData",
+            "field": "base_updated_at",
+            "effectiveDescription": "Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/base_updated_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "integrations-list",
+            "method": "integrations.integrationsList"
+        },
+        {
+            "toolName": "integrations-channels-retrieve",
+            "method": "integrations.integrationsChannelsRetrieve"
+        },
+        {
+            "toolName": "error-tracking-alerts-list",
+            "method": "errorTrackingAlerts.errorTrackingAlertsList"
+        },
+        {
+            "toolName": "error-tracking-alerts-partial-update",
+            "method": "errorTrackingAlerts.errorTrackingAlertsPartialUpdate"
+        }
+    ]
+}

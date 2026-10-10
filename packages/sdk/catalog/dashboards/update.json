@@ -1,0 +1,1856 @@
+{
+    "method": "dashboards.update",
+    "toolName": "dashboard-update",
+    "operationId": "dashboards_partial_update",
+    "title": "Update dashboard",
+    "category": "Dashboards",
+    "description": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+    "requiredScopes": ["dashboard:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/dashboards/client.ts",
+    "input": {
+        "name": "DashboardsUpdateInput",
+        "importPath": "@posthog/sdk/dashboards",
+        "source": "src/generated/dashboards/update.ts",
+        "declaration": "dist/generated/dashboards/update.d.ts"
+    },
+    "output": {
+        "name": "DashboardsUpdateOutput",
+        "importPath": "@posthog/sdk/dashboards",
+        "source": "src/generated/dashboards/update.ts",
+        "declaration": "dist/generated/dashboards/update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DashboardsUpdateRequestBreakdownColorConfigSourceEnum",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestNullEnum",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestBreakdownColorConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestDashboardPatchTileOpenApiLayoutsSm",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestDashboardPatchTileOpenApiLayoutsXs",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestDashboardPatchTileOpenApiLayouts",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestDashboardPatchTileOpenApiWidgetWidgetType",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestNotebookWidgetConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestWidgetDateRangeDateFrom",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestWidgetDateRange",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestPropertyOperator",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestWidgetFilterEntry",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestActivityEventsPropertyFilterType",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestActivityEventsPropertyFilter",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestActivityEventsListWidgetConfigWidgetFilters",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestActivityEventsListWidgetConfigWidgetFiltersVariant1",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestActivityEventsListWidgetConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestErrorTrackingListWidgetConfigOrderBy",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestErrorTrackingListWidgetConfigOrderDirection",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestErrorTrackingListWidgetConfigStatus",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestWidgetAssigneeFilterType",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestWidgetAssigneeFilter",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestErrorTrackingListWidgetConfigWidgetFilters",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestErrorTrackingListWidgetConfigWidgetFiltersVariant1",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestErrorTrackingListWidgetConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestSessionReplayListWidgetConfigOrderBy",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestSessionReplayListWidgetConfigOrderDirection",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestSessionReplayListWidgetConfigWidgetFilters",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestSessionReplayListWidgetConfigWidgetFiltersVariant1",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestSessionReplayListWidgetConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestExperimentsListWidgetConfigOrderBy",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestExperimentsListWidgetConfigOrderDirection",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestExperimentsListWidgetConfigStatus",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestExperimentsListWidgetConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestExperimentResultsWidgetConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestSurveyResultsWidgetConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestLogsListWidgetConfigOrderBy",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestLogsListWidgetConfigSeverityLevelsItem",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestLogsListWidgetConfigTimezone",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestLogsListWidgetConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfigStatus",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfigPrioritiesItem",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfigChannel",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestCanvasAppWidgetConfig",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestDashboardPatchTileOpenApiWidget",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateInputFilters",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateInputGridSpacing",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateInputLayoutCompaction",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateResponseRoleAtOrganizationEnumWithoutNulls",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateResponseBlankEnumWithoutNulls",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateResponseNullEnumWithoutNulls",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateDataCreatedBy",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateDataFilters",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateDataVariables",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateDataPersistedFilters",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateDataPersistedVariables",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateDataCustomizationTileSpacing",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateDataCustomizationLayoutCompaction",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateDataCustomization",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateDataTiles",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateDataTilesVariant1",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        },
+        {
+            "name": "DashboardsUpdateData",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/update.ts",
+            "declaration": "dist/generated/dashboards/update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned status, tags, filters, and restriction level 21. Legacy value 37 is deprecated and rejected by the API. After you create or add insight tiles, call dashboard-get to get their tile IDs, then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set each tile's width and height for its content and importance. Width can be any whole number from 1 to 12, subject to the tile's minimum size. Mixed rows such as 8-wide and 4-wide tiles can show hierarchy. A write replaces the tile's whole layout, so send a complete box, not just the value you want to change. Boxes are stored as sent and overlaps are not resolved, so plan the whole grid and send every tile you move in one request. Only set `layouts.sm`: the dashboard derives the mobile layout from the sm order and heights. Use dashboard-reorder-tiles only to repack the whole dashboard with preserved or uniform tile sizes. The same `tiles` array also updates a widget tile's own settings: add a nested `widget.id` from dashboard-get plus the fields to change (`config`, `name`, `description`). That is the same PATCH path the UI uses, but prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/dashboards/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DashboardsUpdateRequestBreakdownColorConfig",
+            "field": "breakdownValue",
+            "effectiveDescription": "The breakdown value this color applies to, as it appears in the chart legend.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The breakdown value this color applies to, as it appears in the chart legend.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfig/properties/breakdownValue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestBreakdownColorConfig",
+            "field": "colorToken",
+            "effectiveDescription": "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Palette slot to color the value with, as `preset-1` upwards. Not a CSS color: a hex value is rejected. Null leaves the value on its default color.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfig/properties/colorToken"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestBreakdownColorConfig",
+            "field": "breakdownType",
+            "effectiveDescription": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfig/properties/breakdownType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestBreakdownColorConfig",
+            "field": "breakdownProperty",
+            "effectiveDescription": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfig/properties/breakdownProperty"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestBreakdownColorConfig",
+            "field": "source",
+            "effectiveDescription": "`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n* `auto` - auto\n* `manual` - manual",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`manual` for a color a person picked, `auto` for one the dashboard assigned.\n\n* `auto` - auto\n* `manual` - manual",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfig/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestBreakdownColorConfigSourceEnum",
+            "effectiveDescription": "* `auto` - auto\n* `manual` - manual",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `auto` - auto\n* `manual` - manual",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BreakdownColorConfigSourceEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "id",
+            "effectiveDescription": "Dashboard tile ID to update.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard tile ID to update.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchTileOpenApi/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts",
+            "effectiveDescription": "Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Grid position and size per breakpoint. Works for every tile type, including insight tiles. A write replaces the tile's whole layout, so send a complete sm box rather than the one value you want to change. Boxes are stored as sent and overlaps are not resolved, so send sm boxes that do not overlap, and include every tile you move in the same request.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchTileOpenApi/properties/layouts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts.sm",
+            "effectiveDescription": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. A write replaces the tile's whole layout and the dashboard reads desktop placement from this box, so send it whenever you send layouts.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_DashboardPatchTileLayoutsOpenApi/properties/sm"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts.sm.x",
+            "effectiveDescription": "Column position in the dashboard grid (0-indexed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column position in the dashboard grid (0-indexed).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_DashboardPatchTileLayoutBoxOpenApi/properties/x"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts.sm.y",
+            "effectiveDescription": "Row position in the dashboard grid (0-indexed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Row position in the dashboard grid (0-indexed).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_DashboardPatchTileLayoutBoxOpenApi/properties/y"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts.sm.w",
+            "effectiveDescription": "Width in grid columns. The desktop grid is 12 columns wide.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Width in grid columns. The desktop grid is 12 columns wide.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_DashboardPatchTileLayoutBoxOpenApi/properties/w"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts.sm.h",
+            "effectiveDescription": "Height in grid rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Height in grid rows.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_DashboardPatchTileLayoutBoxOpenApi/properties/h"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts.xs",
+            "effectiveDescription": "Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Layout for the small (mobile) breakpoint, on a 1-column grid. The dashboard derives this layout from the sm order and heights, so a stored xs box does not change what renders.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_DashboardPatchTileLayoutsOpenApi/properties/xs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts.xs.x",
+            "effectiveDescription": "Column position in the dashboard grid (0-indexed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column position in the dashboard grid (0-indexed).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_DashboardPatchTileLayoutBoxOpenApi/properties/x"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts.xs.y",
+            "effectiveDescription": "Row position in the dashboard grid (0-indexed).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Row position in the dashboard grid (0-indexed).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_DashboardPatchTileLayoutBoxOpenApi/properties/y"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts.xs.w",
+            "effectiveDescription": "Width in grid columns. The desktop grid is 12 columns wide.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Width in grid columns. The desktop grid is 12 columns wide.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_DashboardPatchTileLayoutBoxOpenApi/properties/w"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "layouts.xs.h",
+            "effectiveDescription": "Height in grid rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Height in grid rows.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_DashboardPatchTileLayoutBoxOpenApi/properties/h"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "show_description",
+            "effectiveDescription": "Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchTileOpenApi/properties/show_description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "widget",
+            "effectiveDescription": "Nested widget row updates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Nested widget row updates.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchTileOpenApi/properties/widget"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "widget.id",
+            "effectiveDescription": "Existing widget row ID when updating a widget tile via dashboard PATCH.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Existing widget row ID when updating a widget tile via dashboard PATCH.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchWidgetOpenApi/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "widget.widget_type",
+            "effectiveDescription": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `canvas_app` - canvas_app\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `notebook_widget` - notebook_widget\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `canvas_app` - canvas_app\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `notebook_widget` - notebook_widget\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchWidgetOpenApi/properties/widget_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "widget.config",
+            "effectiveDescription": "Widget-specific configuration. Shape depends on the tile's widget_type.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Widget-specific configuration. Shape depends on the tile's widget_type.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchWidgetOpenApi/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "widget.name",
+            "effectiveDescription": "Optional custom display name for the widget tile.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional custom display name for the widget tile.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchWidgetOpenApi/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestDashboardPatchTileOpenApi",
+            "field": "widget.description",
+            "effectiveDescription": "Optional markdown description shown when show_description is enabled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional markdown description shown when show_description is enabled.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardPatchWidgetOpenApi/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestNotebookWidgetConfig",
+            "field": "notebookShortId",
+            "effectiveDescription": "Source notebook short ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source notebook short ID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/NotebookWidgetConfig/properties/notebookShortId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestNotebookWidgetConfig",
+            "field": "snapshotId",
+            "effectiveDescription": "Immutable notebook widget snapshot. Add one from a notebook widget's menu.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Immutable notebook widget snapshot. Add one from a notebook widget's menu.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/NotebookWidgetConfig/properties/snapshotId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestActivityEventsListWidgetConfig",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of events to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of events to return.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ActivityEventsListWidgetConfig/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestActivityEventsListWidgetConfig",
+            "field": "eventName",
+            "effectiveDescription": "Limit the feed to a single event name. Omit or null for all events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Limit the feed to a single event name. Omit or null for all events.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ActivityEventsListWidgetConfig/properties/eventName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestActivityEventsListWidgetConfig",
+            "field": "properties",
+            "effectiveDescription": "Event and person property filters, matching Activity > Explore events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event and person property filters, matching Activity > Explore events.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ActivityEventsListWidgetConfig/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestErrorTrackingListWidgetConfig",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of issues to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of issues to return.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ErrorTrackingListWidgetConfig/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestErrorTrackingListWidgetConfig",
+            "field": "orderBy",
+            "effectiveDescription": "Issue ranking column.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue ranking column.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ErrorTrackingListWidgetConfig/properties/orderBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestErrorTrackingListWidgetConfig",
+            "field": "orderDirection",
+            "effectiveDescription": "Sort direction for orderBy.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort direction for orderBy.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ErrorTrackingListWidgetConfig/properties/orderDirection"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestErrorTrackingListWidgetConfig",
+            "field": "status",
+            "effectiveDescription": "Issue status filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Issue status filter.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ErrorTrackingListWidgetConfig/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestErrorTrackingListWidgetConfig",
+            "field": "assignee",
+            "effectiveDescription": "Filter by assignee ({type: user|role, id}). Omit for any assignee.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by assignee ({type: user|role, id}). Omit for any assignee.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ErrorTrackingListWidgetConfig/properties/assignee"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestSessionReplayListWidgetConfig",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of recordings to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of recordings to return.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SessionReplayListWidgetConfig/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestSessionReplayListWidgetConfig",
+            "field": "orderBy",
+            "effectiveDescription": "Recording ranking column.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Recording ranking column.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SessionReplayListWidgetConfig/properties/orderBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestSessionReplayListWidgetConfig",
+            "field": "orderDirection",
+            "effectiveDescription": "Sort direction for orderBy.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort direction for orderBy.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SessionReplayListWidgetConfig/properties/orderDirection"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestSessionReplayListWidgetConfig",
+            "field": "savedFilterId",
+            "effectiveDescription": "short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SessionReplayListWidgetConfig/properties/savedFilterId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestSessionReplayListWidgetConfig",
+            "field": "collectionId",
+            "effectiveDescription": "short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SessionReplayListWidgetConfig/properties/collectionId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestExperimentsListWidgetConfig",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of experiments to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of experiments to return.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentsListWidgetConfig/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestExperimentsListWidgetConfig",
+            "field": "orderBy",
+            "effectiveDescription": "Experiment list sort column.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment list sort column.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentsListWidgetConfig/properties/orderBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestExperimentsListWidgetConfig",
+            "field": "orderDirection",
+            "effectiveDescription": "Sort direction for orderBy.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort direction for orderBy.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentsListWidgetConfig/properties/orderDirection"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestExperimentsListWidgetConfig",
+            "field": "status",
+            "effectiveDescription": "Experiment status filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment status filter.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentsListWidgetConfig/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestExperimentsListWidgetConfig",
+            "field": "createdBy",
+            "effectiveDescription": "Filter by creator (user id). Omit for any creator.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by creator (user id). Omit for any creator.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentsListWidgetConfig/properties/createdBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestExperimentResultsWidgetConfig",
+            "field": "experimentId",
+            "effectiveDescription": "Experiment to show results for. Null until the user picks one in the widget settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment to show results for. Null until the user picks one in the widget settings.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentResultsWidgetConfig/properties/experimentId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestSurveyResultsWidgetConfig",
+            "field": "dateRange",
+            "effectiveDescription": "Null or omitted means all time (the survey's full lifetime).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Null or omitted means all time (the survey's full lifetime).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SurveyResultsWidgetConfig/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestSurveyResultsWidgetConfig",
+            "field": "surveyId",
+            "effectiveDescription": "Survey to show performance stats and recent responses for. Null until the user picks one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Survey to show performance stats and recent responses for. Null until the user picks one.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SurveyResultsWidgetConfig/properties/surveyId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestSurveyResultsWidgetConfig",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of recent responses to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of recent responses to return.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SurveyResultsWidgetConfig/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestLogsListWidgetConfig",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of log lines to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of log lines to return.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/LogsListWidgetConfig/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestLogsListWidgetConfig",
+            "field": "orderBy",
+            "effectiveDescription": "Sort by newest (latest) or oldest (earliest) first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort by newest (latest) or oldest (earliest) first.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/LogsListWidgetConfig/properties/orderBy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestLogsListWidgetConfig",
+            "field": "severityLevels",
+            "effectiveDescription": "Only show logs at these severity levels. Empty shows all levels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only show logs at these severity levels. Empty shows all levels.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/LogsListWidgetConfig/properties/severityLevels"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestLogsListWidgetConfig",
+            "field": "serviceNames",
+            "effectiveDescription": "Only show logs from these services. Empty shows all services.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only show logs from these services. Empty shows all services.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/LogsListWidgetConfig/properties/serviceNames"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestLogsListWidgetConfig",
+            "field": "wrapLines",
+            "effectiveDescription": "Wrap long log lines instead of truncating them to a single row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Wrap long log lines instead of truncating them to a single row.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/LogsListWidgetConfig/properties/wrapLines"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestLogsListWidgetConfig",
+            "field": "timezone",
+            "effectiveDescription": "Render log timestamps in UTC or in each viewer's local timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Render log timestamps in UTC or in each viewer's local timezone.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/LogsListWidgetConfig/properties/timezone"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestLogsListWidgetConfig",
+            "field": "savedViewId",
+            "effectiveDescription": "short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/LogsListWidgetConfig/properties/savedViewId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfig",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of tickets to return.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of tickets to return.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ConversationsRecentTicketsWidgetConfig/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfig",
+            "field": "status",
+            "effectiveDescription": "Ticket status filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket status filter.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ConversationsRecentTicketsWidgetConfig/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfig",
+            "field": "priorities",
+            "effectiveDescription": "Only show tickets with these priorities. Empty shows all priorities.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only show tickets with these priorities. Empty shows all priorities.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ConversationsRecentTicketsWidgetConfig/properties/priorities"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfig",
+            "field": "channel",
+            "effectiveDescription": "Ticket channel filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ticket channel filter.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ConversationsRecentTicketsWidgetConfig/properties/channel"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfig",
+            "field": "assignees",
+            "effectiveDescription": "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only show tickets assigned to these users or roles. 'me' means the requesting user and 'unassigned' means tickets without an assignment. Empty shows all assignees.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ConversationsRecentTicketsWidgetConfig/properties/assignees"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfig",
+            "field": "search",
+            "effectiveDescription": "Search requester name or email, ticket subject, message text, or ticket number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search requester name or email, ticket subject, message text, or ticket number.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ConversationsRecentTicketsWidgetConfig/properties/search"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestConversationsRecentTicketsWidgetConfig",
+            "field": "savedViewId",
+            "effectiveDescription": "short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "short_id of a saved Support view to use as the source. When set, the saved view owns the ticket filters; the widget still sorts by most recently updated and applies its limit.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ConversationsRecentTicketsWidgetConfig/properties/savedViewId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateRequestCanvasAppWidgetConfig",
+            "field": "canvasId",
+            "effectiveDescription": "Canvas to render in the tile. Null until the user picks one in the widget settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canvas to render in the tile. Null until the user picks one in the widget settings.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CanvasAppWidgetConfig/properties/canvasId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this dashboard.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1dashboards~1{id}~1/patch/parameters/1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "include_dashboards",
+            "effectiveDescription": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1dashboards~1{id}~1/patch/parameters/2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "filters",
+            "effectiveDescription": "Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "filters.date_from",
+            "effectiveDescription": "Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardFiltersOpenApi/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "filters.date_to",
+            "effectiveDescription": "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardFiltersOpenApi/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "filters.properties",
+            "effectiveDescription": "Dashboard-level property filters applied to every tile (PostHog property filter group).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard-level property filters applied to every tile (PostHog property filter group).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardFiltersOpenApi/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "breakdown_colors",
+            "effectiveDescription": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/breakdown_colors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "data_color_theme_id",
+            "effectiveDescription": "ID of the color theme used for chart visualizations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the color theme used for chart visualizations.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/data_color_theme_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "restriction_level",
+            "effectiveDescription": "Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.\n",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only restriction level 21 is accepted on create and update. Legacy value 37 is deprecated and rejected.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/restriction_level"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.\n",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/dashboards/mcp/tools.yaml",
+                        "pointer": "/tools/dashboard-update/param_overrides/restriction_level/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "quick_filter_ids",
+            "effectiveDescription": "List of quick filter IDs associated with this dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of quick filter IDs associated with this dashboard.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/quick_filter_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "grid_spacing",
+            "effectiveDescription": "Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Named tile density preset. Use tight, condensed, standard, relaxed, or wide.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/grid_spacing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "layout_compaction",
+            "effectiveDescription": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "tiles",
+            "effectiveDescription": "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/tiles"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "use_template",
+            "effectiveDescription": "Template key to create the dashboard from a predefined template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Template key to create the dashboard from a predefined template.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/use_template"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "use_dashboard",
+            "effectiveDescription": "ID of an existing dashboard to duplicate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of an existing dashboard to duplicate.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/use_dashboard"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateInput",
+            "field": "delete_insights",
+            "effectiveDescription": "When deleting, also delete insights that are only on this dashboard.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When deleting, also delete insights that are only on this dashboard.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PatchedPatchedDashboardOpenApi/properties/delete_insights"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateResponseRoleAtOrganizationEnumWithoutNulls",
+            "effectiveDescription": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/RoleAtOrganizationEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateData",
+            "effectiveDescription": "Serializer mixin that handles tags for objects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer mixin that handles tags for objects.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Dashboard"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateData",
+            "field": "folder",
+            "effectiveDescription": "Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Path of the project-tree folder this dashboard is filed under in the file system, e.g. 'Unfiled/Dashboards'. An empty string means the project root; null means the dashboard has no file system entry. The dashboard's own name is not part of the path.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Dashboard/properties/folder"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateData",
+            "field": "file_system_id",
+            "effectiveDescription": "Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of this dashboard's file system entry, or null when it has none. Together with `file_system_path` this is everything a caller needs to move the dashboard between folders, so a list page does not have to look the entry up separately.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Dashboard/properties/file_system_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateData",
+            "field": "file_system_path",
+            "effectiveDescription": "Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full path of this dashboard's file system entry, e.g. 'Unfiled/Dashboards/Revenue'. Unlike `folder` this keeps the dashboard's own name as the last segment, which is what a move needs in order to compute the destination path. Null when it has no entry.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Dashboard/properties/file_system_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateData",
+            "field": "customization",
+            "effectiveDescription": "Dashboard display settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Dashboard display settings.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Dashboard/properties/customization"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateData",
+            "field": "customization.tile_spacing",
+            "effectiveDescription": "Named tile density preset.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Named tile density preset.\n\n* `tight` - tight\n* `condensed` - condensed\n* `standard` - standard\n* `relaxed` - relaxed\n* `wide` - wide",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardCustomization/properties/tile_spacing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateData",
+            "field": "customization.layout_compaction",
+            "effectiveDescription": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n* `vertical` - vertical\n* `horizontal` - horizontal\n* `stable` - stable",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardCustomization/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsUpdateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL of this resource in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL of this resource in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

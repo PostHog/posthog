@@ -1,0 +1,811 @@
+{
+    "method": "endpoints.endpointGet",
+    "toolName": "endpoint-get",
+    "operationId": "endpoints_retrieve",
+    "title": "Get endpoint",
+    "category": "Endpoints",
+    "description": "Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version info, materialization status, and column types. Supports ?version=N to retrieve a specific version.",
+    "requiredScopes": ["endpoint:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/endpoints/client.ts",
+    "input": {
+        "name": "EndpointsEndpointGetInput",
+        "importPath": "@posthog/sdk/endpoints",
+        "source": "src/generated/endpoints/endpoint-get.ts",
+        "declaration": "dist/generated/endpoints/endpoint-get.d.ts"
+    },
+    "output": {
+        "name": "EndpointsEndpointGetOutput",
+        "importPath": "@posthog/sdk/endpoints",
+        "source": "src/generated/endpoints/endpoint-get.ts",
+        "declaration": "dist/generated/endpoints/endpoint-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EndpointsEndpointGetRequestSchema0",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-get.ts",
+            "declaration": "dist/generated/endpoints/endpoint-get.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointGetResponseShape3",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-get.ts",
+            "declaration": "dist/generated/endpoints/endpoint-get.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointGetResponseShape2",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-get.ts",
+            "declaration": "dist/generated/endpoints/endpoint-get.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointGetResponseShape4",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-get.ts",
+            "declaration": "dist/generated/endpoints/endpoint-get.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointGetResponseShape5",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-get.ts",
+            "declaration": "dist/generated/endpoints/endpoint-get.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointGetResponseShape6",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-get.ts",
+            "declaration": "dist/generated/endpoints/endpoint-get.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointGetData",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-get.ts",
+            "declaration": "dist/generated/endpoints/endpoint-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Retrieve an endpoint, or a specific version via ?version=N.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1endpoints~1{name}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get a specific endpoint by name. Returns the full endpoint configuration including query definition, version info, materialization status, and column types. Supports ?version=N to retrieve a specific version.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/endpoints/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EndpointsEndpointGetInput",
+            "field": "name",
+            "effectiveDescription": "URL-safe name for the endpoint",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL-safe name for the endpoint",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/endpoints/{name}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetInput",
+            "field": "version",
+            "effectiveDescription": "Endpoint version to act on. Defaults to the current version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Endpoint version to act on. Defaults to the current version.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/endpoints/{name}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape4",
+            "effectiveDescription": "Materialization status for an endpoint version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Materialization status for an endpoint version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape4",
+            "field": "name",
+            "effectiveDescription": "URL-safe endpoint name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL-safe endpoint name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape4",
+            "field": "enabled",
+            "effectiveDescription": "Whether materialization is enabled for this endpoint version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether materialization is enabled for this endpoint version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape4",
+            "field": "ready",
+            "effectiveDescription": "Whether a successful materialization is available to serve.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a successful materialization is available to serve.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/ready"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape4",
+            "field": "status",
+            "effectiveDescription": "Current materialization status (e.g. 'Completed', 'Running').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current materialization status (e.g. 'Completed', 'Running').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape4",
+            "field": "can_materialize",
+            "effectiveDescription": "Whether this endpoint query can be materialized.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this endpoint query can be materialized.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/can_materialize"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape4",
+            "field": "reason",
+            "effectiveDescription": "Reason why materialization is not possible (only when can_materialize is false).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reason why materialization is not possible (only when can_materialize is false).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape4",
+            "field": "last_materialized_at",
+            "effectiveDescription": "ISO 8601 timestamp of the last successful materialization.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 timestamp of the last successful materialization.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/last_materialized_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape4",
+            "field": "error",
+            "effectiveDescription": "Last materialization error message, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last materialization error message, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape4",
+            "field": "saved_query_id",
+            "effectiveDescription": "UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape4/properties/saved_query_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape6",
+            "effectiveDescription": "A column in the endpoint's query result.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A column in the endpoint's query result.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape6",
+            "field": "name",
+            "effectiveDescription": "Column name from the query SELECT clause.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column name from the query SELECT clause.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape6/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetResponseShape6",
+            "field": "type",
+            "effectiveDescription": "Serialized column type: integer, float, string, datetime, date, boolean, array, json, or unknown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serialized column type: integer, float, string, datetime, date, boolean, array, json, or unknown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape6/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "id",
+            "effectiveDescription": "Unique endpoint identifier (UUID).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique endpoint identifier (UUID).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "name",
+            "effectiveDescription": "URL-safe endpoint name, unique per team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL-safe endpoint name, unique per team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "description",
+            "effectiveDescription": "Human-readable description of the endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable description of the endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "query",
+            "effectiveDescription": "The HogQL or insight query definition (JSON object with 'kind' key).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The HogQL or insight query definition (JSON object with 'kind' key).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "is_active",
+            "effectiveDescription": "Whether the endpoint can be executed via the API.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the endpoint can be executed via the API.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/is_active"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "data_freshness_seconds",
+            "effectiveDescription": "How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How fresh the data is, in seconds. One of: 900, 1800, 3600, 21600, 43200, 86400, 604800.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/data_freshness_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "endpoint_path",
+            "effectiveDescription": "Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative API path to execute this endpoint (e.g. /api/projects/{team_id}/endpoints/{name}/run).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/endpoint_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "url",
+            "effectiveDescription": "Absolute URL to execute this endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute URL to execute this endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "ui_url",
+            "effectiveDescription": "Absolute URL to view this endpoint in the PostHog UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute URL to view this endpoint in the PostHog UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/ui_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "created_at",
+            "effectiveDescription": "When the endpoint was created (ISO 8601).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the endpoint was created (ISO 8601).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "updated_at",
+            "effectiveDescription": "When the endpoint was last updated (ISO 8601).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the endpoint was last updated (ISO 8601).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "created_by",
+            "effectiveDescription": "User who created the endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created the endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "is_materialized",
+            "effectiveDescription": "Whether the current version's results are pre-computed to S3.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the current version's results are pre-computed to S3.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/is_materialized"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "current_version",
+            "effectiveDescription": "Latest version number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest version number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/current_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "current_version_id",
+            "effectiveDescription": "UUID of the current EndpointVersion row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the current EndpointVersion row.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/current_version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "versions_count",
+            "effectiveDescription": "Total number of versions for this endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of versions for this endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/versions_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "derived_from_insight",
+            "effectiveDescription": "Short ID of the source insight, if derived from one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short ID of the source insight, if derived from one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/derived_from_insight"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "last_executed_at",
+            "effectiveDescription": "When this specific version was last executed via the API (ISO 8601), or null if it hasn't been executed. Per-version tracking is recent, so versions that predate it read null until their next run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this specific version was last executed via the API (ISO 8601), or null if it hasn't been executed. Per-version tracking is recent, so versions that predate it read null until their next run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/last_executed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "materialization",
+            "effectiveDescription": "Materialization status and configuration for the current version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Materialization status and configuration for the current version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/materialization"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "bucket_overrides",
+            "effectiveDescription": "Per-column bucket overrides for range variable materialization.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-column bucket overrides for range variable materialization.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/bucket_overrides"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "columns",
+            "effectiveDescription": "Column names and types from the query's SELECT clause.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column names and types from the query's SELECT clause.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "tags",
+            "effectiveDescription": "Tag names associated with this endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tag names associated with this endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "optional_breakdown_properties",
+            "effectiveDescription": "Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/optional_breakdown_properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "version",
+            "effectiveDescription": "Version number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "version_id",
+            "effectiveDescription": "Version unique identifier (UUID).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version unique identifier (UUID).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/version_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "endpoint_is_active",
+            "effectiveDescription": "Whether the parent endpoint is active (distinct from version.is_active).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the parent endpoint is active (distinct from version.is_active).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/endpoint_is_active"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "version_created_at",
+            "effectiveDescription": "ISO 8601 timestamp when this version was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 timestamp when this version was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/version_created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "version_updated_at",
+            "effectiveDescription": "ISO 8601 timestamp when this version was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 timestamp when this version was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/version_updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "version_created_by",
+            "effectiveDescription": "User who created this version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created this version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/version_created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointGetData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

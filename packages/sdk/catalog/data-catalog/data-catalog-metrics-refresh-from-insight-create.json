@@ -1,0 +1,380 @@
+{
+    "method": "dataCatalog.dataCatalogMetricsRefreshFromInsightCreate",
+    "toolName": "data-catalog-metrics-refresh-from-insight-create",
+    "operationId": "data_catalog_metrics_refresh_from_insight_create",
+    "title": "Refresh a metric from its insight",
+    "category": "Data catalog",
+    "description": "Re-snapshot the linked insight's current query into the metric's definition to clear drift (is_drifted). If the snapshot changes the definition of an approved metric, the metric resets to 'proposed' and must be re-approved by a human. Use this to unblock approving a drifted metric; alternatively unlink or redefine it. The metric must have a source_insight_short_id.",
+    "requiredScopes": ["data_catalog:write", "insight:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-catalog/client.ts",
+    "input": {
+        "name": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateInput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.d.ts"
+    },
+    "output": {
+        "name": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateOutput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateResponseShape2",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateResponseShape4",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateResponseShape3",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-metrics-refresh-from-insight-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Re-snapshot the linked insight's current query into the definition.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1data_catalog~1metrics~1{name}~1refresh_from_insight~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Re-snapshot the linked insight's current query into the metric's definition to clear drift (is_drifted). If the snapshot changes the definition of an approved metric, the metric resets to 'proposed' and must be re-approved by a human. Use this to unblock approving a drifted metric; alternatively unlink or redefine it. The metric must have a source_insight_short_id.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_catalog/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateInput",
+            "field": "name",
+            "effectiveDescription": "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse; references to the old name stop resolving.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse; references to the old name stop resolving.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/metrics/{name}/refresh_from_insight/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "name",
+            "effectiveDescription": "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse, and anything referencing the old name (SQL over information_schema.metrics, run URLs, links) stops resolving.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "display_name",
+            "effectiveDescription": "Human-friendly label. Mutable, unlike name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-friendly label. Mutable, unlike name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/display_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "description",
+            "effectiveDescription": "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the number is, in 1-2 short sentences under 300 characters: its meaning and grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. Never narrate the query - the definition carries the mechanics; put rationale for query choices in 'reasoning'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "unit",
+            "effectiveDescription": "Unit of the result, e.g. usd, percent, cents.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unit of the result, e.g. usd, percent, cents.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/unit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "owner",
+            "effectiveDescription": "Email of the human accountable for this metric, or null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email of the human accountable for this metric, or null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/owner"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "definition",
+            "effectiveDescription": "Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/definition"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "definition_kind",
+            "effectiveDescription": "Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Query kind of the definition (HogQLQuery, TrendsQuery, ...), or null for a stub.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/definition_kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "referenced_table_names",
+            "effectiveDescription": "Tables the definition directly references, extracted at write time for the catalog's denied-table filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tables the definition directly references, extracted at write time for the catalog's denied-table filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/referenced_table_names"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "status",
+            "effectiveDescription": "Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "is_drifted",
+            "effectiveDescription": "True when the definition has drifted from its linked source insight (or the insight is gone).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the definition has drifted from its linked source insight (or the insight is gone).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/is_drifted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "approved_by",
+            "effectiveDescription": "User who approved this metric as canonical, or null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who approved this metric as canonical, or null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/approved_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "source_insight_short_id",
+            "effectiveDescription": "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/source_insight_short_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "last_run_at",
+            "effectiveDescription": "When the metric was last run (30-minute throttle).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the metric was last run (30-minute throttle).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/last_run_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "created_source",
+            "effectiveDescription": "Whether a human ('user') or an agent ('ai_generated') authored this metric.\n\n* `user` - user\n* `ai_generated` - ai_generated",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a human ('user') or an agent ('ai_generated') authored this metric.\n\n* `user` - user\n* `ai_generated` - ai_generated",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/created_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "ai_model",
+            "effectiveDescription": "Model that generated the metric, if AI-authored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Model that generated the metric, if AI-authored.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/ai_model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "confidence",
+            "effectiveDescription": "AI author's confidence in the proposal, 0-1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AI author's confidence in the proposal, 0-1.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/confidence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "reasoning",
+            "effectiveDescription": "AI author's reasoning, surfaced as review context.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "AI author's reasoning, surfaced as review context.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/reasoning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogMetricsRefreshFromInsightCreateData",
+            "field": "created_by",
+            "effectiveDescription": "User who first created this metric.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who first created this metric.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

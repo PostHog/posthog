@@ -1,0 +1,343 @@
+{
+    "method": "endpoints.endpointsMaterializationPreview",
+    "toolName": "endpoints-materialization-preview",
+    "operationId": "endpoints_materialization_preview_create",
+    "title": "Preview endpoint materialization",
+    "category": "Endpoints",
+    "description": "Preview the materialization transform for an endpoint before enabling it. Returns the transformed HogQL, detected range pairs, and aggregate re-aggregation info, plus a rejection reason if the query is not eligible. Supports an optional version body param. Read-only — does not enable materialization.",
+    "requiredScopes": ["endpoint:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/endpoints/client.ts",
+    "input": {
+        "name": "EndpointsEndpointsMaterializationPreviewInput",
+        "importPath": "@posthog/sdk/endpoints",
+        "source": "src/generated/endpoints/endpoints-materialization-preview.ts",
+        "declaration": "dist/generated/endpoints/endpoints-materialization-preview.d.ts"
+    },
+    "output": {
+        "name": "EndpointsEndpointsMaterializationPreviewOutput",
+        "importPath": "@posthog/sdk/endpoints",
+        "source": "src/generated/endpoints/endpoints-materialization-preview.ts",
+        "declaration": "dist/generated/endpoints/endpoints-materialization-preview.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EndpointsEndpointsMaterializationPreviewRequestSchema0",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-materialization-preview.ts",
+            "declaration": "dist/generated/endpoints/endpoints-materialization-preview.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointsMaterializationPreviewRequestSchema1",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-materialization-preview.ts",
+            "declaration": "dist/generated/endpoints/endpoints-materialization-preview.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointsMaterializationPreviewRequestSchema1Variant1",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-materialization-preview.ts",
+            "declaration": "dist/generated/endpoints/endpoints-materialization-preview.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointsMaterializationPreviewResponseShape2",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-materialization-preview.ts",
+            "declaration": "dist/generated/endpoints/endpoints-materialization-preview.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointsMaterializationPreviewResponseShape3",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-materialization-preview.ts",
+            "declaration": "dist/generated/endpoints/endpoints-materialization-preview.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointsMaterializationPreviewData",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoints-materialization-preview.ts",
+            "declaration": "dist/generated/endpoints/endpoints-materialization-preview.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Preview the materialization transform for an endpoint. Shows what the query will look like after materialization, including range pair detection and bucket functions.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1endpoints~1{name}~1materialization_preview~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Preview the materialization transform for an endpoint before enabling it. Returns the transformed HogQL, detected range pairs, and aggregate re-aggregation info, plus a rejection reason if the query is not eligible. Supports an optional version body param. Read-only — does not enable materialization.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/endpoints/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewInput",
+            "field": "name",
+            "effectiveDescription": "URL-safe name for the endpoint",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL-safe name for the endpoint",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/endpoints/{name}/materialization_preview/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewInput",
+            "field": "version",
+            "effectiveDescription": "Endpoint version to preview. Defaults to the current version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Endpoint version to preview. Defaults to the current version.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/endpoints/{name}/materialization_preview/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewInput",
+            "field": "bucket_overrides",
+            "effectiveDescription": "Per-column bucket function overrides, e.g. {\"timestamp\": \"hour\"}",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-column bucket function overrides, e.g. {\"timestamp\": \"hour\"}",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/endpoints/{name}/materialization_preview/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewResponseShape2",
+            "field": "column",
+            "effectiveDescription": "Column the query buckets on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column the query buckets on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/column"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewResponseShape2",
+            "field": "variables",
+            "effectiveDescription": "Query variables that filter on this column.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Query variables that filter on this column.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/variables"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewResponseShape2",
+            "field": "bucket_fn",
+            "effectiveDescription": "Bucket function applied to the column.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket function applied to the column.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape2/properties/bucket_fn"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewResponseShape3",
+            "field": "expression",
+            "effectiveDescription": "Aggregate expression in the transformed query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregate expression in the transformed query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape3/properties/expression"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewResponseShape3",
+            "field": "reaggregate_fn",
+            "effectiveDescription": "Function that combines materialized partials again, or null when there is none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function that combines materialized partials again, or null when there is none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape3/properties/reaggregate_fn"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewData",
+            "field": "can_materialize",
+            "effectiveDescription": "Whether the endpoint query can be materialized.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the endpoint query can be materialized.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/can_materialize"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewData",
+            "field": "reason",
+            "effectiveDescription": "Why the query cannot be materialized, or null when it can.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the query cannot be materialized, or null when it can.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewData",
+            "field": "transformed_query",
+            "effectiveDescription": "Query rewritten for materialization, when one could be produced.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Query rewritten for materialization, when one could be produced.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/transformed_query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewData",
+            "field": "execution_query",
+            "effectiveDescription": "Query that would run against the materialized table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Query that would run against the materialized table.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/execution_query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewData",
+            "field": "display_execution_query",
+            "effectiveDescription": "Execution query formatted for display.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Execution query formatted for display.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/display_execution_query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewData",
+            "field": "range_pairs",
+            "effectiveDescription": "Bucketed columns and the variables that filter on them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucketed columns and the variables that filter on them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/range_pairs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewData",
+            "field": "aggregates",
+            "effectiveDescription": "Aggregate expressions and how to re-aggregate them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Aggregate expressions and how to re-aggregate them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/aggregates"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointsMaterializationPreviewData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

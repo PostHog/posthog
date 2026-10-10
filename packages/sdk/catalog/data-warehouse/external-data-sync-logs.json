@@ -1,0 +1,168 @@
+{
+    "method": "dataWarehouse.externalDataSyncLogs",
+    "toolName": "external-data-sync-logs",
+    "title": "Get sync job logs",
+    "category": "Data warehouse",
+    "description": "Get sync job logs for a data warehouse table schema. Returns log entries from the log_entries ClickHouse table, filtered by schema ID and optionally by a specific job's workflow_run_id. Use external-data-sources-jobs to find job IDs and workflow_run_ids. Supports filtering by log level (DEBUG, INFO, WARNING, ERROR) and message search.",
+    "requiredScopes": ["query:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-warehouse/client.ts",
+    "input": {
+        "name": "DataWarehouseExternalDataSyncLogsInput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/external-data-sync-logs.ts",
+        "declaration": "dist/generated/data-warehouse/external-data-sync-logs.d.ts"
+    },
+    "output": {
+        "name": "DataWarehouseExternalDataSyncLogsOutput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/external-data-sync-logs.ts",
+        "declaration": "dist/generated/data-warehouse/external-data-sync-logs.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataWarehouseExternalDataSyncLogsRequestSchema0",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sync-logs.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sync-logs.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSyncLogsRequestSchema1",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sync-logs.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sync-logs.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSyncLogsRequestSchema2",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sync-logs.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sync-logs.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSyncLogsRequestSchema3",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sync-logs.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sync-logs.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSyncLogsData",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sync-logs.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sync-logs.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get sync job logs for a data warehouse table schema. Returns log entries from the log_entries ClickHouse table, filtered by schema ID and optionally by a specific job's workflow_run_id. Use external-data-sources-jobs to find job IDs and workflow_run_ids. Supports filtering by log level (DEBUG, INFO, WARNING, ERROR) and message search.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/external-data-sync-logs/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataWarehouseExternalDataSyncLogsInput",
+            "field": "schema_id",
+            "effectiveDescription": "UUID of the external data schema (table) to get sync logs for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the external data schema (table) to get sync logs for.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/schema_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSyncLogsInput",
+            "field": "job_id",
+            "effectiveDescription": "Optional workflow_run_id to filter logs for a specific sync job. Get this from external-data-sources-jobs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional workflow_run_id to filter logs for a specific sync job. Get this from external-data-sources-jobs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/job_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSyncLogsInput",
+            "field": "level",
+            "effectiveDescription": "Minimum log level to return. Defaults to INFO (excludes DEBUG).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum log level to return. Defaults to INFO (excludes DEBUG).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSyncLogsInput",
+            "field": "search",
+            "effectiveDescription": "Search string to filter log messages (case-insensitive substring match).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search string to filter log messages (case-insensitive substring match).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/search"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSyncLogsInput",
+            "field": "limit",
+            "effectiveDescription": "Max number of log entries to return (default 100).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Max number of log entries to return (default 100).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSyncLogsData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

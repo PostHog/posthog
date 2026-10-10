@@ -1,0 +1,114 @@
+{
+    "method": "dataWarehouse.externalDataSourcesDbSchema",
+    "toolName": "external-data-sources-db-schema",
+    "title": "Discover tables and sync methods for a source",
+    "category": "Data warehouse",
+    "description": "Validate credentials against a remote source and return the list of tables available to sync (works for database sources like Postgres/MySQL and SaaS sources like Stripe/Hubspot alike). Pass source_type and credential fields in the payload object. Each table entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks, detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.",
+    "requiredScopes": ["external_data_source:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-warehouse/client.ts",
+    "input": {
+        "name": "DataWarehouseExternalDataSourcesDbSchemaInput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/external-data-sources-db-schema.ts",
+        "declaration": "dist/generated/data-warehouse/external-data-sources-db-schema.d.ts"
+    },
+    "output": {
+        "name": "DataWarehouseExternalDataSourcesDbSchemaOutput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/external-data-sources-db-schema.ts",
+        "declaration": "dist/generated/data-warehouse/external-data-sources-db-schema.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataWarehouseExternalDataSourcesDbSchemaRequestSchema1",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-db-schema.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-db-schema.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSourcesDbSchemaRequestSchema0",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-db-schema.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-db-schema.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSourcesDbSchemaInputPayload",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-db-schema.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-db-schema.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSourcesDbSchemaData",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-db-schema.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-db-schema.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Validate credentials against a remote source and return the list of tables available to sync (works for database sources like Postgres/MySQL and SaaS sources like Stripe/Hubspot alike). Pass source_type and credential fields in the payload object. Each table entry includes: table name, incremental_available, append_available, cdc_available, supports_webhooks, detected_primary_keys, available_columns (name/type/nullable), rows estimate, and incremental_fields (candidate timestamp/integer columns for incremental sync). Use this BEFORE external-data-sources-create so the user can pick a sync_type per table. Returns 400 with a message if credentials are invalid.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/external-data-sources-db-schema/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataWarehouseExternalDataSourcesDbSchemaInput",
+            "field": "source_type",
+            "effectiveDescription": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/source_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesDbSchemaInput",
+            "field": "payload",
+            "effectiveDescription": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type \"Custom\" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table 'schemas' array (built from external-data-sources-db-schema) also goes in here, e.g. {\"host\": ..., \"password\": ..., \"schemas\": [{\"name\": \"orders\", \"should_sync\": true, \"sync_type\": \"incremental\", \"incremental_field\": \"updated_at\", \"incremental_field_type\": \"datetime\"}]}. That array is optional: omit it and every discovered table syncs with default settings. Do not pass unresolved {\"secretRef\": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type \"Custom\" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table 'schemas' array (built from external-data-sources-db-schema) also goes in here, e.g. {\"host\": ..., \"password\": ..., \"schemas\": [{\"name\": \"orders\", \"should_sync\": true, \"sync_type\": \"incremental\", \"incremental_field\": \"updated_at\", \"incremental_field_type\": \"datetime\"}]}. That array is optional: omit it and every discovered table syncs with default settings. Do not pass unresolved {\"secretRef\": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/payload"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesDbSchemaData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

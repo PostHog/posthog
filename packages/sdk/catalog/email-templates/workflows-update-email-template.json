@@ -1,0 +1,497 @@
+{
+    "method": "emailTemplates.workflowsUpdateEmailTemplate",
+    "toolName": "workflows-update-email-template",
+    "operationId": "messaging_templates_partial_update",
+    "title": "Update email template",
+    "category": "Workflows",
+    "description": "Replace an email template's content as a whole. For small edits to an existing design (change a heading, a button color, one paragraph), prefer workflows-patch-email-template — it sends just the changed fields instead of the entire design JSON. Use this tool to set content from scratch or replace it wholesale: call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
+    "requiredScopes": ["hog_flow:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/email-templates/client.ts",
+    "input": {
+        "name": "EmailTemplatesWorkflowsUpdateEmailTemplateInput",
+        "importPath": "@posthog/sdk/email-templates",
+        "source": "src/generated/email-templates/workflows-update-email-template.ts",
+        "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+    },
+    "output": {
+        "name": "EmailTemplatesWorkflowsUpdateEmailTemplateOutput",
+        "importPath": "@posthog/sdk/email-templates",
+        "source": "src/generated/email-templates/workflows-update-email-template.ts",
+        "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema0",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema1",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema3",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema5",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema6",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema8",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema9",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema10",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema11",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema7BodyHeadersItem",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema7BodyFootersItem",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema7Body",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema7",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema4",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema4Variant1",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema2",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema12",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema13",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateRequestSchema14",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        },
+        {
+            "name": "EmailTemplatesWorkflowsUpdateEmailTemplateData",
+            "importPath": "@posthog/sdk/email-templates",
+            "source": "src/generated/email-templates/workflows-update-email-template.ts",
+            "declaration": "dist/generated/email-templates/workflows-update-email-template.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Replace an email template's content as a whole. For small edits to an existing design (change a heading, a button color, one paragraph), prefer workflows-patch-email-template — it sends just the changed fields instead of the entire design JSON. Use this tool to set content from scratch or replace it wholesale: call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/workflows/mcp/email_templates.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateRequest_Schema2",
+            "field": "templating",
+            "effectiveDescription": "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n* `liquid` - liquid",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Templating language for the email content. Always 'liquid' — Liquid tags pass through verbatim.\n\n* `liquid` - liquid",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/$defs/__schema2/properties/templating"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateRequest_Schema2",
+            "field": "email",
+            "effectiveDescription": "Email message content. Replaced as a whole on update — send the complete object.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email message content. Replaced as a whole on update — send the complete object.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/$defs/__schema2/properties/email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateRequest_Schema3",
+            "effectiveDescription": "* `liquid` - liquid",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `liquid` - liquid",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateRequest_Schema7",
+            "field": "counters",
+            "effectiveDescription": "Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/$defs/__schema7/properties/counters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateRequest_Schema7",
+            "field": "schemaVersion",
+            "effectiveDescription": "Design schema version, e.g. 16.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Design schema version, e.g. 16.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/$defs/__schema7/properties/schemaVersion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateRequest_Schema7",
+            "field": "body.id",
+            "effectiveDescription": "Any unique string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Any unique string.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/$defs/__schema7/properties/body/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateRequest_Schema7",
+            "field": "body.rows",
+            "effectiveDescription": "Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows of {id, cells, columns[{id, contents[{id, type, values}], values}], values}.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/$defs/__schema7/properties/body/properties/rows"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateRequest_Schema7",
+            "field": "body.values",
+            "effectiveDescription": "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Body-level settings: backgroundColor, contentWidth ('600px'), fontFamily, textColor.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/$defs/__schema7/properties/body/properties/values"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this message template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this message template.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_templates/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateInput",
+            "field": "name",
+            "effectiveDescription": "Human-readable template name shown in the library.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable template name shown in the library.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_templates/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateInput",
+            "field": "description",
+            "effectiveDescription": "What the template is for and when to use it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the template is for and when to use it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_templates/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateInput",
+            "field": "content",
+            "effectiveDescription": "Template content keyed by channel. Replaced as a whole on update, not merged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Template content keyed by channel. Replaced as a whole on update, not merged.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_templates/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateInput",
+            "field": "type",
+            "effectiveDescription": "Message channel of the template. Currently 'email'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Message channel of the template. Currently 'email'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_templates/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateInput",
+            "field": "message_category",
+            "effectiveDescription": "Message category ID to file the template under. Must belong to the same project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Message category ID to file the template under. Must belong to the same project.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_templates/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateInput",
+            "field": "deleted",
+            "effectiveDescription": "Soft-delete flag. Set true to remove the template from the library.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Soft-delete flag. Set true to remove the template from the library.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/messaging_templates/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateData",
+            "field": "name",
+            "effectiveDescription": "Human-readable template name shown in the library.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable template name shown in the library.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateData",
+            "field": "description",
+            "effectiveDescription": "What the template is for and when to use it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the template is for and when to use it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateData",
+            "field": "type",
+            "effectiveDescription": "Message channel of the template. Currently 'email'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Message channel of the template. Currently 'email'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/Shape1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateData",
+            "field": "message_category",
+            "effectiveDescription": "Message category ID to file the template under. Must belong to the same project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Message category ID to file the template under. Must belong to the same project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/Shape1/properties/message_category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateData",
+            "field": "deleted",
+            "effectiveDescription": "Soft-delete flag. Set true to remove the template from the library.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Soft-delete flag. Set true to remove the template from the library.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/email_templates.ts",
+                        "pointer": "#/Shape1/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EmailTemplatesWorkflowsUpdateEmailTemplateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

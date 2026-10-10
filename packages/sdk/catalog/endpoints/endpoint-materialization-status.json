@@ -1,0 +1,255 @@
+{
+    "method": "endpoints.endpointMaterializationStatus",
+    "toolName": "endpoint-materialization-status",
+    "operationId": "endpoints_materialization_status_retrieve",
+    "title": "Get materialization status",
+    "category": "Endpoints",
+    "description": "Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether materialization is possible, current status, last run time, and any errors. Supports ?version=N.",
+    "requiredScopes": ["endpoint:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/endpoints/client.ts",
+    "input": {
+        "name": "EndpointsEndpointMaterializationStatusInput",
+        "importPath": "@posthog/sdk/endpoints",
+        "source": "src/generated/endpoints/endpoint-materialization-status.ts",
+        "declaration": "dist/generated/endpoints/endpoint-materialization-status.d.ts"
+    },
+    "output": {
+        "name": "EndpointsEndpointMaterializationStatusOutput",
+        "importPath": "@posthog/sdk/endpoints",
+        "source": "src/generated/endpoints/endpoint-materialization-status.ts",
+        "declaration": "dist/generated/endpoints/endpoint-materialization-status.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EndpointsEndpointMaterializationStatusRequestSchema0",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-materialization-status.ts",
+            "declaration": "dist/generated/endpoints/endpoint-materialization-status.d.ts"
+        },
+        {
+            "name": "EndpointsEndpointMaterializationStatusData",
+            "importPath": "@posthog/sdk/endpoints",
+            "source": "src/generated/endpoints/endpoint-materialization-status.ts",
+            "declaration": "dist/generated/endpoints/endpoint-materialization-status.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get materialization status for an endpoint. Supports ?version=N query param.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1endpoints~1{name}~1materialization_status~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether materialization is possible, current status, last run time, and any errors. Supports ?version=N.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/endpoints/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusInput",
+            "field": "name",
+            "effectiveDescription": "URL-safe name for the endpoint",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL-safe name for the endpoint",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/endpoints/{name}/materialization_status/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusInput",
+            "field": "version",
+            "effectiveDescription": "Endpoint version to act on. Defaults to the current version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Endpoint version to act on. Defaults to the current version.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/endpoints/{name}/materialization_status/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusData",
+            "field": "name",
+            "effectiveDescription": "URL-safe endpoint name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL-safe endpoint name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusData",
+            "field": "enabled",
+            "effectiveDescription": "Whether materialization is enabled for this endpoint version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether materialization is enabled for this endpoint version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusData",
+            "field": "ready",
+            "effectiveDescription": "Whether a successful materialization is available to serve.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a successful materialization is available to serve.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/ready"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusData",
+            "field": "status",
+            "effectiveDescription": "Current materialization status (e.g. 'Completed', 'Running').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current materialization status (e.g. 'Completed', 'Running').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusData",
+            "field": "can_materialize",
+            "effectiveDescription": "Whether this endpoint query can be materialized.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this endpoint query can be materialized.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/can_materialize"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusData",
+            "field": "reason",
+            "effectiveDescription": "Reason why materialization is not possible (only when can_materialize is false).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reason why materialization is not possible (only when can_materialize is false).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusData",
+            "field": "last_materialized_at",
+            "effectiveDescription": "ISO 8601 timestamp of the last successful materialization.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 timestamp of the last successful materialization.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/last_materialized_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusData",
+            "field": "error",
+            "effectiveDescription": "Last materialization error message, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last materialization error message, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusData",
+            "field": "saved_query_id",
+            "effectiveDescription": "UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the underlying saved query backing this materialization. Only populated when the version is materialized.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/endpoints.ts",
+                        "pointer": "#/Shape1/properties/saved_query_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EndpointsEndpointMaterializationStatusData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,245 @@
+{
+    "method": "dataWarehouse.externalDataSourcesPreviewResource",
+    "toolName": "external-data-sources-preview-resource",
+    "title": "Preview rows for a Custom REST source resource",
+    "category": "Data warehouse",
+    "description": "Read a small live sample of rows for one resource (table) of a Custom REST source, so you can verify the manifest's data_selector, primary_key, and incremental cursor_path against real data BEFORE creating the source. Only source_type 'Custom' is supported. Pass source_type, a payload object ({manifest_json, plus the credential for the manifest's auth type — auth_token | auth_api_key | auth_password}), the resource_name to sample, and an optional limit (1–50, default 10). Returns {rows, row_count, columns (name + inferred JSON type), error}. Manifest, validation, and SSRF problems return 400; a live fetch failure returns 200 with `error` set and empty rows. Use external-data-sources-db-schema first to list the resource names and detected cursors.",
+    "requiredScopes": ["external_data_source:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-warehouse/client.ts",
+    "input": {
+        "name": "DataWarehouseExternalDataSourcesPreviewResourceInput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/external-data-sources-preview-resource.ts",
+        "declaration": "dist/generated/data-warehouse/external-data-sources-preview-resource.d.ts"
+    },
+    "output": {
+        "name": "DataWarehouseExternalDataSourcesPreviewResourceOutput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/external-data-sources-preview-resource.ts",
+        "declaration": "dist/generated/data-warehouse/external-data-sources-preview-resource.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataWarehouseExternalDataSourcesPreviewResourceRequestSchema1",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-preview-resource.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-preview-resource.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSourcesPreviewResourceRequestSchema0",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-preview-resource.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-preview-resource.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSourcesPreviewResourceRequestSchema2",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-preview-resource.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-preview-resource.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSourcesPreviewResourceInputPayload",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-preview-resource.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-preview-resource.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSourcesPreviewResourceResponseSourcePreviewColumn",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-preview-resource.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-preview-resource.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSourcesPreviewResourceDataRowsItem",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-preview-resource.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-preview-resource.d.ts"
+        },
+        {
+            "name": "DataWarehouseExternalDataSourcesPreviewResourceData",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/external-data-sources-preview-resource.ts",
+            "declaration": "dist/generated/data-warehouse/external-data-sources-preview-resource.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Read a small live sample of rows for one resource (table) of a Custom REST source, so you can verify the manifest's data_selector, primary_key, and incremental cursor_path against real data BEFORE creating the source. Only source_type 'Custom' is supported. Pass source_type, a payload object ({manifest_json, plus the credential for the manifest's auth type — auth_token | auth_api_key | auth_password}), the resource_name to sample, and an optional limit (1–50, default 10). Returns {rows, row_count, columns (name + inferred JSON type), error}. Manifest, validation, and SSRF problems return 400; a live fetch failure returns 200 with `error` set and empty rows. Use external-data-sources-db-schema first to list the resource names and detected cursors.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/external-data-sources-preview-resource/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataWarehouseExternalDataSourcesPreviewResourceInput",
+            "field": "source_type",
+            "effectiveDescription": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source type name (e.g. \"Postgres\", \"MySQL\", \"Stripe\"). Use external-data-sources-wizard to see available types and their required fields.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/properties/source_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesPreviewResourceInput",
+            "field": "payload",
+            "effectiveDescription": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type \"Custom\" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table 'schemas' array (built from external-data-sources-db-schema) also goes in here, e.g. {\"host\": ..., \"password\": ..., \"schemas\": [{\"name\": \"orders\", \"should_sync\": true, \"sync_type\": \"incremental\", \"incremental_field\": \"updated_at\", \"incremental_field_type\": \"datetime\"}]}. That array is optional: omit it and every discovered table syncs with default settings. Do not pass unresolved {\"secretRef\": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. For source_type \"Custom\" (a user-defined REST API): `manifest_json` (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type declared in the manifest — `auth_token` (bearer), `auth_api_key` (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never inline in manifest_json. Use external-data-sources-wizard (pass source_type) to see required fields per source type. For the advanced external-data-sources-create flow, the per-table 'schemas' array (built from external-data-sources-db-schema) also goes in here, e.g. {\"host\": ..., \"password\": ..., \"schemas\": [{\"name\": \"orders\", \"should_sync\": true, \"sync_type\": \"incremental\", \"incremental_field\": \"updated_at\", \"incremental_field_type\": \"datetime\"}]}. That array is optional: omit it and every discovered table syncs with default settings. Do not pass unresolved {\"secretRef\": ...} objects — resolve secrets to real values first, or use a credential_id from data-warehouse-source-connect-link.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/properties/payload"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesPreviewResourceInput",
+            "field": "resource_name",
+            "effectiveDescription": "Which manifest resource (table) to read a sample from — one of the resource names in manifest_json.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which manifest resource (table) to read a sample from — one of the resource names in manifest_json.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/properties/resource_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesPreviewResourceInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum sample rows to return (1–50). Defaults to 10.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum sample rows to return (1–50). Defaults to 10.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesPreviewResourceResponseSourcePreviewColumn",
+            "field": "name",
+            "effectiveDescription": "Column name as it appears in the previewed rows.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Column name as it appears in the previewed rows.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SourcePreviewColumn/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesPreviewResourceResponseSourcePreviewColumn",
+            "field": "type",
+            "effectiveDescription": "JSON type inferred from the first non-null value: string, integer, number, boolean, object, array, or null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON type inferred from the first non-null value: string, integer, number, boolean, object, array, or null.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SourcePreviewColumn/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesPreviewResourceData",
+            "field": "rows",
+            "effectiveDescription": "Up to `limit` sample rows, after data_selector extraction — the raw records the sync would ingest.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Up to `limit` sample rows, after data_selector extraction — the raw records the sync would ingest.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SourcePreviewResponse/properties/rows"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesPreviewResourceData",
+            "field": "row_count",
+            "effectiveDescription": "Number of sample rows returned (≤ limit).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of sample rows returned (≤ limit).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SourcePreviewResponse/properties/row_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesPreviewResourceData",
+            "field": "columns",
+            "effectiveDescription": "Columns observed across the sample rows, each with an inferred JSON type.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Columns observed across the sample rows, each with an inferred JSON type.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SourcePreviewResponse/properties/columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseExternalDataSourcesPreviewResourceData",
+            "field": "error",
+            "effectiveDescription": "Set when the live read failed (e.g. the host was unreachable or returned an auth error); rows is then empty. Manifest, validation, and SSRF problems return HTTP 400 instead of populating this field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set when the live read failed (e.g. the host was unreachable or returned an auth error); rows is then empty. Manifest, validation, and SSRF problems return HTTP 400 instead of populating this field.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/SourcePreviewResponse/properties/error"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

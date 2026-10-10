@@ -1,0 +1,79 @@
+{
+    "method": "errorTracking.errorTrackingSymbolSetsDownloadRetrieve",
+    "toolName": "error-tracking-symbol-sets-download-retrieve",
+    "operationId": "error_tracking_symbol_sets_download_retrieve",
+    "title": "Download error tracking symbol set",
+    "category": "Error tracking",
+    "description": "Get a presigned download URL for a source map symbol set by ID. The URL expires after one hour. Use it immediately, and do not echo it back unless the user explicitly asks. If you only have a symbol set reference, call `error-tracking-symbol-sets-list` with the exact `ref` first.",
+    "requiredScopes": ["error_tracking:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking/client.ts",
+    "input": {
+        "name": "ErrorTrackingErrorTrackingSymbolSetsDownloadRetrieveInput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-symbol-sets-download-retrieve.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-symbol-sets-download-retrieve.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingErrorTrackingSymbolSetsDownloadRetrieveOutput",
+        "importPath": "@posthog/sdk/error-tracking",
+        "source": "src/generated/error-tracking/error-tracking-symbol-sets-download-retrieve.ts",
+        "declaration": "dist/generated/error-tracking/error-tracking-symbol-sets-download-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingErrorTrackingSymbolSetsDownloadRetrieveData",
+            "importPath": "@posthog/sdk/error-tracking",
+            "source": "src/generated/error-tracking/error-tracking-symbol-sets-download-retrieve.ts",
+            "declaration": "dist/generated/error-tracking/error-tracking-symbol-sets-download-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Return a presigned URL for downloading the symbol set's source map.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1error_tracking~1symbol_sets~1{id}~1download~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get a presigned download URL for a source map symbol set by ID. The URL expires after one hour. Use it immediately, and do not echo it back unless the user explicitly asks. If you only have a symbol set reference, call `error-tracking-symbol-sets-list` with the exact `ref` first.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/error_tracking/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingErrorTrackingSymbolSetsDownloadRetrieveData",
+            "field": "url",
+            "effectiveDescription": "Presigned URL to download the source map file. Use immediately; expires after one hour.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Presigned URL to download the source map file. Use immediately; expires after one hour.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking.ts",
+                        "pointer": "#/Shape1/properties/url"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "error-tracking-symbol-sets-list",
+            "method": "errorTracking.errorTrackingSymbolSetsList"
+        }
+    ]
+}

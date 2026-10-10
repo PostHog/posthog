@@ -1,0 +1,435 @@
+{
+    "method": "dataCatalog.dataCatalogCertificationPropose",
+    "toolName": "data-catalog-certification-propose",
+    "operationId": "data_catalog_certifications_create",
+    "title": "Propose a table/view certification",
+    "category": "Data catalog",
+    "description": "Propose a trust mark (certification record) on a warehouse table or view — the first step before a human certifies or deprecates the source. Call when the user wants to mark a table/view as trusted, preferred, deprecated, or to-be-avoided. Address the target by id, or by name (an ambiguous name returns the candidate ids to pick from). Pass proposed_status 'deprecated' to propose deprecating a stale or wrong source; an approver then settles the proposal with the certify or deprecate tool.",
+    "requiredScopes": ["data_catalog:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-catalog/client.ts",
+    "input": {
+        "name": "DataCatalogDataCatalogCertificationProposeInput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+    },
+    "output": {
+        "name": "DataCatalogDataCatalogCertificationProposeOutput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataCatalogDataCatalogCertificationProposeRequestSchema0",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogCertificationProposeRequestSchema2",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogCertificationProposeRequestSchema4",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogCertificationProposeRequestSchema6",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogCertificationProposeRequestSchema8",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogCertificationProposeRequestSchema10",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogCertificationProposeResponseShape3",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogCertificationProposeResponseShape2",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogCertificationProposeData",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-propose.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-propose.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Trust marks on warehouse tables and views. Reads exclude soft-deleted targets.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1data_catalog~1certifications~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Propose a trust mark (certification record) on a warehouse table or view — the first step before a human certifies or deprecates the source. Call when the user wants to mark a table/view as trusted, preferred, deprecated, or to-be-avoided. Address the target by id, or by name (an ambiguous name returns the candidate ids to pick from). Pass proposed_status 'deprecated' to propose deprecating a stale or wrong source; an approver then settles the proposal with the certify or deprecate tool.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_catalog/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeRequest_Schema0",
+            "effectiveDescription": "Warehouse table id to certify (XOR the other targets).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warehouse table id to certify (XOR the other targets).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeRequest_Schema2",
+            "effectiveDescription": "Warehouse view (saved query) id to certify.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warehouse view (saved query) id to certify.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeRequest_Schema4",
+            "effectiveDescription": "Queryable HogQL table name; 409 with candidates if ambiguous.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Queryable HogQL table name; 409 with candidates if ambiguous.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeRequest_Schema6",
+            "effectiveDescription": "Queryable HogQL view name; 409 with candidates if ambiguous.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Queryable HogQL view name; 409 with candidates if ambiguous.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeRequest_Schema8",
+            "effectiveDescription": "Why this mark exists.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this mark exists.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeRequest_Schema10",
+            "effectiveDescription": "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n* `certified` - certified\n* `deprecated` - deprecated",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n* `certified` - certified\n* `deprecated` - deprecated",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeInput",
+            "effectiveDescription": "Input for proposing a certification: address the target by id or (convenience) by name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Input for proposing a certification: address the target by id or (convenience) by name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeInput",
+            "field": "table_id",
+            "effectiveDescription": "Warehouse table id to certify (XOR the other targets).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warehouse table id to certify (XOR the other targets).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/certifications/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeInput",
+            "field": "saved_query_id",
+            "effectiveDescription": "Warehouse view (saved query) id to certify.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warehouse view (saved query) id to certify.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/certifications/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeInput",
+            "field": "table_name",
+            "effectiveDescription": "Queryable HogQL table name; 409 with candidates if ambiguous.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Queryable HogQL table name; 409 with candidates if ambiguous.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/certifications/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeInput",
+            "field": "view_name",
+            "effectiveDescription": "Queryable HogQL view name; 409 with candidates if ambiguous.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Queryable HogQL view name; 409 with candidates if ambiguous.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/certifications/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeInput",
+            "field": "notes",
+            "effectiveDescription": "Why this mark exists.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this mark exists.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/certifications/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeInput",
+            "field": "proposed_status",
+            "effectiveDescription": "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n* `certified` - certified\n* `deprecated` - deprecated",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n* `certified` - certified\n* `deprecated` - deprecated",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_catalog/certifications/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeData",
+            "field": "table",
+            "effectiveDescription": "The warehouse table this mark applies to (XOR saved_query).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The warehouse table this mark applies to (XOR saved_query).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/table"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeData",
+            "field": "saved_query",
+            "effectiveDescription": "The warehouse view this mark applies to (XOR table).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The warehouse view this mark applies to (XOR table).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/saved_query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeData",
+            "field": "target_type",
+            "effectiveDescription": "Whether the marked target is a 'table' or a 'view'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the marked target is a 'table' or a 'view'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/target_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeData",
+            "field": "target_name",
+            "effectiveDescription": "Queryable HogQL name of the marked table or view.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Queryable HogQL name of the marked table or view.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/target_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeData",
+            "field": "status",
+            "effectiveDescription": "proposed, certified (prefer this source), or deprecated (avoid this source).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "proposed, certified (prefer this source), or deprecated (avoid this source).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeData",
+            "field": "proposed_status",
+            "effectiveDescription": "The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/proposed_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeData",
+            "field": "notes",
+            "effectiveDescription": "Why this mark exists, e.g. 'canonical MRR source'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this mark exists, e.g. 'canonical MRR source'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/notes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationProposeData",
+            "field": "certified_by",
+            "effectiveDescription": "User who last set certified/deprecated, or null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who last set certified/deprecated, or null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/certified_by"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

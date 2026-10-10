@@ -1,0 +1,186 @@
+{
+    "method": "dataQuality.dataQualityCheckTypes",
+    "toolName": "data-quality-check-types",
+    "operationId": "data_quality_checks_check_types_list",
+    "title": "List data quality check types",
+    "category": "Data quality",
+    "description": "The check types this project can author, each with the JSON schema its config is validated against. Pass subject_type to see only the types that kind of subject supports.",
+    "requiredScopes": ["query:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: data-quality-checks"],
+    "methodSource": "src/generated/data-quality/client.ts",
+    "input": {
+        "name": "DataQualityDataQualityCheckTypesInput",
+        "importPath": "@posthog/sdk/data-quality",
+        "source": "src/generated/data-quality/data-quality-check-types.ts",
+        "declaration": "dist/generated/data-quality/data-quality-check-types.d.ts"
+    },
+    "output": {
+        "name": "DataQualityDataQualityCheckTypesOutput",
+        "importPath": "@posthog/sdk/data-quality",
+        "source": "src/generated/data-quality/data-quality-check-types.ts",
+        "declaration": "dist/generated/data-quality/data-quality-check-types.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataQualityDataQualityCheckTypesRequestSchema0",
+            "importPath": "@posthog/sdk/data-quality",
+            "source": "src/generated/data-quality/data-quality-check-types.ts",
+            "declaration": "dist/generated/data-quality/data-quality-check-types.d.ts"
+        },
+        {
+            "name": "DataQualityDataQualityCheckTypesResponseShape2",
+            "importPath": "@posthog/sdk/data-quality",
+            "source": "src/generated/data-quality/data-quality-check-types.ts",
+            "declaration": "dist/generated/data-quality/data-quality-check-types.d.ts"
+        },
+        {
+            "name": "DataQualityDataQualityCheckTypesResponseShape1",
+            "importPath": "@posthog/sdk/data-quality",
+            "source": "src/generated/data-quality/data-quality-check-types.ts",
+            "declaration": "dist/generated/data-quality/data-quality-check-types.d.ts"
+        },
+        {
+            "name": "DataQualityDataQualityCheckTypesData",
+            "importPath": "@posthog/sdk/data-quality",
+            "source": "src/generated/data-quality/data-quality-check-types.ts",
+            "declaration": "dist/generated/data-quality/data-quality-check-types.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The check types this project can author, with the JSON schema of each type's config. Pass subject_type to narrow it to the types that kind of subject supports.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1data_quality_checks~1check_types~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "The check types this project can author, each with the JSON schema its config is validated against. Pass subject_type to see only the types that kind of subject supports.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_quality/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataQualityDataQualityCheckTypesInput",
+            "field": "subject_type",
+            "effectiveDescription": "Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Kind of object being checked: 'table', 'view', 'metric', or 'posthog_table'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/data_quality_checks/check_types/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckTypesResponseShape1",
+            "effectiveDescription": "One entry of the check-type catalog, so an agent can author config without guessing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One entry of the check-type catalog, so an agent can author config without guessing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckTypesResponseShape1",
+            "field": "check_type",
+            "effectiveDescription": "Value to pass as check_type.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to pass as check_type.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape1/properties/check_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckTypesResponseShape1",
+            "field": "description",
+            "effectiveDescription": "What the check asserts and what counts as a failure.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the check asserts and what counts as a failure.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckTypesResponseShape1",
+            "field": "requires_column",
+            "effectiveDescription": "Whether column_name must be set for this type.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether column_name must be set for this type.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape1/properties/requires_column"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckTypesResponseShape1",
+            "field": "config_schema",
+            "effectiveDescription": "JSON schema the config object is validated against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON schema the config object is validated against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape1/properties/config_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataQualityDataQualityCheckTypesResponseShape2",
+            "effectiveDescription": "JSON schema the config object is validated against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON schema the config object is validated against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_quality.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,996 @@
+{
+    "method": "errorTrackingAlerts.errorTrackingAlertsDelete",
+    "toolName": "error-tracking-alerts-delete",
+    "operationId": "hog_functions_destroy",
+    "title": "Delete error tracking alert",
+    "category": "Error tracking alerts",
+    "description": "Delete an error tracking alert by ID (soft delete). The alert stops firing immediately, but the HogFunction row and its execution history are preserved. To re-enable a deleted alert, the user must re-create it; partial-update with `enabled=true` will not resurrect a soft-deleted alert.\n\nThis wraps the generic HogFunction delete and does not verify the ID belongs to an error tracking alert — it soft-deletes whatever function the ID points to, including unrelated destinations or transformations. Confirm the target with `error-tracking-alerts-list` before deleting.",
+    "requiredScopes": ["hog_function:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/error-tracking-alerts/client.ts",
+    "input": {
+        "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteInput",
+        "importPath": "@posthog/sdk/error-tracking-alerts",
+        "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+        "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+    },
+    "output": {
+        "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteOutput",
+        "importPath": "@posthog/sdk/error-tracking-alerts",
+        "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+        "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape3",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape2",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape5",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape4",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape7",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape6",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape9",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape10",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape11",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape12",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape8",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape13",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape15",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape14",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape17",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape18",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        },
+        {
+            "name": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "importPath": "@posthog/sdk/error-tracking-alerts",
+            "source": "src/generated/error-tracking-alerts/error-tracking-alerts-delete.ts",
+            "declaration": "dist/generated/error-tracking-alerts/error-tracking-alerts-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Hard delete of this model is not allowed. Use a patch API call to set \"deleted\" to true",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1hog_functions~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete an error tracking alert by ID (soft delete). The alert stops firing immediately, but the HogFunction row and its execution history are preserved. To re-enable a deleted alert, the user must re-create it; partial-update with `enabled=true` will not resurrect a soft-deleted alert.\n\nThis wraps the generic HogFunction delete and does not verify the ID belongs to an error tracking alert — it soft-deletes whatever function the ID points to, including unrelated destinations or transformations. Confirm the target with `error-tracking-alerts-list` before deleting.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/error_tracking/mcp/error_tracking_alerts.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this hog function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this hog function.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/hog_functions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape4",
+            "field": "default",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape4/properties/default"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape6",
+            "effectiveDescription": "Values for each input defined in inputs_schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Values for each input defined in inputs_schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape7",
+            "field": "value",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape7/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape7",
+            "field": "bytecode[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape7/properties/bytecode/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape7",
+            "field": "transpiled",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape7/properties/transpiled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape8",
+            "field": "bytecode",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape8/properties/bytecode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape8",
+            "field": "transpiled",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape8/properties/transpiled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape13",
+            "field": "ttl",
+            "effectiveDescription": "Time-to-live in seconds for the masking cache (60–86400).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time-to-live in seconds for the masking cache (60–86400).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape13/properties/ttl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape13",
+            "field": "threshold",
+            "effectiveDescription": "Optional threshold count before masking applies.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional threshold count before masking applies.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape13/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape13",
+            "field": "hash",
+            "effectiveDescription": "Hog expression used to compute the masking hash.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog expression used to compute the masking hash.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape13/properties/hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape13",
+            "field": "bytecode",
+            "effectiveDescription": "Compiled bytecode for the hash expression. Auto-generated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compiled bytecode for the hash expression. Auto-generated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape13/properties/bytecode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "id",
+            "effectiveDescription": "Unique template identifier (e.g. 'template-slack').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique template identifier (e.g. 'template-slack').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "name",
+            "effectiveDescription": "Display name of the template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name of the template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "description",
+            "effectiveDescription": "What this template does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this template does.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "code",
+            "effectiveDescription": "Source code of the template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source code of the template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "code_language",
+            "effectiveDescription": "Programming language: 'hog' or 'javascript'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Programming language: 'hog' or 'javascript'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/code_language"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "inputs_schema",
+            "effectiveDescription": "Schema defining configurable inputs for functions created from this template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schema defining configurable inputs for functions created from this template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/inputs_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "type",
+            "effectiveDescription": "Function type this template creates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function type this template creates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "status",
+            "effectiveDescription": "Lifecycle status: alpha, beta, stable, deprecated, or hidden.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle status: alpha, beta, stable, deprecated, or hidden.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "category",
+            "effectiveDescription": "Category tags for organizing templates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Category tags for organizing templates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "free",
+            "effectiveDescription": "Whether available on free plans.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether available on free plans.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/free"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "icon_url",
+            "effectiveDescription": "URL for the template's icon.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the template's icon.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/icon_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "filters",
+            "effectiveDescription": "Default event filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default event filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "masking",
+            "effectiveDescription": "Default PII masking configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default PII masking configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/masking"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape16",
+            "field": "mapping_templates",
+            "effectiveDescription": "Pre-defined mapping configurations for destination templates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pre-defined mapping configurations for destination templates.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape16/properties/mapping_templates"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape17",
+            "field": "name",
+            "effectiveDescription": "Name of this mapping template.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of this mapping template.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape17",
+            "field": "include_by_default",
+            "effectiveDescription": "Whether this mapping is enabled by default.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this mapping is enabled by default.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/include_by_default"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape17",
+            "field": "use_all_events_by_default",
+            "effectiveDescription": "Whether this mapping should match all events by default, hiding the event filter UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this mapping should match all events by default, hiding the event filter UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/use_all_events_by_default"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape17",
+            "field": "filters",
+            "effectiveDescription": "Event filters specific to this mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event filters specific to this mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape17",
+            "field": "inputs",
+            "effectiveDescription": "Input values specific to this mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Input values specific to this mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/inputs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteResponseShape17",
+            "field": "inputs_schema",
+            "effectiveDescription": "Additional input schema fields specific to this mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Additional input schema fields specific to this mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape17/properties/inputs_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "type",
+            "effectiveDescription": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log\n* `legacy_destination` - Legacy Destination",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation, or transformation_log.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation\n* `transformation_log` - Transformation Log\n* `legacy_destination` - Legacy Destination",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "name",
+            "effectiveDescription": "Display name for the function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name for the function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "description",
+            "effectiveDescription": "Human-readable description of what this function does.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable description of what this function does.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "enabled",
+            "effectiveDescription": "Whether the function is active and processing events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the function is active and processing events.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "deleted",
+            "effectiveDescription": "Soft-delete flag. Set to true to archive the function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Soft-delete flag. Set to true to archive the function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "hog",
+            "effectiveDescription": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/hog"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "bytecode",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/bytecode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "inputs_schema",
+            "effectiveDescription": "Schema defining the configurable input parameters for this function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schema defining the configurable input parameters for this function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/inputs_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "inputs",
+            "effectiveDescription": "Values for each input defined in inputs_schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Values for each input defined in inputs_schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/inputs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "filters",
+            "effectiveDescription": "Event filters that control which events trigger this function.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event filters that control which events trigger this function.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "masking",
+            "effectiveDescription": "PII masking configuration with TTL, threshold, and hash expression.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PII masking configuration with TTL, threshold, and hash expression.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/masking"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "mappings",
+            "effectiveDescription": "Event-to-destination field mappings. Only for destination and site_destination types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event-to-destination field mappings. Only for destination and site_destination types.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/mappings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "icon_url",
+            "effectiveDescription": "URL for the function's icon displayed in the UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL for the function's icon displayed in the UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/icon_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "template_id",
+            "effectiveDescription": "ID of the template to create this function from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the template to create this function from.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/template_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "execution_order",
+            "effectiveDescription": "Execution priority for transformations. Lower values run first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Execution priority for transformations. Lower values run first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/execution_order"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "search_match_type",
+            "effectiveDescription": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/search_match_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "version",
+            "effectiveDescription": "Incremented every time the live config changes. See the revisions endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Incremented every time the live config changes. See the revisions endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "draft",
+            "effectiveDescription": "Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Config staged for review but not live yet: a full snapshot of hog, inputs_schema, inputs, filters, mappings and masking. Null when nothing is staged. Publish or discard it to clear.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/draft"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "draft_updated_at",
+            "effectiveDescription": "When config was last staged for review, or null when nothing is staged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When config was last staged for review, or null when nothing is staged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/draft_updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ErrorTrackingAlertsErrorTrackingAlertsDeleteData",
+            "field": "base_updated_at",
+            "effectiveDescription": "Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optimistic concurrency: the updated_at (or draft_updated_at when editing a staged draft) you last read. If the stored side is newer, the write fails with 409 instead of overwriting the concurrent edit. Omit to overwrite unconditionally.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/error_tracking_alerts.ts",
+                        "pointer": "#/Shape1/properties/base_updated_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "error-tracking-alerts-list",
+            "method": "errorTrackingAlerts.errorTrackingAlertsList"
+        }
+    ]
+}

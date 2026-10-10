@@ -1,0 +1,408 @@
+{
+    "method": "engineeringAnalytics.engineeringAnalyticsRunFailureLogs",
+    "toolName": "engineering-analytics-run-failure-logs",
+    "operationId": "engineering_analytics_run_failure_logs",
+    "title": "CI failure logs for a run",
+    "category": "Engineering analytics",
+    "description": "The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, every line carrying its original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and want all its runs' failures. Pass ci_engine with run_id (latest_ci_engine for a triage row). Ambiguous integer IDs return 400. Null engine means unknown historical provenance.",
+    "requiredScopes": ["engineering_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: engineering-analytics"],
+    "methodSource": "src/generated/engineering-analytics/client.ts",
+    "input": {
+        "name": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsInput",
+        "importPath": "@posthog/sdk/engineering-analytics",
+        "source": "src/generated/engineering-analytics/engineering-analytics-run-failure-logs.ts",
+        "declaration": "dist/generated/engineering-analytics/engineering-analytics-run-failure-logs.d.ts"
+    },
+    "output": {
+        "name": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsOutput",
+        "importPath": "@posthog/sdk/engineering-analytics",
+        "source": "src/generated/engineering-analytics/engineering-analytics-run-failure-logs.ts",
+        "declaration": "dist/generated/engineering-analytics/engineering-analytics-run-failure-logs.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsRequestSchema0",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-run-failure-logs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-run-failure-logs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsRequestSchema1",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-run-failure-logs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-run-failure-logs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsRequestSchema2",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-run-failure-logs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-run-failure-logs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape3",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-run-failure-logs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-run-failure-logs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape2",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-run-failure-logs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-run-failure-logs.d.ts"
+        },
+        {
+            "name": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsData",
+            "importPath": "@posthog/sdk/engineering-analytics",
+            "source": "src/generated/engineering-analytics/engineering-analytics-run-failure-logs.ts",
+            "declaration": "dist/generated/engineering-analytics/engineering-analytics-run-failure-logs.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of ci_failure_logs for surfaces that aren't PR-scoped (default-branch failures, the run page). logs_available is false when the run didn't fail or its logs aged out of the short Logs retention.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1engineering_analytics~1run_failure_logs~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "The thinned CI failure logs of one workflow run, grouped by failed job: the run-scoped twin of ci-failure-logs, for when you have a run id rather than a PR (default-branch failures, the broken-tests panel's latest_run_id, the run page). Each failed job returns its failure region (error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, every line carrying its original 1-based line number in the full pre-thinning log. logs_available is false when the run didn't fail or its logs aged out of the short Logs retention. Use ci-failure-logs instead when you have a PR number and want all its runs' failures. Pass ci_engine with run_id (latest_ci_engine for a triage row). Ambiguous integer IDs return 400. Null engine means unknown historical provenance.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/engineering_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsInput",
+            "field": "ci_engine",
+            "effectiveDescription": "CI engine. Required when run_id exists in both engines.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CI engine. Required when run_id exists in both engines.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/run_failure_logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsInput",
+            "field": "repo",
+            "effectiveDescription": "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/run_failure_logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsInput",
+            "field": "run_id",
+            "effectiveDescription": "Workflow run id whose failure logs to fetch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Workflow run id whose failure logs to fetch.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/run_failure_logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsInput",
+            "field": "source_id",
+            "effectiveDescription": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/engineering_analytics/run_failure_logs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape2",
+            "field": "lines",
+            "effectiveDescription": "The thinned failure-log lines in original order, with omission markers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The thinned failure-log lines in original order, with omission markers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/lines"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape2",
+            "field": "job_id",
+            "effectiveDescription": "Integer job id of the failed job; unique only together with ci_engine.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integer job id of the failed job; unique only together with ci_engine.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/job_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape2",
+            "field": "run_id",
+            "effectiveDescription": "Workflow run id the job belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Workflow run id the job belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape2",
+            "field": "conclusion",
+            "effectiveDescription": "Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/conclusion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape2",
+            "field": "branch",
+            "effectiveDescription": "Git branch the run was triggered on, or '' when unknown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Git branch the run was triggered on, or '' when unknown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/branch"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape2",
+            "field": "original_total_lines",
+            "effectiveDescription": "Total lines in the full job log before thinning (the denominator for each line's original_line); 0 when unknown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total lines in the full job log before thinning (the denominator for each line's original_line); 0 when unknown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/original_total_lines"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape2",
+            "field": "line_count",
+            "effectiveDescription": "Number of lines returned for this job (after the per-job cap).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of lines returned for this job (after the per-job cap).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/line_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape2",
+            "field": "truncated",
+            "effectiveDescription": "True when the job had more failure lines than the per-job cap.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the job had more failure lines than the per-job cap.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/truncated"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape2",
+            "field": "ci_engine",
+            "effectiveDescription": "CI execution engine; null when unknown.\n\n* `github_actions` - GitHub Actions\n* `depot_ci` - Depot CI",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CI execution engine; null when unknown.\n\n* `github_actions` - GitHub Actions\n* `depot_ci` - Depot CI",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape2/properties/ci_engine"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape3",
+            "field": "original_line",
+            "effectiveDescription": "1-based line number in the full pre-thinning job log, or null for a '... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "1-based line number in the full pre-thinning job log, or null for a '... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/original_line"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsResponseShape3",
+            "field": "text",
+            "effectiveDescription": "The log line text, or the omission-marker text.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The log line text, or the omission-marker text.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape3/properties/text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsData",
+            "field": "jobs",
+            "effectiveDescription": "Failed CI jobs of this run with their thinned failure logs, grouped by job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Failed CI jobs of this run with their thinned failure logs, grouped by job.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape1/properties/jobs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsData",
+            "field": "run_id",
+            "effectiveDescription": "Workflow run id the failure logs are for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Workflow run id the failure logs are for.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape1/properties/run_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsData",
+            "field": "logs_available",
+            "effectiveDescription": "False when no failure logs were found: the run didn't fail, or its logs aged out of the short Logs retention.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "False when no failure logs were found: the run didn't fail, or its logs aged out of the short Logs retention.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape1/properties/logs_available"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsData",
+            "field": "truncated",
+            "effectiveDescription": "True when the overall line cap across all jobs was hit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the overall line cap across all jobs was hit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape1/properties/truncated"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EngineeringAnalyticsEngineeringAnalyticsRunFailureLogsData",
+            "field": "ci_engine",
+            "effectiveDescription": "CI execution engine; null when unknown.\n\n* `github_actions` - GitHub Actions\n* `depot_ci` - Depot CI",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CI execution engine; null when unknown.\n\n* `github_actions` - GitHub Actions\n* `depot_ci` - Depot CI",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/engineering_analytics.ts",
+                        "pointer": "#/Shape1/properties/ci_engine"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

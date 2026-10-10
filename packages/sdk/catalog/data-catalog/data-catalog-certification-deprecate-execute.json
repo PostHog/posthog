@@ -1,0 +1,239 @@
+{
+    "method": "dataCatalog.dataCatalogCertificationDeprecateExecute",
+    "toolName": "data-catalog-certification-deprecate-execute",
+    "operationId": "data_catalog_certifications_deprecate_create",
+    "title": "Deprecate a table/view (execute)",
+    "category": "Data catalog",
+    "description": "Step 2 of 2 for deprecate source. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Mark a table or view as deprecated (avoid this source), addressed by the certification id returned by data-catalog-certification-propose — create the proposal first if none exists. Requires human typed confirmation.",
+    "requiredScopes": ["data_catalog_approval:write", "data_catalog:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/data-catalog/client.ts",
+    "input": {
+        "name": "DataCatalogDataCatalogCertificationDeprecateExecuteInput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-certification-deprecate-execute.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-certification-deprecate-execute.d.ts"
+    },
+    "output": {
+        "name": "DataCatalogDataCatalogCertificationDeprecateExecuteOutput",
+        "importPath": "@posthog/sdk/data-catalog",
+        "source": "src/generated/data-catalog/data-catalog-certification-deprecate-execute.ts",
+        "declaration": "dist/generated/data-catalog/data-catalog-certification-deprecate-execute.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataCatalogDataCatalogCertificationDeprecateExecuteResponseShape3",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-deprecate-execute.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-deprecate-execute.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogCertificationDeprecateExecuteResponseShape2",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-deprecate-execute.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-deprecate-execute.d.ts"
+        },
+        {
+            "name": "DataCatalogDataCatalogCertificationDeprecateExecuteData",
+            "importPath": "@posthog/sdk/data-catalog",
+            "source": "src/generated/data-catalog/data-catalog-certification-deprecate-execute.ts",
+            "declaration": "dist/generated/data-catalog/data-catalog-certification-deprecate-execute.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Mark the target as deprecated (avoid this source).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1data_catalog~1certifications~1{id}~1deprecate~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Mark a table or view as deprecated (avoid this source), addressed by the certification id returned by data-catalog-certification-propose — create the proposal first if none exists. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_catalog/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 2 of 2 for deprecate source. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Mark a table or view as deprecated (avoid this source), addressed by the certification id returned by data-catalog-certification-propose — create the proposal first if none exists. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/data-catalog-certification-deprecate-execute/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataCatalogDataCatalogCertificationDeprecateExecuteInput",
+            "field": "confirmation_hash",
+            "effectiveDescription": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/properties/confirmation_hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationDeprecateExecuteInput",
+            "field": "confirmation",
+            "effectiveDescription": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/properties/confirmation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationDeprecateExecuteData",
+            "field": "table",
+            "effectiveDescription": "The warehouse table this mark applies to (XOR saved_query).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The warehouse table this mark applies to (XOR saved_query).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/table"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationDeprecateExecuteData",
+            "field": "saved_query",
+            "effectiveDescription": "The warehouse view this mark applies to (XOR table).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The warehouse view this mark applies to (XOR table).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/saved_query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationDeprecateExecuteData",
+            "field": "target_type",
+            "effectiveDescription": "Whether the marked target is a 'table' or a 'view'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the marked target is a 'table' or a 'view'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/target_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationDeprecateExecuteData",
+            "field": "target_name",
+            "effectiveDescription": "Queryable HogQL name of the marked table or view.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Queryable HogQL name of the marked table or view.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/target_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationDeprecateExecuteData",
+            "field": "status",
+            "effectiveDescription": "proposed, certified (prefer this source), or deprecated (avoid this source).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "proposed, certified (prefer this source), or deprecated (avoid this source).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationDeprecateExecuteData",
+            "field": "proposed_status",
+            "effectiveDescription": "The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The mark the proposal asks for: 'certified' (trust this source) or 'deprecated' (avoid this source). Informational once the mark is settled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/proposed_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationDeprecateExecuteData",
+            "field": "notes",
+            "effectiveDescription": "Why this mark exists, e.g. 'canonical MRR source'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this mark exists, e.g. 'canonical MRR source'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/notes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataCatalogDataCatalogCertificationDeprecateExecuteData",
+            "field": "certified_by",
+            "effectiveDescription": "User who last set certified/deprecated, or null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who last set certified/deprecated, or null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_catalog.ts",
+                        "pointer": "#/Shape1/properties/certified_by"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

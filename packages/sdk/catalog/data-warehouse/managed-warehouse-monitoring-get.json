@@ -1,0 +1,718 @@
+{
+    "method": "dataWarehouse.managedWarehouseMonitoringGet",
+    "toolName": "managed-warehouse-monitoring-get",
+    "operationId": "data_warehouse_managed_warehouse_monitoring_retrieve",
+    "title": "Get managed warehouse monitoring",
+    "category": "Data warehouse",
+    "description": "Get current workers, allocated resources, active sessions, running queries, queued connections, capacity limits, and response coverage for the active project's managed warehouse. Use this to inspect current capacity and workload. These values describe operational activity, not invoiced usage.",
+    "requiredScopes": ["warehouse_view:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: data-warehouse-scene"],
+    "methodSource": "src/generated/data-warehouse/client.ts",
+    "input": {
+        "name": "DataWarehouseManagedWarehouseMonitoringGetInput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/managed-warehouse-monitoring-get.ts",
+        "declaration": "dist/generated/data-warehouse/managed-warehouse-monitoring-get.d.ts"
+    },
+    "output": {
+        "name": "DataWarehouseManagedWarehouseMonitoringGetOutput",
+        "importPath": "@posthog/sdk/data-warehouse",
+        "source": "src/generated/data-warehouse/managed-warehouse-monitoring-get.ts",
+        "declaration": "dist/generated/data-warehouse/managed-warehouse-monitoring-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "DataWarehouseManagedWarehouseMonitoringGetResponseShape2",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/managed-warehouse-monitoring-get.ts",
+            "declaration": "dist/generated/data-warehouse/managed-warehouse-monitoring-get.d.ts"
+        },
+        {
+            "name": "DataWarehouseManagedWarehouseMonitoringGetResponseShape3",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/managed-warehouse-monitoring-get.ts",
+            "declaration": "dist/generated/data-warehouse/managed-warehouse-monitoring-get.d.ts"
+        },
+        {
+            "name": "DataWarehouseManagedWarehouseMonitoringGetResponseShape4",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/managed-warehouse-monitoring-get.ts",
+            "declaration": "dist/generated/data-warehouse/managed-warehouse-monitoring-get.d.ts"
+        },
+        {
+            "name": "DataWarehouseManagedWarehouseMonitoringGetResponseShape6",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/managed-warehouse-monitoring-get.ts",
+            "declaration": "dist/generated/data-warehouse/managed-warehouse-monitoring-get.d.ts"
+        },
+        {
+            "name": "DataWarehouseManagedWarehouseMonitoringGetResponseShape5",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/managed-warehouse-monitoring-get.ts",
+            "declaration": "dist/generated/data-warehouse/managed-warehouse-monitoring-get.d.ts"
+        },
+        {
+            "name": "DataWarehouseManagedWarehouseMonitoringGetResponseShape7",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/managed-warehouse-monitoring-get.ts",
+            "declaration": "dist/generated/data-warehouse/managed-warehouse-monitoring-get.d.ts"
+        },
+        {
+            "name": "DataWarehouseManagedWarehouseMonitoringGetData",
+            "importPath": "@posthog/sdk/data-warehouse",
+            "source": "src/generated/data-warehouse/managed-warehouse-monitoring-get.ts",
+            "declaration": "dist/generated/data-warehouse/managed-warehouse-monitoring-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get tenant-safe live worker, session, queue, and capacity data for the current organization.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1data_warehouse~1managed-warehouse-monitoring~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get current workers, allocated resources, active sessions, running queries, queued connections, capacity limits, and response coverage for the active project's managed warehouse. Use this to inspect current capacity and workload. These values describe operational activity, not invoiced usage.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/data_warehouse/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape2",
+            "field": "state",
+            "effectiveDescription": "Current managed warehouse lifecycle state, such as ready, provisioning, or resharding.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current managed warehouse lifecycle state, such as ready, provisioning, or resharding.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape2/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape3",
+            "field": "max_workers",
+            "effectiveDescription": "Maximum concurrent workers for the organization. Zero means no organization-specific limit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum concurrent workers for the organization. Zero means no organization-specific limit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape3/properties/max_workers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape3",
+            "field": "max_vcpus",
+            "effectiveDescription": "Maximum active session vCPUs admitted for the organization. Zero means no organization-specific limit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum active session vCPUs admitted for the organization. Zero means no organization-specific limit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape3/properties/max_vcpus"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape3",
+            "field": "default_worker_cpu",
+            "effectiveDescription": "Default worker CPU as a Kubernetes resource quantity, such as 2 or 500m.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default worker CPU as a Kubernetes resource quantity, such as 2 or 500m.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape3/properties/default_worker_cpu"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape3",
+            "field": "default_worker_memory",
+            "effectiveDescription": "Default worker memory as a Kubernetes resource quantity, such as 8Gi.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default worker memory as a Kubernetes resource quantity, such as 8Gi.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape3/properties/default_worker_memory"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape3",
+            "field": "default_worker_ttl_seconds",
+            "effectiveDescription": "Default number of seconds an idle worker remains available for reuse.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Default number of seconds an idle worker remains available for reuse.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape3/properties/default_worker_ttl_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape3",
+            "field": "default_worker_min_hot_idle",
+            "effectiveDescription": "Minimum number of idle workers the organization keeps warm.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum number of idle workers the organization keeps warm.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape3/properties/default_worker_min_hot_idle"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape4",
+            "field": "workers",
+            "effectiveDescription": "Number of current non-terminal workers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of current non-terminal workers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape4/properties/workers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape4",
+            "field": "allocated_cpu_cores",
+            "effectiveDescription": "Total CPU cores allocated to current workers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total CPU cores allocated to current workers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape4/properties/allocated_cpu_cores"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape4",
+            "field": "allocated_memory_bytes",
+            "effectiveDescription": "Total memory bytes allocated to current workers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total memory bytes allocated to current workers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape4/properties/allocated_memory_bytes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape4",
+            "field": "active_sessions",
+            "effectiveDescription": "Number of active database sessions across the organization's control planes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of active database sessions across the organization's control planes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape4/properties/active_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape4",
+            "field": "running_queries",
+            "effectiveDescription": "Number of sessions currently executing a query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of sessions currently executing a query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape4/properties/running_queries"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape4",
+            "field": "queued_connections",
+            "effectiveDescription": "Number of connections waiting for worker capacity.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of connections waiting for worker capacity.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape4/properties/queued_connections"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape5",
+            "field": "id",
+            "effectiveDescription": "Opaque identifier for the worker.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Opaque identifier for the worker.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape5/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape5",
+            "field": "state",
+            "effectiveDescription": "Current worker lifecycle state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current worker lifecycle state.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape5/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape5",
+            "field": "cpu",
+            "effectiveDescription": "Worker CPU as a Kubernetes resource quantity, such as 2 or 500m. Blank when unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Worker CPU as a Kubernetes resource quantity, such as 2 or 500m. Blank when unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape5/properties/cpu"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape5",
+            "field": "memory",
+            "effectiveDescription": "Worker memory as a Kubernetes resource quantity, such as 8Gi. Blank when unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Worker memory as a Kubernetes resource quantity, such as 8Gi. Blank when unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape5/properties/memory"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape5",
+            "field": "ttl_seconds",
+            "effectiveDescription": "Number of seconds the worker remains available while idle.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of seconds the worker remains available while idle.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape5/properties/ttl_seconds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape5",
+            "field": "created_at",
+            "effectiveDescription": "UTC timestamp when the worker was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UTC timestamp when the worker was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape5/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape5",
+            "field": "last_heartbeat_at",
+            "effectiveDescription": "UTC timestamp of the worker's latest heartbeat.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UTC timestamp of the worker's latest heartbeat.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape5/properties/last_heartbeat_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape5",
+            "field": "session",
+            "effectiveDescription": "Sanitized live session assigned to the worker, when one exists.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sanitized live session assigned to the worker, when one exists.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape5/properties/session"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape6",
+            "field": "protocol",
+            "effectiveDescription": "Connection protocol, such as pg or flight.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connection protocol, such as pg or flight.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape6/properties/protocol"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape6",
+            "field": "state",
+            "effectiveDescription": "Current database session state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current database session state.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape6/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape6",
+            "field": "elapsed_ms",
+            "effectiveDescription": "Milliseconds elapsed for the current query, or zero when the session is idle.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Milliseconds elapsed for the current query, or zero when the session is idle.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape6/properties/elapsed_ms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape6",
+            "field": "percentage",
+            "effectiveDescription": "Best-effort query progress percentage, or null when DuckDB cannot estimate progress.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Best-effort query progress percentage, or null when DuckDB cannot estimate progress.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape6/properties/percentage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape6",
+            "field": "rows",
+            "effectiveDescription": "Rows processed by the current query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows processed by the current query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape6/properties/rows"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape6",
+            "field": "total_rows",
+            "effectiveDescription": "Estimated total rows for the current query when available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Estimated total rows for the current query when available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape6/properties/total_rows"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape6",
+            "field": "stalled",
+            "effectiveDescription": "Whether the current query appears stalled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the current query appears stalled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape6/properties/stalled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape7",
+            "field": "cp_responders",
+            "effectiveDescription": "Number of control planes that contributed live data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of control planes that contributed live data.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape7/properties/cp_responders"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape7",
+            "field": "cp_total",
+            "effectiveDescription": "Number of control planes queried for live data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of control planes queried for live data.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape7/properties/cp_total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetResponseShape7",
+            "field": "partial",
+            "effectiveDescription": "Whether one or more control planes failed to contribute live data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether one or more control planes failed to contribute live data.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape7/properties/partial"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetData",
+            "field": "schema_version",
+            "effectiveDescription": "Version of the managed warehouse monitoring response schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the managed warehouse monitoring response schema.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/schema_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetData",
+            "field": "org_id",
+            "effectiveDescription": "Organization whose managed warehouse is represented.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Organization whose managed warehouse is represented.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/org_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetData",
+            "field": "as_of",
+            "effectiveDescription": "UTC timestamp when this snapshot was assembled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UTC timestamp when this snapshot was assembled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/as_of"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetData",
+            "field": "warehouse",
+            "effectiveDescription": "Managed warehouse lifecycle details.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Managed warehouse lifecycle details.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/warehouse"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetData",
+            "field": "limits",
+            "effectiveDescription": "Organization-level worker limits and defaults.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Organization-level worker limits and defaults.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/limits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetData",
+            "field": "totals",
+            "effectiveDescription": "Current organization-level activity totals.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current organization-level activity totals.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/totals"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetData",
+            "field": "workers",
+            "effectiveDescription": "Current non-terminal workers with tenant-safe runtime details.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current non-terminal workers with tenant-safe runtime details.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/workers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DataWarehouseManagedWarehouseMonitoringGetData",
+            "field": "coverage",
+            "effectiveDescription": "Completeness of the cross-control-plane live data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Completeness of the cross-control-plane live data.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/data_warehouse.ts",
+                        "pointer": "#/Shape1/properties/coverage"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
