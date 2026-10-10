@@ -12,6 +12,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
 from products.web_analytics.backend.temporal.page_history.types import (
@@ -31,7 +32,11 @@ async def create_heatmap_page_history_schedule(client: Client) -> None:
             task_queue=settings.WEB_ANALYTICS_TASK_QUEUE,
             execution_timeout=timedelta(minutes=10),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=TICK_INTERVAL)]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(every=TICK_INTERVAL, offset=deterministic_offset(TICK_SCHEDULE_ID, TICK_INTERVAL))
+            ]
+        ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
     if await a_schedule_exists(client, TICK_SCHEDULE_ID):
