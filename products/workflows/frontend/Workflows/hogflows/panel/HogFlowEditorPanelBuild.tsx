@@ -319,7 +319,12 @@ function HogFunctionTemplatesChooser({
                                                     <div>{template.name}</div>
                                                     <div className="text-xs text-muted">{template.description}</div>
                                                 </div>
-                                                {template.status && <HogFunctionStatusTag status={template.status} />}
+                                                {template.status && (
+                                                    <HogFunctionStatusTag
+                                                        status={template.status}
+                                                        type={template.type}
+                                                    />
+                                                )}
                                             </div>
                                         </HogFlowEditorToolbarNode>
                                     </li>

@@ -13,7 +13,7 @@ export function HogFunctionEnabledConfig(): JSX.Element {
 
     return (
         <div className="flex items-center gap-2">
-            {template && <HogFunctionStatusTag status={template.status} />}
+            {template && <HogFunctionStatusTag status={template.status} type={template.type} />}
             {hogFunction ? (
                 <HogFunctionStatusIndicator hogFunction={hogFunction} />
             ) : (

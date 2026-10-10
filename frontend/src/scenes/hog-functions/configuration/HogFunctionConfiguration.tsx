@@ -25,7 +25,7 @@ import { resolveToolCall } from 'products/posthog_ai/frontend/api/tools'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
-import { HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
+import { DESTINATION_TYPES, HogFunctionStatusTag } from '../misc/HogFunctionStatusTag'
 import { HogFunctionCode } from './components/HogFunctionCode'
 import {
     HogFunctionConfigurationClearChangesButton,
@@ -122,13 +122,20 @@ export function HogFunctionConfiguration({
                     <span className="flex flex-wrap flex-1 gap-1 items-center">
                         Built from template:
                         <span className="font-semibold">{hogFunction?.template.name}</span>
-                        <HogFunctionStatusTag status={hogFunction.template.status} />
+                        <HogFunctionStatusTag status={hogFunction.template.status} type={hogFunction.template.type} />
                         <div className="flex-1" />
                         {templateHasChanged ? <LemonTag type="success">Modified</LemonTag> : null}
                     </span>
                 </LemonButton>
             </LemonDropdown>
         ) : null
+
+    const isExperimental =
+        !DESTINATION_TYPES.includes(type) && (template?.status === 'alpha' || hogFunction?.template?.status === 'alpha')
+    const hasRateLimit = ['template-reddit-conversions-api', 'template-snapchat-ads'].includes(
+        templateId ?? hogFunction?.template?.id ?? ''
+    )
+    const needsSiteAppsOptIn = type === 'site_destination'
 
     return (
         <div className="deprecated-space-y-3">
@@ -139,38 +146,27 @@ export function HogFunctionConfiguration({
                             <b>Error saving filters:</b> {hogFunction.filters.bytecode_error}
                         </LemonBanner>
                     </div>
-                ) : [
-                      'template-google-ads',
-                      'template-meta-ads',
-                      'template-tiktok-ads',
-                      'template-snapchat-ads',
-                      'template-linkedin-ads',
-                      'template-reddit-pixel',
-                      'template-tiktok-pixel',
-                      'template-snapchat-pixel',
-                      'template-reddit-conversions-api',
-                  ].includes(templateId ?? hogFunction?.template?.id ?? '') ||
-                  template?.status === 'alpha' ||
-                  hogFunction?.template?.status === 'alpha' ? (
+                ) : isExperimental ? (
                     <div>
                         <LemonBanner type="warning">
-                            <p>
-                                This {humanizeHogFunctionType(type)} is currently in an experimental state. For many
-                                cases this will work just fine but for others there may be unexpected issues and we do
-                                not offer official customer support for it in these cases.
-                            </p>
-                            {['template-reddit-conversions-api', 'template-snapchat-ads'].includes(
-                                templateId ?? hogFunction?.template?.id ?? ''
-                            ) ? (
-                                <span className="mt-2">
+                            This {humanizeHogFunctionType(type)} is currently in an experimental state. For many cases
+                            this will work just fine but for others there may be unexpected issues and we do not offer
+                            official customer support for it in these cases.
+                        </LemonBanner>
+                    </div>
+                ) : hasRateLimit || needsSiteAppsOptIn ? (
+                    <div>
+                        <LemonBanner type="warning">
+                            {hasRateLimit ? (
+                                <p className="mb-0">
                                     The receiving destination imposes a rate limit of 10 events per second. Exceeding
                                     this limit may result in some events failing to be delivered.
-                                </span>
+                                </p>
                             ) : null}
-                            {['site_destination'].includes(template?.type ?? hogFunction?.template?.type ?? '') ? (
-                                <span className="mt-2">
+                            {needsSiteAppsOptIn ? (
+                                <p className="mb-0">
                                     Make sure to enable the `opt_in_site_apps` flag in your `posthog.init` config.
-                                </span>
+                                </p>
                             ) : null}
                         </LemonBanner>
                     </div>

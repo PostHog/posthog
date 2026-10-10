@@ -100,7 +100,9 @@ export function HogFunctionTemplateList({
                                     title={
                                         <>
                                             {template.name}
-                                            {template.status && <HogFunctionStatusTag status={template.status} />}
+                                            {template.status && (
+                                                <HogFunctionStatusTag status={template.status} type={template.type} />
+                                            )}
                                             {template.releaseStatus && (
                                                 <SourceReleaseTag releaseStatus={template.releaseStatus} />
                                             )}

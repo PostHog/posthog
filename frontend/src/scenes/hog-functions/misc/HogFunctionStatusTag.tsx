@@ -2,13 +2,26 @@ import { LemonTag } from '@posthog/lemon-ui'
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
-import { HogFunctionTemplateStatus } from '~/types'
+import { HogFunctionTemplateStatus, HogFunctionTypeType } from '~/types'
+
+export const DESTINATION_TYPES: HogFunctionTypeType[] = [
+    'destination',
+    'site_destination',
+    'internal_destination',
+    'legacy_destination',
+]
 
 export interface HogFunctionStatusTagProps {
     status: HogFunctionTemplateStatus
+    type: HogFunctionTypeType
 }
 
-export function HogFunctionStatusTag({ status }: HogFunctionStatusTagProps): JSX.Element | null {
+export function HogFunctionStatusTag({ status, type }: HogFunctionStatusTagProps): JSX.Element | null {
+    // We fully support every destination we offer, so release stage labels do not apply to them
+    if (DESTINATION_TYPES.includes(type) && (status === 'alpha' || status === 'beta')) {
+        return null
+    }
+
     switch (status) {
         case 'alpha':
             return <LemonTag type="danger">Experimental</LemonTag>
