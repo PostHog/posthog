@@ -2,17 +2,22 @@
 
 import uuid
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
+from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import (
     _fetch_and_format_trace,
     _format_generation_text_repr,
     fetch_and_format_activity,
 )
 from posthog.temporal.ai_observability.trace_summarization.models import FetchAndFormatInput
+from posthog.temporal.ai_observability.trace_summarization.queries import TraceSize
 
 
 @asynccontextmanager
@@ -107,11 +112,15 @@ class TestFormatGenerationTextRepr:
 
 
 class TestFetchAndFormatTrace:
+    @patch(
+        "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace_size",
+        return_value=TraceSize(event_count=0, payload_bytes=0),
+    )
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format")
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace")
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.Team.objects.get")
     def test_skips_trace_over_event_limit_before_formatting(
-        self, _mock_get_team: MagicMock, mock_fetch: MagicMock, mock_format: MagicMock
+        self, _mock_get_team: MagicMock, mock_fetch: MagicMock, mock_format: MagicMock, _mock_size: MagicMock
     ) -> None:
         mock_fetch.return_value = MagicMock(events=[MagicMock(properties={}) for _ in range(51)])
 
@@ -127,6 +136,54 @@ class TestFetchAndFormatTrace:
         assert result.text_repr is None
         assert result.event_count == 51
         mock_format.assert_not_called()
+
+
+class TestFetchAndFormatTraceSizePreflight(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("heavy_content_outside_window", 5_000, True),
+            ("small_trace", 10, False),
+        ]
+    )
+    @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace", return_value=None)
+    def test_skips_oversized_trace_without_loading_it(
+        self, _name: str, old_input_length: int, expect_skip: bool, mock_fetch: MagicMock
+    ) -> None:
+        trace_id = str(uuid.uuid4())
+        window_end = datetime.now(UTC)
+        window_start = window_end - timedelta(hours=1)
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": self.team,
+                    "distinct_id": "user-1",
+                    "timestamp": timestamp,
+                    "properties": {"$ai_trace_id": trace_id, "$ai_input": "x" * input_length},
+                }
+                for timestamp, input_length in [
+                    (window_start - timedelta(days=3), old_input_length),
+                    (window_start + timedelta(minutes=5), 10),
+                ]
+            ]
+        )
+
+        result = _fetch_and_format_trace(
+            trace_id=trace_id,
+            team_id=self.team.id,
+            window_start=window_start.isoformat(),
+            window_end=window_end.isoformat(),
+            max_raw_trace_size=1_000,
+        )
+
+        if expect_skip:
+            assert result is not None
+            assert result.text_repr is None
+            assert result.event_count == 2
+            mock_fetch.assert_not_called()
+        else:
+            assert result is None
+            mock_fetch.assert_called_once()
 
 
 @patch(
