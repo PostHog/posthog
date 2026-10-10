@@ -580,6 +580,7 @@ class GitHubIntegrationBase:
             body["repositories"] = repositories
 
         response = self.client_request(f"installations/{installation_id}/access_tokens", method="POST", json_body=body)
+        raise_if_github_rate_limited(response)
         try:
             data = response.json()
         except ValueError:

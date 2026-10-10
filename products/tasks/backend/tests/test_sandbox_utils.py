@@ -3,13 +3,20 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+import requests
 from parameterized import parameterized
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
 
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    GitHubAuthenticationError,
+    GitHubRateLimitedError,
+    ProcessTaskTransientError,
+)
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import (
     READONLY_SANDBOX_GITHUB_PERMISSIONS,
@@ -212,10 +219,21 @@ def test_repo_less_report_run_follows_the_integration_the_create_path_attached(
     assert token == expected
 
 
+@pytest.mark.parametrize(
+    "error, expected_error",
+    [
+        (ReauthorizationRequired("relink GitHub"), CredentialUnavailableError),
+        (GitHubRateLimitError("limited", retry_after=30), GitHubRateLimitedError),
+        (requests.ConnectionError("reset"), ProcessTaskTransientError),
+        (GitHubIntegrationError("bad gateway", status_code=502), ProcessTaskTransientError),
+        (GitHubIntegrationError("not accessible", status_code=422), GitHubAuthenticationError),
+    ],
+    ids=["reauthorization", "rate_limited", "connection_error", "server_error", "rejected_mint"],
+)
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
-def test_reauthorization_required_surfaces_as_credential_unavailable(
-    mock_full: MagicMock, _mock_log: MagicMock
+def test_github_token_failure_maps_to_run_error(
+    mock_full: MagicMock, _mock_log: MagicMock, error: Exception, expected_error: type[Exception]
 ) -> None:
     # ReauthorizationRequired is a user-actionable "re-link your GitHub account" signal, not a
     # system fault. Provisioning must surface it as CredentialUnavailableError (fatal, non-retryable,
@@ -225,7 +243,7 @@ def test_reauthorization_required_surfaces_as_credential_unavailable(
         _resolve_sandbox_github_token,
     )
 
-    mock_full.side_effect = ReauthorizationRequired("relink GitHub")
+    mock_full.side_effect = error
     ctx = TaskProcessingContext(
         task_id="t",
         run_id="r",
@@ -238,8 +256,9 @@ def test_reauthorization_required_surfaces_as_credential_unavailable(
         state={},
     )
 
-    with pytest.raises(CredentialUnavailableError):
+    with pytest.raises(expected_error) as raised:
         _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
+    assert type(raised.value) is expected_error
 
 
 @pytest.mark.parametrize(
