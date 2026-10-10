@@ -34,6 +34,7 @@ export function SingleActiveSkillGroup({
     const { savingSkillNames } = useValues(reviewHogSettingsLogic)
     const active = skills?.find((skill) => skill.active) ?? null
     const saving = !!skills?.some((skill) => savingSkillNames.includes(skill.skill_name))
+    const hasAlternative = (skills?.length ?? 0) > 1
 
     const select = skills?.length ? (
         <LemonSelect
@@ -73,7 +74,14 @@ export function SingleActiveSkillGroup({
                     skillName={active.skill_name}
                     description={active.description}
                     kept={keptFor ? keptFor(active.skill_name) : undefined}
-                    mine={select}
+                    mine={
+                        // A select with one option leads nowhere, so say why there is no choice yet.
+                        hasAlternative ? (
+                            select
+                        ) : (
+                            <span className="text-xs text-secondary">Runs. The only one so far.</span>
+                        )
+                    }
                 />
             )}
         </>
