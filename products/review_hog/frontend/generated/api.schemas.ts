@@ -1306,10 +1306,11 @@ export const ReviewHogReviewsListScope = {
 
 export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
     /**
-     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
+     * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project, `own_deep` for the last 10 Deep reviews the requesting user started. The review skills in the settings use `own_deep`, because only the person who starts a Deep review picks its skills.
      *
-     * * `mine` - mine
-     * * `everyone` - everyone
+     * * `mine` - Mine
+     * * `everyone` - Everyone
+     * * `own_deep` - Own Deep reviews
      * @minLength 1
      */
     scope?: ReviewHogReviewsPerspectiveStatsRetrieveScope
@@ -1321,4 +1322,5 @@ export type ReviewHogReviewsPerspectiveStatsRetrieveScope =
 export const ReviewHogReviewsPerspectiveStatsRetrieveScope = {
     Mine: 'mine',
     Everyone: 'everyone',
+    OwnDeep: 'own_deep',
 } as const

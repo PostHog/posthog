@@ -142,6 +142,39 @@ class TestResolveActingUser(BaseTest):
         report.refresh_from_db()
         assert report.status == (ReviewReport.Status.ACTIVE if eligible else ReviewReport.Status.IDLE)
 
+    @parameterized.expand(
+        [
+            ("flash_after_full", "flash", True, False),
+            ("flash_without_full", "flash", False, True),
+            ("full_after_full", "full", True, True),
+        ]
+    )
+    def test_queued_request_rechecks_flash_after_full(
+        self, _name: str, review_mode: str, full_published: bool, runs: bool
+    ) -> None:
+        report = ReviewReport.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            pr_number=7,
+            pr_url="https://github.com/PostHog/posthog/pull/7",
+            head_branch="feat",
+            base_branch="main",
+            published_heads_by_mode={"full": "a" * 40} if full_published else None,
+        )
+        result = _resolve_acting_user(
+            ResolveActingUserInput(
+                team_id=self.team.id,
+                author_login="octocat",
+                override_user_id=None,
+                trigger_source=TRIGGER_MANUAL,
+                report_id=str(report.id),
+                review_mode=review_mode,
+            )
+        )
+        assert result.acting_user_id == (self.user.id if runs else None)
+        report.refresh_from_db()
+        assert report.status == (ReviewReport.Status.ACTIVE if runs else ReviewReport.Status.IDLE)
+
     def test_settings_row_flows_into_the_result(self) -> None:
         # The user's saved preferences must reach the workflow — if resolve stops loading any of them,
         # the gates and publish silently revert to defaults. Each value is the OPPOSITE of its

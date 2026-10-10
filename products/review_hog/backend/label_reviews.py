@@ -26,7 +26,12 @@ from products.review_hog.backend.ownership import RepositoryOwnership, Repositor
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.pull_request_events import REVIEWHOG_LABEL
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
-from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
+from products.review_hog.backend.reviewer.tools.github_client import (
+    GitHubAPIError,
+    github_api_get_paginated,
+    github_api_request,
+    is_app_bot_author,
+)
 
 logger = logging.getLogger(__name__)
 _otel = OtelInstrumentFactory("review_hog")
@@ -87,6 +92,17 @@ class LabelReview:
     def _github(self, integration: Integration) -> GitHubIntegration:
         return GitHubIntegration(integration, source="review_hog", priority=Priority.NORMAL)
 
+    def _bot_label_comment_posted(self, token: str) -> bool:
+        return any(
+            comment.get("body") == BOT_LABEL_COMMENT and is_app_bot_author(comment.get("user"))
+            for comment in github_api_get_paginated(
+                f"/repos/{self.repository}/issues/{self.pr_number}/comments",
+                token=token,
+                installation_id=self.installation_id,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            )
+        )
+
     def _refuse_bot_label(self, integration: Integration) -> None:
         # The label goes first: a failed call retries the task, and the comment must post only once.
         token = self._github(integration).get_access_token()
@@ -101,6 +117,9 @@ class LabelReview:
         except GitHubAPIError as error:
             if error.status != 404:
                 raise
+        # A POST can succeed on GitHub and still fail here, so a retry checks for the earlier comment.
+        if self._bot_label_comment_posted(token):
+            return
         github_api_request(
             "POST",
             f"/repos/{self.repository}/issues/{self.pr_number}/comments",

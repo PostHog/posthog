@@ -607,7 +607,7 @@ export const getReviewHogReviewsPerspectiveStatsRetrieveUrl = (
 }
 
 /**
- * How many findings each review skill (perspective or blind-spot sweep) raised across the recent completed reviews in scope — the requesting user's by default, every review on this project with `scope=everyone` — and how many of those the validator kept vs dismissed.
+ * How many findings each review skill (perspective or blind-spot sweep) raised across the recent completed reviews in scope — the requesting user's by default, every review on this project with `scope=everyone`, the user's own last Deep reviews with `scope=own_deep` — and how many of those the validator kept vs dismissed.
  * @summary Perspective effectiveness stats
  */
 export const reviewHogReviewsPerspectiveStatsRetrieve = async (
