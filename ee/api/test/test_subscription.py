@@ -2820,11 +2820,11 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             key: str, days: int, subscription: Subscription | None = None, insight: Insight | None = None, **kwargs
         ) -> SubscriptionDelivery:
             subscription = subscription or self.subscription
-            sent_for = insight or subscription.insight
+            sent_for_id = insight.id if insight else subscription.insight_id
             row = self._create_delivery(
                 idempotency_key=key,
                 subscription=subscription,
-                content_snapshot={"insights": [{"id": sent_for.id}]},
+                content_snapshot={"insights": [{"id": sent_for_id}]},
                 **kwargs,
             )
             SubscriptionDelivery.objects.filter(pk=row.pk).update(created_at=start + timedelta(days=days))

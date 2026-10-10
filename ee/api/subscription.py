@@ -1957,9 +1957,16 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         query = SubscriptionSummariesQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         if "insight" in query.validated_data:
-            source: Insight | Dashboard = get_object_or_404(
-                Insight.objects.filter(team_id=self.team_id, deleted=False), pk=query.validated_data["insight"]
-            )
+            live_insights = [
+                insight
+                for insight in insights_including_soft_deleted_for_team(
+                    team_id=self.team_id, insight_ids=[query.validated_data["insight"]]
+                )
+                if not insight.deleted
+            ]
+            if not live_insights:
+                raise exceptions.NotFound()
+            source: Insight | Dashboard = live_insights[0]
             # A subscription can change its source, so also match the source in the delivery snapshot.
             source_filter = Q(subscription__insight_id=source.pk, content_snapshot__insights__0__id=source.pk)
         else:
@@ -1994,7 +2001,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         )
         # An id subquery instead of DISTINCT lets Postgres compute period_start only for the rows on the page.
         deliveries = (
-            SubscriptionDelivery.objects.filter(id__in=visible_ids)
+            SubscriptionDelivery.objects.filter(team_id=self.team_id, id__in=visible_ids)
             .select_related("subscription")
             # content_snapshot holds full query results, so load only the fields the serializer returns.
             .only("id", "subscription_id", "subscription__title", "target_type", "change_summary", "created_at")
