@@ -947,6 +947,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "setup_section_2_completed",
         "plugins_access_level",
         "never_drop_data",
+        # Background jobs write these rows. A row can appear between the two reads of the diff,
+        # and the encoder cannot serialize the model instance.
+        "enrichment_record",
+        "enrichment_signup_snapshot",
     ],
     "BatchExport": [
         "latest_runs",

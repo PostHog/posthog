@@ -2,10 +2,20 @@ from typing import cast
 
 from django.test import TestCase
 
-from posthog.models.activity_logging.activity_log import AuditableScope, Change, describe_change, dict_changes_between
+from parameterized import parameterized
+
+from posthog.models import Organization
+from posthog.models.activity_logging.activity_log import (
+    AuditableScope,
+    Change,
+    changes_between,
+    describe_change,
+    dict_changes_between,
+)
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.growth.backend.models import EnrichmentSignupSnapshot, OrganizationEnrichment
 
 
 class TeatActivityLog(TestCase):
@@ -77,3 +87,12 @@ class TeatActivityLog(TestCase):
         }
 
         self.assertEqual(dict_changes_between(cast(AuditableScope, "DashboardTile"), previous, new), [])
+
+    @parameterized.expand([("signup_snapshot", EnrichmentSignupSnapshot), ("enrichment", OrganizationEnrichment)])
+    def test_organization_changes_ignore_enrichment_rows_created_after_an_earlier_diff(self, _name, model):
+        organization = Organization.objects.create(name="Org")
+        changes_between("Organization", previous=Organization.objects.get(pk=organization.pk), current=organization)
+        model.objects.create(organization_id=organization.id)
+        previous = Organization.objects.get(pk=organization.pk)
+
+        self.assertEqual(changes_between("Organization", previous=previous, current=organization), [])
