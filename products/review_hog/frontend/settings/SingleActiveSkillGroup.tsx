@@ -59,9 +59,10 @@ export function SingleActiveSkillGroup({
             ) : select === null ? (
                 <span className="px-4 py-2 text-xs text-secondary">No skill of this kind yet.</span>
             ) : active === null ? (
-                // An archived skill leaves the rest inactive, so the select must stay reachable.
+                // An archived skill leaves the rest inactive and the review falls back to the built-in skill,
+                // so the select must stay reachable.
                 <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
-                    <span className="text-xs text-secondary">None selected, so no skill of this kind runs.</span>
+                    <span className="text-xs text-secondary">None selected, so the built-in default runs.</span>
                     {select}
                 </div>
             ) : (
