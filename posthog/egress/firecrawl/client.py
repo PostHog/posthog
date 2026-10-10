@@ -121,9 +121,13 @@ def _require_api_key() -> str:
     return api_key
 
 
-def _successful_payload(
-    response: requests.Response, subject: str, error: type[Exception]
-) -> tuple[Mapping[str, object], Mapping[str, object]]:
+@frozen
+class _SuccessfulBody:
+    payload: Mapping[str, object]
+    data: Mapping[str, object]
+
+
+def _successful_body(response: requests.Response, subject: str, error: type[Exception]) -> _SuccessfulBody:
     """Return the top-level payload and its ``data`` object, or raise ``error`` when Firecrawl did
     not answer with a successful body."""
     if not response.ok:
@@ -143,7 +147,7 @@ def _successful_payload(
     if data is None:
         raise error(f"{subject} returned no data")
 
-    return payload, data
+    return _SuccessfulBody(payload=payload, data=data)
 
 
 def _check_search_input(query: str, limit: int) -> None:
@@ -198,7 +202,7 @@ def scrape(
         timeout=timeout,
         json={"url": url, "formats": list(formats), "onlyMainContent": only_main_content},
     )
-    _payload, data = _successful_payload(response, f"Firecrawl scrape of {url}", FirecrawlScrapeFailed)
+    data = _successful_body(response, f"Firecrawl scrape of {url}", FirecrawlScrapeFailed).data
 
     metadata = _as_mapping(data.get("metadata")) or {}
     return FirecrawlScrape(
@@ -244,10 +248,10 @@ def search(
         timeout=timeout,
         json={"query": query, "limit": limit, "sources": [{"type": "web"}]},
     )
-    payload, data = _successful_payload(response, f"Firecrawl search for {query!r}", FirecrawlSearchFailed)
+    body = _successful_body(response, f"Firecrawl search for {query!r}", FirecrawlSearchFailed)
 
     return FirecrawlSearch(
         query=query,
-        results=_search_results(data.get("web")),
-        credits_used=_as_int(payload.get("creditsUsed")),
+        results=_search_results(body.data.get("web")),
+        credits_used=_as_int(body.payload.get("creditsUsed")),
     )
