@@ -9,7 +9,6 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import posthog_feature_flag_enabled
 
-from products.review_hog.backend.internal_features import has_internal_features
 from products.review_hog.backend.requested_reviews import (
     RUN_MODE_FLASH,
     RUN_MODE_REVIEW,
@@ -24,16 +23,10 @@ __all__ = [
     "RUN_MODE_REVIEW",
     "PRReviewRequestOutcome",
     "PRReviewRequestStatus",
-    "flash_available",
     "request_pr_review",
 ]
 
 _FEATURE_FLAG = "review-hog"
-
-
-def flash_available(team_id: int) -> bool:
-    """Flash is limited to projects with the `review-hog-internal` flag."""
-    return has_internal_features(resolve_effective_team_id(team_id))
 
 
 def request_pr_review(

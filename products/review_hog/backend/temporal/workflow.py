@@ -531,6 +531,7 @@ class ReviewPRWorkflow:
                 installation_id=inputs.installation_id,
                 github_repo_id=inputs.github_repo_id,
                 head_branch=branch,
+                review_mode=inputs.review_mode,
             ),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,

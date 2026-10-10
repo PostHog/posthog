@@ -68,6 +68,15 @@ class SignalReportWorkState(models.TextChoices):
     DONE = "done", "Done"
 
 
+class SignalReportSuppressionSource(models.TextChoices):
+    # Who or what took a suppressed report out of the inbox, derived from its artefacts. Only
+    # DISMISSED means someone chose it; the rest are verdicts nobody has reviewed yet.
+    DISMISSED = "dismissed", "Dismissed"
+    SAFETY_JUDGE = "safety_judge", "Safety judge"
+    NOT_ACTIONABLE = "not_actionable", "Not actionable"
+    SYSTEM = "system", "System"
+
+
 def signal_source_type_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(SignalSourceConfig.SourceType.choices)
@@ -2714,6 +2723,8 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # scout's acting user and project admins: this field decides what an unattended agent may change
     # in the project. A dry run (`emit=False`) ignores it, so a preview never mutates the project.
     write_scopes = models.JSONField(default=list, db_default=[])
+    allowed_mcp_tools = models.JSONField(null=True, blank=True)
+    tool_preset = models.CharField(max_length=64, null=True, blank=True)
     # Optional five-field cron expression anchoring runs to wall-clock slots (e.g. "30 9 * * *",
     # "0 9,17 * * *", "0 9 * * 1-5"). Takes precedence over the rolling `run_interval_minutes`
     # when set. The coordinator evaluates it in `team.timezone`, so scheduled times follow
@@ -3102,6 +3113,10 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
                 fields=["team", "skill_name", "-created_at"],
                 name="signal_scout_run_recent_idx",
             ),
+            # The team-wide run search and the fleet summary filter on team only, with no scout key, so
+            # the index above cannot serve their newest-first order and the planner sorts every one of
+            # the team's runs before it applies the limit.
+            models.Index(fields=["team", "-created_at"], name="signal_scout_run_team_new_idx"),
             # "which run authored this report?" is a jsonb containment lookup (`@>`) that
             # `dismissal_notes` runs on the dismissal request path, batched into one OR'd query per
             # request. Without these the planner can only seq-scan the team's runs, and this table
@@ -3245,6 +3260,15 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "-updated_at", "-id"], name="signal_scratchpad_team_upd_idx"),
+            # The unique `(team, key)` index cannot serve a `key` prefix LIKE under a non-C collation.
+            models.Index(
+                fields=["team", "key"],
+                name="signal_scratchpad_key_like_idx",
+                opclasses=["int4_ops", "varchar_pattern_ops"],
+            ),
         ]
 
 
