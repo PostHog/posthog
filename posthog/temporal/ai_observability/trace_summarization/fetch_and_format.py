@@ -56,7 +56,7 @@ def _fetch_and_format_trace(
     # itself runs the worker out of memory. They still cover the shared `events` fallback, which
     # this preflight does not measure.
     trace_size = fetch_trace_size(team, trace_id)
-    if trace_size.payload_bytes > raw_size_limit or (
+    if trace_size.payload_chars > raw_size_limit or (
         max_trace_events is not None and trace_size.event_count > max_trace_events
     ):
         logger.warning(
@@ -64,7 +64,7 @@ def _fetch_and_format_trace(
             trace_id=trace_id,
             team_id=team_id,
             event_count=trace_size.event_count,
-            payload_bytes=trace_size.payload_bytes,
+            payload_chars=trace_size.payload_chars,
             max_raw_size=raw_size_limit,
             max_trace_events=max_trace_events,
         )

@@ -114,7 +114,7 @@ class TestFormatGenerationTextRepr:
 class TestFetchAndFormatTrace:
     @patch(
         "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace_size",
-        return_value=TraceSize(event_count=0, payload_bytes=0),
+        return_value=TraceSize(event_count=0, payload_chars=0),
     )
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format")
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace")
@@ -141,29 +141,40 @@ class TestFetchAndFormatTrace:
 class TestFetchAndFormatTraceSizePreflight(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
-            ("heavy_content_outside_window", 5_000, True),
-            ("small_trace", 10, False),
+            ("heavy_content_outside_window", 5_000, None, True),
+            ("small_trace", 10, None, False),
+            ("root_and_duplicate_rows_not_counted", 10, 2, False),
+            ("over_event_limit", 10, 1, True),
         ]
     )
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace", return_value=None)
     def test_skips_oversized_trace_without_loading_it(
-        self, _name: str, old_input_length: int, expect_skip: bool, mock_fetch: MagicMock
+        self,
+        _name: str,
+        old_input_length: int,
+        max_trace_events: int | None,
+        expect_skip: bool,
+        mock_fetch: MagicMock,
     ) -> None:
         trace_id = str(uuid.uuid4())
         window_end = datetime.now(UTC)
         window_start = window_end - timedelta(hours=1)
+        recent_generation_uuid = str(uuid.uuid4())
         bulk_create_ai_events(
             [
                 {
-                    "event": "$ai_generation",
+                    "event": event,
+                    "event_uuid": event_uuid,
                     "team": self.team,
                     "distinct_id": "user-1",
                     "timestamp": timestamp,
                     "properties": {"$ai_trace_id": trace_id, "$ai_input": "x" * input_length},
                 }
-                for timestamp, input_length in [
-                    (window_start - timedelta(days=3), old_input_length),
-                    (window_start + timedelta(minutes=5), 10),
+                for event, event_uuid, timestamp, input_length in [
+                    ("$ai_trace", None, window_start + timedelta(minutes=1), 0),
+                    ("$ai_generation", None, window_start - timedelta(days=3), old_input_length),
+                    ("$ai_generation", recent_generation_uuid, window_start + timedelta(minutes=5), 10),
+                    ("$ai_generation", recent_generation_uuid, window_start + timedelta(minutes=5), 10),
                 ]
             ]
         )
@@ -174,6 +185,7 @@ class TestFetchAndFormatTraceSizePreflight(ClickhouseTestMixin, BaseTest):
             window_start=window_start.isoformat(),
             window_end=window_end.isoformat(),
             max_raw_trace_size=1_000,
+            max_trace_events=max_trace_events,
         )
 
         if expect_skip:
@@ -205,6 +217,10 @@ class TestFetchAndFormatActivity:
     async def test_trace_not_found_returns_skipped(self, mock_team):
         with (
             patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace") as mock_fetch,
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace_size",
+                return_value=TraceSize(event_count=0, payload_chars=0),
+            ),
         ):
             mock_fetch.return_value = None
 
@@ -252,6 +268,10 @@ class TestFetchAndFormatActivity:
 
         with (
             patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace") as mock_fetch,
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace_size",
+                return_value=TraceSize(event_count=0, payload_chars=0),
+            ),
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format"
             ) as mock_to_format,
@@ -337,6 +357,10 @@ class TestFetchAndFormatActivity:
 
         with (
             patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace") as mock_fetch,
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace_size",
+                return_value=TraceSize(event_count=0, payload_chars=0),
+            ),
             patch(
                 "posthog.temporal.ai_observability.trace_summarization.fetch_and_format.llm_trace_to_formatter_format"
             ) as mock_to_format,
