@@ -394,7 +394,7 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("messaging", "messaging", {"Email drip", "Push blast"}),
+            ("messaging", "messaging", {"Email drip", "Push blast", "Wizard welcome"}),
             ("automation", "automation", {"Webhook sync"}),
             ("loop", "loop", {"Loop with email action"}),
             ("broadcast", "broadcast", {"Announcement"}),
@@ -402,11 +402,11 @@ class TestHogFlowAPI(APIBaseTest):
             (
                 "everything_but_broadcasts",
                 "messaging,automation,loop",
-                {"Email drip", "Push blast", "Webhook sync", "Loop with email action"},
+                {"Email drip", "Push blast", "Webhook sync", "Loop with email action", "Wizard welcome"},
             ),
             # A repeated value used to fall through to the negated branch and answer with the
             # automation rows, the exact opposite of what was asked for.
-            ("repeated_value", "messaging,messaging", {"Email drip", "Push blast"}),
+            ("repeated_value", "messaging,messaging", {"Email drip", "Push blast", "Wizard welcome"}),
         ]
     )
     def test_list_filter_by_workflow_type(self, _name, workflow_type, expected_names):
@@ -436,6 +436,15 @@ class TestHogFlowAPI(APIBaseTest):
             name="Loop with email action",
             created_by=self.user,
             origin_product="loops",
+            actions=[{"id": "a", "type": "function_email", "config": {}}],
+        )
+
+        # The wizard has no page of its own, so its drafts list as ordinary messaging workflows.
+        HogFlow.objects.create(
+            team=self.team,
+            name="Wizard welcome",
+            created_by=self.user,
+            origin_product="wizard",
             actions=[{"id": "a", "type": "function_email", "config": {}}],
         )
 
@@ -596,14 +605,20 @@ class TestHogFlowAPI(APIBaseTest):
             "attr": "status",
         }
 
-    def test_origin_product_is_set_on_create_and_immutable(self):
+    @parameterized.expand([("loops",), ("wizard",)])
+    @patch("products.workflows.backend.presentation.views.hog_flow.report_user_action")
+    def test_origin_product_is_set_on_create_and_immutable(self, origin_product, mock_report):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
-        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": "loops"})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": origin_product}
+        )
         assert response.status_code == 201, response.json()
         flow_id = response.json()["id"]
-        assert response.json()["origin_product"] == "loops"
+        assert response.json()["origin_product"] == origin_product
+        created_events = [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_created"]
+        assert created_events[0].args[2]["origin_product"] == origin_product
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"origin_product": None})
         assert response.status_code == 400
@@ -611,7 +626,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed"})
         assert response.status_code == 200, response.json()
-        assert response.json()["origin_product"] == "loops"
+        assert response.json()["origin_product"] == origin_product
 
     def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
         # A webhook action whose headers carry a bearer token — the kind of credential-like value

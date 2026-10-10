@@ -4627,6 +4627,7 @@ class HogFlowViewSet(
             {
                 "edges_count": len(serializer.instance.edges or []),
                 "actions_count": len(serializer.instance.actions or []),
+                "origin_product": serializer.instance.origin_product,
             },
         )
 
@@ -4703,6 +4704,7 @@ class HogFlowViewSet(
                 {
                     "edges_count": len(serializer.instance.edges or []),
                     "actions_count": len(serializer.instance.actions or []),
+                    "origin_product": serializer.instance.origin_product,
                 },
             )
 
