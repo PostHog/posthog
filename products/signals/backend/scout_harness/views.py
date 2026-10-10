@@ -3061,7 +3061,13 @@ def _resolve_scout_config_grants(
             resolved["tool_preset"] = "custom" if data["allowed_mcp_tools"] is not None else None
 
     selected_tools = resolved.get("allowed_mcp_tools", current_tools)
-    if "write_scopes" in data and (current_tools is not None or selected_tools is not None):
+    # A whole-config resend echoes the saved scopes back; only a change contradicts the tool list.
+    resends_saved_scopes = not selects_tools and set(data.get("write_scopes", [])) == current_scopes
+    if (
+        "write_scopes" in data
+        and (current_tools is not None or selected_tools is not None)
+        and not resends_saved_scopes
+    ):
         raise exceptions.ValidationError(
             {"write_scopes": "Write access comes from the tool list. Edit allowed_mcp_tools instead."}
         )

@@ -1665,6 +1665,27 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Write access comes from the tool list" in str(response.json())
 
+    @parameterized.expand(
+        [
+            ("derived_scopes", ["dashboard-create"], ["dashboard:write"]),
+            ("no_write_tools", [], []),
+        ]
+    )
+    def test_explicit_list_accepts_unchanged_scope_resend(
+        self, _name: str, tools: list[str], scopes: list[str]
+    ) -> None:
+        self._authored_by(self.user)
+        config = self._config(allowed_mcp_tools=tools, tool_preset="custom", write_scopes=scopes)
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                self._detail_url(str(config.id)), {"write_scopes": scopes, "emit": False}, format="json"
+            )
+        assert response.status_code == 200, response.json()
+        config.refresh_from_db()
+        assert config.allowed_mcp_tools == tools
+        assert config.write_scopes == scopes
+        assert config.emit is False
+
     @parameterized.expand([(False,), (None,), (RuntimeError("Flag unavailable"),)])
     def test_tool_list_fails_closed_without_flag(self, result: object) -> None:
         config = self._config()
