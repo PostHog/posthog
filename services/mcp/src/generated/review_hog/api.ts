@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 4 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -43,7 +43,7 @@ export const ReviewHogReviewsListQueryParams = () => zod.object({
 })
 
 /**
- * One completed ReviewHog review on this project, with the latest turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.
+ * One completed ReviewHog review on this project, with one turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. The latest completed turn by default; `run_index` reads an older one. `in_progress`, `progress`, and the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed under `scope=everyone` can be opened too.
  * @summary Retrieve one review's detail
  */
 export const ReviewHogReviewsRetrieveParams = () => zod.object({
@@ -52,6 +52,55 @@ export const ReviewHogReviewsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ReviewHogReviewsRetrieveQueryParams = () => zod.object({
+    run_index: zod
+        .number()
+        .optional()
+        .describe(
+            "The completed review turn to read, from 1 to `run_count`. Defaults to the latest completed turn. Use it to read an older turn's findings."
+        ),
+})
+
+/**
+ * Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called with, to get `request_outcome`, which says when that request is done.
+ * @summary Look up a pull request's review status
+ */
+export const ReviewHogReviewsPrStatusRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const reviewHogReviewsPrStatusRetrieveQueryRunModeDefault = `review`
+
+export const ReviewHogReviewsPrStatusRetrieveQueryParams = () => zod.object({
+    head_sha: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.'
+        ),
+    pr_url: zod
+        .string()
+        .min(1)
+        .describe("GitHub pull request URL to look up, e.g. 'https:\/\/github.com\/PostHog\/posthog\/pull\/123'."),
+    requested_at: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            'The `requested_at` the trigger returned. When set, the response carries `request_outcome` for that request.'
+        ),
+    run_mode: zod
+        .enum(['review', 'review_only', 'resolve_only', 'flash'])
+        .default(reviewHogReviewsPrStatusRetrieveQueryRunModeDefault)
+        .describe(
+            "The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.\n\n\* `review` - Review\n\* `review_only` - Review only\n\* `resolve_only` - Resolve only\n\* `flash` - Standard"
         ),
 })
 

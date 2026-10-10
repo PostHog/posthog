@@ -608,6 +608,18 @@ export interface PatchedReviewResolutionConfigSelectApi {
 }
 
 /**
+ * * `full` - Deep
+ * * `flash` - Standard
+ */
+export type ReviewTriggerReviewModeEnumApi =
+    (typeof ReviewTriggerReviewModeEnumApi)[keyof typeof ReviewTriggerReviewModeEnumApi]
+
+export const ReviewTriggerReviewModeEnumApi = {
+    Full: 'full',
+    Flash: 'flash',
+} as const
+
+/**
  * * `fetching` - fetching
  * * `chunking` - chunking
  * * `selecting` - selecting
@@ -687,6 +699,44 @@ export interface ReviewResolutionStatusApi {
     needs_attention: number
 }
 
+/**
+ * * `resolving` - Resolving
+ * * `stopped` - Stopped
+ * * `completed` - Completed
+ */
+export type ReviewLatestResolutionStatusEnumApi =
+    (typeof ReviewLatestResolutionStatusEnumApi)[keyof typeof ReviewLatestResolutionStatusEnumApi]
+
+export const ReviewLatestResolutionStatusEnumApi = {
+    Resolving: 'resolving',
+    Stopped: 'stopped',
+    Completed: 'completed',
+} as const
+
+export interface ReviewLatestResolutionApi {
+    /** Where the run stands: 'resolving' while threads are being settled, 'completed' when it finished, 'stopped' when it died partway or a newer review turn replaced it.
+     *
+     * * `resolving` - Resolving
+     * * `stopped` - Stopped
+     * * `completed` - Completed */
+    status: ReviewLatestResolutionStatusEnumApi
+    /** When the run queued its threads. */
+    started_at: string
+    /**
+     * When the run finished; null unless the status is 'completed'.
+     * @nullable
+     */
+    completed_at: string | null
+    /** Threads queued for this run. */
+    total: number
+    /** Threads the run fixed with a commit to the branch. */
+    fixed: number
+    /** Threads left for the author: judged worth doing but not safe to fix unattended. */
+    needs_attention: number
+    /** SHAs of the run's fix commits, oldest first. Only commits confirmed on the pull request branch that touch no protected files; the replies on GitHub link the same commits. */
+    commits: string[]
+}
+
 export interface ReviewRecentReviewApi {
     /** The review report's id, for fetching the review's detail. */
     id: string
@@ -733,8 +783,20 @@ export interface ReviewRecentReviewApi {
      * @nullable
      */
     last_run_at: string | null
-    /** Whether a review has been published back to GitHub. */
+    /** Whether any turn of this report has been published back to GitHub. See `turn_published` for the returned turn. */
     published: boolean
+    /** Whether the returned turn (the latest completed one, or `run_index` on the detail) was published to GitHub. False when it found nothing to post or publishing was off. */
+    turn_published: boolean
+    /** What the returned turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record its mode (turns from before the mode was recorded).
+     *
+     * * `full` - Deep
+     * * `flash` - Standard */
+    review_mode: ReviewTriggerReviewModeEnumApi | null
+    /**
+     * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
+     * @nullable
+     */
+    status_comment_url: string | null
     /** Whether a Deep review of this pull request has been published. No Standard review runs after one. */
     full_review_published: boolean
     /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
@@ -743,6 +805,8 @@ export interface ReviewRecentReviewApi {
     progress: ReviewProgressApi | null
     /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
     resolution: ReviewResolutionStatusApi | null
+    /** The report's latest resolution run, completed runs included: its status, counts, and fix commits. Null when no resolution run has queued threads on this report. */
+    latest_resolution: ReviewLatestResolutionApi | null
     /** The latest turn's valid findings at must_fix effective priority. */
     must_fix_count: number
     /** The latest turn's valid findings at should_fix effective priority. */
@@ -812,6 +876,16 @@ export interface ReviewPerspectiveSelectionApi {
     chunks: ReviewSelectionChunkApi[]
 }
 
+export interface ReviewFindingLineRangeApi {
+    /** First affected line. */
+    start: number
+    /**
+     * Last affected line; null for a single line.
+     * @nullable
+     */
+    end: number | null
+}
+
 /**
  * * `must_fix` - must_fix
  * * `should_fix` - should_fix
@@ -824,16 +898,6 @@ export const ReviewIssuePriorityEnumApi = {
     ShouldFix: 'should_fix',
     Consider: 'consider',
 } as const
-
-export interface ReviewFindingLineRangeApi {
-    /** First affected line. */
-    start: number
-    /**
-     * Last affected line; null for a single line.
-     * @nullable
-     */
-    end: number | null
-}
 
 /**
  * * `bug` - bug
@@ -950,8 +1014,20 @@ export interface ReviewDetailApi {
      * @nullable
      */
     last_run_at: string | null
-    /** Whether a review has been published back to GitHub. */
+    /** Whether any turn of this report has been published back to GitHub. See `turn_published` for the returned turn. */
     published: boolean
+    /** Whether the returned turn (the latest completed one, or `run_index` on the detail) was published to GitHub. False when it found nothing to post or publishing was off. */
+    turn_published: boolean
+    /** What the returned turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record its mode (turns from before the mode was recorded).
+     *
+     * * `full` - Deep
+     * * `flash` - Standard */
+    review_mode: ReviewTriggerReviewModeEnumApi | null
+    /**
+     * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
+     * @nullable
+     */
+    status_comment_url: string | null
     /** Whether a Deep review of this pull request has been published. No Standard review runs after one. */
     full_review_published: boolean
     /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
@@ -960,6 +1036,8 @@ export interface ReviewDetailApi {
     progress: ReviewProgressApi | null
     /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
     resolution: ReviewResolutionStatusApi | null
+    /** The report's latest resolution run, completed runs included: its status, counts, and fix commits. Null when no resolution run has queued threads on this report. */
+    latest_resolution: ReviewLatestResolutionApi | null
     /** The latest turn's valid findings at must_fix effective priority. */
     must_fix_count: number
     /** The latest turn's valid findings at should_fix effective priority. */
@@ -995,24 +1073,29 @@ export interface ReviewDetailApi {
      * @nullable
      */
     blind_spot_issue_count: number | null
+    /** The review turn this detail describes, from 1 to `run_count`. */
+    run_index: number
     /**
-     * The PR head commit the latest turn reviewed — anchors GitHub links to the exact code.
+     * The PR head commit the returned turn reviewed. Anchors GitHub links to the exact code. Null for an older turn whose head was not recorded.
      * @nullable
      */
     head_sha: string | null
     /** The selector's per-chunk perspective plan for the latest turn; null when the turn ran without a selection (selector unavailable, failed, or the run predates it). */
     perspective_selection: ReviewPerspectiveSelectionApi | null
-    /** The rendered review body published to GitHub, as markdown. */
-    report_markdown: string
-    /** The urgency threshold the completed turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
+    /**
+     * The rendered review body published to GitHub, as markdown. Only kept for the latest turn, so null when `run_index` selects an older turn.
+     * @nullable
+     */
+    report_markdown: string | null
+    /** The urgency threshold the returned turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
      *
-     * * `must_fix` - must_fix
-     * * `should_fix` - should_fix
-     * * `consider` - consider */
-    run_urgency_threshold: ReviewIssuePriorityEnumApi | null
-    /** The latest turn's validated findings, most urgent first. */
+     * * `consider` - Consider (all)
+     * * `should_fix` - Should fix
+     * * `must_fix` - Must fix */
+    run_urgency_threshold: UrgencyThresholdEnumApi | null
+    /** The returned turn's validated findings, most urgent first. */
     findings: ReviewFindingApi[]
-    /** The latest turn's findings the validator dismissed, with its reasoning. */
+    /** The returned turn's findings the validator dismissed, with its reasoning. */
     dismissed_findings: ReviewFindingApi[]
 }
 
@@ -1032,6 +1115,131 @@ export interface ReviewPerspectiveStatsApi {
     report_count: number
     /** Per-skill effectiveness across those reviews, most kept findings first. */
     perspectives: ReviewPerspectiveStatItemApi[]
+}
+
+/**
+ * * `not_reviewed` - Not reviewed
+ * * `queued` - Queued
+ * * `reviewing` - Reviewing
+ * * `resolving` - Resolving
+ * * `idle` - Idle
+ * * `unknown` - Unknown
+ */
+export type ReviewPRStateEnumApi = (typeof ReviewPRStateEnumApi)[keyof typeof ReviewPRStateEnumApi]
+
+export const ReviewPRStateEnumApi = {
+    NotReviewed: 'not_reviewed',
+    Queued: 'queued',
+    Reviewing: 'reviewing',
+    Resolving: 'resolving',
+    Idle: 'idle',
+    Unknown: 'unknown',
+} as const
+
+export interface ReviewPRStatusLatestReviewApi {
+    /** The review's id, for `review-hog-reviews-get`. */
+    id: string
+    /** What the turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record it.
+     *
+     * * `full` - Deep
+     * * `flash` - Standard */
+    review_mode: ReviewTriggerReviewModeEnumApi | null
+    /**
+     * The PR head commit the turn reviewed.
+     * @nullable
+     */
+    head_sha: string | null
+    /** The turn's index, for `review-hog-reviews-get`. */
+    run_index: number
+    /**
+     * When the turn completed.
+     * @nullable
+     */
+    completed_at: string | null
+    /** The turn's valid findings at must_fix priority. */
+    must_fix_count: number
+    /** The turn's valid findings at should_fix priority. */
+    should_fix_count: number
+    /** The turn's valid findings at consider priority. */
+    consider_count: number
+    /** Whether the turn was published to GitHub. */
+    turn_published: boolean
+    /**
+     * Link to the review's status comment on the pull request; null when there is none.
+     * @nullable
+     */
+    status_comment_url: string | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `completed` - Completed
+ * * `skipped` - Skipped
+ * * `failed` - Failed
+ * * `unknown` - Unknown
+ */
+export type ReviewRequestOutcomeStatusEnumApi =
+    (typeof ReviewRequestOutcomeStatusEnumApi)[keyof typeof ReviewRequestOutcomeStatusEnumApi]
+
+export const ReviewRequestOutcomeStatusEnumApi = {
+    Pending: 'pending',
+    Completed: 'completed',
+    Skipped: 'skipped',
+    Failed: 'failed',
+    Unknown: 'unknown',
+} as const
+
+export interface ReviewPRStatusRequestOutcomeApi {
+    /** How the request ended: 'pending' while a run for it is queued or running, 'completed' when a turn of the requested mode or deeper finished after `requested_at` and either started after it or reviewed the given `head_sha` (Deep covers Standard), 'skipped' when the run ended without doing the work, 'failed' when the run died or no run answered the request, 'unknown' when the run state could not be read (retry later).
+     *
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     * * `unknown` - Unknown */
+    status: ReviewRequestOutcomeStatusEnumApi
+    /**
+     * Why it was skipped or failed: 'flash_after_full' (Standard dropped after a Deep review), 'review_failed', 'stopped' (Resolve died partway), 'no_matching_run' (nothing ran for the request and nothing is queued, for example when the queue replaced it), or a Resolve skip reason such as 'pr_not_open', 'resolution_not_opted_in', 'no_unresolved_threads', 'pr_in_merge_queue'. Null otherwise.
+     * @nullable
+     */
+    reason: string | null
+    /**
+     * The review to read with `review-hog-reviews-get`; null before the PR has one.
+     * @nullable
+     */
+    review_id: string | null
+    /**
+     * The review turn that answered or failed the request, for `review-hog-reviews-get`. Null for 'resolve_only' and while pending.
+     * @nullable
+     */
+    run_index: number | null
+}
+
+export interface ReviewPRStatusApi {
+    /** The pull request's repository as 'owner/repo'. */
+    repository: string
+    /** The pull request number. */
+    pr_number: number
+    /**
+     * The PR's review id, for `review-hog-reviews-get`; null before its first run.
+     * @nullable
+     */
+    report_id: string | null
+    /** Where the PR stands now: 'not_reviewed' (no completed review and nothing queued), 'queued' (a run is queued or starting), 'reviewing' (a review turn is running), 'resolving' (Resolve is running), 'idle' (nothing running), 'unknown' (the run state could not be read, retry later).
+     *
+     * * `not_reviewed` - Not reviewed
+     * * `queued` - Queued
+     * * `reviewing` - Reviewing
+     * * `resolving` - Resolving
+     * * `idle` - Idle
+     * * `unknown` - Unknown */
+    state: ReviewPRStateEnumApi
+    /** The latest completed review turn; null before the first one completes. */
+    latest_review: ReviewPRStatusLatestReviewApi | null
+    /** The latest Resolve run, finished ones too; null when no Resolve run has queued threads. */
+    latest_resolution: ReviewLatestResolutionApi | null
+    /** How the request at `requested_at` ended; null without `requested_at`. */
+    request_outcome: ReviewPRStatusRequestOutcomeApi | null
 }
 
 /**
@@ -1061,18 +1269,6 @@ export interface ReviewTriggerRequestApi {
      * * `flash` - Standard */
     run_mode?: ReviewTriggerRequestRunModeEnumApi
 }
-
-/**
- * * `full` - Deep
- * * `flash` - Standard
- */
-export type ReviewTriggerReviewModeEnumApi =
-    (typeof ReviewTriggerReviewModeEnumApi)[keyof typeof ReviewTriggerReviewModeEnumApi]
-
-export const ReviewTriggerReviewModeEnumApi = {
-    Full: 'full',
-    Flash: 'flash',
-} as const
 
 /**
  * * `run_mode_excludes_resolve` - The run mode never resolves comments
@@ -1113,7 +1309,7 @@ export interface ReviewTriggerResponseApi {
     report_id: string | null
     /** Server time when the request was accepted. */
     requested_at: string
-    /** Whether this request runs the resolution stage, which can push fix commits to the pull request. */
+    /** Whether this request plans to run the resolution stage, which can push fix commits to the pull request. It is the plan at request time: a request queued behind a running turn on the same head can be skipped as already published. `review-hog-reviews-pr-status` reports what actually ran. */
     resolve_will_run: boolean
     /** Why the resolution stage does not run: 'run_mode_excludes_resolve' ('review_only' and 'flash' never resolve), 'owner_not_opted_in' (the pull request owner has not turned on resolving comments), 'already_reviewed' (no run starts). Null when it runs.
      *
@@ -1362,6 +1558,13 @@ export const ReviewHogReviewsListScope = {
     Everyone: 'everyone',
 } as const
 
+export type ReviewHogReviewsRetrieveParams = {
+    /**
+     * The completed review turn to read, from 1 to `run_count`. Defaults to the latest completed turn. Use it to read an older turn's findings.
+     */
+    run_index?: number
+}
+
 export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
     /**
      * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project, `own_deep` for the last 10 Deep reviews the requesting user started. The review skills in the settings use `own_deep`, because only the person who starts a Deep review picks its skills.
@@ -1381,4 +1584,41 @@ export const ReviewHogReviewsPerspectiveStatsRetrieveScope = {
     Mine: 'mine',
     Everyone: 'everyone',
     OwnDeep: 'own_deep',
+} as const
+
+export type ReviewHogReviewsPrStatusRetrieveParams = {
+    /**
+     * The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.
+     * @minLength 1
+     */
+    head_sha?: string
+    /**
+     * GitHub pull request URL to look up, e.g. 'https://github.com/PostHog/posthog/pull/123'.
+     * @minLength 1
+     */
+    pr_url: string
+    /**
+     * The `requested_at` the trigger returned. When set, the response carries `request_outcome` for that request.
+     */
+    requested_at?: string
+    /**
+     * The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.
+     *
+     * * `review` - Review
+     * * `review_only` - Review only
+     * * `resolve_only` - Resolve only
+     * * `flash` - Standard
+     * @minLength 1
+     */
+    run_mode?: ReviewHogReviewsPrStatusRetrieveRunMode
+}
+
+export type ReviewHogReviewsPrStatusRetrieveRunMode =
+    (typeof ReviewHogReviewsPrStatusRetrieveRunMode)[keyof typeof ReviewHogReviewsPrStatusRetrieveRunMode]
+
+export const ReviewHogReviewsPrStatusRetrieveRunMode = {
+    Review: 'review',
+    ReviewOnly: 'review_only',
+    ResolveOnly: 'resolve_only',
+    Flash: 'flash',
 } as const
