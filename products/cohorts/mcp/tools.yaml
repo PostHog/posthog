@@ -96,6 +96,7 @@ tools:
             - experiment_set
         ui_app: cohort
     cohorts-list:
+        sdk: { namespace: cohorts, method: list }
         operation: cohorts_list
         enabled: true
         scopes:
@@ -175,6 +176,7 @@ tools:
                 cast: string-int
         ui_app: cohort
     cohorts-retrieve:
+        sdk: { namespace: cohorts, method: get }
         operation: cohorts_retrieve
         enabled: true
         scopes:

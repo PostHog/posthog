@@ -8,6 +8,7 @@ url_prefix: /dashboard
 ui_apps: {}
 tools:
     dashboard-create:
+        sdk: { namespace: dashboards, method: create }
         operation: dashboards_create
         enabled: true
         scopes:
@@ -202,6 +203,7 @@ tools:
             id:
                 cast: string-int
     dashboard-get:
+        sdk: { namespace: dashboards, method: get }
         operation: dashboards_retrieve
         enabled: true
         scopes:
@@ -435,6 +437,7 @@ tools:
             to_dashboard:
                 required: true
     dashboard-update:
+        sdk: { namespace: dashboards, method: update }
         operation: dashboards_partial_update
         enabled: true
         scopes:
@@ -679,6 +682,7 @@ tools:
             /api/projects/{project_id}/dashboards/{id}/ with {"deleted": false}. The dashboard-update MCP tool does not
             support restoring deleted dashboards.
     dashboards-get-all:
+        sdk: { namespace: dashboards, method: list }
         operation: dashboards_list
         enabled: true
         scopes:

@@ -11,6 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 # Directories a code generation pipeline owns in full: drf-spectacular and Orval output,
 # schema codegen, and the MCP tool and UI-app pipelines. `*` spans `/` in fnmatch.
 PIPELINE_ROOTS = (
+    "packages/sdk/src/generated/*",
     "frontend/src/generated/*",
     "products/*/frontend/generated/*",
     "nodejs/src/common/generated/*",
