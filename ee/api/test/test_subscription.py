@@ -2865,13 +2865,23 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
-    def test_summaries_for_another_teams_dashboard_are_not_found(self):
-        other_team = Team.objects.create(organization=self.organization, name="Other")
-        dashboard = Dashboard.objects.create(team=other_team, name="Other dashboard")
+    @parameterized.expand(
+        [
+            ("another team's dashboard", "dashboard", True, False),
+            ("another team's insight", "insight", True, False),
+            ("deleted insight", "insight", False, True),
+        ]
+    )
+    def test_summaries_for_a_source_out_of_reach_are_not_found(self, _name, source_type, other_team, deleted):
+        team = Team.objects.create(organization=self.organization, name="Other") if other_team else self.team
+        if source_type == "dashboard":
+            source_id = Dashboard.objects.create(team=team, name="Unreachable dashboard").id
+        else:
+            source_id = Insight.objects.create(
+                query=default_pageview_query(), team=team, created_by=self.user, deleted=deleted
+            ).id
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/subscriptions/summaries/", {"dashboard": dashboard.id}
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/summaries/", {source_type: source_id})
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
 
