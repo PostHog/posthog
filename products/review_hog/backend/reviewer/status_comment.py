@@ -4,8 +4,9 @@ One marker-tagged issue comment per report on the publish (cloud trigger) path: 
 the run's gates pass, edited in place as the pipeline persists progress artefacts, and rewritten
 with the turn's outcome at the end — the full found-vs-published counts, or a failure notice. Always
 edited, never re-posted: comment edits don't notify PR subscribers, while every new comment emails
-everyone. Progress renders from the same derivation the reviews API uses (`reviewer.progress`), so
-the PR comment and the UI can never disagree.
+everyone. The running and failed bodies are one table with a row per step of the turn. Progress
+renders from the same derivation the reviews API uses (`reviewer.progress`), so the PR comment and
+the UI can never disagree.
 
 The resolution stage shares the same comment (one ReviewHog voice per PR): its progress and closing
 tally live in a marker-delimited section spliced in by `update_resolution_status_comment`, which
@@ -30,6 +31,7 @@ from posthog.dataclasses import frozen
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
     PRIORITIES_BY_URGENCY,
@@ -52,6 +54,7 @@ from products.review_hog.backend.reviewer.progress import (
     turn_stats,
 )
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
+from products.review_hog.backend.reviewer.skill_loader import REVIEW_HOG_PERSPECTIVE_PREFIX
 from products.review_hog.backend.reviewer.tools.github_client import (
     GitHubAPIError,
     github_api_get_paginated,
@@ -67,20 +70,7 @@ logger = logging.getLogger(__name__)
 # collapses to at most one GitHub edit per interval instead of one per finished unit.
 STATUS_EDIT_MIN_INTERVAL = timedelta(seconds=60)
 
-# Mirrors the frontend's `progressLabel` step mapping — the PR comment and the UI must tell the same
-# story. Fetching folds into step 1 there too.
-_STAGE_LABELS = {
-    "fetching": "Step 1/6 · Preparing the diff",
-    "chunking": "Step 1/6 · Splitting into chunks",
-    "selecting": "Step 2/6 · Picking perspectives",
-    "reviewing": "Step 3/6 · Running review passes",
-    "deduplicating": "Step 4/6 · Merging overlapping findings",
-    "validating": "Step 5/6 · Validating findings",
-    "finalizing": "Step 6/6 · Finalizing the review",
-    "single_agent_preparing": "Step 1/3 · Preparing the diff",
-    "single_agent_reviewing": "Step 2/3 · Reviewing the pull request",
-    "single_agent_finalizing": "Step 3/3 · Finalizing the review",
-}
+_MODE_NAMES = {REVIEW_MODE_FLASH: "Standard", REVIEW_MODE_FULL: "Deep"}
 
 # The UI's urgency-threshold labels (`URGENCY_STOPS`), for the held-back explanation.
 _THRESHOLD_LABELS = {
@@ -101,6 +91,15 @@ _THRESHOLD_ATTRIBUTIONS = {
 }
 # Only personal thresholds live in someone's PostHog Review settings; the default variant has no page to point at.
 _PERSONAL_THRESHOLD_SOURCES = frozenset({"author", "override"})
+
+
+_PERSPECTIVE_LABELS = {
+    f"{REVIEW_HOG_PERSPECTIVE_PREFIX}logic-correctness": "Logic",
+    f"{REVIEW_HOG_PERSPECTIVE_PREFIX}contracts-security": "Security",
+    f"{REVIEW_HOG_PERSPECTIVE_PREFIX}performance-reliability": "Performance",
+}
+# Longer cells wrap the table on narrow screens, so a long perspective list collapses to a count.
+_MAX_CELL_CHARS = 45
 
 # A clean review still posts a comment so silence never looks like a failed run.
 _NO_ISSUES_MEDIA = (
@@ -166,6 +165,8 @@ _RESOLUTION_OUTCOME_LABELS = {
 }
 _RESOLUTION_OUTCOME_ORDER = ("fixed", "declined", "already settled", "left for you")
 
+_TABLE_HEADER = "| Step | Status | Result |"
+
 
 def report_deep_link(team_id: int, report_id: str) -> str:
     """The app URL opening this report's review drawer — the held-back "View them in PostHog" target.
@@ -185,41 +186,250 @@ def _plural(count: int, noun: str) -> str:
     return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
 
 
+def _header(review_mode: str, verb: str, head_sha: str | None) -> str:
+    target = f"`{head_sha[:7]}`" if head_sha else "this pull request"
+    return f"### \U0001f994 PostHog Review · {_MODE_NAMES.get(review_mode, 'Deep')} · {verb} {target}"
+
+
+@frozen
+class TurnFacts:
+    """What the turn's persisted working state says, for the table's Result cells.
+
+    None means the step has not produced the number yet, and the cell stays empty.
+    """
+
+    files_reviewed: int | None = None
+    chunk_count: int | None = None
+    perspectives: tuple[str, ...] = ()
+    planned_passes: int | None = None
+    # Finished review sessions without the blind-spot check: perspective passes, or single-agent sessions.
+    passes_done: int = 0
+    pass_issues: int | None = None
+    blind_spot_done: int = 0
+    blind_spot_issues: int | None = None
+    merged: int = 0
+    judged: int = 0
+    kept: int = 0
+
+
+def turn_facts(
+    snapshot: SnapshotStats,
+    turn: TurnStats,
+    pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+) -> TurnFacts:
+    chunks = turn.selection_chunks
+    verdicts = [verdict for _, verdict in pairs if verdict is not None]
+    blind_spot_done = turn.blind_spot_reads or 0
+    return TurnFacts(
+        files_reviewed=snapshot.files_reviewed,
+        chunk_count=turn.chunk_count,
+        perspectives=tuple(dict.fromkeys(name for chunk in chunks or [] for name in chunk.perspectives)),
+        planned_passes=sum(len(chunk.perspectives) for chunk in chunks) if chunks is not None else None,
+        passes_done=(turn.perspective_reads or 0) - blind_spot_done,
+        pass_issues=turn.perspective_issue_count,
+        blind_spot_done=blind_spot_done,
+        blind_spot_issues=turn.blind_spot_issue_count,
+        merged=len(pairs),
+        judged=len(verdicts),
+        kept=sum(1 for verdict in verdicts if verdict.is_valid),
+    )
+
+
+_NO_FACTS = TurnFacts()
+
+
+@frozen
+class _Step:
+    label: str
+    result: str = ""
+    counter: str | None = None
+    # Whether the result already means something while the step still runs.
+    partial: bool = False
+
+
+@frozen
+class _Row:
+    step: str
+    status: str
+    result: str = ""
+
+
+def _count(value: int | None, noun: str) -> str:
+    return _plural(value, noun) if value is not None else ""
+
+
+def _perspective_names(names: Sequence[str]) -> str:
+    labels = [
+        _PERSPECTIVE_LABELS.get(name) or name.removeprefix(REVIEW_HOG_PERSPECTIVE_PREFIX).replace("-", " ").capitalize()
+        for name in names
+    ]
+    text = ", ".join(labels)
+    return text if len(text) <= _MAX_CELL_CHARS else _plural(len(labels), "perspective")
+
+
+def _pipeline_steps(facts: TurnFacts) -> list[_Step]:
+    raw = None
+    blind_spot_result = ""
+    if facts.pass_issues is not None:
+        raw = facts.pass_issues + (facts.blind_spot_issues or 0)
+        if facts.blind_spot_issues is not None:
+            blind_spot_result = f"+{_plural(facts.blind_spot_issues, 'issue')} ({raw} in total)"
+    return [
+        _Step(
+            label="Prepare the diff",
+            result=", ".join(
+                part for part in (_count(facts.files_reviewed, "file"), _count(facts.chunk_count, "chunk")) if part
+            ),
+        ),
+        _Step(label="Pick perspectives", result=_perspective_names(facts.perspectives)),
+        _Step(
+            label="Review passes",
+            result=_count(facts.pass_issues, "issue"),
+            counter=f"{facts.passes_done}/{facts.planned_passes}" if facts.planned_passes else None,
+            partial=True,
+        ),
+        _Step(
+            label="Blind-spot check",
+            result=blind_spot_result,
+            counter=f"{facts.blind_spot_done}/{facts.chunk_count}" if facts.chunk_count else None,
+            partial=True,
+        ),
+        _Step(label="Merge overlapping findings", result=f"{raw} → {facts.merged}" if raw is not None else ""),
+        _Step(
+            label="Validate",
+            result=f"{facts.kept} kept, {facts.judged - facts.kept} dismissed" if facts.judged else "",
+            counter=f"{facts.judged}/{facts.merged}" if facts.merged else None,
+            partial=True,
+        ),
+        _Step(label="Publish"),
+    ]
+
+
+def _single_agent_steps(facts: TurnFacts) -> list[_Step]:
+    return [
+        _Step(label="Prepare the diff", result=_count(facts.files_reviewed, "file")),
+        _Step(
+            label="Main review and lenses",
+            result=f"{_plural(facts.passes_done, 'session')} finished" if facts.passes_done else "",
+            partial=True,
+        ),
+        _Step(label="Merge and cap"),
+        _Step(label="Publish"),
+    ]
+
+
+def _steps(review_design: str, facts: TurnFacts) -> list[_Step]:
+    # Branch on the design, not the mode: an older Standard turn ran the full pipeline.
+    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+        return _single_agent_steps(facts)
+    return _pipeline_steps(facts)
+
+
+_PIPELINE_STEP_BY_STAGE = {
+    "fetching": 0,
+    "chunking": 0,
+    "selecting": 1,
+    "reviewing": 2,
+    "deduplicating": 4,
+    "validating": 5,
+    "finalizing": 6,
+}
+_SINGLE_AGENT_STEP_BY_STAGE = {
+    "single_agent_preparing": 0,
+    "single_agent_reviewing": 1,
+    "single_agent_finalizing": 3,
+}
+
+
+def _current_step(progress: dict[str, Any] | None, review_design: str, facts: TurnFacts) -> int:
+    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+        # A single-agent turn starts its sessions right after the kickoff, and the next refresh waits
+        # for the first session result, so the kickoff already shows the review step.
+        stage = progress["review_stage"] if progress else "single_agent_reviewing"
+        return _SINGLE_AGENT_STEP_BY_STAGE.get(stage, 1)
+    stage = progress["review_stage"] if progress else "fetching"
+    # Each chunk's blind-spot check runs after that chunk's passes, all inside the "reviewing" stage.
+    if stage == "reviewing" and facts.planned_passes is not None and facts.passes_done >= facts.planned_passes:
+        return 3
+    return _PIPELINE_STEP_BY_STAGE.get(stage, 0)
+
+
+def _rows(steps: list[_Step], current: int | None, *, failed: bool = False) -> list[_Row]:
+    """Rows before `current` are done, later ones wait (or were skipped). `current=None` means all done."""
+    rows = []
+    for index, step in enumerate(steps):
+        if current is None or index < current:
+            rows.append(_Row(step=step.label, status=f"✅ {step.counter or 'Done'}", result=step.result))
+        elif index > current:
+            rows.append(_Row(step=step.label, status="Skipped" if failed else "⏸ Waiting"))
+        elif failed:
+            rows.append(_Row(step=step.label, status="❌ Failed"))
+        else:
+            result = step.result if step.partial else ""
+            rows.append(_Row(step=step.label, status=f"⏳ {step.counter or 'Running'}", result=result))
+    return rows
+
+
+def _table_row(step: str, status: str, result: str) -> str:
+    return f"| {step} | {status} | {result} |"
+
+
+def _table(rows: Sequence[_Row]) -> list[str]:
+    return [_TABLE_HEADER, "|---|---|---|", *(_table_row(row.step, row.status, row.result) for row in rows)]
+
+
 def render_in_progress_body(
     report_id: str,
     progress: dict[str, Any] | None,
     *,
     review_mode: str = REVIEW_MODE_FULL,
     review_design: str = REVIEW_DESIGN_PIPELINE,
+    head_sha: str | None = None,
+    facts: TurnFacts = _NO_FACTS,
 ) -> str:
-    """The running-state body: the current step (mirroring the UI), plus a one-line explainer."""
-    single_agent = review_design == REVIEW_DESIGN_SINGLE_AGENT
-    # The kickoff body has no progress yet. A single-agent turn starts its sessions right after the
-    # kickoff and the next refresh waits for the first session result, so the kickoff shows the
-    # reviewing step instead of the preparing step.
-    kickoff_stage = "single_agent_reviewing" if single_agent else "fetching"
-    label = (
-        _STAGE_LABELS.get(progress["review_stage"], "Review in progress") if progress else _STAGE_LABELS[kickoff_stage]
-    )
-    explainer = (
-        "A main reviewer and two focused reviewers read the pull request in parallel. "
-        "The most important findings are published back to it."
-        if single_agent
-        else "Specialist review skills read the changed code in parallel each from their own perspective, a blind-spot sweep "
-        "catches what they missed, and only validated findings are published back to this pull request."
-    )
-    done = progress.get("done") if progress else None
-    total = progress.get("total") if progress else None
-    counter = f" · {done}/{total}" if done is not None and total else ""
+    """The running-state body: done steps with their results, the current step, and the waiting ones."""
+    steps = _steps(review_design, facts)
+    current = _current_step(progress, review_design, facts)
     return "\n".join(
         [
-            f"### \U0001f994 {_product_name(review_mode)} is reviewing this pull request",
+            _header(review_mode, "reviewing", head_sha),
             "",
-            f"**{label}{counter}**",
+            f"Reviewing · step {current + 1} of {len(steps)}",
             "",
-            explainer,
+            *_table(_rows(steps, current)),
             "",
-            "<sub>This comment updates as the review progresses.</sub>",
+            "<sub>This comment updates as the review runs.</sub>",
+            "",
+            status_marker(report_id),
+        ]
+    )
+
+
+def render_failed_body(
+    report_id: str,
+    *,
+    review_mode: str = REVIEW_MODE_FULL,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
+    head_sha: str | None = None,
+    progress: dict[str, Any] | None = None,
+    facts: TurnFacts = _NO_FACTS,
+) -> str:
+    """The failed-state body: the table up to the step that failed, so the author sees where it stopped."""
+    steps = _steps(review_design, facts)
+    current = _current_step(progress, review_design, facts)
+    # A push starts only a Standard review. A Deep review runs only when someone asks for it.
+    retry = (
+        "It runs again on the next push to this pull request."
+        if review_mode == REVIEW_MODE_FLASH
+        else "Ask for a Deep review again to retry."
+    )
+    return "\n".join(
+        [
+            _header(review_mode, "couldn't finish reviewing", head_sha),
+            "",
+            f'The review failed at "{steps[current].label}". {retry}',
+            "",
+            *_table(_rows(steps, current, failed=True)),
             "",
             status_marker(report_id),
         ]
@@ -399,18 +609,6 @@ def _splice_resolution_section(body: str, section: str) -> str:
     return f"{body.rstrip()}\n\n{block}" if body.strip() else block
 
 
-def render_failed_body(report_id: str, *, review_mode: str = REVIEW_MODE_FULL) -> str:
-    return "\n".join(
-        [
-            f"### \U0001f994 {_product_name(review_mode)} couldn't finish this review",
-            "",
-            "The review run failed partway. It will run again on the next push to this pull request.",
-            "",
-            status_marker(report_id),
-        ]
-    )
-
-
 def _auth(team_id: int, repository: str) -> tuple[str, str | None] | None:
     """The installation token + id for `repository`, or None when no installation reaches it.
 
@@ -523,7 +721,9 @@ def ensure_status_comment(
         token, installation_id = auth
         owner, repo = _split_repository(report.repository)
         marker = status_marker(report_id)
-        body = render_in_progress_body(report_id, None, review_mode=review_mode, review_design=review_design)
+        body = render_in_progress_body(
+            report_id, None, review_mode=review_mode, review_design=review_design, head_sha=report.head_sha
+        )
 
         comment_id = report.status_comment_id
         if comment_id is None:
@@ -546,6 +746,46 @@ def ensure_status_comment(
         report.save(update_fields=["status_comment_id", "status_comment_edited_at", "updated_at"])
     except Exception:
         logger.exception("Could not post the ReviewHog status comment; the review continues without it")
+
+
+@frozen
+class _TurnState:
+    snapshot: SnapshotStats
+    turn: TurnStats
+    pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]]
+
+
+def _turn_state(team_id: int, report: ReviewReport, run_index: int) -> _TurnState:
+    """The turn's persisted working state, read the same way the reviews API reads it."""
+    report_id = str(report.id)
+    heads = {report_id: report.head_sha}
+    return _TurnState(
+        snapshot=snapshot_stats(team_id, heads).get(report_id, SnapshotStats()),
+        turn=turn_stats(team_id, heads).get(report_id, TurnStats()),
+        pairs=load_findings_bundle(team_id=team_id, report_ids=[report_id]).turn(report_id, run_index),
+    )
+
+
+def _live_body(report: ReviewReport, state: _TurnState, *, failed: bool, review_mode: str, review_design: str) -> str:
+    progress = progress_payload(report.team_id, report, state.snapshot, state.turn, state.pairs)
+    facts = turn_facts(state.snapshot, state.turn, state.pairs)
+    if failed:
+        return render_failed_body(
+            str(report.id),
+            progress=progress,
+            review_mode=review_mode,
+            review_design=review_design,
+            head_sha=report.head_sha,
+            facts=facts,
+        )
+    return render_in_progress_body(
+        str(report.id),
+        progress,
+        review_mode=review_mode,
+        review_design=review_design,
+        head_sha=report.head_sha,
+        facts=facts,
+    )
 
 
 def maybe_refresh_status_comment(
@@ -577,14 +817,9 @@ def maybe_refresh_status_comment(
         report = ReviewReport.objects.for_team(team_id).get(id=report_id)
         if report.status_comment_id is None or report.pr_number is None:
             return
-        heads = {report_id: report.head_sha}
-        snapshot = snapshot_stats(team_id, heads).get(report_id, SnapshotStats())
-        turn = turn_stats(team_id, heads).get(report_id, TurnStats())
         # The in-flight turn's findings live one run_index ahead of the completed watermark.
-        current_pairs = load_findings_bundle(team_id=team_id, report_ids=[report_id]).turn(
-            report_id, report.run_count + 1
-        )
-        progress = progress_payload(team_id, report, snapshot, turn, current_pairs)
+        state = _turn_state(team_id, report, report.run_count + 1)
+        body = _live_body(report, state, failed=False, review_mode=review_mode, review_design=review_design)
         auth = _auth(team_id, report.repository)
         if auth is None:
             return
@@ -594,7 +829,7 @@ def maybe_refresh_status_comment(
             owner,
             repo,
             report.status_comment_id,
-            render_in_progress_body(report_id, progress, review_mode=review_mode, review_design=review_design),
+            body,
             token=token,
             installation_id=installation_id,
         )
@@ -662,13 +897,21 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         logger.exception("Could not finalize the ReviewHog status comment; the review is unaffected")
 
 
-def fail_status_comment(team_id: int, report_id: str, *, review_mode: str = REVIEW_MODE_FULL) -> None:
+def fail_status_comment(
+    team_id: int,
+    report_id: str,
+    *,
+    review_mode: str = REVIEW_MODE_FULL,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
+) -> None:
     """Rewrite the status comment as failed, so a dead run never reads as forever in progress."""
     try:
         report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
         if report is None or report.status_comment_id is None or report.pr_number is None:
             return
-        _edit_and_stamp(team_id, report, render_failed_body(report_id, review_mode=review_mode))
+        state = _turn_state(team_id, report, report.run_count + 1)
+        body = _live_body(report, state, failed=True, review_mode=review_mode, review_design=review_design)
+        _edit_and_stamp(team_id, report, body)
     except Exception:
         logger.exception("Could not mark the ReviewHog status comment as failed")
 

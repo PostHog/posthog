@@ -89,6 +89,7 @@ class TurnStats:
     blind_spot_issue_count: int | None = None
     # (pass, chunk) review units completed this turn — the in-flight "reviewing" progress counter.
     perspective_reads: int | None = None
+    blind_spot_reads: int | None = None
     # The selector's persisted plan for the turn: the full menu + the normalized per-chunk picks.
     # None when the turn ran without a selection (failed, skipped, or predates the feature).
     selection_roster: list[str] | None = None
@@ -248,6 +249,7 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
             stats[report_id].perspective_count = len({pass_number for pass_number, _ in wave_units})
             stats[report_id].perspective_issue_count = sum(wave_units.values())
         if blind_units:
+            stats[report_id].blind_spot_reads = len(blind_units)
             stats[report_id].blind_spot_issue_count = sum(blind_units.values())
     return stats
 

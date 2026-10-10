@@ -1,5 +1,5 @@
+from collections.abc import Callable
 from datetime import timedelta
-from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -19,6 +19,7 @@ from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIP
 from products.review_hog.backend.reviewer.status_comment import (
     RESOLUTION_SECTION_START,
     FinalizeStatusCommentInput,
+    TurnFacts,
     _splice_resolution_section,
     ensure_status_comment,
     fail_status_comment,
@@ -40,37 +41,129 @@ _REQUEST = f"{_MODULE}.github_api_request"
 _PAGINATED = f"{_MODULE}.github_api_get_paginated"
 _INTEGRATION = f"{_MODULE}.GitHubIntegration"
 
+_SHA = "b81c2e1f00d"
+_PERSPECTIVES = (
+    "review-hog-perspective-logic-correctness",
+    "review-hog-perspective-contracts-security",
+    "review-hog-perspective-performance-reliability",
+)
+_DEEP_DONE_FACTS = TurnFacts(
+    files_reviewed=14,
+    chunk_count=3,
+    perspectives=_PERSPECTIVES,
+    planned_passes=9,
+    passes_done=9,
+    pass_issues=14,
+    blind_spot_done=3,
+    blind_spot_issues=2,
+    merged=9,
+    judged=9,
+    kept=4,
+)
 
-_STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
-    (None, "Step 1/6 · Preparing the diff"),
-    ({"review_stage": "chunking", "done": None, "total": None}, "Step 1/6 · Splitting into chunks"),
-    ({"review_stage": "reviewing", "done": 7, "total": 18}, "Step 3/6 · Running review passes · 7/18"),
-    ({"review_stage": "validating", "done": 2, "total": None}, "Step 5/6 · Validating findings"),
+
+_PHASE_CASES: list[tuple[str, Callable[[], str], list[str], list[str]]] = [
+    (
+        "deep_kickoff",
+        lambda: render_in_progress_body("rid", None, head_sha=_SHA),
+        [
+            "### \U0001f994 PostHog Review · Deep · reviewing `b81c2e1`",
+            "Reviewing · step 1 of 7",
+            "| Prepare the diff | ⏳ Running |  |",
+            "| Publish | ⏸ Waiting |  |",
+            "<sub>This comment updates as the review runs.</sub>",
+        ],
+        [],
+    ),
+    (
+        "deep_running",
+        lambda: render_in_progress_body(
+            "rid",
+            {"review_stage": "reviewing", "done": 7, "total": 12},
+            head_sha=_SHA,
+            facts=TurnFacts(
+                files_reviewed=14,
+                chunk_count=3,
+                perspectives=_PERSPECTIVES,
+                planned_passes=9,
+                passes_done=7,
+                pass_issues=11,
+            ),
+        ),
+        [
+            "Reviewing · step 3 of 7",
+            "| Prepare the diff | ✅ Done | 14 files, 3 chunks |",
+            "| Pick perspectives | ✅ Done | Logic, Security, Performance |",
+            "| Review passes | ⏳ 7/9 | 11 issues |",
+            "| Blind-spot check | ⏸ Waiting |  |",
+        ],
+        [],
+    ),
+    (
+        # The blind-spot checks run inside the same "reviewing" stage, once the planned passes finish.
+        "deep_blind_spot",
+        lambda: render_in_progress_body(
+            "rid",
+            {"review_stage": "reviewing", "done": 10, "total": 12},
+            facts=TurnFacts(chunk_count=3, planned_passes=9, passes_done=9, pass_issues=14, blind_spot_done=1),
+        ),
+        ["Reviewing · step 4 of 7", "| Review passes | ✅ 9/9 | 14 issues |", "| Blind-spot check | ⏳ 1/3 |"],
+        [],
+    ),
+    (
+        "deep_failed",
+        lambda: render_failed_body(
+            "rid", head_sha=_SHA, progress={"review_stage": "validating", "done": 3, "total": 9}, facts=_DEEP_DONE_FACTS
+        ),
+        [
+            "### \U0001f994 PostHog Review · Deep · couldn't finish reviewing `b81c2e1`",
+            'The review failed at "Validate". Ask for a Deep review again to retry.',
+            "| Merge overlapping findings | ✅ Done | 16 → 9 |",
+            "| Validate | ❌ Failed |  |",
+            "| Publish | Skipped |  |",
+        ],
+        ["⏳", "updates as the review runs"],
+    ),
+    (
+        "standard_running",
+        lambda: render_in_progress_body(
+            "rid", None, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_SINGLE_AGENT
+        ),
+        [
+            "### \U0001f994 PostHog Review · Standard · reviewing this pull request",
+            "Reviewing · step 2 of 4",
+            "| Main review and lenses | ⏳ Running |  |",
+        ],
+        ["Pick perspectives"],
+    ),
+    (
+        # An older Standard turn ran the full pipeline, so the rows follow the design, not the mode.
+        "standard_on_the_pipeline",
+        lambda: render_in_progress_body(
+            "rid", None, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_PIPELINE
+        ),
+        ["PostHog Review · Standard · reviewing", "| Pick perspectives | ⏸ Waiting |  |"],
+        ["Main review"],
+    ),
 ]
 
-_SINGLE_AGENT_STAGE_LINE_CASES: list[tuple[dict[str, Any] | None, str]] = [
-    (None, "Step 2/3 · Reviewing the pull request"),
-    ({"review_stage": "single_agent_finalizing", "done": None, "total": None}, "Step 3/3 · Finalizing the review"),
-]
 
-
-class TestRenderInProgressBody:
-    @parameterized.expand(
-        [(progress, line, REVIEW_DESIGN_PIPELINE) for progress, line in _STAGE_LINE_CASES]
-        + [(progress, line, REVIEW_DESIGN_SINGLE_AGENT) for progress, line in _SINGLE_AGENT_STAGE_LINE_CASES]
-    )
-    def test_renders_the_stage_line_and_marker(
-        self, progress: dict[str, Any] | None, expected_line: str, review_design: str
+class TestStatusTable:
+    @parameterized.expand(_PHASE_CASES)
+    def test_renders_each_phase_as_one_table(
+        self, _name: str, render: Callable[[], str], expected: list[str], absent: list[str]
     ) -> None:
-        body = render_in_progress_body("rid", progress, review_design=review_design)
-        assert f"**{expected_line}**" in body
+        body = render()
+        for fragment in expected:
+            assert fragment in body, f"missing {fragment!r} in:\n{body}"
+        for fragment in absent:
+            assert fragment not in body, f"unexpected {fragment!r} in:\n{body}"
         assert status_marker("rid") in body  # the marker is what makes edit-in-place reuse possible
 
 
 class TestFlashHeader:
     @parameterized.expand(
         [
-            ("in_progress", lambda mode: render_in_progress_body("rid", None, review_mode=mode)),
             (
                 "final",
                 lambda mode: render_final_body(
@@ -83,7 +176,6 @@ class TestFlashHeader:
                     review_mode=mode,
                 ),
             ),
-            ("failed", lambda mode: render_failed_body("rid", review_mode=mode)),
         ]
     )
     def test_every_status_header_names_flash_only_in_flash(self, _name: str, render) -> None:
@@ -348,7 +440,9 @@ class TestEnsureStatusComment(BaseTest):
         ensure_status_comment(self.team.id, str(report.id), review_mode=REVIEW_MODE_FLASH)
 
         assert _posts(mock_request) == ["/repos/o/r/issues/123/comments"]
-        assert mock_request.call_args.kwargs["json"]["body"].startswith("### \U0001f994 PostHog Review (standard) ")
+        assert mock_request.call_args.kwargs["json"]["body"].startswith(
+            "### \U0001f994 PostHog Review · Standard · reviewing "
+        )
         report.refresh_from_db()
         assert report.status_comment_id == 777
         assert report.status_comment_edited_at is not None
@@ -510,16 +604,21 @@ class TestFinalizeStatusComment(BaseTest):
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         report.status_comment_id = 555
-        report.save(update_fields=["status_comment_id"])
+        report.head_sha = "b81c2e1f00d"
+        report.save(update_fields=["status_comment_id", "head_sha"])
 
-        fail_status_comment(self.team.id, report_id, review_mode=REVIEW_MODE_FLASH)
+        fail_status_comment(
+            self.team.id, report_id, review_mode=REVIEW_MODE_FLASH, review_design=REVIEW_DESIGN_SINGLE_AGENT
+        )
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/555"]
         body = mock_request.call_args.kwargs["json"]["body"]
-        assert "couldn't finish this review" in body
-        # The entry point threads the turn's mode into the renderer; a dropped kwarg here would
-        # leave a dead flash run reading as a full one.
-        assert body.startswith("### \U0001f994 PostHog Review (standard) ")
+        # The entry point threads the turn's mode and design into the renderer; a dropped kwarg here
+        # would leave a dead Standard run reading as a Deep one, with the wrong rows.
+        assert body.startswith("### \U0001f994 PostHog Review · Standard · couldn't finish reviewing `b81c2e1`")
+        assert "| Main review and lenses | ❌ Failed |  |" in body
+        # Only a Standard review runs again on its own, so only its failure points at the next push.
+        assert 'failed at "Main review and lenses". It runs again on the next push to this pull request.' in body
 
 
 class TestResolutionSection:

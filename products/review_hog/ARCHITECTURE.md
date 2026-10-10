@@ -455,7 +455,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     marker scans (`_review_already_posted` here, `_find_marker_comment` on the status comment) trust the marker
     only in **app-bot** comments/reviews — on a public repo anyone can paste it, and a spoofed match would
     suppress the publish or clobber a stranger's comment. On the publish path a live **status comment**
-    (`reviewer/status_comment.py`) is posted at kickoff, edited with stage progress, and rewritten with the
+    (`reviewer/status_comment.py`) is posted at kickoff as one table with a row per step of the turn's review design
+    (Deep pipeline or Standard single agent), edited as the steps fill in, and rewritten with the
     outcome: the full found counts, what was published, and — when the urgency threshold held findings back —
     whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
     "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,

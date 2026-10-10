@@ -2212,12 +2212,14 @@ async def finalize_status_comment_activity(input: FinalizeStatusCommentInput) ->
     await database_sync_to_async(finalize_status_comment, thread_sensitive=False)(input)
 
 
-def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL) -> None:
+def _fail_run(
+    team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL, review_design: str = REVIEW_DESIGN_PIPELINE
+) -> None:
     # The idle write comes first so a GitHub failure below can't skip it: on publishing runs
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
-    fail_status_comment(team_id, report_id, review_mode=review_mode)
+    fail_status_comment(team_id, report_id, review_mode=review_mode, review_design=review_design)
 
 
 @activity.defn
@@ -2229,7 +2231,9 @@ async def fail_status_comment_activity(input: StatusCommentInput) -> None:
     The idle write lives in this activity rather than as its own workflow command so in-flight
     histories replay unchanged (new unconditional commands break replay determinism).
     """
-    await database_sync_to_async(_fail_run, thread_sensitive=False)(input.team_id, input.report_id, input.review_mode)
+    await database_sync_to_async(_fail_run, thread_sensitive=False)(
+        input.team_id, input.report_id, input.review_mode, input.review_design
+    )
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------
