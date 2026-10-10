@@ -233,3 +233,15 @@ class Experiment:
     start_date: datetime | None = None
     end_date: datetime | None = None
     updated_at: datetime | None = None
+
+
+@frozen
+class MetricCalculationKeys:
+    """The calculation key of each metric on an experiment. Result rows and the stored metric
+    `fingerprint` fields hold these keys."""
+
+    # By metric uuid. When inline metrics share a uuid, the first one in primary-then-secondary order
+    # wins, which is the metric the daily calculation computes for that uuid.
+    inline: dict[str, str]
+    # By saved-metric link id.
+    saved: dict[int, str]

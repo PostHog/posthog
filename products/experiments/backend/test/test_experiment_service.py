@@ -49,6 +49,7 @@ from products.experiments.backend.experiment_service import (
     _merge_saved_metric_links,
     _resolve_scalar_updates,
 )
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_resolution import METRIC_BUILDERS
 from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
@@ -2845,9 +2846,14 @@ class TestExperimentService(APIBaseTest):
         launched.feature_flag.refresh_from_db()
         assert launched.feature_flag.active is True
 
-    def test_launch_experiment_sets_fingerprints(self):
+    @parameterized.expand([("without_maturity", False), ("with_maturity", True)])
+    def test_launch_experiment_sets_fingerprints(self, _name: str, only_count_matured_users: bool):
         self._create_flag(key="fp-launch")
-        experiment = self._create_launchable_experiment(name="Fingerprint Launch", feature_flag_key="fp-launch")
+        experiment = self._create_launchable_experiment(
+            name="Fingerprint Launch",
+            feature_flag_key="fp-launch",
+            only_count_matured_users=only_count_matured_users,
+        )
 
         # Draft metrics have fingerprints computed with start_date=None
         assert experiment.metrics is not None
@@ -2860,6 +2866,9 @@ class TestExperimentService(APIBaseTest):
         launch_fingerprint = launched.metrics[0].get("fingerprint")
         assert launch_fingerprint is not None
         assert launch_fingerprint != draft_fingerprint
+        calculation_config = get_metric_calculation_config(Experiment.objects.get(pk=launched.pk), "m1")
+        assert calculation_config is not None
+        assert launch_fingerprint == calculation_config.calculation_key()
 
     def test_launch_experiment_already_running_raises(self):
         experiment = self._create_launchable_experiment(name="Already Running", feature_flag_key="already-running-flag")

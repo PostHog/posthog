@@ -31,9 +31,7 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.temporal.common.client import sync_connect
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.metric_resolution import resolve_scheduled_metrics, scheduled_metric_definitions
+from products.experiments.backend.metric_calculation.config import build_calculation_configs
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -478,22 +476,15 @@ def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetri
     unreachable (until the experiment fields revert). This is the explicit trade-off of "no FK on
     ExperimentMetricResult" — the snapshot lives in the fingerprint, not in a stored column.
     """
-    stats_method = get_experiment_stats_method(experiment)
-    definitions = scheduled_metric_definitions(experiment)
+    calculation_configs = {
+        calculation_config.metric_id: calculation_config for calculation_config in build_calculation_configs(experiment)
+    }
     fingerprints: dict[str, str] = {}
     for metric_uuid in recalc.metric_uuids or []:
-        metric_dict = definitions.get(metric_uuid)
-        if metric_dict is None:
+        calculation_config = calculation_configs.get(metric_uuid)
+        if calculation_config is None:
             continue
-        config_fp = compute_metric_fingerprint(
-            metric_dict,
-            experiment.start_date,
-            stats_method,
-            experiment.exposure_criteria,
-            only_count_matured_users=experiment.only_count_matured_users,
-            excluded_variants=experiment.excluded_variants,
-        )
-        fingerprints[metric_uuid] = compute_recalc_fingerprint(config_fp)
+        fingerprints[metric_uuid] = compute_recalc_fingerprint(calculation_config.calculation_key())
     return fingerprints
 
 
@@ -541,26 +532,16 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
     and completed_at both pin to the freshest point's date. GET never triggers anything itself.
     """
     with team_scope(experiment.team_id, canonical=True):
-        metrics = resolve_scheduled_metrics(experiment)
-        stats_method = get_experiment_stats_method(experiment)
-
+        calculation_configs = build_calculation_configs(experiment)
         now = timezone.now()
         results: list[dict] = []
         latest_query_to = None
-        for metric in metrics:
-            config_fp = compute_metric_fingerprint(
-                metric.definition,
-                experiment.start_date,
-                stats_method,
-                experiment.exposure_criteria,
-                only_count_matured_users=experiment.only_count_matured_users,
-                excluded_variants=experiment.excluded_variants,
-            )
+        for calculation_config in calculation_configs:
             row = (
                 ExperimentMetricResult.objects.filter(
                     experiment=experiment,
-                    metric_uuid=metric.uuid,
-                    fingerprint=config_fp,
+                    metric_uuid=calculation_config.metric_id,
+                    fingerprint=calculation_config.calculation_key(),
                     status=ExperimentMetricResult.Status.COMPLETED,
                     # Bounded on both sides: the backfill writes end-of-day points, so today's point can carry
                     # a future query_to that would surface here as a future completion time.
@@ -590,7 +571,7 @@ def build_timeseries_cold_start_payload(experiment: Experiment) -> dict | None:
             "id": "timeseries-fallback",
             "experiment_id": experiment.id,
             "status": ExperimentMetricsRecalculation.Status.COMPLETED,
-            "total_metrics": len(metrics),
+            "total_metrics": len(calculation_configs),
             "completed_metrics": len(results),
             "failed_metrics": 0,
             "metric_errors": {},
