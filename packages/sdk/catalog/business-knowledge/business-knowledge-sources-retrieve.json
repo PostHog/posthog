@@ -1,0 +1,224 @@
+{
+    "method": "businessKnowledge.businessKnowledgeSourcesRetrieve",
+    "toolName": "business-knowledge-sources-retrieve",
+    "operationId": "business_knowledge_sources_retrieve",
+    "title": "Get business knowledge source",
+    "category": "Business knowledge",
+    "description": "Get a single business knowledge source by ID, including processing status, document/chunk counts, and refresh metadata.",
+    "requiredScopes": ["business_knowledge:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: product-business-knowledge"],
+    "methodSource": "src/generated/business-knowledge/client.ts",
+    "input": {
+        "name": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveInput",
+        "importPath": "@posthog/sdk/business-knowledge",
+        "source": "src/generated/business-knowledge/business-knowledge-sources-retrieve.ts",
+        "declaration": "dist/generated/business-knowledge/business-knowledge-sources-retrieve.d.ts"
+    },
+    "output": {
+        "name": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveOutput",
+        "importPath": "@posthog/sdk/business-knowledge",
+        "source": "src/generated/business-knowledge/business-knowledge-sources-retrieve.ts",
+        "declaration": "dist/generated/business-knowledge/business-knowledge-sources-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "importPath": "@posthog/sdk/business-knowledge",
+            "source": "src/generated/business-knowledge/business-knowledge-sources-retrieve.ts",
+            "declaration": "dist/generated/business-knowledge/business-knowledge-sources-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Get a single business knowledge source by ID, including processing status, document/chunk counts, and refresh metadata.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/business_knowledge/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this knowledge source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this knowledge source.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/business_knowledge/sources/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "field": "is_generated",
+            "effectiveDescription": "Whether PostHog manages this source with knowledge learned from resolved support tickets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether PostHog manages this source with knowledge learned from resolved support tickets.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape1/properties/is_generated"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "field": "document_count",
+            "effectiveDescription": "Number of documents belonging to this source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of documents belonging to this source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape1/properties/document_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "field": "chunk_count",
+            "effectiveDescription": "Number of chunks belonging to this source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of chunks belonging to this source.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape1/properties/chunk_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "field": "next_refresh_at",
+            "effectiveDescription": "When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the background coordinator will next auto-refresh this source. Null for manual sources or sources never refreshed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape1/properties/next_refresh_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "field": "has_unsafe_documents",
+            "effectiveDescription": "True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when at least one document in this source was flagged unsafe by the content classifier and is therefore excluded from agent search.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape1/properties/has_unsafe_documents"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "field": "embedding_status",
+            "effectiveDescription": "Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Semantic-index state of this source. A `ready` source serves keyword (full-text) search immediately, but semantic search needs a background job to classify and embed its documents, which can take up to an hour. `pending` — at least one document is still awaiting classification or embedding. `completed` — every eligible document has been submitted to the embedding pipeline. `disabled` — the organization has not approved AI data processing, so embeddings never run and search stays keyword-only. Only meaningful while `status` is `ready`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape1/properties/embedding_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "field": "learned_from_ticket_number",
+            "effectiveDescription": "Support ticket number this learned source came from. Null for sources you added yourself.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Support ticket number this learned source came from. Null for sources you added yourself.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape1/properties/learned_from_ticket_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "field": "learned_from_ticket_url",
+            "effectiveDescription": "App URL of the originating support ticket. Null for sources you added yourself.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "App URL of the originating support ticket. Null for sources you added yourself.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape1/properties/learned_from_ticket_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "field": "crawl_config",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/business_knowledge.ts",
+                        "pointer": "#/Shape1/properties/crawl_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BusinessKnowledgeBusinessKnowledgeSourcesRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

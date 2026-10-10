@@ -1,0 +1,225 @@
+{
+    "method": "aiObservability.llmaOfflineExperimentComplete",
+    "toolName": "llma-offline-experiment-complete",
+    "operationId": "ai_observability_offline_experiments_complete_create",
+    "title": "Complete offline experiment",
+    "category": "AI observability",
+    "description": "Close an offline experiment after all results have been acknowledged. Declared expected counts must match accepted counts; a mismatch returns 409 and leaves it uploading. Completion records upload closure, not that all scores passed. Closed experiments accept exact retries but no new items or results. This terminal transition cannot be reopened.",
+    "requiredScopes": ["offline_evaluation_ingestion:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: ai-observability-offline-evaluations"],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaOfflineExperimentCompleteInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-offline-experiment-complete.ts",
+        "declaration": "dist/generated/ai-observability/llma-offline-experiment-complete.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaOfflineExperimentCompleteOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-offline-experiment-complete.ts",
+        "declaration": "dist/generated/ai-observability/llma-offline-experiment-complete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-offline-experiment-complete.ts",
+            "declaration": "dist/generated/ai-observability/llma-offline-experiment-complete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Close an offline experiment after all results have been acknowledged. Declared expected counts must match accepted counts; a mismatch returns 409 and leaves it uploading. Completion records upload closure, not that all scores passed. Closed experiments accept exact retries but no new items or results. This terminal transition cannot be reopened.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteInput",
+            "field": "id",
+            "effectiveDescription": "Experiment UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment UUID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/ai_observability/offline_experiments/{id}/complete/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "field": "id",
+            "effectiveDescription": "Stable experiment UUID supplied at creation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable experiment UUID supplied at creation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "field": "status",
+            "effectiveDescription": "Current upload lifecycle state.\n\n* `uploading` - Uploading\n* `completed` - Completed\n* `failed` - Failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current upload lifecycle state.\n\n* `uploading` - Uploading\n* `completed` - Completed\n* `failed` - Failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "field": "created",
+            "effectiveDescription": "Whether this request created the experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this request created the experiment.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "field": "started_at",
+            "effectiveDescription": "Caller-supplied execution start time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Caller-supplied execution start time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "field": "created_at",
+            "effectiveDescription": "Time the experiment was first accepted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time the experiment was first accepted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "field": "finished_at",
+            "effectiveDescription": "Server closure time; null while uploading.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Server closure time; null while uploading.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/finished_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "field": "expected_item_count",
+            "effectiveDescription": "Declared item count, when supplied.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Declared item count, when supplied.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/expected_item_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "field": "expected_result_count",
+            "effectiveDescription": "Declared result count, when supplied.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Declared result count, when supplied.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/expected_result_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "field": "accepted_item_count",
+            "effectiveDescription": "Number of unique accepted items.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of unique accepted items.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/accepted_item_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaOfflineExperimentCompleteData",
+            "field": "accepted_result_count",
+            "effectiveDescription": "Number of unique accepted results across all statuses.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of unique accepted results across all statuses.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/accepted_result_count"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

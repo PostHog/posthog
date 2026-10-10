@@ -1,0 +1,521 @@
+{
+    "method": "aiObservability.llmaTaggerList",
+    "toolName": "llma-tagger-list",
+    "operationId": "taggers_list",
+    "title": "List taggers",
+    "category": "AI observability",
+    "description": "List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps.",
+    "requiredScopes": ["tagger:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaTaggerListInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-tagger-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaTaggerListOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-tagger-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaTaggerListRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListRequestSchema2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListRequestSchema3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListRequestSchema4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListRequestSchema5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListResponseShape7",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListResponseShape6",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListResponseShape8",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListResponseShape10",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListResponseShape9",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaTaggerListData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-tagger-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-tagger-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List AI observability taggers for the current project. Supports filtering by enabled status, id__in, search, and ordering. Returns each tagger's name, description, enabled state, type, configuration, conditions, model configuration, creator, and timestamps.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaTaggerListInput",
+            "field": "enabled",
+            "effectiveDescription": "Filter by enabled status",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by enabled status",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/taggers/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListInput",
+            "field": "id__in",
+            "effectiveDescription": "Multiple values may be separated by commas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Multiple values may be separated by commas.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/taggers/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/taggers/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/taggers/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListInput",
+            "field": "order_by",
+            "effectiveDescription": "Ordering\n\n* `created_at` - Created At\n* `-created_at` - Created At (descending)\n* `updated_at` - Updated At\n* `-updated_at` - Updated At (descending)\n* `name` - Name\n* `-name` - Name (descending)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ordering\n\n* `created_at` - Created At\n* `-created_at` - Created At (descending)\n* `updated_at` - Updated At\n* `-updated_at` - Updated At (descending)\n* `name` - Name\n* `-name` - Name (descending)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/taggers/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListInput",
+            "field": "search",
+            "effectiveDescription": "Search in name or description",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search in name or description",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/taggers/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape2",
+            "field": "tagger_config",
+            "effectiveDescription": "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tagger configuration. For tagger_type 'llm': {prompt, tags, min_tags?, max_tags?}. For tagger_type 'hog': {source, tags?}.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/tagger_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape2",
+            "field": "conditions",
+            "effectiveDescription": "Conditions that scope when the tagger runs",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Conditions that scope when the tagger runs",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/conditions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape3",
+            "field": "prompt",
+            "effectiveDescription": "Prompt instructing the LLM how to tag generations",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt instructing the LLM how to tag generations",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape3",
+            "field": "tags",
+            "effectiveDescription": "Available tags the LLM can assign",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Available tags the LLM can assign",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape3",
+            "field": "min_tags",
+            "effectiveDescription": "Minimum number of tags to apply",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum number of tags to apply",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/min_tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape3",
+            "field": "max_tags",
+            "effectiveDescription": "Maximum number of tags to apply (null = no limit)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of tags to apply (null = no limit)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape3/properties/max_tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape4",
+            "field": "name",
+            "effectiveDescription": "Tag identifier",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tag identifier",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape4",
+            "field": "description",
+            "effectiveDescription": "Description to help the LLM classify",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Description to help the LLM classify",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape4/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape5",
+            "field": "source",
+            "effectiveDescription": "Hog source code to classify a generation into tags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hog source code to classify a generation into tags.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape5",
+            "field": "tags",
+            "effectiveDescription": "Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional tag whitelist. Leave empty to allow any tag returned by the Hog code.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape6",
+            "field": "id",
+            "effectiveDescription": "Stable identifier for this condition",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable identifier for this condition",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape6",
+            "field": "rollout_percentage",
+            "effectiveDescription": "Percentage of matching events to apply this condition to",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage of matching events to apply this condition to",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/rollout_percentage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape6",
+            "field": "properties",
+            "effectiveDescription": "Property filters that scope when this condition fires",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters that scope when this condition fires",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape6/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape8",
+            "effectiveDescription": "Nested serializer for model configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Nested serializer for model configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape8",
+            "field": "provider",
+            "effectiveDescription": "LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub\n* `openai_compatible` - OpenAI-compatible",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax\n* `zeabur` - Zeabur AI Hub\n* `openai_compatible` - OpenAI-compatible",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape8",
+            "field": "model",
+            "effectiveDescription": "Provider model identifier to use for this tagger.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Provider model identifier to use for this tagger.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListResponseShape8",
+            "field": "provider_key_id",
+            "effectiveDescription": "Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Existing LLM provider key UUID for the current project. Do not invent this value; use a real provider key ID returned by PostHog, or omit/null when no provider key should be pinned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape8/properties/provider_key_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaTaggerListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

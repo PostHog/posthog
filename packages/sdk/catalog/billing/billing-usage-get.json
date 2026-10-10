@@ -1,0 +1,323 @@
+{
+    "method": "billing.billingUsageGet",
+    "toolName": "billing-usage-get",
+    "operationId": "billing_usage_retrieve",
+    "title": "Get usage breakdown",
+    "category": "Billing",
+    "description": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get when the caller has full billing access; for cost (spend) breakdowns call billing-spend-get.",
+    "requiredScopes": ["billing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/billing/client.ts",
+    "input": {
+        "name": "BillingBillingUsageGetInput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-usage-get.ts",
+        "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+    },
+    "output": {
+        "name": "BillingBillingUsageGetOutput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-usage-get.ts",
+        "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BillingBillingUsageGetRequestSchema0",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        },
+        {
+            "name": "BillingBillingUsageGetRequestSchema1",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        },
+        {
+            "name": "BillingBillingUsageGetRequestSchema2",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        },
+        {
+            "name": "BillingBillingUsageGetRequestSchema3",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        },
+        {
+            "name": "BillingBillingUsageGetRequestSchema4",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        },
+        {
+            "name": "BillingBillingUsageGetRequestSchema5",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        },
+        {
+            "name": "BillingBillingUsageGetRequestSchema6",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        },
+        {
+            "name": "BillingBillingUsageGetRequestSchema7",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        },
+        {
+            "name": "BillingBillingUsageGetRequestSchema8",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        },
+        {
+            "name": "BillingBillingUsageGetResponseShape2",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        },
+        {
+            "name": "BillingBillingUsageGetData",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-usage-get.ts",
+            "declaration": "dist/generated/billing/billing-usage-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Fetch time-series usage breakdowns for the organization across a date range. Supports per-team (project) and per-usage-type dimensions. Requires billing usage/spend read access: owners always, admins when owner-only billing is off, or members only when owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to investigate usage spikes, compare periods, or attribute usage to specific projects. For a single-snapshot aggregate view call billing-overview-get when the caller has full billing access; for cost (spend) breakdowns call billing-spend-get.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/billing/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "BillingBillingUsageGetInput",
+            "field": "after",
+            "effectiveDescription": "The `next` cursor from the previous page. Opaque - do not construct one. Omit it for the first page, and stop when a response comes back with `next` null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The `next` cursor from the previous page. Opaque. Ignored without page_size.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/billing/usage/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "The `next` cursor from the previous page. Opaque - do not construct one. Omit it for the first page, and stop when a response comes back with `next` null.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/billing/mcp/tools.yaml",
+                        "pointer": "/tools/billing-usage-get/param_overrides/after"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingUsageGetInput",
+            "field": "breakdowns",
+            "effectiveDescription": "Dimensions to break usage down by. Pass `[\"type\"]` for per-usage-type series or `[\"type\",\"team\"]` for per-project series within each usage type. Team breakdowns require `\"type\"`; do not pass `[\"team\"]` by itself. Omit for one aggregate series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded array of breakdown dimensions. Valid values are \"type\" and \"team\", for example [\"type\",\"team\"]. Omit for a single aggregate series.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/billing/usage/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Dimensions to break usage down by. Pass `[\"type\"]` for per-usage-type series or `[\"type\",\"team\"]` for per-project series within each usage type. Team breakdowns require `\"type\"`; do not pass `[\"team\"]` by itself. Omit for one aggregate series.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/billing/mcp/tools.yaml",
+                        "pointer": "/tools/billing-usage-get/param_overrides/breakdowns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingUsageGetInput",
+            "field": "end_date",
+            "effectiveDescription": "End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/billing/usage/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingUsageGetInput",
+            "field": "interval",
+            "effectiveDescription": "Time bucket size, one of \"day\" or \"week\". Default \"day\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time bucket size, one of \"day\" or \"week\". Default \"day\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/properties/interval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingUsageGetInput",
+            "field": "page_size",
+            "effectiveDescription": "Return at most this many series, ranked by total, with a `next` cursor in the response for the page after. Prefer this over asking for everything at once on a large organization: a paged request stays well inside the size this endpoint refuses oversized breakdowns at, and combining it with a single-product `usage_types` filter is the cheapest way to walk a lot of data. Requires a project breakdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/billing/usage/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Return at most this many series, ranked by total, with a `next` cursor in the response for the page after. Prefer this over asking for everything at once on a large organization: a paged request stays well inside the size this endpoint refuses oversized breakdowns at, and combining it with a single-product `usage_types` filter is the cheapest way to walk a lot of data. Requires a project breakdown.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/billing/mcp/tools.yaml",
+                        "pointer": "/tools/billing-usage-get/param_overrides/page_size"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingUsageGetInput",
+            "field": "start_date",
+            "effectiveDescription": "Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/billing/usage/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingUsageGetInput",
+            "field": "team_ids",
+            "effectiveDescription": "Project IDs to filter by, e.g. `[1,2]`. Omit for every project this request can see: all organization projects for full billing access, or the member-visible and token-scoped projects for member read-only access.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded array of numeric team/project IDs to filter on, for example [1,2]. Omit for all projects available to the caller. Full billing-access callers can read all organization projects; member read-only callers are limited to visible projects and any project scope on their token.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/billing/usage/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Project IDs to filter by, e.g. `[1,2]`. Omit for every project this request can see: all organization projects for full billing access, or the member-visible and token-scoped projects for member read-only access.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/billing/mcp/tools.yaml",
+                        "pointer": "/tools/billing-usage-get/param_overrides/team_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingUsageGetInput",
+            "field": "top_projects",
+            "effectiveDescription": "Maximum number of projects to return, ranked by total, when breakdowns includes \"team\". The projects beyond it are folded into one \"All other projects (N)\" series rather than dropped, so totals still reconcile. Ignored without a team breakdown. Omit it to get every project, which is the default and the right choice for most questions. Set it only when an organization has enough projects that the full response is unwieldy, and say so in your answer, because a limited response names only the largest projects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "With a project breakdown, return only this many highest-usage projects and fold the rest into a single 'all other projects' series, so the totals still reconcile. Omit it to get every project.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/billing/usage/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Maximum number of projects to return, ranked by total, when breakdowns includes \"team\". The projects beyond it are folded into one \"All other projects (N)\" series rather than dropped, so totals still reconcile. Ignored without a team breakdown. Omit it to get every project, which is the default and the right choice for most questions. Set it only when an organization has enough projects that the full response is unwieldy, and say so in your answer, because a limited response names only the largest projects.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/billing/mcp/tools.yaml",
+                        "pointer": "/tools/billing-usage-get/param_overrides/top_projects"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingUsageGetInput",
+            "field": "usage_types",
+            "effectiveDescription": "Array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/billing/usage/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Array of usage type identifiers to filter on. Valid values: event_count_in_period, exceptions_captured_in_period, recording_count_in_period, rows_synced_in_period, free_historical_rows_synced_in_period, survey_responses_count_in_period, mobile_recording_count_in_period, mobile_billable_recording_count_in_period, billable_feature_flag_requests_count_in_period, enhanced_persons_event_count_in_period, ai_event_count_in_period, cdp_billable_invocations_in_period, rows_exported_in_period, ai_credits_used_in_period, signals_credits_used_in_period, posthog_code_credits_used_in_period, posthog_code_token_credits_used_in_period, sandbox_compute_credits_used_in_period, sandbox_compute_cpu_millicore_seconds_in_period, sandbox_compute_memory_mib_seconds_in_period, workflow_emails_sent_in_period, workflow_billable_invocations_in_period, logs_mb_in_period, logs_retention_30d_mb_in_period, logs_retention_mb_days_in_period, replay_vision_credits_used_in_period, data_pipelines, group_analytics. E.g. [\"event_count_in_period\",\"recording_count_in_period\"]. Omit for all types.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/billing/mcp/tools.yaml",
+                        "pointer": "/tools/billing-usage-get/param_overrides/usage_types"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingUsageGetResponseShape2",
+            "field": "breakdown_value",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape2/properties/breakdown_value"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

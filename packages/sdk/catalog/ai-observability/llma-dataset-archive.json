@@ -1,0 +1,202 @@
+{
+    "method": "aiObservability.llmaDatasetArchive",
+    "toolName": "llma-dataset-archive",
+    "operationId": "datasets_archive",
+    "title": "Archive dataset",
+    "category": "AI observability",
+    "description": "Archive a dataset by ID. Its revisions and items remain readable, but item mutations are rejected until the dataset is restored. Archiving an already archived dataset leaves it unchanged.",
+    "requiredScopes": ["dataset:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: llm-analytics-datasets"],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaDatasetArchiveInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-dataset-archive.ts",
+        "declaration": "dist/generated/ai-observability/llma-dataset-archive.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaDatasetArchiveOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-dataset-archive.ts",
+        "declaration": "dist/generated/ai-observability/llma-dataset-archive.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaDatasetArchiveResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-archive.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-archive.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetArchiveResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-archive.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-archive.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetArchiveResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-archive.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-archive.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaDatasetArchiveData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-dataset-archive.ts",
+            "declaration": "dist/generated/ai-observability/llma-dataset-archive.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Archive a dataset. Archived datasets remain readable and reject item mutations.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1datasets~1{id}~1archive~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Archive a dataset by ID. Its revisions and items remain readable, but item mutations are rejected until the dataset is restored. Archiving an already archived dataset leaves it unchanged.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaDatasetArchiveInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this dataset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this dataset.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/datasets/{id}/archive/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetArchiveResponseShape2",
+            "effectiveDescription": "JSON object with descriptive dataset metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON object with descriptive dataset metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetArchiveData",
+            "field": "metadata",
+            "effectiveDescription": "JSON object with descriptive dataset metadata.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON object with descriptive dataset metadata.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/metadata"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetArchiveData",
+            "field": "current_revision",
+            "effectiveDescription": "Latest dataset revision, or null before the first item is added.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest dataset revision, or null before the first item is added.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/current_revision"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetArchiveData",
+            "field": "current_revision_id",
+            "effectiveDescription": "ID of the latest committed dataset revision.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the latest committed dataset revision.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/current_revision_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetArchiveData",
+            "field": "team_id",
+            "effectiveDescription": "Project that owns the dataset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project that owns the dataset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/team_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetArchiveData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaDatasetArchiveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

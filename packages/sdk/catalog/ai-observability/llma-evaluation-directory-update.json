@@ -1,0 +1,147 @@
+{
+    "method": "aiObservability.llmaEvaluationDirectoryUpdate",
+    "toolName": "llma-evaluation-directory-update",
+    "operationId": "evaluation_directories_partial_update",
+    "title": "Update evaluation directory",
+    "category": "AI observability",
+    "description": "Rename an evaluation directory. Directory names must be unique within the project, ignoring capitalization.",
+    "requiredScopes": ["evaluation:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaEvaluationDirectoryUpdateInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-directory-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-directory-update.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaEvaluationDirectoryUpdateOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-directory-update.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-directory-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryUpdateResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryUpdateResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-update.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryUpdateData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-update.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Rename an evaluation directory. Directory names must be unique within the project, ignoring capitalization.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this evaluation directory.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this evaluation directory.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluation_directories/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryUpdateInput",
+            "field": "name",
+            "effectiveDescription": "Directory name shown in the online evals list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Directory name shown in the online evals list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluation_directories/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryUpdateData",
+            "field": "name",
+            "effectiveDescription": "Directory name shown in the online evals list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Directory name shown in the online evals list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryUpdateData",
+            "field": "created_by",
+            "effectiveDescription": "User who created the directory.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created the directory.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryUpdateData",
+            "field": "evaluation_count",
+            "effectiveDescription": "Number of active evaluations in the directory.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of active evaluations in the directory.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/evaluation_count"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

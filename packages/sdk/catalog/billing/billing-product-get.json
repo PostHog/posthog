@@ -1,0 +1,148 @@
+{
+    "method": "billing.billingProductGet",
+    "toolName": "billing-product-get",
+    "operationId": "billing_products_retrieve",
+    "title": "Get one product",
+    "category": "Billing",
+    "description": "One product by key, for example product_analytics or session_replay, with its add-ons, features, price schedule and subscribed state. Call billing-products-summary-get first to find the key. Pass include_plans=true for the plan list. Readable by any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+    "requiredScopes": ["billing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: organization-billing-api"],
+    "methodSource": "src/generated/billing/client.ts",
+    "input": {
+        "name": "BillingBillingProductGetInput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-product-get.ts",
+        "declaration": "dist/generated/billing/billing-product-get.d.ts"
+    },
+    "output": {
+        "name": "BillingBillingProductGetOutput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-product-get.ts",
+        "declaration": "dist/generated/billing/billing-product-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BillingBillingProductGetRequestSchema0",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-product-get.ts",
+            "declaration": "dist/generated/billing/billing-product-get.d.ts"
+        },
+        {
+            "name": "BillingBillingProductGetResponseShape2",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-product-get.ts",
+            "declaration": "dist/generated/billing/billing-product-get.d.ts"
+        },
+        {
+            "name": "BillingBillingProductGetResponseShape4",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-product-get.ts",
+            "declaration": "dist/generated/billing/billing-product-get.d.ts"
+        },
+        {
+            "name": "BillingBillingProductGetResponseShape3",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-product-get.ts",
+            "declaration": "dist/generated/billing/billing-product-get.d.ts"
+        },
+        {
+            "name": "BillingBillingProductGetResponseShape5",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-product-get.ts",
+            "declaration": "dist/generated/billing/billing-product-get.d.ts"
+        },
+        {
+            "name": "BillingBillingProductGetResponseShape6",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-product-get.ts",
+            "declaration": "dist/generated/billing/billing-product-get.d.ts"
+        },
+        {
+            "name": "BillingBillingProductGetResponseShape7",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-product-get.ts",
+            "declaration": "dist/generated/billing/billing-product-get.d.ts"
+        },
+        {
+            "name": "BillingBillingProductGetData",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-product-get.ts",
+            "declaration": "dist/generated/billing/billing-product-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1billing~1products~1{product_key}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "One product by key, for example product_analytics or session_replay, with its add-ons, features, price schedule and subscribed state. Call billing-products-summary-get first to find the key. Pass include_plans=true for the plan list. Readable by any member. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/billing/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "BillingBillingProductGetInput",
+            "field": "product_key",
+            "effectiveDescription": "The product's key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The product's key.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/billing/products/{product_key}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductGetInput",
+            "field": "include_plans",
+            "effectiveDescription": "Add the `plans` list to each product and add-on. Most of the payload.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Add the `plans` list to each product and add-on. Most of the payload.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/billing/products/{product_key}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BillingBillingProductGetResponseShape5",
+            "field": "images",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/billing.ts",
+                        "pointer": "#/Shape5/properties/images"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

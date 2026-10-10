@@ -1,0 +1,217 @@
+{
+    "method": "aiObservability.llmaPromptDuplicate",
+    "toolName": "llma-prompt-duplicate",
+    "operationId": "llm_prompts_name_duplicate_create",
+    "title": "Duplicate prompt",
+    "category": "Experiments",
+    "description": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
+    "requiredScopes": ["llm_prompt:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaPromptDuplicateInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-prompt-duplicate.ts",
+        "declaration": "dist/generated/ai-observability/llma-prompt-duplicate.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaPromptDuplicateOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-prompt-duplicate.ts",
+        "declaration": "dist/generated/ai-observability/llma-prompt-duplicate.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaPromptDuplicateResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-duplicate.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-duplicate.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptDuplicateResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-duplicate.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-duplicate.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptDuplicateResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-duplicate.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-duplicate.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptDuplicateResponseShape5",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-duplicate.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-duplicate.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptDuplicateData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-duplicate.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-duplicate.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Duplicate an existing LLM prompt under a new name. Copies the latest version's content to create a new prompt at version 1. Useful for forking a prompt or as a way to rename since names are immutable after creation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaPromptDuplicateInput",
+            "field": "new_name",
+            "effectiveDescription": "Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name for the duplicated prompt. Must be unique and use only letters, numbers, hyphens, and underscores.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_prompts/name/{prompt_name}/duplicate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptDuplicateResponseShape5",
+            "field": "level",
+            "effectiveDescription": "Markdown heading level (1-6).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Markdown heading level (1-6).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptDuplicateResponseShape5",
+            "field": "text",
+            "effectiveDescription": "Heading text with markdown link syntax preserved.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Heading text with markdown link syntax preserved.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape5/properties/text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptDuplicateData",
+            "field": "name",
+            "effectiveDescription": "Unique prompt name using letters, numbers, hyphens, and underscores only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique prompt name using letters, numbers, hyphens, and underscores only.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptDuplicateData",
+            "field": "prompt",
+            "effectiveDescription": "Prompt payload as JSON or string data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt payload as JSON or string data.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptDuplicateData",
+            "field": "config",
+            "effectiveDescription": "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional JSON object with model parameters or any agent configuration (e.g. model, temperature, tools). Versioned with the prompt and returned as-is when fetching it. Don't store secrets here: config is returned to anyone who can read the prompt.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptDuplicateData",
+            "field": "version_description",
+            "effectiveDescription": "Optional note describing what changed in this version. Set when the version is published.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional note describing what changed in this version. Set when the version is published.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/version_description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptDuplicateData",
+            "field": "labels",
+            "effectiveDescription": "Names of the labels currently pointing at this version.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Names of the labels currently pointing at this version.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/labels"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptDuplicateData",
+            "field": "activity_item_id",
+            "effectiveDescription": "Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key for this prompt's rows in the activity log, e.g. for the History tab. Derived from the name, at most 72 characters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/activity_item_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

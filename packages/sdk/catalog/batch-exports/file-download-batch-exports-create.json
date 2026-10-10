@@ -1,0 +1,951 @@
+{
+    "method": "batchExports.fileDownloadBatchExportsCreate",
+    "toolName": "file-download-batch-exports-create",
+    "operationId": "file_download_batch_exports_create",
+    "title": "Start file download export",
+    "category": "Data pipelines",
+    "description": "Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the results of a HogQL query. For events, persons and sessions, provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a hogql_query, which can reference the {data_interval_start} and {data_interval_end} placeholders filled from data_interval_start and data_interval_end, and optional hogql_modifiers, which override the project HogQL modifiers with the same names. It returns a permission error naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under stricter resource limits than the other models. The export splits into files of about 1024 MiB by default, and a file can go a little over; set file.max_size_mb to change that size, or to null to write a single file of any size. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+    "requiredScopes": ["batch_export:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/batch-exports/client.ts",
+    "input": {
+        "name": "BatchExportsFileDownloadBatchExportsCreateInput",
+        "importPath": "@posthog/sdk/batch-exports",
+        "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+        "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+    },
+    "output": {
+        "name": "BatchExportsFileDownloadBatchExportsCreateOutput",
+        "importPath": "@posthog/sdk/batch-exports",
+        "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+        "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema1",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema3",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema5",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema7",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema8",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema9",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema10",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema11",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema13",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema15",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema17",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema12",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema19",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema20",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema21",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema23",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema25",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema27",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema22",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema29",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema30",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema31",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema33",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema35",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema37",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema32",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema39",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema40",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41BounceRatePageViewMode",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema44",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41CustomBotDefinitions",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41CustomBotDefinitionsVariant2",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41CustomBotDefinitionsVariant1",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41CustomChannelTypeRules",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41CustomChannelTypeRulesVariant2",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41CustomChannelTypeRulesVariant1",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41DataWarehouseEventsModifiers",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41DataWarehouseEventsModifiersVariant1",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41InCohortVia",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41InlineCohortCalculation",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41MaterializationMode",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41MaterializedColumnsOptimizationMode",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41PersonsArgMaxVersion",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41PersonsJoinMode",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41PersonsOnEventsMode",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41PropertyGroupsMode",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41SessionTableVersion",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41SessionsV2JoinMode",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema43",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema45",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema46",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema47",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema48",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema49",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema50",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema51",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema52",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema53",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema54",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema41",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema55",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateRequestSchema57",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateInputVariant1",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateInputVariant2",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateInputVariant3",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateInputVariant4",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        },
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCreateData",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create and start a batch export on demand run to download a file.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1file_download_batch_exports~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the results of a HogQL query. For events, persons and sessions, provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a hogql_query, which can reference the {data_interval_start} and {data_interval_end} placeholders filled from data_interval_start and data_interval_end, and optional hogql_modifiers, which override the project HogQL modifiers with the same names. It returns a permission error naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under stricter resource limits than the other models. The export splits into files of about 1024 MiB by default, and a file can go a little over; set file.max_size_mb to change that size, or to null to write a single file of any size. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/batch_exports/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema0",
+            "effectiveDescription": "Typed configuration for a FileDownload batch-export destination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed configuration for a FileDownload batch-export destination.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema1",
+            "effectiveDescription": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema3",
+            "effectiveDescription": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema5",
+            "effectiveDescription": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema12",
+            "effectiveDescription": "Typed configuration for a FileDownload batch-export destination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed configuration for a FileDownload batch-export destination.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema13",
+            "effectiveDescription": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema15",
+            "effectiveDescription": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema17",
+            "effectiveDescription": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema17"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema22",
+            "effectiveDescription": "Typed configuration for a FileDownload batch-export destination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed configuration for a FileDownload batch-export destination.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema22"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema23",
+            "effectiveDescription": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema23"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema25",
+            "effectiveDescription": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema25"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema27",
+            "effectiveDescription": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema27"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema32",
+            "effectiveDescription": "Typed configuration for a FileDownload batch-export destination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed configuration for a FileDownload batch-export destination.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema32"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema33",
+            "effectiveDescription": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema33"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema35",
+            "effectiveDescription": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compress the file with a supported compression format\n\n* `zstd` - zstd\n* `gzip` - gzip\n* `brotli` - brotli\n* `lz4` - lz4\n* `snappy` - snappy",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema35"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema37",
+            "effectiveDescription": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Split the download into files of about this size in MiB. A file can go a little over. Set it to null or 0 to write a single file of any size.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema37"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema40",
+            "effectiveDescription": "HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema40"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "effectiveDescription": "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema41"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "cookielessTrafficIsRegular",
+            "effectiveDescription": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/cookielessTrafficIsRegular"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "forceClickhouseDataSkippingIndexes",
+            "effectiveDescription": "If these are provided, the query will fail if these skip indexes are not used",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If these are provided, the query will fail if these skip indexes are not used",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/forceClickhouseDataSkippingIndexes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "mergeFederatedAggregateJoins",
+            "effectiveDescription": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/mergeFederatedAggregateJoins"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "parserMode",
+            "effectiveDescription": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/parserMode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "personIdPushdown",
+            "effectiveDescription": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/personIdPushdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "sessionIdPushdown",
+            "effectiveDescription": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/sessionIdPushdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "sessionPropertyPreAggregation",
+            "effectiveDescription": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/sessionPropertyPreAggregation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "typeAwareCastSimplification",
+            "effectiveDescription": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/typeAwareCastSimplification"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "useNewEventsSchema",
+            "effectiveDescription": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/useNewEventsSchema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "usePreaggregatedTableTransforms",
+            "effectiveDescription": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/usePreaggregatedTableTransforms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema41",
+            "field": "webAnalyticsFirstPageviewFilters",
+            "effectiveDescription": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema42/properties/webAnalyticsFirstPageviewFilters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema55",
+            "effectiveDescription": "Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema55"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateRequest_Schema57",
+            "effectiveDescription": "End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema57"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCreateData",
+            "effectiveDescription": "Typed output for view set `create`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed output for view set `create`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/CreateOutput"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,254 @@
+{
+    "method": "aiObservability.llmaProviderKeyList",
+    "toolName": "llma-provider-key-list",
+    "operationId": "llm_analytics_provider_keys_list",
+    "title": "List LLM provider keys",
+    "category": "AI observability",
+    "description": "List the team's configured LLM provider keys (OpenAI, Anthropic, Azure, etc.). Returns each key's provider, name, validation state, and a masked preview — never the secret itself. Call this before creating an llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating, updating, and deleting keys are intentionally UI-only.",
+    "requiredScopes": ["llm_provider_key:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaProviderKeyListInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-provider-key-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-provider-key-list.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaProviderKeyListOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-provider-key-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-provider-key-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaProviderKeyListRequestSchema0",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-provider-key-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-provider-key-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaProviderKeyListRequestSchema1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-provider-key-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-provider-key-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaProviderKeyListResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-provider-key-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-provider-key-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaProviderKeyListResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-provider-key-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-provider-key-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaProviderKeyListResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-provider-key-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-provider-key-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaProviderKeyListData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-provider-key-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-provider-key-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the team's configured LLM provider keys (OpenAI, Anthropic, Azure, etc.). Returns each key's provider, name, validation state, and a masked preview — never the secret itself. Call this before creating an llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating, updating, and deleting keys are intentionally UI-only.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/provider_keys/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/provider_keys/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListResponseShape2",
+            "field": "base_url",
+            "effectiveDescription": "Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/base_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListResponseShape2",
+            "field": "system_one_model",
+            "effectiveDescription": "Model ID served by the System One endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Model ID served by the System One endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/system_one_model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListResponseShape2",
+            "field": "base_url_display",
+            "effectiveDescription": "Configured provider base URL (read-only, for display)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured provider base URL (read-only, for display)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/base_url_display"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListResponseShape2",
+            "field": "system_one_model_display",
+            "effectiveDescription": "Configured System One model ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured System One model ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/system_one_model_display"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListResponseShape2",
+            "field": "azure_endpoint",
+            "effectiveDescription": "Azure OpenAI endpoint URL",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Azure OpenAI endpoint URL",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/azure_endpoint"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListResponseShape2",
+            "field": "api_version",
+            "effectiveDescription": "Azure OpenAI API version",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Azure OpenAI API version",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/api_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListResponseShape2",
+            "field": "azure_endpoint_display",
+            "effectiveDescription": "Azure endpoint (read-only, for display)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Azure endpoint (read-only, for display)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/azure_endpoint_display"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListResponseShape2",
+            "field": "api_version_display",
+            "effectiveDescription": "Azure API version (read-only, for display)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Azure API version (read-only, for display)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/api_version_display"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaProviderKeyListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

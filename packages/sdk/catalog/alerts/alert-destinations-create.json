@@ -1,0 +1,208 @@
+{
+    "method": "alerts.alertDestinationsCreate",
+    "toolName": "alert-destinations-create",
+    "operationId": "alerts_destinations_create",
+    "title": "Send an alert to Slack",
+    "category": "Alerts",
+    "description": "Post this insight alert to a Slack channel as well as emailing its subscribed users. The Slack workspace must already be connected to the project — list the workspaces and their channels with integrations-channels-retrieve. An alert can have up to 5 destinations. The returned hog_function_ids identify the destination; pass them to alert-destinations-delete to remove it.",
+    "requiredScopes": ["alert:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/alerts/client.ts",
+    "input": {
+        "name": "AlertsAlertDestinationsCreateInput",
+        "importPath": "@posthog/sdk/alerts",
+        "source": "src/generated/alerts/alert-destinations-create.ts",
+        "declaration": "dist/generated/alerts/alert-destinations-create.d.ts"
+    },
+    "output": {
+        "name": "AlertsAlertDestinationsCreateOutput",
+        "importPath": "@posthog/sdk/alerts",
+        "source": "src/generated/alerts/alert-destinations-create.ts",
+        "declaration": "dist/generated/alerts/alert-destinations-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AlertsAlertDestinationsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/alerts",
+            "source": "src/generated/alerts/alert-destinations-create.ts",
+            "declaration": "dist/generated/alerts/alert-destinations-create.d.ts"
+        },
+        {
+            "name": "AlertsAlertDestinationsCreateRequestSchema1",
+            "importPath": "@posthog/sdk/alerts",
+            "source": "src/generated/alerts/alert-destinations-create.ts",
+            "declaration": "dist/generated/alerts/alert-destinations-create.d.ts"
+        },
+        {
+            "name": "AlertsAlertDestinationsCreateData",
+            "importPath": "@posthog/sdk/alerts",
+            "source": "src/generated/alerts/alert-destinations-create.ts",
+            "declaration": "dist/generated/alerts/alert-destinations-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Send this alert to a Slack channel as well as by email. The workspace must already be connected to the project. The returned IDs identify the destination.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1alerts~1{id}~1destinations~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Post this insight alert to a Slack channel as well as emailing its subscribed users. The Slack workspace must already be connected to the project — list the workspaces and their channels with integrations-channels-retrieve. An alert can have up to 5 destinations. The returned hog_function_ids identify the destination; pass them to alert-destinations-delete to remove it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/alerts/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AlertsAlertDestinationsCreateRequest_Schema0",
+            "effectiveDescription": "* `slack` - slack",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `slack` - slack",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/alerts.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AlertsAlertDestinationsCreateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this alert configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this alert configuration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/alerts/{id}/destinations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AlertsAlertDestinationsCreateInput",
+            "field": "type",
+            "effectiveDescription": "Destination type. Slack is the only type this tool creates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Destination type. Slack is the only type this endpoint creates.\n\n* `slack` - slack",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Destination type. Slack is the only type this tool creates.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/alerts/mcp/tools.yaml",
+                        "pointer": "/tools/alert-destinations-create/param_overrides/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AlertsAlertDestinationsCreateInput",
+            "field": "slack_workspace_id",
+            "effectiveDescription": "Integration ID of the connected Slack workspace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integration ID of the Slack workspace to post in. List them with the integrations endpoint.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Integration ID of the connected Slack workspace.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/alerts/mcp/tools.yaml",
+                        "pointer": "/tools/alert-destinations-create/param_overrides/slack_workspace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AlertsAlertDestinationsCreateInput",
+            "field": "slack_channel_id",
+            "effectiveDescription": "Slack channel ID to post in, for example C0123456789.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel ID to post in, for example C0123456789.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/alerts/{id}/destinations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AlertsAlertDestinationsCreateInput",
+            "field": "slack_channel_name",
+            "effectiveDescription": "Optional channel name shown on the destination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Channel name shown on the destination, for example product-alerts.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/alerts/{id}/destinations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Optional channel name shown on the destination.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/alerts/mcp/tools.yaml",
+                        "pointer": "/tools/alert-destinations-create/param_overrides/slack_channel_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AlertsAlertDestinationsCreateData",
+            "field": "hog_function_ids",
+            "effectiveDescription": "IDs of the created destination. Pass them to destinations/delete to remove it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "IDs of the created destination. Pass them to destinations/delete to remove it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/alerts.ts",
+                        "pointer": "#/Shape1/properties/hog_function_ids"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

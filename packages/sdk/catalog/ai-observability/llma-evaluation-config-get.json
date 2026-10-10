@@ -1,0 +1,252 @@
+{
+    "method": "aiObservability.llmaEvaluationConfigGet",
+    "toolName": "llma-evaluation-config-get",
+    "operationId": "llm_analytics_evaluation_config_retrieve",
+    "title": "Get evaluation config",
+    "category": "AI observability",
+    "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
+    "requiredScopes": ["llm_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaEvaluationConfigGetInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-config-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-config-get.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaEvaluationConfigGetOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-config-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-config-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaEvaluationConfigGetResponseShape4",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-config-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-config-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationConfigGetResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-config-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-config-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationConfigGetResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-config-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-config-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationConfigGetData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-config-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-config-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get the evaluation config for this team",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1llm_analytics~1evaluation_config~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetResponseShape2",
+            "field": "base_url",
+            "effectiveDescription": "Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Public HTTPS base URL of an OpenAI-compatible or System One API. For System One, end before /systemone.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/base_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetResponseShape2",
+            "field": "system_one_model",
+            "effectiveDescription": "Model ID served by the System One endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Model ID served by the System One endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/system_one_model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetResponseShape2",
+            "field": "base_url_display",
+            "effectiveDescription": "Configured provider base URL (read-only, for display)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured provider base URL (read-only, for display)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/base_url_display"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetResponseShape2",
+            "field": "system_one_model_display",
+            "effectiveDescription": "Configured System One model ID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Configured System One model ID.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/system_one_model_display"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetResponseShape2",
+            "field": "azure_endpoint",
+            "effectiveDescription": "Azure OpenAI endpoint URL",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Azure OpenAI endpoint URL",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/azure_endpoint"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetResponseShape2",
+            "field": "api_version",
+            "effectiveDescription": "Azure OpenAI API version",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Azure OpenAI API version",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/api_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetResponseShape2",
+            "field": "azure_endpoint_display",
+            "effectiveDescription": "Azure endpoint (read-only, for display)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Azure endpoint (read-only, for display)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/azure_endpoint_display"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetResponseShape2",
+            "field": "api_version_display",
+            "effectiveDescription": "Azure API version (read-only, for display)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Azure API version (read-only, for display)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape2/properties/api_version_display"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetData",
+            "field": "active_provider_key",
+            "effectiveDescription": "Provider key used to run llm_judge evals; null if none configured yet.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Provider key used to run llm_judge evals; null if none configured yet.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/active_provider_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetData",
+            "field": "created_at",
+            "effectiveDescription": "Timestamp when the evaluation config row was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp when the evaluation config row was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationConfigGetData",
+            "field": "updated_at",
+            "effectiveDescription": "Timestamp when the evaluation config row was last modified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp when the evaluation config row was last modified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,172 @@
+{
+    "method": "aiObservability.llmaReviewQueueItemCreate",
+    "toolName": "llma-review-queue-item-create",
+    "operationId": "llm_analytics_review_queue_items_create",
+    "title": "Create review queue item",
+    "category": "AI observability",
+    "description": "Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if the trace already has an active review or is already pending in any review queue.",
+    "requiredScopes": ["llm_analytics:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaReviewQueueItemCreateInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-review-queue-item-create.ts",
+        "declaration": "dist/generated/ai-observability/llma-review-queue-item-create.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaReviewQueueItemCreateOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-review-queue-item-create.ts",
+        "declaration": "dist/generated/ai-observability/llma-review-queue-item-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaReviewQueueItemCreateResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-item-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-item-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaReviewQueueItemCreateResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-item-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-item-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaReviewQueueItemCreateData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-item-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-item-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Add a trace to a review queue as a pending trace review assignment. Requires queue_id and trace_id. Fails if the trace already has an active review or is already pending in any review queue.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemCreateInput",
+            "field": "queue_id",
+            "effectiveDescription": "Review queue ID that should own this pending trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Review queue ID that should own this pending trace.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/review_queue_items/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemCreateInput",
+            "field": "trace_id",
+            "effectiveDescription": "Trace ID to add to the selected review queue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trace ID to add to the selected review queue.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/review_queue_items/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemCreateData",
+            "field": "queue_id",
+            "effectiveDescription": "Review queue ID that currently owns this pending trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Review queue ID that currently owns this pending trace.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/queue_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemCreateData",
+            "field": "queue_name",
+            "effectiveDescription": "Human-readable name of the queue that currently owns this pending trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name of the queue that currently owns this pending trace.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/queue_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemCreateData",
+            "field": "trace_id",
+            "effectiveDescription": "Trace ID currently pending review.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trace ID currently pending review.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/trace_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemCreateData",
+            "field": "created_by",
+            "effectiveDescription": "User who queued this trace.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who queued this trace.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueItemCreateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

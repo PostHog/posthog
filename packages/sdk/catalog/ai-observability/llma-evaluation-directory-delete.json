@@ -1,0 +1,65 @@
+{
+    "method": "aiObservability.llmaEvaluationDirectoryDelete",
+    "toolName": "llma-evaluation-directory-delete",
+    "operationId": "evaluation_directories_destroy",
+    "title": "Delete evaluation directory",
+    "category": "AI observability",
+    "description": "Delete an evaluation directory. Evaluations in the directory are preserved and moved to the top level.",
+    "requiredScopes": ["evaluation:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaEvaluationDirectoryDeleteInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-directory-delete.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-directory-delete.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaEvaluationDirectoryDeleteOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-directory-delete.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-directory-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryDeleteData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-delete.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Delete an evaluation directory. Evaluations in the directory are preserved and moved to the top level.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this evaluation directory.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this evaluation directory.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluation_directories/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

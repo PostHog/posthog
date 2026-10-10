@@ -1,0 +1,65 @@
+{
+    "method": "aiObservability.llmaReviewQueueDelete",
+    "toolName": "llma-review-queue-delete",
+    "operationId": "llm_analytics_review_queues_destroy",
+    "title": "Delete review queue",
+    "category": "AI observability",
+    "description": "Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments that still belong to it.",
+    "requiredScopes": ["llm_analytics:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaReviewQueueDeleteInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-review-queue-delete.ts",
+        "declaration": "dist/generated/ai-observability/llma-review-queue-delete.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaReviewQueueDeleteOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-review-queue-delete.ts",
+        "declaration": "dist/generated/ai-observability/llma-review-queue-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaReviewQueueDeleteData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-review-queue-delete.ts",
+            "declaration": "dist/generated/ai-observability/llma-review-queue-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Delete a review queue by ID. This soft-deletes the queue and soft-deletes all active pending assignments that still belong to it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaReviewQueueDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this review queue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this review queue.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/review_queues/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

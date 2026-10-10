@@ -1,0 +1,48 @@
+{
+    "method": "aiObservability.llmaPromptLabelDelete",
+    "toolName": "llma-prompt-label-delete",
+    "operationId": "llm_prompts_name_labels_destroy",
+    "title": "Delete prompt label",
+    "category": "Experiments",
+    "description": "Remove a label from an LLM prompt. The label stops pointing at any version; recreate it with the set-label tool if needed. Confirm nothing depends on the label before removing it.",
+    "requiredScopes": ["llm_prompt:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaPromptLabelDeleteInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-prompt-label-delete.ts",
+        "declaration": "dist/generated/ai-observability/llma-prompt-label-delete.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaPromptLabelDeleteOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-prompt-label-delete.ts",
+        "declaration": "dist/generated/ai-observability/llma-prompt-label-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaPromptLabelDeleteData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-label-delete.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-label-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Remove a label from an LLM prompt. The label stops pointing at any version; recreate it with the set-label tool if needed. Confirm nothing depends on the label before removing it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": []
+}

@@ -1,0 +1,267 @@
+{
+    "method": "autoresearch.autoresearchList",
+    "toolName": "autoresearch-list",
+    "operationId": "autoresearch_list",
+    "title": "List pipelines",
+    "category": "Autoresearch",
+    "description": "List autoresearch prediction pipelines for the current project. Archived pipelines are excluded. Each pipeline entry includes its status (draft, bootstrapping, running, converged, paused), target event, horizon, and timestamps. Use autoresearch-retrieve to get full details including population definitions.",
+    "requiredScopes": ["autoresearch:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: autoresearch"],
+    "methodSource": "src/generated/autoresearch/client.ts",
+    "input": {
+        "name": "AutoresearchAutoresearchListInput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-list.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-list.d.ts"
+    },
+    "output": {
+        "name": "AutoresearchAutoresearchListOutput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-list.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AutoresearchAutoresearchListRequestSchema0",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-list.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchListRequestSchema1",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-list.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchListDataResultsItem",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-list.d.ts"
+        },
+        {
+            "name": "AutoresearchAutoresearchListData",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-list.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Manage autoresearch prediction pipelines.\n\nA pipeline defines a target event, population, and horizon. The autoresearch\ntraining loop finds the best predictive recipe; the inference workflow scores\nusers daily and emits autoresearch_prediction events.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1autoresearch~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List autoresearch prediction pipelines for the current project. Archived pipelines are excluded. Each pipeline entry includes its status (draft, bootstrapping, running, converged, paused), target event, horizon, and timestamps. Use autoresearch-retrieve to get full details including population definitions.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/autoresearch/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AutoresearchAutoresearchListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListData",
+            "field": "results[].id",
+            "effectiveDescription": "Unique UUID of this pipeline.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique UUID of this pipeline.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListData",
+            "field": "results[].name",
+            "effectiveDescription": "Display name for the pipeline.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name for the pipeline.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListData",
+            "field": "results[].description",
+            "effectiveDescription": "Optional free-text description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional free-text description.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListData",
+            "field": "results[].target_event",
+            "effectiveDescription": "PostHog event name to predict, e.g. '$pageview' or 'signed_up'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog event name to predict, e.g. '$pageview' or 'signed_up'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/target_event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListData",
+            "field": "results[].horizon_days",
+            "effectiveDescription": "Prediction horizon in days. The model predicts whether the target event occurs within this window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prediction horizon in days. The model predicts whether the target event occurs within this window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/horizon_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListData",
+            "field": "results[].status",
+            "effectiveDescription": "Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived.\n\n* `draft` - Draft\n* `bootstrapping` - Bootstrapping\n* `running` - Running\n* `converged` - Converged\n* `paused` - Paused\n* `archived` - Archived",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pipeline lifecycle status: draft, bootstrapping, running, converged, paused, or archived.\n\n* `draft` - Draft\n* `bootstrapping` - Bootstrapping\n* `running` - Running\n* `converged` - Converged\n* `paused` - Paused\n* `archived` - Archived",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListData",
+            "field": "results[].iteration_budget",
+            "effectiveDescription": "Total training iterations allowed for the autoresearch loop.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total training iterations allowed for the autoresearch loop.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/iteration_budget"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListData",
+            "field": "results[].iteration_budget_remaining",
+            "effectiveDescription": "Iterations remaining in the current budget.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Iterations remaining in the current budget.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/iteration_budget_remaining"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListData",
+            "field": "results[].last_scored_at",
+            "effectiveDescription": "Timestamp of the most recent completed inference run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Timestamp of the most recent completed inference run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/last_scored_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

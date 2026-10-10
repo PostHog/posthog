@@ -1,0 +1,89 @@
+{
+    "method": "batchExports.fileDownloadBatchExportsCancelCreate",
+    "toolName": "file-download-batch-exports-cancel-create",
+    "operationId": "file_download_batch_exports_cancel_create",
+    "title": "Cancel a running file download export",
+    "category": "Data pipelines",
+    "description": "Cancel a running or starting on-demand file download export. When the status is not Starting or Running calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.",
+    "requiredScopes": ["batch_export:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/batch-exports/client.ts",
+    "input": {
+        "name": "BatchExportsFileDownloadBatchExportsCancelCreateInput",
+        "importPath": "@posthog/sdk/batch-exports",
+        "source": "src/generated/batch-exports/file-download-batch-exports-cancel-create.ts",
+        "declaration": "dist/generated/batch-exports/file-download-batch-exports-cancel-create.d.ts"
+    },
+    "output": {
+        "name": "BatchExportsFileDownloadBatchExportsCancelCreateOutput",
+        "importPath": "@posthog/sdk/batch-exports",
+        "source": "src/generated/batch-exports/file-download-batch-exports-cancel-create.ts",
+        "declaration": "dist/generated/batch-exports/file-download-batch-exports-cancel-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BatchExportsFileDownloadBatchExportsCancelCreateData",
+            "importPath": "@posthog/sdk/batch-exports",
+            "source": "src/generated/batch-exports/file-download-batch-exports-cancel-create.ts",
+            "declaration": "dist/generated/batch-exports/file-download-batch-exports-cancel-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Cancel an ongoing file-download batch export.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1file_download_batch_exports~1{id}~1cancel~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Cancel a running or starting on-demand file download export. When the status is not Starting or Running calling this will fail. Returns the status of the export after cancelling, which is always Cancelled.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/batch_exports/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCancelCreateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this batch export run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this batch export run.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/file_download_batch_exports/{id}/cancel/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "BatchExportsFileDownloadBatchExportsCancelCreateData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/batch_exports.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,96 @@
+{
+    "method": "aiObservability.llmaClusteringJobGet",
+    "toolName": "llma-clustering-job-get",
+    "operationId": "llm_analytics_clustering_jobs_retrieve",
+    "title": "Get clustering job",
+    "category": "AI observability",
+    "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace, generation, or evaluation), event filters, enabled status, and timestamps.",
+    "requiredScopes": ["ai_observability_clusters:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaClusteringJobGetInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-clustering-job-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-clustering-job-get.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaClusteringJobGetOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-clustering-job-get.ts",
+        "declaration": "dist/generated/ai-observability/llma-clustering-job-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaClusteringJobGetResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-job-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-job-get.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaClusteringJobGetData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-clustering-job-get.ts",
+            "declaration": "dist/generated/ai-observability/llma-clustering-job-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "CRUD for clustering job configurations (max 10 per team).",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1llm_analytics~1clustering_jobs~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace, generation, or evaluation), event filters, enabled status, and timestamps.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaClusteringJobGetInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this clustering job.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this clustering job.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_analytics/clustering_jobs/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaClusteringJobGetData",
+            "field": "event_filters",
+            "effectiveDescription": "PostHog property filters that scope this clustering job. Empty array means no filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog property filters that scope this clustering job. Empty array means no filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/event_filters"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

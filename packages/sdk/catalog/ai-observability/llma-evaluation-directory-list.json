@@ -1,0 +1,115 @@
+{
+    "method": "aiObservability.llmaEvaluationDirectoryList",
+    "toolName": "llma-evaluation-directory-list",
+    "operationId": "evaluation_directories_list",
+    "title": "List evaluation directories",
+    "category": "AI observability",
+    "description": "List the project's evaluation directories and active evaluation counts.",
+    "requiredScopes": ["evaluation:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaEvaluationDirectoryListInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-directory-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-directory-list.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaEvaluationDirectoryListOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-directory-list.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-directory-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryListResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryListResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryListResponseShape1",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-list.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryListData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-list.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the project's evaluation directories and active evaluation counts.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryListResponseShape1",
+            "field": "name",
+            "effectiveDescription": "Directory name shown in the online evals list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Directory name shown in the online evals list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryListResponseShape1",
+            "field": "created_by",
+            "effectiveDescription": "User who created the directory.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created the directory.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryListResponseShape1",
+            "field": "evaluation_count",
+            "effectiveDescription": "Number of active evaluations in the directory.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of active evaluations in the directory.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/evaluation_count"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

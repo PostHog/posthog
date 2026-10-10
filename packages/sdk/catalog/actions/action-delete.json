@@ -1,0 +1,836 @@
+{
+    "method": "actions.actionDelete",
+    "toolName": "action-delete",
+    "operationId": "actions_destroy",
+    "title": "Delete action",
+    "category": "Actions",
+    "description": "Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but historical data is preserved.",
+    "requiredScopes": ["action:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/actions/client.ts",
+    "input": {
+        "name": "ActionsActionDeleteInput",
+        "importPath": "@posthog/sdk/actions",
+        "source": "src/generated/actions/action-delete.ts",
+        "declaration": "dist/generated/actions/action-delete.d.ts"
+    },
+    "output": {
+        "name": "ActionsActionDeleteOutput",
+        "importPath": "@posthog/sdk/actions",
+        "source": "src/generated/actions/action-delete.ts",
+        "declaration": "dist/generated/actions/action-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ActionsActionDeleteResponseShape3",
+            "importPath": "@posthog/sdk/actions",
+            "source": "src/generated/actions/action-delete.ts",
+            "declaration": "dist/generated/actions/action-delete.d.ts"
+        },
+        {
+            "name": "ActionsActionDeleteResponseShape4",
+            "importPath": "@posthog/sdk/actions",
+            "source": "src/generated/actions/action-delete.ts",
+            "declaration": "dist/generated/actions/action-delete.d.ts"
+        },
+        {
+            "name": "ActionsActionDeleteResponseShape5",
+            "importPath": "@posthog/sdk/actions",
+            "source": "src/generated/actions/action-delete.ts",
+            "declaration": "dist/generated/actions/action-delete.d.ts"
+        },
+        {
+            "name": "ActionsActionDeleteResponseShape6",
+            "importPath": "@posthog/sdk/actions",
+            "source": "src/generated/actions/action-delete.ts",
+            "declaration": "dist/generated/actions/action-delete.d.ts"
+        },
+        {
+            "name": "ActionsActionDeleteResponseShape7",
+            "importPath": "@posthog/sdk/actions",
+            "source": "src/generated/actions/action-delete.ts",
+            "declaration": "dist/generated/actions/action-delete.d.ts"
+        },
+        {
+            "name": "ActionsActionDeleteResponseShape2",
+            "importPath": "@posthog/sdk/actions",
+            "source": "src/generated/actions/action-delete.ts",
+            "declaration": "dist/generated/actions/action-delete.d.ts"
+        },
+        {
+            "name": "ActionsActionDeleteResponseShape9",
+            "importPath": "@posthog/sdk/actions",
+            "source": "src/generated/actions/action-delete.ts",
+            "declaration": "dist/generated/actions/action-delete.d.ts"
+        },
+        {
+            "name": "ActionsActionDeleteResponseShape8",
+            "importPath": "@posthog/sdk/actions",
+            "source": "src/generated/actions/action-delete.ts",
+            "declaration": "dist/generated/actions/action-delete.d.ts"
+        },
+        {
+            "name": "ActionsActionDeleteData",
+            "importPath": "@posthog/sdk/actions",
+            "source": "src/generated/actions/action-delete.ts",
+            "declaration": "dist/generated/actions/action-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Hard delete of this model is not allowed. Use a patch API call to set \"deleted\" to true",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1actions~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete an action by ID (soft delete - marks as deleted). The action will no longer appear in lists but historical data is preserved.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/actions/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ActionsActionDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this action.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this action.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/actions/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "event",
+            "effectiveDescription": "Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "properties",
+            "effectiveDescription": "Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "selector",
+            "effectiveDescription": "CSS selector to match the target element (e.g. 'div > button.cta').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CSS selector to match the target element (e.g. 'div > button.cta').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/selector"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "selector_regex",
+            "effectiveDescription": "Compiled regex the selector matches against the event elements chain. Null when no selector is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Compiled regex the selector matches against the event elements chain. Null when no selector is set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/selector_regex"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "selector_warning",
+            "effectiveDescription": "Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/selector_warning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "tag_name",
+            "effectiveDescription": "HTML tag name to match (e.g. \"button\", \"a\", \"input\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HTML tag name to match (e.g. \"button\", \"a\", \"input\").",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/tag_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "text",
+            "effectiveDescription": "Element text content to match.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Element text content to match.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "text_matching",
+            "effectiveDescription": "How to match the text value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to match the text value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/text_matching"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "href",
+            "effectiveDescription": "Link href attribute to match.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Link href attribute to match.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/href"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "href_matching",
+            "effectiveDescription": "How to match the href value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to match the href value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/href_matching"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "url",
+            "effectiveDescription": "Page URL to match.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page URL to match.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape2",
+            "field": "url_matching",
+            "effectiveDescription": "How to match the URL value. Defaults to contains.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to match the URL value. Defaults to contains.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape2/properties/url_matching"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape3",
+            "effectiveDescription": "Matches string values with text-oriented operators.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Matches string values with text-oriented operators.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape3",
+            "field": "key",
+            "effectiveDescription": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape3/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape3",
+            "field": "type",
+            "effectiveDescription": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape3/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape3",
+            "field": "value",
+            "effectiveDescription": "String value to match against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "String value to match against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape3/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape3",
+            "field": "operator",
+            "effectiveDescription": "String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "String comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape3/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape4",
+            "effectiveDescription": "Matches numeric values with comparison operators.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Matches numeric values with comparison operators.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape4",
+            "field": "key",
+            "effectiveDescription": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape4/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape4",
+            "field": "type",
+            "effectiveDescription": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape4/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape4",
+            "field": "value",
+            "effectiveDescription": "Numeric value to compare against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric value to compare against.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape4/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape4",
+            "field": "operator",
+            "effectiveDescription": "Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `gt` - gt\n* `lt` - lt\n* `gte` - gte\n* `lte` - lte",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape4/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape5",
+            "effectiveDescription": "Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Matches against a list of values (OR semantics for exact/is_not, set membership for in/not_in).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape5",
+            "field": "key",
+            "effectiveDescription": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape5/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape5",
+            "field": "type",
+            "effectiveDescription": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape5/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape5",
+            "field": "value",
+            "effectiveDescription": "List of values to match. For example `[\"test@example.com\", \"ok@example.com\"]`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of values to match. For example `[\"test@example.com\", \"ok@example.com\"]`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape5/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape5",
+            "field": "operator",
+            "effectiveDescription": "Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Array comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `in` - in\n* `not_in` - not_in",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape5/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape6",
+            "effectiveDescription": "Matches date/datetime values with date-specific operators.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Matches date/datetime values with date-specific operators.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape6",
+            "field": "key",
+            "effectiveDescription": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape6/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape6",
+            "field": "type",
+            "effectiveDescription": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape6/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape6",
+            "field": "value",
+            "effectiveDescription": "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date or datetime string in ISO 8601 format (e.g. '2024-01-15' or '2024-01-15T10:30:00Z').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape6/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape6",
+            "field": "operator",
+            "effectiveDescription": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape6/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape7",
+            "effectiveDescription": "Checks whether a property is set or not, without comparing values.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Checks whether a property is set or not, without comparing values.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape7",
+            "field": "key",
+            "effectiveDescription": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the property you're filtering on. For example `email` or `$current_url`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape7/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape7",
+            "field": "type",
+            "effectiveDescription": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property type (event, person, session, etc.).\n\n* `event` - event\n* `event_metadata` - event_metadata\n* `feature` - feature\n* `person` - person\n* `person_metadata` - person_metadata\n* `cohort` - cohort\n* `element` - element\n* `static-cohort` - static-cohort\n* `dynamic-cohort` - dynamic-cohort\n* `precalculated-cohort` - precalculated-cohort\n* `group` - group\n* `recording` - recording\n* `log_entry` - log_entry\n* `behavioral` - behavioral\n* `session` - session\n* `hogql` - hogql\n* `data_warehouse` - data_warehouse\n* `data_warehouse_person_property` - data_warehouse_person_property\n* `error_tracking_issue` - error_tracking_issue\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute\n* `metric_attribute` - metric_attribute\n* `span` - span\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute\n* `revenue_analytics` - revenue_analytics\n* `account_custom_property` - account_custom_property\n* `flag` - flag\n* `workflow_variable` - workflow_variable",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape7/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteResponseShape7",
+            "field": "operator",
+            "effectiveDescription": "Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Existence check operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape7/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteData",
+            "effectiveDescription": "Serializer mixin that handles tags for objects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer mixin that handles tags for objects.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteData",
+            "field": "name",
+            "effectiveDescription": "Name of the action (must be unique within the project).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the action (must be unique within the project).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteData",
+            "field": "description",
+            "effectiveDescription": "Human-readable description of what this action represents.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable description of what this action represents.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteData",
+            "field": "tags[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape1/properties/tags/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteData",
+            "field": "post_to_slack",
+            "effectiveDescription": "Whether to post a notification to Slack when this action is triggered.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to post a notification to Slack when this action is triggered.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape1/properties/post_to_slack"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteData",
+            "field": "slack_message_format",
+            "effectiveDescription": "Custom Slack message format. Supports templates with event properties.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Custom Slack message format. Supports templates with event properties.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape1/properties/slack_message_format"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteData",
+            "field": "steps",
+            "effectiveDescription": "Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape1/properties/steps"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteData",
+            "field": "pinned_at",
+            "effectiveDescription": "ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape1/properties/pinned_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ActionsActionDeleteData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/actions.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

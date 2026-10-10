@@ -1,0 +1,81 @@
+{
+    "method": "billing.billingSpendSummaryGet",
+    "toolName": "billing-spend-summary-get",
+    "operationId": "billing_spend_summary_retrieve",
+    "title": "Get spend this billing period",
+    "category": "Billing",
+    "description": "Amounts accrued so far this billing period, before and after discount, per product, add-on and tier, with the two totals. An organization total, so it needs full billing access: owners always, and admins when owner-only billing is off. Use it for \"what have we spent so far this month\". For the projection to the end of the period call billing-forecast-get, and for spend over time call billing-spend-timeseries-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+    "requiredScopes": ["billing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: organization-billing-api"],
+    "methodSource": "src/generated/billing/client.ts",
+    "input": {
+        "name": "BillingBillingSpendSummaryGetInput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-spend-summary-get.ts",
+        "declaration": "dist/generated/billing/billing-spend-summary-get.d.ts"
+    },
+    "output": {
+        "name": "BillingBillingSpendSummaryGetOutput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-spend-summary-get.ts",
+        "declaration": "dist/generated/billing/billing-spend-summary-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BillingBillingSpendSummaryGetResponseShape2",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-spend-summary-get.ts",
+            "declaration": "dist/generated/billing/billing-spend-summary-get.d.ts"
+        },
+        {
+            "name": "BillingBillingSpendSummaryGetResponseShape4",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-spend-summary-get.ts",
+            "declaration": "dist/generated/billing/billing-spend-summary-get.d.ts"
+        },
+        {
+            "name": "BillingBillingSpendSummaryGetResponseShape5",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-spend-summary-get.ts",
+            "declaration": "dist/generated/billing/billing-spend-summary-get.d.ts"
+        },
+        {
+            "name": "BillingBillingSpendSummaryGetResponseShape3",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-spend-summary-get.ts",
+            "declaration": "dist/generated/billing/billing-spend-summary-get.d.ts"
+        },
+        {
+            "name": "BillingBillingSpendSummaryGetData",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-spend-summary-get.ts",
+            "declaration": "dist/generated/billing/billing-spend-summary-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1billing~1spend~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Amounts accrued so far this billing period, before and after discount, per product, add-on and tier, with the two totals. An organization total, so it needs full billing access: owners always, and admins when owner-only billing is off. Use it for \"what have we spent so far this month\". For the projection to the end of the period call billing-forecast-get, and for spend over time call billing-spend-timeseries-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/billing/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": []
+}

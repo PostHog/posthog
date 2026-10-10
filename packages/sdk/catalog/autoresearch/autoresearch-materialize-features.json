@@ -1,0 +1,281 @@
+{
+    "method": "autoresearch.autoresearchMaterializeFeatures",
+    "toolName": "autoresearch-materialize-features",
+    "operationId": "autoresearch_training_runs_materialize_features_create",
+    "title": "Materialize training features to the sandbox",
+    "category": "Autoresearch",
+    "description": "Run your features.sql server-side against the labeled training population and write the train/holdout feature and label parquet files directly into your sandbox. Returns the local paths (train_features_path, train_labels_path, holdout_features_path, holdout_labels_path), row counts, and the feature column list — the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it whenever you change features.sql. Also returns what the feature query cost (elapsed_s and rows_read) and hints about features.sql shapes that scale badly. A promoted model must score its inference population under batch limits before it serves, so a slow or heavy query here is a warning. Works only for a run that autoresearch-train-create opened in a PostHog sandbox; an agent training outside PostHog pulls its data with execute-sql instead.",
+    "requiredScopes": ["autoresearch:write", "query:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["feature_flag: autoresearch"],
+    "methodSource": "src/generated/autoresearch/client.ts",
+    "input": {
+        "name": "AutoresearchAutoresearchMaterializeFeaturesInput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-materialize-features.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-materialize-features.d.ts"
+    },
+    "output": {
+        "name": "AutoresearchAutoresearchMaterializeFeaturesOutput",
+        "importPath": "@posthog/sdk/autoresearch",
+        "source": "src/generated/autoresearch/autoresearch-materialize-features.ts",
+        "declaration": "dist/generated/autoresearch/autoresearch-materialize-features.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-materialize-features.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-materialize-features.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Run features_sql server-side against the labeled training population and write the resulting train/holdout feature and label parquet files directly into this run's sandbox. Returns the local sandbox paths, row counts, and feature columns. The rows never pass through the agent's context and there is no 500-row cap. Read the returned paths with pd.read_parquet and iterate in Python.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1autoresearch~1{pipeline_id}~1training_runs~1{id}~1materialize-features~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Run your features.sql server-side against the labeled training population and write the train/holdout feature and label parquet files directly into your sandbox. Returns the local paths (train_features_path, train_labels_path, holdout_features_path, holdout_labels_path), row counts, and the feature column list — the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it whenever you change features.sql. Also returns what the feature query cost (elapsed_s and rows_read) and hints about features.sql shapes that scale badly. A promoted model must score its inference population under batch limits before it serves, so a slow or heavy query here is a warning. Works only for a run that autoresearch-train-create opened in a PostHog sandbox; an agent training outside PostHog pulls its data with execute-sql instead.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/autoresearch/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this autoresearch training run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this autoresearch training run.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/training_runs/{id}/materialize-features/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesInput",
+            "field": "features_sql",
+            "effectiveDescription": "Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train/holdout feature and label parquet files into your sandbox.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Your HogQL feature query, using the {anchors}/{lookback_days} contract. Must be a read-only SELECT keyed on person_id (aliased to distinct_id), one row per user. The backend runs it server-side against the labeled training population — no 500-row cap — and writes the resulting train/holdout feature and label parquet files into your sandbox.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/autoresearch/{pipeline_id}/training_runs/{id}/materialize-features/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "effectiveDescription": "The local sandbox paths and shape of the materialized training matrix.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The local sandbox paths and shape of the materialized training matrix.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "train_features_path",
+            "effectiveDescription": "Sandbox path to the training feature matrix parquet (distinct_id + numeric feature columns).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sandbox path to the training feature matrix parquet (distinct_id + numeric feature columns).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/train_features_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "train_labels_path",
+            "effectiveDescription": "Sandbox path to the training labels parquet (distinct_id + __label).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sandbox path to the training labels parquet (distinct_id + __label).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/train_labels_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "holdout_features_path",
+            "effectiveDescription": "Sandbox path to the holdout feature matrix parquet (same columns as train_features).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sandbox path to the holdout feature matrix parquet (same columns as train_features).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/holdout_features_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "holdout_labels_path",
+            "effectiveDescription": "Sandbox path to the holdout labels parquet (distinct_id + __label).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sandbox path to the holdout labels parquet (distinct_id + __label).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/holdout_labels_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "n_train",
+            "effectiveDescription": "Number of rows in the training split.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of rows in the training split.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/n_train"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "n_holdout",
+            "effectiveDescription": "Number of rows in the holdout split.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of rows in the holdout split.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/n_holdout"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "n_features",
+            "effectiveDescription": "Number of numeric feature columns produced by features_sql.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of numeric feature columns produced by features_sql.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/n_features"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "feature_cols",
+            "effectiveDescription": "The numeric feature column names (excludes distinct_id, __label, __fold).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The numeric feature column names (excludes distinct_id, __label, __fold).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/feature_cols"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "elapsed_s",
+            "effectiveDescription": "Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql over the whole inference population on every cadence, so a slow query here is slow there too.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Seconds the server spent on the queries that materialized the matrix. Scoring runs features_sql over the whole inference population on every cadence, so a slow query here is slow there too.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/elapsed_s"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "rows_read",
+            "effectiveDescription": "Rows ClickHouse read to materialize the matrix.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows ClickHouse read to materialize the matrix.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/rows_read"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchMaterializeFeaturesData",
+            "field": "hints",
+            "effectiveDescription": "Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Advice on the cost of features_sql. A hint does not block the materialization or the upload, but a champion whose features.sql cannot score today's population in time is not promoted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/hints"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

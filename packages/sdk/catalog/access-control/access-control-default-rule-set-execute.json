@@ -1,0 +1,184 @@
+{
+    "method": "accessControl.accessControlDefaultRuleSetExecute",
+    "toolName": "access-control-default-rule-set-execute",
+    "title": "Set or clear the default access rule for a scope (execute)",
+    "category": "Access control",
+    "description": "Step 2 of 2 for change the default access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+    "requiredScopes": ["access_control:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": ["feature_entitlement: access_control"],
+    "methodSource": "src/generated/access-control/client.ts",
+    "input": {
+        "name": "AccessControlAccessControlDefaultRuleSetExecuteInput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-default-rule-set-execute.ts",
+        "declaration": "dist/generated/access-control/access-control-default-rule-set-execute.d.ts"
+    },
+    "output": {
+        "name": "AccessControlAccessControlDefaultRuleSetExecuteOutput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-default-rule-set-execute.ts",
+        "declaration": "dist/generated/access-control/access-control-default-rule-set-execute.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AccessControlAccessControlDefaultRuleSetExecuteData",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-default-rule-set-execute.ts",
+            "declaration": "dist/generated/access-control/access-control-default-rule-set-execute.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/access_control/mcp/tools.yaml"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Step 2 of 2 for change the default access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/access-control-default-rule-set-execute/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetExecuteInput",
+            "field": "confirmation_hash",
+            "effectiveDescription": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/confirmation_hash"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetExecuteInput",
+            "field": "confirmation",
+            "effectiveDescription": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The literal string \"confirm\", typed by the user in chat. Required to proceed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/properties/confirmation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetExecuteData",
+            "field": "resource",
+            "effectiveDescription": "The rule's scope, as sent in the request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The rule's scope, as sent in the request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/resource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetExecuteData",
+            "field": "resource_id",
+            "effectiveDescription": "The object the rule applies to: the project id for a project rule, an object's primary key, or a property definition id. Null for a resource-type rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The object the rule applies to: the project id for a project rule, an object's primary key, or a property definition id. Null for a resource-type rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/resource_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetExecuteData",
+            "field": "access_level",
+            "effectiveDescription": "The stored level.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The stored level.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetExecuteData",
+            "field": "member_id",
+            "effectiveDescription": "The organization membership the rule is for. Null unless it is a member rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The organization membership the rule is for. Null unless it is a member rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/member_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetExecuteData",
+            "field": "role_id",
+            "effectiveDescription": "The role the rule is for. Null unless it is a role rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The role the rule is for. Null unless it is a role rule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/role_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlDefaultRuleSetExecuteData",
+            "field": "_agentNote",
+            "effectiveDescription": "A member rule or a role rule on the same scope still wins over this default. Verify the result with access-control-defaults-get or access-control-members-list.\n",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "A member rule or a role rule on the same scope still wins over this default. Verify the result with access-control-defaults-get or access-control-members-list.\n",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

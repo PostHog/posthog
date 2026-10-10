@@ -1,0 +1,109 @@
+{
+    "method": "aiObservability.llmaPromptLabelSet",
+    "toolName": "llma-prompt-label-set",
+    "operationId": "llm_prompts_name_labels_update",
+    "title": "Set prompt label",
+    "category": "Experiments",
+    "description": "Point a label (for example 'production') at a specific version of an LLM prompt. A label is a movable pointer to exactly one version: if the label already exists on another version of this prompt, it is moved there. Use labels to mark a version as released ('production', 'staging') or roll back by pointing the label at an earlier version. Label names use lowercase letters, numbers, dots, hyphens and underscores; 'latest' is reserved and numbers-only names are not allowed. Each prompt can have at most 50 labels.",
+    "requiredScopes": ["llm_prompt:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaPromptLabelSetInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-prompt-label-set.ts",
+        "declaration": "dist/generated/ai-observability/llma-prompt-label-set.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaPromptLabelSetOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-prompt-label-set.ts",
+        "declaration": "dist/generated/ai-observability/llma-prompt-label-set.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaPromptLabelSetResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-label-set.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-label-set.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptLabelSetResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-label-set.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-label-set.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaPromptLabelSetData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-prompt-label-set.ts",
+            "declaration": "dist/generated/ai-observability/llma-prompt-label-set.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Point a label (for example 'production') at a specific version of an LLM prompt. A label is a movable pointer to exactly one version: if the label already exists on another version of this prompt, it is moved there. Use labels to mark a version as released ('production', 'staging') or roll back by pointing the label at an earlier version. Label names use lowercase letters, numbers, dots, hyphens and underscores; 'latest' is reserved and numbers-only names are not allowed. Each prompt can have at most 50 labels.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaPromptLabelSetInput",
+            "field": "version",
+            "effectiveDescription": "Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Prompt version this label should point to. If the label already exists on another version of the prompt, it is moved there.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/llm_prompts/name/{prompt_name}/labels/{label_name}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptLabelSetData",
+            "field": "name",
+            "effectiveDescription": "Label name, e.g. 'production'. Points to exactly one version of the prompt.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Label name, e.g. 'production'. Points to exactly one version of the prompt.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaPromptLabelSetData",
+            "field": "prompt_name",
+            "effectiveDescription": "Name of the prompt this label belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the prompt this label belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/prompt_name"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

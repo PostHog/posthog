@@ -172,6 +172,7 @@ jobs:
                       # (UI app snapshots), but never the integration tests, which drive the
                       # Python backend. WF009 keeps the list in step with what MCP imports.
                       mcp-typescript:
+                        - 'packages/sdk/src/**'
                         - 'packages/quill/**'
                         - 'products/notebooks/**'
                         - 'products/product_analytics/frontend/insights/**'

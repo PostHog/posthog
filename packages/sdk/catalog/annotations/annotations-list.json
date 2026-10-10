@@ -1,0 +1,313 @@
+{
+    "method": "annotations.annotationsList",
+    "toolName": "annotations-list",
+    "operationId": "annotations_list",
+    "title": "List annotations",
+    "category": "Annotations",
+    "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations. Results are paginated (default 100 per page) — use `limit` and `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is trimmed to `{id, email}`.",
+    "requiredScopes": ["annotation:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/annotations/client.ts",
+    "input": {
+        "name": "AnnotationsAnnotationsListInput",
+        "importPath": "@posthog/sdk/annotations",
+        "source": "src/generated/annotations/annotations-list.ts",
+        "declaration": "dist/generated/annotations/annotations-list.d.ts"
+    },
+    "output": {
+        "name": "AnnotationsAnnotationsListOutput",
+        "importPath": "@posthog/sdk/annotations",
+        "source": "src/generated/annotations/annotations-list.ts",
+        "declaration": "dist/generated/annotations/annotations-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AnnotationsAnnotationsListRequestSchema0",
+            "importPath": "@posthog/sdk/annotations",
+            "source": "src/generated/annotations/annotations-list.ts",
+            "declaration": "dist/generated/annotations/annotations-list.d.ts"
+        },
+        {
+            "name": "AnnotationsAnnotationsListRequestSchema2",
+            "importPath": "@posthog/sdk/annotations",
+            "source": "src/generated/annotations/annotations-list.ts",
+            "declaration": "dist/generated/annotations/annotations-list.d.ts"
+        },
+        {
+            "name": "AnnotationsAnnotationsListRequestSchema3",
+            "importPath": "@posthog/sdk/annotations",
+            "source": "src/generated/annotations/annotations-list.ts",
+            "declaration": "dist/generated/annotations/annotations-list.d.ts"
+        },
+        {
+            "name": "AnnotationsAnnotationsListDataResultsItem",
+            "importPath": "@posthog/sdk/annotations",
+            "source": "src/generated/annotations/annotations-list.ts",
+            "declaration": "dist/generated/annotations/annotations-list.d.ts"
+        },
+        {
+            "name": "AnnotationsAnnotationsListData",
+            "importPath": "@posthog/sdk/annotations",
+            "source": "src/generated/annotations/annotations-list.ts",
+            "declaration": "dist/generated/annotations/annotations-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1annotations~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations. Results are paginated (default 100 per page) — use `limit` and `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is trimmed to `{id, email}`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/annotations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AnnotationsAnnotationsListRequest_Schema0",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/annotations.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of annotations to return per page (default 100).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/annotations/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Number of annotations to return per page (default 100).",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/annotations/mcp/tools.yaml",
+                        "pointer": "/tools/annotations-list/param_overrides/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/annotations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListInput",
+            "field": "search",
+            "effectiveDescription": "A search term.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A search term.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/annotations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListData",
+            "field": "results[].content",
+            "effectiveDescription": "Annotation text shown on charts to describe the change, release, or incident.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Annotation text shown on charts to describe the change, release, or incident.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/annotations.ts",
+                        "pointer": "#/Shape2/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListData",
+            "field": "results[].date_marker",
+            "effectiveDescription": "When this annotation happened (ISO 8601 timestamp). Used to position it on charts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this annotation happened (ISO 8601 timestamp). Used to position it on charts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/annotations.ts",
+                        "pointer": "#/Shape2/properties/date_marker"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListData",
+            "field": "results[].creation_type",
+            "effectiveDescription": "Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.\n\n* `USR` - user\n* `GIT` - GitHub",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/annotations.ts",
+                        "pointer": "#/Shape2/properties/creation_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListData",
+            "field": "results[].dashboard_item",
+            "effectiveDescription": "Optional insight ID to attach this annotation to. Must belong to the current project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional insight ID to attach this annotation to. Must belong to the current project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/annotations.ts",
+                        "pointer": "#/Shape2/properties/dashboard_item"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListData",
+            "field": "results[].dashboard_id",
+            "effectiveDescription": "Optional dashboard ID to attach this annotation to. Must belong to the current project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional dashboard ID to attach this annotation to. Must belong to the current project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/annotations.ts",
+                        "pointer": "#/Shape2/properties/dashboard_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListData",
+            "field": "results[].deleted",
+            "effectiveDescription": "Soft-delete flag. Set to true to hide the annotation, or false to restore it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Soft-delete flag. Set to true to hide the annotation, or false to restore it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/annotations.ts",
+                        "pointer": "#/Shape2/properties/deleted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListData",
+            "field": "results[].scope",
+            "effectiveDescription": "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/annotations.ts",
+                        "pointer": "#/Shape2/properties/scope"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListData",
+            "field": "results[].emoji",
+            "effectiveDescription": "Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/annotations.ts",
+                        "pointer": "#/Shape2/properties/emoji"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListData",
+            "field": "results[].hidden_in_user_interface",
+            "effectiveDescription": "When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/annotations.ts",
+                        "pointer": "#/Shape2/properties/hidden_in_user_interface"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AnnotationsAnnotationsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

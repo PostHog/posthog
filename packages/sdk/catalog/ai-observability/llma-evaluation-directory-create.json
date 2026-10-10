@@ -1,0 +1,125 @@
+{
+    "method": "aiObservability.llmaEvaluationDirectoryCreate",
+    "toolName": "llma-evaluation-directory-create",
+    "operationId": "evaluation_directories_create",
+    "title": "Create evaluation directory",
+    "category": "AI observability",
+    "description": "Create a top-level directory for organizing online evaluations. Directory names must be unique within the project, ignoring capitalization.",
+    "requiredScopes": ["evaluation:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/ai-observability/client.ts",
+    "input": {
+        "name": "AiObservabilityLlmaEvaluationDirectoryCreateInput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-directory-create.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-directory-create.d.ts"
+    },
+    "output": {
+        "name": "AiObservabilityLlmaEvaluationDirectoryCreateOutput",
+        "importPath": "@posthog/sdk/ai-observability",
+        "source": "src/generated/ai-observability/llma-evaluation-directory-create.ts",
+        "declaration": "dist/generated/ai-observability/llma-evaluation-directory-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryCreateResponseShape3",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryCreateResponseShape2",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-create.d.ts"
+        },
+        {
+            "name": "AiObservabilityLlmaEvaluationDirectoryCreateData",
+            "importPath": "@posthog/sdk/ai-observability",
+            "source": "src/generated/ai-observability/llma-evaluation-directory-create.ts",
+            "declaration": "dist/generated/ai-observability/llma-evaluation-directory-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Create a top-level directory for organizing online evaluations. Directory names must be unique within the project, ignoring capitalization.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/ai_observability/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryCreateInput",
+            "field": "name",
+            "effectiveDescription": "Directory name shown in the online evals list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Directory name shown in the online evals list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/evaluation_directories/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryCreateData",
+            "field": "name",
+            "effectiveDescription": "Directory name shown in the online evals list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Directory name shown in the online evals list.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryCreateData",
+            "field": "created_by",
+            "effectiveDescription": "User who created the directory.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created the directory.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AiObservabilityLlmaEvaluationDirectoryCreateData",
+            "field": "evaluation_count",
+            "effectiveDescription": "Number of active evaluations in the directory.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of active evaluations in the directory.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/ai_observability.ts",
+                        "pointer": "#/Shape1/properties/evaluation_count"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

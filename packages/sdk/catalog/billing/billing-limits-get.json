@@ -1,0 +1,63 @@
+{
+    "method": "billing.billingLimitsGet",
+    "toolName": "billing-limits-get",
+    "operationId": "billing_limits_retrieve",
+    "title": "Get spend limits",
+    "category": "Billing",
+    "description": "Per product, the spend limit for the current period, a limit deferred to the next period because it was set below current spend, spend so far, and whether the limit is reached. Needs full billing access. Use it for \"am I over my spend limit\"; the quota limiting state PostHog applies is on billing-usage-summary-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+    "requiredScopes": ["billing:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: organization-billing-api"],
+    "methodSource": "src/generated/billing/client.ts",
+    "input": {
+        "name": "BillingBillingLimitsGetInput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-limits-get.ts",
+        "declaration": "dist/generated/billing/billing-limits-get.d.ts"
+    },
+    "output": {
+        "name": "BillingBillingLimitsGetOutput",
+        "importPath": "@posthog/sdk/billing",
+        "source": "src/generated/billing/billing-limits-get.ts",
+        "declaration": "dist/generated/billing/billing-limits-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "BillingBillingLimitsGetResponseShape2",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-limits-get.ts",
+            "declaration": "dist/generated/billing/billing-limits-get.d.ts"
+        },
+        {
+            "name": "BillingBillingLimitsGetData",
+            "importPath": "@posthog/sdk/billing",
+            "source": "src/generated/billing/billing-limits-get.ts",
+            "declaration": "dist/generated/billing/billing-limits-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "In beta: the organization billing API is behind the organization-billing-api feature flag and answers 403 without it, so ask support for access. Its shapes may change while it is in beta.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1billing~1limits~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Per product, the spend limit for the current period, a limit deferred to the next period because it was set below current spend, spend so far, and whether the limit is reached. Needs full billing access. Use it for \"am I over my spend limit\"; the quota limiting state PostHog applies is on billing-usage-summary-get. Beta: behind the organization-billing-api flag, and the output shape may change while it is.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/billing/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": []
+}

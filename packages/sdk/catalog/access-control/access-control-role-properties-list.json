@@ -1,0 +1,224 @@
+{
+    "method": "accessControl.accessControlRolePropertiesList",
+    "toolName": "access-control-role-properties-list",
+    "operationId": "organizations_projects_access_control_role_properties_retrieve",
+    "title": "List a role's property rules",
+    "category": "Access control",
+    "description": "The property rules configured for a role: which person and event properties the role's members cannot see (`none`), can only read (`read`), or can read and write (`read_write`).",
+    "requiredScopes": ["access_control:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_entitlement: role_based_access"],
+    "methodSource": "src/generated/access-control/client.ts",
+    "input": {
+        "name": "AccessControlAccessControlRolePropertiesListInput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-role-properties-list.ts",
+        "declaration": "dist/generated/access-control/access-control-role-properties-list.d.ts"
+    },
+    "output": {
+        "name": "AccessControlAccessControlRolePropertiesListOutput",
+        "importPath": "@posthog/sdk/access-control",
+        "source": "src/generated/access-control/access-control-role-properties-list.ts",
+        "declaration": "dist/generated/access-control/access-control-role-properties-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "AccessControlAccessControlRolePropertiesListResponseShape2",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-role-properties-list.ts",
+            "declaration": "dist/generated/access-control/access-control-role-properties-list.d.ts"
+        },
+        {
+            "name": "AccessControlAccessControlRolePropertiesListData",
+            "importPath": "@posthog/sdk/access-control",
+            "source": "src/generated/access-control/access-control-role-properties-list.ts",
+            "declaration": "dist/generated/access-control/access-control-role-properties-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Property rules configured for a role: the person and event properties the role's members can read, read and write, or not see.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1projects~1{id}~1access_control_role_properties~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "The property rules configured for a role: which person and event properties the role's members cannot see (`none`), can only read (`read`), or can read and write (`read_write`).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/access_control/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "AccessControlAccessControlRolePropertiesListInput",
+            "field": "id",
+            "effectiveDescription": "Project id. If omitted, uses the active project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique value identifying this project.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/projects/{id}/access_control_role_properties/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Project id. If omitted, uses the active project.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/access_control/mcp/tools.yaml",
+                        "pointer": "/tools/access-control-role-properties-list/param_overrides/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRolePropertiesListInput",
+            "field": "role_id",
+            "effectiveDescription": "The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in access-control-members-list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The role id, as `role_id` in the roles endpoint.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/projects/{id}/access_control_role_properties/"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "The role id, as `role_id` in access-control-roles-list or an entry of `role_ids` in access-control-members-list.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/access_control/mcp/tools.yaml",
+                        "pointer": "/tools/access-control-role-properties-list/param_overrides/role_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRolePropertiesListResponseShape2",
+            "effectiveDescription": "A stored rule on one property definition, as configured for a subject.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A stored rule on one property definition, as configured for a subject.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRolePropertiesListResponseShape2",
+            "field": "property_definition_id",
+            "effectiveDescription": "The property definition id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The property definition id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2/properties/property_definition_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRolePropertiesListResponseShape2",
+            "field": "property",
+            "effectiveDescription": "The property name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The property name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2/properties/property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRolePropertiesListResponseShape2",
+            "field": "property_type",
+            "effectiveDescription": "Whether the property is a `person` or an `event` property.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the property is a `person` or an `event` property.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2/properties/property_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRolePropertiesListResponseShape2",
+            "field": "access_level",
+            "effectiveDescription": "The rule's level: `none`, `read` or `read_write`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The rule's level: `none`, `read` or `read_write`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape2/properties/access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRolePropertiesListData",
+            "field": "results",
+            "effectiveDescription": "The subject's property rules, sorted by property type and name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The subject's property rules, sorted by property type and name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/access_control.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AccessControlAccessControlRolePropertiesListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
