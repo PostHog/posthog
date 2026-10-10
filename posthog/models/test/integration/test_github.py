@@ -278,19 +278,27 @@ class TestGitHubIntegrationModel(BaseTest):
         assert GitHubIntegration(integration).installation_unavailable() is True
         assert "expires_in" not in integration.config
 
+    @parameterized.expand(
+        [
+            ("permissions", {"contents": "read"}, None, {"permissions": {"contents": "read"}}),
+            ("repositories", None, ["api"], {"repositories": ["api"]}),
+        ]
+    )
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_mint_scoped_installation_token_downscopes_without_persisting(self, mock_client_request):
+    def test_mint_scoped_installation_token_downscopes_without_persisting(
+        self, _name, permissions, repositories, expected_body, mock_client_request
+    ):
         integration = self.create_integration({"installation_id": "INSTALL"}, {"access_token": "FULL_TOKEN"})
         mock_response = MagicMock(status_code=201)
         mock_response.json.return_value = {"token": "SCOPED_TOKEN", "expires_at": "2024-01-01T13:00:00Z"}
         mock_client_request.return_value = mock_response
 
-        token = GitHubIntegration(integration).mint_scoped_installation_token({"contents": "read"})
+        token = GitHubIntegration(integration).mint_scoped_installation_token(permissions, repositories=repositories)
 
         assert token == "SCOPED_TOKEN"
         # Without the permissions body the mint returns a FULL-permission token — a silent
         # privilege escalation for every read-only sandbox.
-        assert mock_client_request.call_args.kwargs["json_body"] == {"permissions": {"contents": "read"}}
+        assert mock_client_request.call_args.kwargs["json_body"] == expected_body
         # The scoped token must never clobber the shared full-permission credential other flows read.
         integration.refresh_from_db()
         assert integration.sensitive_config == {"token": "REFRESH", "access_token": "FULL_TOKEN"}

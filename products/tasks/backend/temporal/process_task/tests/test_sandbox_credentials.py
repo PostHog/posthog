@@ -334,7 +334,7 @@ class TestSharedUserIntegrationRefresh:
 
             assert outcome.refreshed is True
             assert outcome.next_refresh_seconds == 20 * 60
-            installation_token.assert_called_once_with(456)
+            installation_token.assert_called_once_with(456, repositories=["explore-science/paper-wizard-frontend"])
             apply.assert_called_once_with(sandbox, ["explore-science/paper-wizard-frontend"], "ghs_team")
 
     def test_reauthorization_without_team_integration_raises_credential_unavailable(self):
