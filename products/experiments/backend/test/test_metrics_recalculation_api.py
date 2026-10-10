@@ -11,13 +11,13 @@ from parameterized import parameterized
 from rest_framework import status
 
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.temporal.models import ExperimentMetricsRecalculationWorkflowInputs
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 

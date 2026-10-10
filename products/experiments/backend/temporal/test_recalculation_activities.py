@@ -21,6 +21,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitE
 from posthog.temporal.common.errors import NonReportableError
 
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import compute_recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -33,7 +34,6 @@ from products.experiments.backend.temporal.models import (
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
