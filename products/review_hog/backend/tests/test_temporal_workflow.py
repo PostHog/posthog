@@ -178,6 +178,7 @@ async def _run_full_review_pr_workflow(
     # all three must be the resolve/publish values, or the comment misattributes the gate.
     finalize_status_calls: list[tuple[str, str, str | None]] = []
     status_capped_parts: list[int | None] = []
+    status_resolution_planned: list[bool] = []
     # The urgency threshold each downstream consumer received (must be the resolve snapshot's value).
     threshold_calls: list[tuple[str, str]] = []
     # The user id the parent threads into the perspective / blind-spots / validation loads (should be
@@ -387,6 +388,7 @@ async def _run_full_review_pr_workflow(
         finalize_status_calls.append((input.urgency_threshold, input.resolved_from, input.review_url))
         marker_calls["status"] = input.marker
         status_capped_parts.append(input.capped_lens_parts)
+        status_resolution_planned.append(input.resolution_planned)
         return None
 
     @activity.defn(name="fail_status_comment_activity")
@@ -518,6 +520,7 @@ async def _run_full_review_pr_workflow(
         "load_user_ids": load_user_ids,
         "thresholds": threshold_calls,
         "finalize_status": finalize_status_calls,
+        "status_resolution_planned": status_resolution_planned,
         "status_capped_parts": status_capped_parts,
         "track_failed": track_failed_calls,
         "track_completed": track_completed_calls,
@@ -690,6 +693,8 @@ async def test_review_pr_workflow_chains_resolution_per_setting_and_override(
         assert recorded["resolve_dispatches"] == [(7, 9, "manual")]
     else:
         assert recorded["resolve_dispatches"] == []
+    if publish:
+        assert recorded["status_resolution_planned"] == [expect_dispatch]
 
 
 @pytest.mark.asyncio
@@ -708,6 +713,7 @@ async def test_review_pr_workflow_flash_turn_threads_its_mode_and_never_chains_r
     )
     assert recorded["publish"] == [7]
     assert recorded["resolve_dispatches"] == []
+    assert recorded["status_resolution_planned"] == [False]
     # Flash publishes every kept finding, whatever the acting user's threshold says.
     assert {threshold for _, threshold in recorded["thresholds"]} == {"consider"}
     assert recorded["modes"] == {

@@ -885,6 +885,13 @@ class ReviewPRWorkflow:
                             if flash_sessions is not None
                             else 0
                         ),
+                        # The dispatch rule below, without its replay patch: a Standard turn never chains resolution.
+                        resolution_planned=(
+                            inputs.publish
+                            and acting.resolve_comments
+                            and inputs.resolve_comments is not False
+                            and inputs.review_mode != REVIEW_MODE_FLASH
+                        ),
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,

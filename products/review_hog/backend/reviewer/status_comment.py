@@ -7,9 +7,10 @@ subscribers, while every new comment emails everyone. The body is one table with
 the turn, filled in as the run progresses. Progress renders from the same derivation the reviews
 API uses (`reviewer.progress`), so the PR comment and the UI can never disagree.
 
-The resolution stage shares the same comment (one ReviewHog voice per PR): its progress and closing
-tally live in a marker-delimited section spliced in by `update_resolution_status_comment`, which
-also creates the comment on demand for standalone resolution runs that never had a review.
+The resolution stage shares the same comment (one ReviewHog voice per PR): it owns the table's
+"Resolve comments" row and a marker-delimited span at the end of the summary line, both spliced in by
+`update_resolution_status_comment`, which also creates the comment on demand for standalone
+resolution runs that never had a review.
 
 Every entry point here is best-effort by construction: a status comment must never fail, block, or
 retry a review, so all exceptions are swallowed after logging.
@@ -160,8 +161,8 @@ def status_marker(report_id: str) -> str:
     return f"<!-- reviewhog:status:{report_id} -->"
 
 
-# Delimits the resolution stage's section within the status comment, so resolution updates splice
-# their part in place without touching the review's own body above it.
+# Delimits the resolution stage's sentence at the end of the summary line, so resolution updates
+# splice their part in place without touching the review's own text around it.
 RESOLUTION_SECTION_START = "<!-- reviewhog:resolution:start -->"
 RESOLUTION_SECTION_END = "<!-- reviewhog:resolution:end -->"
 
@@ -178,6 +179,7 @@ _RESOLUTION_OUTCOME_LABELS = {
 _RESOLUTION_OUTCOME_ORDER = ("fixed", "declined", "already settled", "left for you")
 
 _TABLE_HEADER = "| Step | Status | Result |"
+_RESOLVE_STEP = "Resolve comments"
 
 
 def report_deep_link(team_id: int, report_id: str) -> str:
@@ -505,6 +507,25 @@ def _publish_result(
     return " · ".join(parts) or "Nothing to post"
 
 
+@frozen
+class ResolutionStep:
+    """The table's Resolve comments row, plus the sentence it adds to the summary line."""
+
+    status: str
+    result: str = ""
+    summary: str = ""
+
+
+RESOLUTION_WAITING = ResolutionStep(status="⏸ Waiting")
+# A run that found no open thread, so a waiting row never reads as stuck.
+RESOLUTION_NOTHING_TO_DO = ResolutionStep(status="✅ Done", result="No open threads to resolve")
+
+
+def _summary_line(text: str, resolution: ResolutionStep | None) -> str:
+    resolution_text = f" {resolution.summary}" if resolution is not None and resolution.summary else ""
+    return f"{text}{RESOLUTION_SECTION_START}{resolution_text}{RESOLUTION_SECTION_END}"
+
+
 def _raised_elsewhere_lines(raised_elsewhere: Sequence[AlreadyRaised], total: int, pr_url: str | None) -> list[str]:
     shown = raised_elsewhere[:ALREADY_RAISED_SHOWN]
     lines = ["Also found in comments already on this pull request, so not posted again:"]
@@ -533,6 +554,7 @@ def render_final_body(
     facts: TurnFacts = _NO_FACTS,
     flash: FlashTurnStats | None = None,
     failed_sessions: int = 0,
+    resolution_planned: bool = False,
     celebrate_clean_reviews: bool = True,
     marker: ReviewHogMarker | None = None,
     capped_lens_parts: int | None = None,
@@ -563,6 +585,9 @@ def render_final_body(
     )
     steps = _steps(review_design, facts, flash=flash, failed_sessions=failed_sessions, publish_result=publish_result)
     table = _table(_rows(steps, None))
+    resolution = RESOLUTION_WAITING if resolution_planned else None
+    if resolution is not None:
+        table.append(_table_row(_RESOLVE_STEP, resolution.status, resolution.result))
 
     found_total = sum(counts.values())
     if published_count > 0:
@@ -574,7 +599,7 @@ def render_final_body(
     else:
         summary = "Nothing worth raising."
 
-    lines = [_header(review_mode, "reviewed", head_sha), "", summary, "", *table]
+    lines = [_header(review_mode, "reviewed", head_sha), "", _summary_line(summary, resolution), "", *table]
     if capped_lens_parts is not None:
         lines.extend(
             [
@@ -594,85 +619,119 @@ def render_final_body(
     return "\n".join(lines)
 
 
-def render_resolution_progress_section(*, done: int, total: int, fixed: int, left_for_you: int) -> str:
-    """The resolving-state section: the run's counter plus the outcomes that matter mid-run."""
-    line = f"Resolving comments: {done}/{total}"
-    outcome_bits = [
-        bit for bit, count in ((f"{fixed} fixed", fixed), (f"{left_for_you} left for you", left_for_you)) if count
-    ]
-    if outcome_bits:
-        line += " · " + ", ".join(outcome_bits)
-    return "\n".join(
-        [
-            f"**{line}**",
-            "",
-            "<sub>Safe fixes are committed to the branch; every settled thread gets a reply. "
-            "This line updates as threads settle.</sub>",
-        ]
+def _fixed_with_commits(fixed: int) -> str:
+    return f"{fixed} fixed with {'a commit' if fixed == 1 else 'commits'} on your branch"
+
+
+def resolution_progress_step(*, done: int, total: int, fixed: int, left_for_you: int) -> ResolutionStep:
+    """The resolving-state row: the run's counter plus the outcomes that matter mid-run."""
+    bits = []
+    if fixed:
+        bits.append(_fixed_with_commits(fixed))
+    if left_for_you:
+        bits.append(f"{left_for_you} left for you")
+    return ResolutionStep(
+        status=f"⏳ {done}/{total}",
+        result=", ".join(bits),
+        summary=f"Resolve is working through {_plural(total, 'comment')}.",
     )
 
 
-def render_resolution_final_section(*, outcomes: dict[str, int], failed_turns: int) -> str:
+def resolution_final_step(*, outcomes: dict[str, int], failed_turns: int) -> ResolutionStep:
     """The run's closing tally, including the threads the run could not handle."""
     counts: dict[str, int] = {}
     for outcome, count in outcomes.items():
         label = _RESOLUTION_OUTCOME_LABELS.get(outcome, outcome)
         counts[label] = counts.get(label, 0) + count
-    bits = [f"{counts[label]} {label}" for label in _RESOLUTION_OUTCOME_ORDER if counts.get(label)]
-    line = "Resolved comments: " + (", ".join(bits) if bits else "no threads needed action")
+    settled = sum(counts.values())
+    total = settled + failed_turns
+    if total == 0:
+        return ResolutionStep(status="✅ Done", result="No threads needed action")
+    bits = [
+        _fixed_with_commits(counts[label]) if label == "fixed" else f"{counts[label]} {label}"
+        for label in _RESOLUTION_OUTCOME_ORDER
+        if counts.get(label)
+    ]
     if failed_turns:
-        line += f" · couldn't handle {failed_turns}"
-    return f"**{line}**"
+        bits.append(f"couldn't handle {failed_turns}")
+    fixed = counts.get("fixed", 0)
+    left_for_you = counts.get("left for you", 0) + failed_turns
+    summary = f"Resolve pushed fixes for {fixed}." if fixed else "Resolve pushed no fixes."
+    if left_for_you:
+        summary += f" {left_for_you} {'is' if left_for_you == 1 else 'are'} left for you."
+    icon = "⚠️" if failed_turns else "✅"
+    return ResolutionStep(status=f"{icon} {settled}/{total}", result=", ".join(bits), summary=summary)
 
 
-def render_resolution_failed_section(*, done: int, total: int) -> str:
-    """The crashed-run section, so a dead resolution never reads as forever in progress on the PR."""
-    return "\n".join(
-        [
-            f"**Couldn't finish resolving comments: stopped at {done}/{total}**",
-            "",
-            "<sub>The remaining threads were not touched. The next review or resolution run picks them up.</sub>",
-        ]
+def resolution_failed_step(*, done: int, total: int) -> ResolutionStep:
+    """The crashed-run row, so a dead resolution never reads as forever in progress on the PR."""
+    return ResolutionStep(
+        status="❌ Failed",
+        result=f"Stopped at {done}/{total}",
+        summary="Resolve stopped early. The next review or resolution run picks up the remaining comments.",
     )
 
 
-def render_resolution_held_section(hold: CommitHold, *, done: int = 0, total: int = 0) -> str:
+def resolution_held_step(hold: CommitHold, *, done: int = 0, total: int = 0) -> ResolutionStep:
     """Why the stage did not commit fixes, so the author knows the open threads are theirs.
 
     `total` is set only when the run stopped part way.
     """
     if hold == CommitHold.STACKED:
-        line = (
-            f"Stopped resolving comments at {done}/{total}: another pull request is now stacked on this branch"
-            if total
-            else "Not resolving comments: other pull requests are stacked on this branch"
-        )
+        stopped = "another pull request is now stacked on this branch"
+        skipped = "Other pull requests are stacked on this branch"
         why = "A fix commit here would leave the stacked pull requests out of date"
     elif hold == CommitHold.BRANCH_PROTECTED:
-        line = (
-            f"Stopped resolving comments at {done}/{total}: this branch is now protected"
-            if total
-            else "Not resolving comments: this branch is protected"
-        )
+        stopped = "this branch is now protected"
+        skipped = "This branch is protected"
         why = "A person decides what lands on a protected branch"
     else:
-        line = (
-            f"Stopped resolving comments at {done}/{total}: this pull request was submitted to the merge queue"
-            if total
-            else "Not resolving comments: this pull request is submitted to the merge queue"
-        )
+        stopped = "this pull request entered the merge queue"
+        skipped = "This pull request is in the merge queue"
         why = "A fix commit would change what was submitted, or remove it from the queue"
-    return "\n".join([f"**{line}**", "", f"<sub>{why}, so the open threads stay with you.</sub>"])
+    if total:
+        return ResolutionStep(
+            status="⏹ Stopped",
+            result=f"Stopped at {done}/{total}: {stopped}",
+            summary=f"Resolve stopped. {why}, so the open threads stay with you.",
+        )
+    return ResolutionStep(
+        status="⏭ Skipped", result=skipped, summary=f"Resolve did not run. {why}, so the open threads stay with you."
+    )
 
 
-def _splice_resolution_section(body: str, section: str) -> str:
-    """Replace (or append) the marker-delimited resolution section within a comment body."""
-    block = f"{RESOLUTION_SECTION_START}\n{section}\n{RESOLUTION_SECTION_END}"
+def _without_resolution_span(body: str) -> str:
+    if RESOLUTION_SECTION_START not in body or RESOLUTION_SECTION_END not in body:
+        return body
+    head, _, rest = body.partition(RESOLUTION_SECTION_START)
+    _, _, tail = rest.partition(RESOLUTION_SECTION_END)
+    return head + tail
+
+
+def _splice_resolution_section(body: str, step: ResolutionStep) -> str:
+    """Replace (or add) the Resolve row and the summary span within a comment body.
+
+    A body without a table is a standalone run's empty comment, or one from before the table layout.
+    It gets a table with only the Resolve row on top, and keeps its own text (and the markers) below.
+    """
+    row = _table_row(_RESOLVE_STEP, step.status, step.result)
+    if _TABLE_HEADER not in body:
+        header = "### \U0001f994 PostHog Review · resolving comments"
+        rest = _without_resolution_span(body).strip()
+        return "\n".join([header, "", _TABLE_HEADER, "|---|---|---|", row, "", rest])
+
     if RESOLUTION_SECTION_START in body and RESOLUTION_SECTION_END in body:
         head, _, rest = body.partition(RESOLUTION_SECTION_START)
         _, _, tail = rest.partition(RESOLUTION_SECTION_END)
-        return f"{head.rstrip()}\n\n{block}{tail}"
-    return f"{body.rstrip()}\n\n{block}" if body.strip() else block
+        body = _summary_line(head, step) + tail
+    lines = body.split("\n")
+    resolve_index = next((i for i, line in enumerate(lines) if line.startswith(f"| {_RESOLVE_STEP} |")), None)
+    if resolve_index is not None:
+        lines[resolve_index] = row
+    else:
+        last_table_line = max(i for i, line in enumerate(lines) if line.startswith("|"))
+        lines.insert(last_table_line + 1, row)
+    return "\n".join(lines)
 
 
 def _auth(team_id: int, repository: str) -> tuple[str, str | None] | None:
@@ -923,6 +982,7 @@ class FinalizeStatusCommentInput:
     review_design: str = REVIEW_DESIGN_PIPELINE
     flash_stats: FlashTurnStats | None = None
     failed_sessions: int = 0
+    resolution_planned: bool = False
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -955,6 +1015,7 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             facts=turn_facts(state.snapshot, state.turn, state.pairs),
             flash=input.flash_stats,
             failed_sessions=input.failed_sessions,
+            resolution_planned=input.resolution_planned,
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
             capped_lens_parts=input.capped_lens_parts,
@@ -991,14 +1052,20 @@ def fail_status_comment(
 
 
 def update_resolution_status_comment(
-    team_id: int, report_id: str, section: str, *, integration_row_id: int | None = None
+    team_id: int,
+    report_id: str,
+    step: ResolutionStep,
+    *,
+    integration_row_id: int | None = None,
+    create_if_missing: bool = True,
 ) -> None:
-    """Splice the resolution stage's section into the report's status comment.
+    """Splice the resolution stage's row into the report's status comment.
 
     Chained runs extend the review's existing comment (edits don't notify PR subscribers, and one
     ReviewHog voice per PR beats a second comment); standalone runs, where the PR never got a
-    review comment, create it on demand carrying just the resolution section. Best-effort like
-    every entry point here: a status edit must never fail or block a resolution run.
+    review comment, create it on demand carrying just the Resolve row. `create_if_missing=False`
+    only settles an existing comment, for news that is not worth a new comment on its own.
+    Best-effort like every entry point here: a status edit must never fail or block a resolution run.
 
     A resolution run passes its pinned `integration_row_id` so the token is re-minted from that row
     (`_auth_from_row`) rather than re-running the installation-selection probe on every refresh;
@@ -1035,7 +1102,9 @@ def update_resolution_status_comment(
         # An empty existing body falls back to the marker just like a missing one: splicing into an
         # empty base drops the marker, and _find_marker_comment recovery relies on it surviving so a
         # lost status_comment_id can re-adopt the comment instead of posting a duplicate.
-        new_body = _splice_resolution_section(body if body else marker, section)
+        if comment_id is None and not create_if_missing:
+            return
+        new_body = _splice_resolution_section(body if body else marker, step)
         if comment_id is not None:
             _patch_comment(owner, repo, comment_id, new_body, token=token, installation_id=installation_id)
         else:

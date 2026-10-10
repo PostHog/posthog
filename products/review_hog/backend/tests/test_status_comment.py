@@ -14,11 +14,13 @@ from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import (
-    RESOLUTION_SECTION_START,
+    RESOLUTION_NOTHING_TO_DO,
     FinalizeStatusCommentInput,
+    ResolutionStep,
     TurnFacts,
     _splice_resolution_section,
     ensure_status_comment,
@@ -28,8 +30,10 @@ from products.review_hog.backend.reviewer.status_comment import (
     render_failed_body,
     render_final_body,
     render_in_progress_body,
-    render_resolution_final_section,
-    render_resolution_progress_section,
+    resolution_failed_step,
+    resolution_final_step,
+    resolution_held_step,
+    resolution_progress_step,
     status_marker,
     update_resolution_status_comment,
 )
@@ -118,7 +122,7 @@ _PHASE_CASES: list[tuple[str, Callable[[], str], list[str], list[str]]] = [
             "| Publish | ⏸ Waiting |  |",
             "<sub>This comment updates as the review runs.</sub>",
         ],
-        [],
+        ["Resolve comments"],
     ),
     (
         "deep_running",
@@ -180,7 +184,7 @@ _PHASE_CASES: list[tuple[str, Callable[[], str], list[str], list[str]]] = [
             "| Validate | ✅ 9/9 | 4 kept, 5 dismissed |",
             '| Publish | ✅ Done | 3 posted ([view review](https://g/review)) · 1 Consider held back by the author\'s "Should fix" threshold ([view in PostHog](https://ph.test/r)) |',
         ],
-        ["⏳", "⏸", "updates as the review runs"],
+        ["⏳", "⏸", "Resolve comments", "updates as the review runs"],
     ),
     (
         "standard_running",
@@ -203,7 +207,7 @@ _PHASE_CASES: list[tuple[str, Callable[[], str], list[str], list[str]]] = [
             "| Merge and cap | ✅ Done | 9 → 5 (repeats, unchanged code, limit) |",
             "| Publish | ✅ Done | 5 posted |",
         ],
-        [],
+        ["Resolve comments"],
     ),
     (
         "standard_clean",
@@ -543,6 +547,7 @@ class TestFinalizeStatusComment(BaseTest):
         # The held-back link into the app. `?review=<report id>` is a permanent public contract
         # (baked into GitHub comments) — the frontend's URL sync accepts exactly this param.
         assert f"/project/{self.team.id}/code-review?review={report_id})" in body
+        assert "Resolve comments" not in body
 
     def test_failed_edit_rewrites_the_comment_as_failed(
         self, mock_request: MagicMock, mock_integration: MagicMock
@@ -569,35 +574,86 @@ class TestFinalizeStatusComment(BaseTest):
         assert 'failed at "Main review and lenses". It runs again on the next push to this pull request.' in body
 
 
-class TestResolutionSection:
-    def test_splice_appends_then_replaces_in_place(self) -> None:
-        # The section is edited into the shared status comment on every settled thread; a broken
-        # splice would either stack one section per update or eat the review's own body above it.
-        first = _splice_resolution_section(
-            _deep_done(), render_resolution_progress_section(done=0, total=3, fixed=0, left_for_you=0)
+class TestResolutionRow:
+    @parameterized.expand(
+        [
+            (
+                "running",
+                resolution_progress_step(done=1, total=3, fixed=1, left_for_you=0),
+                "| Resolve comments | ⏳ 1/3 | 1 fixed with a commit on your branch |",
+                " Resolve is working through 3 comments.",
+            ),
+            (
+                "done",
+                resolution_final_step(outcomes={"fixed": 2, "escalate": 1}, failed_turns=0),
+                "| Resolve comments | ✅ 3/3 | 2 fixed with commits on your branch, 1 left for you |",
+                " Resolve pushed fixes for 2. 1 is left for you.",
+            ),
+            (
+                "held_at_start",
+                resolution_held_step(CommitHold.BRANCH_PROTECTED),
+                "| Resolve comments | ⏭ Skipped | This branch is protected |",
+                " Resolve did not run. A person decides what lands on a protected branch",
+            ),
+            (
+                "held_mid_run",
+                resolution_held_step(CommitHold.MERGE_QUEUE, done=2, total=5),
+                "| Resolve comments | ⏹ Stopped | Stopped at 2/5: this pull request entered the merge queue |",
+                " Resolve stopped. A fix commit would change what was submitted",
+            ),
+            (
+                "failed",
+                resolution_failed_step(done=1, total=3),
+                "| Resolve comments | ❌ Failed | Stopped at 1/3 |",
+                " Resolve stopped early.",
+            ),
+            (
+                "nothing_to_do",
+                RESOLUTION_NOTHING_TO_DO,
+                "| Resolve comments | ✅ Done | No open threads to resolve |",
+                "",
+            ),
+        ]
+    )
+    def test_splice_replaces_the_waiting_row_and_summary_in_place(
+        self, _name: str, step: ResolutionStep, row: str, summary: str
+    ) -> None:
+        # The row is edited into the shared status comment on every settled thread; a broken splice
+        # would either stack one row per update or eat the review's own rows and summary.
+        waiting = _deep_done(resolution_planned=True)
+        assert "| Resolve comments | ⏸ Waiting |  |" in waiting
+
+        body = _splice_resolution_section(_splice_resolution_section(waiting, step), step)
+
+        assert body.count("| Resolve comments |") == 1
+        assert row in body
+        assert f"Posted 3 findings: 1 Must fix, 2 Should fix.<!-- reviewhog:resolution:start -->{summary}" in body
+        assert "| Publish | ✅ Done |" in body
+        assert body.index("| Publish |") < body.index("| Resolve comments |")
+        assert status_marker("rid") in body
+
+    def test_splice_adds_the_row_to_a_review_that_planned_no_resolution(self) -> None:
+        # A standalone resolution run on a reviewed PR finds a table without a Resolve row.
+        body = _splice_resolution_section(
+            _deep_done(), resolution_progress_step(done=0, total=2, fixed=0, left_for_you=0)
         )
-        assert "Resolving comments: 0/3" in first
-        assert first.index("| Publish |") < first.index(RESOLUTION_SECTION_START)
 
-        second = _splice_resolution_section(
-            first, render_resolution_progress_section(done=2, total=3, fixed=1, left_for_you=1)
-        )
+        lines = body.split("\n")
+        publish = next(i for i, line in enumerate(lines) if line.startswith("| Publish |"))
+        assert lines[publish + 1] == "| Resolve comments | ⏳ 0/2 |  |"
 
-        assert "| Publish | ✅ Done |" in second
-        assert status_marker("rid") in second
-        assert second.count(RESOLUTION_SECTION_START) == 1
-        assert "Resolving comments: 2/3 · 1 fixed, 1 left for you" in second
-        assert "0/3" not in second
-
-    def test_final_section_buckets_outcomes_and_names_failures(self) -> None:
+    def test_final_step_buckets_outcomes_and_names_failures(self) -> None:
         # The closing tally is the PR author's durable record: already_fixed and obsolete collapse
         # into one bucket, and threads the run could not handle must be named, never silent.
-        section = render_resolution_final_section(
+        step = resolution_final_step(
             outcomes={"fixed": 2, "wont_fix": 1, "already_fixed": 1, "obsolete": 1, "escalate": 1},
             failed_turns=2,
         )
-        assert "Resolved comments: 2 fixed, 1 declined, 2 already settled, 1 left for you" in section
-        assert "couldn't handle 2" in section
+        assert step.status == "⚠️ 6/8"
+        assert step.result == (
+            "2 fixed with commits on your branch, 1 declined, 2 already settled, 1 left for you, couldn't handle 2"
+        )
+        assert step.summary == "Resolve pushed fixes for 2. 3 are left for you."
 
 
 @patch(_INTEGRATION)
@@ -619,15 +675,32 @@ class TestUpdateResolutionStatusComment(BaseTest):
         report = self._report()
 
         update_resolution_status_comment(
-            self.team.id, str(report.id), render_resolution_progress_section(done=0, total=3, fixed=0, left_for_you=0)
+            self.team.id, str(report.id), resolution_progress_step(done=0, total=3, fixed=0, left_for_you=0)
         )
 
         assert _posts(mock_request) == ["/repos/o/r/issues/123/comments"]
         posted = next(c for c in mock_request.call_args_list if c.args[0] == "POST")
-        assert "Resolving comments: 0/3" in posted.kwargs["json"]["body"]
+        assert "| Resolve comments | ⏳ 0/3 |  |" in posted.kwargs["json"]["body"]
         assert status_marker(str(report.id)) in posted.kwargs["json"]["body"]
         report.refresh_from_db()
         assert report.status_comment_id == 888
+
+    def test_settle_only_update_never_creates_a_comment(
+        self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
+    ) -> None:
+        # A run with nothing to resolve settles a review's waiting row; on a PR without a status
+        # comment it must not post a fresh comment that only says there was nothing to do.
+        _wire_auth(mock_integration)
+        mock_paginated.return_value = iter([])
+        report = self._report()
+
+        update_resolution_status_comment(
+            self.team.id, str(report.id), RESOLUTION_NOTHING_TO_DO, create_if_missing=False
+        )
+
+        assert _posts(mock_request) == []
+        report.refresh_from_db()
+        assert report.status_comment_id is None
 
     def test_chained_run_extends_the_existing_review_comment(
         self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
@@ -643,14 +716,14 @@ class TestUpdateResolutionStatusComment(BaseTest):
         mock_request.side_effect = [get_response, MagicMock()]
 
         update_resolution_status_comment(
-            self.team.id, str(report.id), render_resolution_progress_section(done=1, total=3, fixed=1, left_for_you=0)
+            self.team.id, str(report.id), resolution_progress_step(done=1, total=3, fixed=1, left_for_you=0)
         )
 
         assert _posts(mock_request) == []
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
         patched = mock_request.call_args_list[1].kwargs["json"]["body"]
         assert "### reviewed" in patched
-        assert "Resolving comments: 1/3 · 1 fixed" in patched
+        assert "| Resolve comments | ⏳ 1/3 | 1 fixed with a commit on your branch |" in patched
 
     def test_empty_existing_body_keeps_the_marker_for_recovery(
         self, mock_request: MagicMock, mock_paginated: MagicMock, mock_integration: MagicMock
@@ -667,7 +740,7 @@ class TestUpdateResolutionStatusComment(BaseTest):
         mock_request.side_effect = [get_response, MagicMock()]
 
         update_resolution_status_comment(
-            self.team.id, str(report.id), render_resolution_progress_section(done=1, total=3, fixed=1, left_for_you=0)
+            self.team.id, str(report.id), resolution_progress_step(done=1, total=3, fixed=1, left_for_you=0)
         )
 
         assert _patches(mock_request) == ["/repos/o/r/issues/comments/777"]
@@ -697,7 +770,7 @@ class TestUpdateResolutionStatusComment(BaseTest):
         update_resolution_status_comment(
             self.team.id,
             str(report.id),
-            render_resolution_progress_section(done=1, total=3, fixed=1, left_for_you=0),
+            resolution_progress_step(done=1, total=3, fixed=1, left_for_you=0),
             integration_row_id=42,
         )
 

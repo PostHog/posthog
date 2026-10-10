@@ -24,6 +24,7 @@ from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_resolu
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold, ThreadResolution
 from products.review_hog.backend.reviewer.persistence import load_thread_verdicts, persist_thread_verdict
+from products.review_hog.backend.reviewer.status_comment import RESOLUTION_NOTHING_TO_DO
 from products.review_hog.backend.reviewer.tools.github_threads import FixCommitInspection, ReviewThread, ThreadComment
 from products.review_hog.backend.temporal.resolution import (
     FailResolutionInput,
@@ -464,7 +465,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             _fail_resolution(FailResolutionInput(team_id=self.team.id, owner="posthog", repo="posthog", pr_number=123))
 
         assert ReviewReport.objects.for_team(self.team.id).get(id=report.id).status == ReviewReport.Status.IDLE
-        assert "stopped at 1/3" in status_comment.call_args.args[2]
+        assert status_comment.call_args.args[2].result == "Stopped at 1/3"
 
         # Crash before prepare queued anything: no run anchor, so no section to replace.
         report.pr_number = 124
@@ -531,11 +532,14 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
             patch(f"{_RESOLUTION}._installation_for", return_value=_mock_installation()),
             patch(f"{_RESOLUTION}._fetch_pr_metadata", return_value=_pr_metadata()),
             patch(f"{_RESOLUTION}.fetch_unresolved_threads", return_value=[]),
+            patch(f"{_RESOLUTION}.update_resolution_status_comment") as status_comment,
         ):
             result = _prepare_run(self._input())
 
         assert isinstance(result, ResolutionRunResult)
         assert result.skipped_reason == "no_unresolved_threads"
+        assert status_comment.call_args.args[2] == RESOLUTION_NOTHING_TO_DO
+        assert status_comment.call_args.kwargs["create_if_missing"] is False
         report = ReviewReport.objects.for_team(self.team.id).get(repository="posthog/posthog", pr_number=123)
         assert report.status == ReviewReport.Status.IDLE
         note = ReviewReportArtefact.objects.for_team(self.team.id).get(report_id=report.id, type="note")
@@ -603,10 +607,10 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
                 MergeQueueState.NOT_READY,
                 False,
                 "pr_in_merge_queue",
-                "submitted to the merge queue",
+                "This pull request is in the merge queue",
             ),
             ("stacked_pull_requests", None, True, "pr_has_stacked_pull_requests", "stacked on this branch"),
-            ("protected_branch", None, False, "pr_branch_protected", "this branch is protected"),
+            ("protected_branch", None, False, "pr_branch_protected", "This branch is protected"),
         ]
     )
     def test_held_pr_gets_no_turns_and_says_why(
@@ -635,7 +639,7 @@ class TestResolutionPersistenceAndDelivery(BaseTest):
         assert isinstance(result, ResolutionRunResult)
         assert result.skipped_reason == reason
         eyes.assert_not_called()
-        assert section_text in status_comment.call_args.args[2]
+        assert section_text in status_comment.call_args.args[2].result
 
     def test_reaction_failure_never_fails_prepare(self) -> None:
         # A GitHub flake on the cosmetic queue marker must not cost the run (or the progress anchor,
@@ -775,19 +779,19 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         assert result.outcomes == {"wont_fix": 1}
         assert result.delivered_outcomes == {}
         assert result.undelivered == 1
-        final_section = status_comment.call_args.args[2]
-        assert "couldn't handle 1" in final_section
-        assert "declined" not in final_section
+        final_step = status_comment.call_args.args[2]
+        assert "couldn't handle 1" in final_step.result
+        assert "declined" not in final_step.result
 
     @parameterized.expand(
         [
-            ("enqueued", MergeQueueState.TESTING, False, "pr_in_merge_queue", "submitted to the merge queue"),
+            ("enqueued", MergeQueueState.TESTING, False, "pr_in_merge_queue", "entered the merge queue"),
             (
                 "ejected_by_the_turn_push",
                 MergeQueueState.EJECTED,
                 False,
                 "pr_in_merge_queue",
-                "submitted to the merge queue",
+                "entered the merge queue",
             ),
             ("stacked", None, True, "pr_has_stacked_pull_requests", "now stacked on this branch"),
         ]
@@ -821,8 +825,8 @@ class TestFailedRunActivity(NonAtomicBaseTest):
         continue_turn.assert_not_called()
         assert result.triaged == 1
         assert result.stopped_reason == reason
-        assert "Stopped resolving comments at 1/2" in status_comment.call_args.args[2]
-        assert section_text in status_comment.call_args.args[2]
+        assert status_comment.call_args.args[2].result.startswith("Stopped at 1/2: ")
+        assert section_text in status_comment.call_args.args[2].result
         assert self._report_status() == ReviewReport.Status.IDLE
 
 

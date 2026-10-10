@@ -67,10 +67,11 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
 )
 from products.review_hog.backend.reviewer.skill_loader import load_resolution_skill_for_run
 from products.review_hog.backend.reviewer.status_comment import (
-    render_resolution_failed_section,
-    render_resolution_final_section,
-    render_resolution_held_section,
-    render_resolution_progress_section,
+    RESOLUTION_NOTHING_TO_DO,
+    resolution_failed_step,
+    resolution_final_step,
+    resolution_held_step,
+    resolution_progress_step,
     update_resolution_status_comment,
 )
 from products.review_hog.backend.reviewer.tools.github_client import github_api_request
@@ -354,11 +355,19 @@ def _prepare_run(input: ResolveThreadsInput) -> _PreparedRun | ResolutionRunResu
         update_resolution_status_comment(
             input.team_id,
             report_id,
-            render_resolution_held_section(hold),
+            resolution_held_step(hold),
             integration_row_id=github.integration.id,
         )
         triage, overflow = [], 0
     if not triage and not redeliver:
+        if hold is None:
+            update_resolution_status_comment(
+                input.team_id,
+                report_id,
+                RESOLUTION_NOTHING_TO_DO,
+                integration_row_id=github.integration.id,
+                create_if_missing=False,
+            )
         result = ResolutionRunResult(
             report_id=report_id, skipped_reason=hold.value if hold else "no_unresolved_threads", skipped=skipped
         )
@@ -732,7 +741,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
         await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
             input.team_id,
             prepared.report_id,
-            render_resolution_progress_section(
+            resolution_progress_step(
                 done=sum(result.delivered_outcomes.values()),
                 total=total_queued,
                 fixed=result.delivered_outcomes.get(ThreadOutcome.FIXED.value, 0),
@@ -873,7 +882,7 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
                 await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
                     input.team_id,
                     prepared.report_id,
-                    render_resolution_failed_section(done=sum(result.delivered_outcomes.values()), total=total_queued),
+                    resolution_failed_step(done=sum(result.delivered_outcomes.values()), total=total_queued),
                     integration_row_id=prepared.integration_row_id,
                 )
         raise
@@ -886,21 +895,20 @@ async def resolve_threads_activity(input: ResolveThreadsInput) -> ResolutionRunR
             )
 
     await database_sync_to_async(_append_run_note, thread_sensitive=False)(input, prepared.report_id, result)
-    if total_queued:
-        await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
-            input.team_id,
-            prepared.report_id,
-            render_resolution_held_section(
-                result.stopped_reason, done=sum(result.delivered_outcomes.values()), total=total_queued
-            )
-            if result.stopped_reason
-            # Undelivered threads (judged, or redelivered, without their GitHub writes landing) join
-            # the couldn't-handle count: the tally must not claim an outcome the thread can't show.
-            else render_resolution_final_section(
-                outcomes=result.delivered_outcomes, failed_turns=result.failed_turns + result.undelivered
-            ),
-            integration_row_id=prepared.integration_row_id,
-        )
+    # A run that only redelivered earlier verdicts still settles a waiting Resolve row, but posts no new comment.
+    await database_sync_to_async(update_resolution_status_comment, thread_sensitive=False)(
+        input.team_id,
+        prepared.report_id,
+        resolution_held_step(result.stopped_reason, done=sum(result.delivered_outcomes.values()), total=total_queued)
+        if result.stopped_reason
+        # Undelivered threads (judged, or redelivered, without their GitHub writes landing) join
+        # the couldn't-handle count: the tally must not claim an outcome the thread can't show.
+        else resolution_final_step(
+            outcomes=result.delivered_outcomes, failed_turns=result.failed_turns + result.undelivered
+        ),
+        integration_row_id=prepared.integration_row_id,
+        create_if_missing=total_queued > 0,
+    )
     await database_sync_to_async(_idle_report, thread_sensitive=False)(input.team_id, prepared.report_id)
     return result
 
@@ -950,7 +958,7 @@ def _fail_resolution(input: FailResolutionInput) -> None:
     update_resolution_status_comment(
         input.team_id,
         str(report.id),
-        render_resolution_failed_section(done=state.done, total=state.total),
+        resolution_failed_step(done=state.done, total=state.total),
     )
 
 
