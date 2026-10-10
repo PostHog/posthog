@@ -1,6 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -67,7 +66,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-03-31',
-        featureFlags: [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES],
     },
     decorators: [
         mswDecorator({
