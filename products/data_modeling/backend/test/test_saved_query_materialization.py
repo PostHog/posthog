@@ -10,6 +10,7 @@ from posthog.models.organization import OrganizationMembership
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
+from products.data_modeling.backend.logic.incremental import IncrementalConfig
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
@@ -17,6 +18,8 @@ from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import warehouse_source_node
 
 GET_V2_DAG_IDS = "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids"
+DAILY_COUNTS = "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day"
+DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
 NODE_MATERIALIZATION_SYNC_CONNECT = "products.data_modeling.backend.logic.node_materialization.sync_connect"
 
 
@@ -38,7 +41,12 @@ class TestEnableSavedQueryMaterialization(BaseTest):
             team=self.team, dag=self.dag, name="event_view", saved_query=self.saved_query, type=NodeType.VIEW
         )
 
-    def _enable(self, sync_frequency_interval: timedelta, user: User | None = None) -> None:
+    def _enable(
+        self,
+        sync_frequency_interval: timedelta,
+        user: User | None = None,
+        incremental_config: IncrementalConfig | None = None,
+    ) -> None:
         api.enable_saved_query_materialization(
             self.team.id,
             self.saved_query.id,
@@ -46,6 +54,7 @@ class TestEnableSavedQueryMaterialization(BaseTest):
             sync_frequency_interval=sync_frequency_interval,
             visible_blocker_names=_name_no_blockers,
             was_impersonated=False,
+            incremental_config=incremental_config,
         )
 
     def test_enabling_retypes_the_node_logs_the_change_and_starts_a_run_for_the_user(self) -> None:
@@ -142,3 +151,31 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         self.saved_query.refresh_from_db()
         schedule_materialization.assert_not_called()
         assert self.saved_query.is_materialized is False
+
+    def test_an_incremental_config_is_stored_before_the_first_run(self) -> None:
+        self.saved_query.query = {"kind": "HogQLQuery", "query": DAILY_COUNTS}
+        self.saved_query.save(update_fields=["query"])
+
+        with patch.object(DataWarehouseSavedQuery, "schedule_materialization"):
+            self._enable(timedelta(hours=1), incremental_config=DAY_KEY)
+
+        self.saved_query.refresh_from_db()
+        assert self.saved_query.is_materialized is True
+        assert self.saved_query.incremental_config == {
+            "enabled": True,
+            "incremental_key": "day",
+            "unique_key": ["day"],
+            "lookback_seconds": 0,
+        }
+
+    def test_an_incremental_config_the_query_forbids_is_refused_before_anything_is_written(self) -> None:
+        with (
+            patch.object(DataWarehouseSavedQuery, "schedule_materialization") as schedule_materialization,
+            self.assertRaises(api.IncrementalConfigRefusedError),
+        ):
+            self._enable(timedelta(hours=1), incremental_config=DAY_KEY)
+
+        self.saved_query.refresh_from_db()
+        schedule_materialization.assert_not_called()
+        assert self.saved_query.is_materialized is False
+        assert self.saved_query.incremental_config is None

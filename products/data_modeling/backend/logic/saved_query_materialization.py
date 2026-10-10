@@ -1,5 +1,6 @@
 from collections.abc import Callable, Mapping
 from datetime import timedelta
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -11,14 +12,18 @@ from posthog.rbac.query_access import assert_user_can_read_query
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_modeling.backend.facade.contracts import (
+    IncrementalConfigRefusedError,
     MaterializationFailedError,
     MaterializationForbiddenError,
     MaterializationRefusedError,
 )
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
+from products.data_modeling.backend.logic.incremental import IncrementalConfig
+from products.data_modeling.backend.logic.incremental_eligibility import check_incremental_eligibility
 from products.data_modeling.backend.logic.node_frequency import SavedQueryFrequencyBounds, saved_query_target_bounds
 from products.data_modeling.backend.logic.node_materialization import SavedQueryNotFoundError
 from products.data_modeling.backend.logic.saved_query_dag_sync import update_node_type
+from products.data_modeling.backend.logic.saved_query_reads import get_saved_query_columns
 from products.data_modeling.backend.logic.schedule_reconcile import check_saved_query_frequency_target
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import NodeType
@@ -43,6 +48,7 @@ def enable_saved_query_materialization(
     sync_frequency_interval: timedelta | None,
     visible_blocker_names: VisibleBlockerNames,
     was_impersonated: bool,
+    incremental_config: IncrementalConfig | None = None,
 ) -> None:
     """Materialize a saved query at the given cadence and start its first run."""
     saved_query = (
@@ -56,6 +62,7 @@ def enable_saved_query_materialization(
         sync_frequency_interval=sync_frequency_interval,
         visible_blocker_names=visible_blocker_names,
         was_impersonated=was_impersonated,
+        incremental_config=incremental_config,
     )
 
 
@@ -66,6 +73,7 @@ def _enable_materialization(
     sync_frequency_interval: timedelta | None,
     visible_blocker_names: VisibleBlockerNames,
     was_impersonated: bool,
+    incremental_config: IncrementalConfig | None,
 ) -> None:
     if saved_query.managed_viewset_id is not None:
         raise MaterializationRefusedError(MANAGED_VIEWSET_REFUSAL)
@@ -79,8 +87,14 @@ def _enable_materialization(
         # materialize reads back a node they were never shown.
         _refuse_a_cadence_the_lineage_forbids(saved_query, sync_frequency_interval, visible_blocker_names)
 
+    if incremental_config is not None:
+        _refuse_an_incremental_config_the_query_forbids(saved_query, incremental_config)
+
     previous_interval = saved_query.sync_frequency_interval
     previously_materialized = saved_query.is_materialized
+    previous_incremental_config = saved_query.incremental_config
+    if incremental_config is not None:
+        _save_incremental_config(saved_query, _stored_incremental_config(incremental_config))
     _save_materialization(saved_query, is_materialized=True, sync_frequency_interval=sync_frequency_interval)
 
     # Enable materialization - this handles model path setup and schedule creation
@@ -97,6 +111,8 @@ def _enable_materialization(
         _save_materialization(
             saved_query, is_materialized=previously_materialized, sync_frequency_interval=previous_interval
         )
+        if incremental_config is not None:
+            _save_incremental_config(saved_query, previous_incremental_config)
         raise MaterializationRefusedError(LINEAGE_CHANGED_REFUSAL) from error
 
     # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
@@ -134,6 +150,32 @@ def _refuse_a_cadence_the_lineage_forbids(
         )
     except (UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError) as error:
         raise MaterializationRefusedError(str(error)) from error
+
+
+def _refuse_an_incremental_config_the_query_forbids(
+    saved_query: DataWarehouseSavedQuery, incremental_config: IncrementalConfig
+) -> None:
+    result = check_incremental_eligibility(
+        (saved_query.query or {}).get("query") or "",
+        incremental_config,
+        column_types=get_saved_query_columns(saved_query.team_id, saved_query.pk),
+    )
+    if not result.eligible:
+        raise IncrementalConfigRefusedError(" ".join(result.blockers))
+
+
+def _stored_incremental_config(incremental_config: IncrementalConfig) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "incremental_key": incremental_config.incremental_key,
+        "unique_key": list(incremental_config.unique_key),
+        "lookback_seconds": incremental_config.lookback_seconds,
+    }
+
+
+def _save_incremental_config(saved_query: DataWarehouseSavedQuery, incremental_config: dict[str, Any] | None) -> None:
+    saved_query.incremental_config = incremental_config
+    saved_query.save(update_fields=["incremental_config"])
 
 
 def _save_materialization(

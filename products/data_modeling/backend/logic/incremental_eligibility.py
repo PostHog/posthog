@@ -13,6 +13,7 @@ count(DISTINCT), float sum) that Snowflake, Redshift, BigQuery and Databricks al
 They have to reject them because they combine partial aggregates across refreshes; we never do.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
@@ -59,6 +60,8 @@ NON_DETERMINISTIC_FUNCTIONS = {
     "generateuuidv4",
     "generateuuidv7",
 }
+
+_CLICKHOUSE_TYPE_WRAPPERS = ("nullable(", "lowcardinality(")
 
 SET_OPERATORS_BLOCKING_INCREMENTAL = {"EXCEPT", "INTERSECT"}
 
@@ -188,6 +191,39 @@ def check_incremental_eligibility(
         blockers=_unique(blockers),
         warnings=_unique(warnings),
     )
+
+
+def propose_incremental_config(query: str, column_types: Mapping[str, str]) -> Optional[IncrementalConfig]:
+    """The incremental config a grouped query admits on its own, or None when choosing one needs a person."""
+    try:
+        node = parse_select(query)
+    except (ExposedHogQLError, ValueError):
+        return None
+    selects = _leaf_selects(node)
+    if not all(_groups_only_by_output_columns(select) for select in selects):
+        return None
+    unique_key = sorted(_grouping_key_names(selects[0]))
+    time_keys = [name for name in unique_key if _is_time_type(column_types.get(name))]
+    if len(time_keys) != 1:
+        return None
+    config = IncrementalConfig(incremental_key=time_keys[0], unique_key=tuple(unique_key))
+    result = check_incremental_eligibility(query, config, column_types=dict(column_types))
+    return config if result.eligible else None
+
+
+def _groups_only_by_output_columns(select: ast.SelectQuery) -> bool:
+    if select.group_by_mode == "all" and not select.group_by:
+        return True
+    return bool(select.group_by) and len(_grouping_key_names(select)) == len(select.group_by or [])
+
+
+def _is_time_type(clickhouse_type: Optional[str]) -> bool:
+    if clickhouse_type is None:
+        return False
+    unwrapped = clickhouse_type.strip().lower()
+    while unwrapped.startswith(_CLICKHOUSE_TYPE_WRAPPERS):
+        unwrapped = unwrapped.split("(", 1)[1]
+    return unwrapped.startswith("date")
 
 
 def _unique(messages: list[str]) -> list[str]:

@@ -2,13 +2,18 @@ from typing import ClassVar, Optional
 
 from posthog.test.base import BaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import IntegerDatabaseField, SavedQuery, TableNode
 
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
-from products.data_modeling.backend.logic.incremental_eligibility import check_incremental_eligibility
+from products.data_modeling.backend.logic.incremental_eligibility import (
+    check_incremental_eligibility,
+    propose_incremental_config,
+)
 
 DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
 DAY_EVENT_KEY = IncrementalConfig(incremental_key="day", unique_key=("day", "event"))
@@ -473,3 +478,44 @@ class TestStarExpansion:
 
         assert not result.eligible
         assert any(expected in blocker for blocker in result.blockers), result.blockers
+
+
+DAILY_EVENT_TYPES = {"day": "DateTime64(6, 'UTC')", "event": "String", "c": "UInt64"}
+
+
+class TestProposeIncrementalConfig(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "grouped_by_one_time_column",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+                DAILY_EVENT_TYPES,
+                DAY_EVENT_KEY,
+            ),
+            ("not_grouped", "SELECT uuid, timestamp FROM events", {"uuid": "UUID", "timestamp": "DateTime64(6)"}, None),
+            (
+                "two_time_columns",
+                "SELECT toStartOfDay(timestamp) AS day, toStartOfHour(timestamp) AS hour, count() AS c "
+                "FROM events GROUP BY day, hour",
+                {"day": "DateTime", "hour": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "nullable_grouped_column",
+                "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
+                {**DAILY_EVENT_TYPES, "event": "Nullable(String)"},
+                None,
+            ),
+            (
+                "grouped_by_a_column_the_output_drops",
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day, event",
+                DAILY_EVENT_TYPES,
+                None,
+            ),
+            ("column_types_unknown", GROUPED, {}, None),
+        ]
+    )
+    def test_proposes_a_config_only_when_the_keys_are_certain(
+        self, _name: str, query: str, column_types: dict[str, str], expected: Optional[IncrementalConfig]
+    ) -> None:
+        assert propose_incremental_config(query, column_types) == expected
