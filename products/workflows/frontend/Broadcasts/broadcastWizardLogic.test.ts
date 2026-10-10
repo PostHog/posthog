@@ -147,7 +147,14 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.audienceProperties).toEqual(properties)
         expect(logic.values.name).toEqual('Fix shipped')
         expect(logic.values.entrySource).toEqual('cohort')
-        expect(router.values.searchParams).toEqual({})
+
+        // A reload remounts the wizard from the same URL, and nothing was saved yet.
+        logic.unmount()
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['prefillFromLink'])
+        expect(logic.values.audienceProperties).toEqual(properties)
+        expect(logic.values.name).toEqual('Fix shipped')
     })
 
     it.each([
@@ -189,7 +196,6 @@ describe('broadcastWizardLogic', () => {
 
         expect(logic.values.currentStep).toEqual(step)
         expect(logic.values.email.subject).toEqual(email?.subject ?? '')
-        expect(router.values.searchParams).toEqual({})
         expect(createDraft).not.toHaveBeenCalled()
     })
 

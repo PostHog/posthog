@@ -1921,7 +1921,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             [SOURCE_PREFILL_PARAM]: source,
             [EMAIL_PREFILL_PARAM]: emailParam,
             [DRAFT_SOURCE_PARAM]: draftSourceParam,
-            ...searchParams
         } = router.values.searchParams
         const properties = parseBroadcastAudiencePrefill(audience)
         const email = parseMessageDraftPrefill(emailParam)
@@ -1956,9 +1955,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         if (audience !== undefined && !properties) {
             actions.rejectLinkAudience()
         }
-        if (fromLink) {
-            router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
-        }
+        // The link stays in the URL until the draft exists, so a reload before Continue opens the same prefill.
         actions.loadBlastRadius()
         actions.landOnPrefilledStep()
         const draftSource = parseEmailDraftSource(draftSourceParam)
