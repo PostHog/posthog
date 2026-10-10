@@ -1,8 +1,8 @@
 import time
 import dataclasses
 from collections.abc import AsyncIterable, Iterable, Iterator
-from datetime import UTC, date, datetime
-from email.utils import parsedate_to_datetime
+from datetime import UTC, date, datetime, timedelta
+from email.utils import format_datetime, parsedate_to_datetime
 from typing import Any, Optional
 from urllib.parse import parse_qs, quote, urlencode, urlsplit, urlunsplit
 
@@ -27,9 +27,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailgun.settings import (
     MAILGUN_ENDPOINTS,
+    MAILGUN_METRICS_ENDPOINTS,
+    METRICS,
+    METRICS_PATH,
     WEBHOOK_EVENTS_ENDPOINT,
     WEBHOOK_TYPES,
     MailgunEndpointConfig,
+    MailgunMetricsEndpointConfig,
 )
 
 REGION_BASE_URLS = {
@@ -56,6 +60,13 @@ EVENTS_CONSISTENCY_LAG_SECONDS = 30 * 60
 # seen-URL guard below can't catch. Sized far above any real page count (the largest paging
 # endpoint fetches 1000 rows a page) so it only trips on a runaway.
 MAX_PAGES_PER_CHAIN = 100_000
+# The Metrics API caps `limit` at 1000 for any dimension other than `time`.
+METRICS_PAGE_SIZE = 1000
+# Mailgun keeps daily metrics for one year.
+METRICS_LOOKBACK_DAYS = 365
+# A day's counts keep moving until Mailgun's event store settles, so incremental syncs re-read
+# the days just before the watermark and merge over them.
+METRICS_REFRESH_DAYS = 2
 
 
 class MailgunRetryableError(Exception):
@@ -72,6 +83,9 @@ class MailgunResumeConfig:
     current_domain: Optional[str] = None
     # Domains not yet started, in fan-out order.
     pending_domains: list[str] = dataclasses.field(default_factory=list)
+    # Metrics tables: ISO date of the next daily window to query, and the offset within it.
+    metrics_day: Optional[str] = None
+    metrics_skip: int = 0
 
 
 def base_url_for_region(region: str) -> str:
@@ -220,15 +234,27 @@ def _normalize_row(config: MailgunEndpointConfig, domain: Optional[str], item: d
     wait=_retry_wait,
     reraise=True,
 )
-def _fetch_page(url: str, api_key: str, logger: FilteringBoundLogger) -> dict[str, Any]:
+def _fetch_page(
+    url: str, api_key: str, logger: FilteringBoundLogger, json_body: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     # Mailgun auth is HTTP basic with the literal username "api" and the private API key
     # as the password. Rate limits are plan-dependent; 429s honor Retry-After when present.
-    response = make_tracked_session().get(
-        url,
-        auth=("api", api_key),
-        headers={"Accept": "application/json"},
-        timeout=REQUEST_TIMEOUT_SECONDS,
-    )
+    session = make_tracked_session()
+    if json_body is None:
+        response = session.get(
+            url,
+            auth=("api", api_key),
+            headers={"Accept": "application/json"},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+    else:
+        response = session.post(
+            url,
+            auth=("api", api_key),
+            headers={"Accept": "application/json"},
+            json=json_body,
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
 
     if response.status_code == 429 or response.status_code >= 500:
         raise MailgunRetryableError(
@@ -419,6 +445,104 @@ def get_rows(
                 pending_domains=pending_domains,
             )
         )
+
+
+def _to_date(value: Any) -> Optional[date]:
+    if isinstance(value, datetime):
+        return (value if value.tzinfo is None else value.astimezone(UTC)).date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return _to_date(datetime.fromisoformat(value))
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_rfc2822(value: Any) -> Any:
+    """Parse the Metrics API's RFC 2822 `time` dimension; unparseable values pass through unchanged."""
+    if not isinstance(value, str):
+        return value
+    try:
+        return parsedate_to_datetime(value).astimezone(UTC)
+    except (TypeError, ValueError):
+        return value
+
+
+def _metrics_request_body(config: MailgunMetricsEndpointConfig, day: date, skip: int) -> dict[str, Any]:
+    start = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
+    dimensions = ["time", config.dimension] if config.dimension else ["time"]
+    return {
+        "start": format_datetime(start),
+        "end": format_datetime(start + timedelta(days=1) - timedelta(seconds=1)),
+        "resolution": "day",
+        "dimensions": dimensions,
+        "metrics": list(METRICS),
+        # Within a single day the breakdown dimension is unique, so sorting on it keeps
+        # skip/limit pages stable.
+        "pagination": {"sort": f"{dimensions[-1]}:asc", "skip": skip, "limit": METRICS_PAGE_SIZE},
+    }
+
+
+def _metrics_row(item: dict[str, Any]) -> dict[str, Any]:
+    row: dict[str, Any] = dict(item.get("metrics") or {})
+    for dimension in item.get("dimensions") or []:
+        name = dimension.get("dimension")
+        if not name:
+            continue
+        if name == "time":
+            row["time"] = _parse_rfc2822(dimension.get("value"))
+        else:
+            row[name] = dimension.get("value")
+            row[f"{name}_display_value"] = dimension.get("display_value")
+    return row
+
+
+def get_metrics_rows(
+    api_key: str,
+    region: str,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[MailgunResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the Metrics API one UTC day at a time, oldest first.
+
+    One day per request keeps every page deterministic, since `time` and the breakdown dimension
+    together are unique only within a day."""
+    config = MAILGUN_METRICS_ENDPOINTS[endpoint]
+    url = f"{base_url_for_region(region)}{METRICS_PATH}"
+    today = datetime.now(UTC).date()
+
+    day = today - timedelta(days=METRICS_LOOKBACK_DAYS - 1)
+    if should_use_incremental_field:
+        last_day = _to_date(db_incremental_field_last_value)
+        if last_day is not None:
+            day = max(day, last_day - timedelta(days=METRICS_REFRESH_DAYS))
+    skip = 0
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume_config is not None and resume_config.metrics_day is not None:
+        day = date.fromisoformat(resume_config.metrics_day)
+        skip = resume_config.metrics_skip
+        logger.debug(f"Mailgun: resuming {endpoint} at day={day}, skip={skip}")
+
+    while day <= today:
+        data = _fetch_page(url, api_key, logger, json_body=_metrics_request_body(config, day, skip))
+        items = data.get("items") or []
+
+        if len(items) < METRICS_PAGE_SIZE:
+            day, skip = day + timedelta(days=1), 0
+        else:
+            skip += METRICS_PAGE_SIZE
+
+        resumable_source_manager.save_state(MailgunResumeConfig(metrics_day=day.isoformat(), metrics_skip=skip))
+        if items:
+            yield [_metrics_row(item) for item in items]
+        else:
+            resumable_source_manager.safe_point()
 
 
 # Mailgun posts `{"signature": {...}, "event-data": {...}}`; `event-data` is the same event
@@ -709,6 +833,27 @@ def mailgun_source(
 ) -> SourceResponse:
     if endpoint == WEBHOOK_EVENTS_ENDPOINT:
         return mailgun_webhook_source(webhook_source_manager, endpoint)
+
+    if endpoint in MAILGUN_METRICS_ENDPOINTS:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_metrics_rows(
+                api_key=api_key,
+                region=region,
+                endpoint=endpoint,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+                should_use_incremental_field=should_use_incremental_field,
+                db_incremental_field_last_value=db_incremental_field_last_value,
+            ),
+            primary_keys=MAILGUN_METRICS_ENDPOINTS[endpoint].primary_keys,
+            sort_mode="asc",
+            partition_count=1,
+            partition_size=1,
+            partition_mode="datetime",
+            partition_format="month",
+            partition_keys=["time"],
+        )
 
     config = MAILGUN_ENDPOINTS[endpoint]
 
