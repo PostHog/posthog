@@ -134,8 +134,10 @@ export type {
     SankeyNodeDatum,
     SankeyNodeInput,
 } from './charts/SankeyChart/sankey-data'
+export { MAX_SANKEY_COLUMN } from './charts/SankeyChart/sankey-data'
 export { useSankeyLayout } from './charts/SankeyChart/sankey-context'
 export type { SankeyLayoutContextValue } from './charts/SankeyChart/sankey-context'
+export type { SankeyLastColumnLabels } from './charts/SankeyChart/sankey-labels'
 // The layout engine on its own, for hosts that draw their own SVG (user paths).
 export {
     sankeyCenter,
