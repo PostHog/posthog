@@ -193,5 +193,6 @@ class DataWarehouseSavedQueryMinimalSerializer(
             "is_test",
             "expires_at",
             "user_access_level",
+            *DataWarehouseSavedQuery.READ_SUMMARY_FIELDS,
         ]
         read_only_fields = fields

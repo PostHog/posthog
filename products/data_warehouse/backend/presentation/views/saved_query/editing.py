@@ -272,6 +272,7 @@ class DataWarehouseSavedQuerySerializer(
             "expires_at",
             "user_access_level",
             "suspended",
+            *DataWarehouseSavedQuery.READ_SUMMARY_FIELDS,
         ]
         read_only_fields = [
             "id",
@@ -295,6 +296,7 @@ class DataWarehouseSavedQuerySerializer(
             "origin",
             "expires_at",
             "suspended",
+            *DataWarehouseSavedQuery.READ_SUMMARY_FIELDS,
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},

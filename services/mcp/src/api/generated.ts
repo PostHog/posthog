@@ -29854,6 +29854,15 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended: DataWarehouseSavedQuerySuspended;
+      /**
+         * When a query last read this view, directly or through another view. Written once a day.
+         * @nullable
+         */
+      readonly last_read_at: string | null;
+      /** Queries that read this view in the last 30 days, directly or through another view. Written once a day. */
+      readonly read_count_30d: number;
+      /** Distinct users whose queries read this view in the last 30 days. Written once a day. */
+      readonly user_count_30d: number;
     }
 
     /**
@@ -29997,6 +30006,15 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /**
+         * When a query last read this view, directly or through another view. Written once a day.
+         * @nullable
+         */
+      readonly last_read_at: string | null;
+      /** Queries that read this view in the last 30 days, directly or through another view. Written once a day. */
+      readonly read_count_30d: number;
+      /** Distinct users whose queries read this view in the last 30 days. Written once a day. */
+      readonly user_count_30d: number;
     }
 
     export type DataWarehouseSourceCategory = typeof DataWarehouseSourceCategory[keyof typeof DataWarehouseSourceCategory];
@@ -78116,6 +78134,15 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
+      /**
+         * When a query last read this view, directly or through another view. Written once a day.
+         * @nullable
+         */
+      readonly last_read_at?: string | null;
+      /** Queries that read this view in the last 30 days, directly or through another view. Written once a day. */
+      readonly read_count_30d?: number;
+      /** Distinct users whose queries read this view in the last 30 days. Written once a day. */
+      readonly user_count_30d?: number;
     }
 
     /**
@@ -128981,6 +129008,17 @@ export namespace Schemas {
      * Include column definitions. Set to false for table-only lists.
      */
     include_columns?: boolean;
+    /**
+     * Sort order. Use read_count_30d or last_read_at to find the least used views. Read counts and last read times are updated once a day.
+     *
+     * * `-created_at` - Newest first
+     * * `read_count_30d` - Fewest reads in the last 30 days first
+     * * `-read_count_30d` - Most reads in the last 30 days first
+     * * `last_read_at` - Least recently read first, never-read views first
+     * * `-last_read_at` - Most recently read first
+     * @minLength 1
+     */
+    ordering?: string;
     /**
      * A page number within the paginated result set.
      */

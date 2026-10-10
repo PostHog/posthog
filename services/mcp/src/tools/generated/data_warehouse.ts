@@ -331,6 +331,7 @@ const viewList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/`,
             query: {
                 include_columns: params.include_columns,
+                ordering: params.ordering,
                 page: params.page,
                 search: params.search,
             },

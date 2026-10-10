@@ -18,7 +18,7 @@ const meta: Meta<typeof ModelSummaryCard> = {
     args: {
         dataAttr: 'model-summary-card-story',
         children: <span className="font-semibold">Runs on demand</span>,
-        metadata: <ModelMetadata createdAt="2026-01-10T10:00:00Z" />,
+        metadata: <ModelMetadata createdAt="2026-01-10T10:00:00Z" lastReadAt="2026-09-12T09:00:00Z" />,
     },
     parameters: { mockDate: '2026-09-14', testOptions: { snapshotBrowsers: ['chromium'] } },
 }

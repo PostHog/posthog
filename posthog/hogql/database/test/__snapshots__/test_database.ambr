@@ -57,6 +57,9 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."last_read_at",
+         "posthog_datawarehousesavedquery"."read_count_30d",
+         "posthog_datawarehousesavedquery"."user_count_30d",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
@@ -348,6 +351,9 @@
          "posthog_datawarehousesavedquery"."status",
          "posthog_datawarehousesavedquery"."last_run_at",
          "posthog_datawarehousesavedquery"."sync_frequency_interval",
+         "posthog_datawarehousesavedquery"."last_read_at",
+         "posthog_datawarehousesavedquery"."read_count_30d",
+         "posthog_datawarehousesavedquery"."user_count_30d",
          "posthog_datawarehousesavedquery"."table_id",
          "posthog_datawarehousesavedquery"."is_materialized",
          "posthog_datawarehousesavedquery"."deleted_name",
@@ -5448,6 +5454,36 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "last_read_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_read_at",
+                  "id": null,
+                  "name": "last_read_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "read_count_30d": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "read_count_30d",
+                  "id": null,
+                  "name": "read_count_30d",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "user_count_30d": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_count_30d",
+                  "id": null,
+                  "name": "user_count_30d",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "is_materialized": {
                   "chain": null,
@@ -18091,6 +18127,36 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "last_read_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "last_read_at",
+                  "id": null,
+                  "name": "last_read_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "read_count_30d": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "read_count_30d",
+                  "id": null,
+                  "name": "read_count_30d",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "user_count_30d": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_count_30d",
+                  "id": null,
+                  "name": "user_count_30d",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "is_materialized": {
                   "chain": null,

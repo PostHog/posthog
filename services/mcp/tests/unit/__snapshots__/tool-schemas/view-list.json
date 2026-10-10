@@ -6,6 +6,12 @@
             "description": "Include column definitions. Set to false for table-only lists.",
             "type": "boolean"
         },
+        "ordering": {
+            "default": "-created_at",
+            "description": "Sort order. Use read_count_30d or last_read_at to find the least used views. Read counts and last read times are updated once a day.\n\n* `-created_at` - Newest first\n* `read_count_30d` - Fewest reads in the last 30 days first\n* `-read_count_30d` - Most reads in the last 30 days first\n* `last_read_at` - Least recently read first, never-read views first\n* `-last_read_at` - Most recently read first",
+            "minLength": 1,
+            "type": "string"
+        },
         "page": {
             "description": "A page number within the paginated result set.",
             "type": "number"

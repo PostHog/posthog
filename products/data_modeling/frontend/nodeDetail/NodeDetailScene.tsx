@@ -144,6 +144,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                                   : node.created_at
                         }
                         updatedAt={node.saved_query_id || node.warehouse_table_id ? undefined : node.updated_at}
+                        lastReadAt={node.saved_query_id && savedQuery ? (savedQuery.last_read_at ?? null) : undefined}
                         loading={
                             (!!node.saved_query_id && savedQueryLoading && !savedQuery) ||
                             (!!node.warehouse_table_id && tableDetailsLoading && !tableDetails)

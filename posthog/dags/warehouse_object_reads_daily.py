@@ -1,4 +1,6 @@
+import uuid
 from datetime import UTC, date, datetime, time, timedelta
+from itertools import batched
 
 from django.conf import settings
 
@@ -13,13 +15,16 @@ from posthog.clickhouse.warehouse_object_reads import (
     SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE,
     SHARDED_WAREHOUSE_OBJECT_READS_DAILY_TABLE,
     SORT_KEY_COLUMNS,
+    WAREHOUSE_OBJECT_READS_DAILY_TABLE,
     ReadKind,
     SubjectKind,
 )
 from posthog.dags.common import JobOwners, settings_with_log_comment
 from posthog.dags.common.common import EXECUTING_RUN_STATUSES, describe_runs
 from posthog.dags.common.resources import SatelliteClickhouseClusterResource
+from posthog.dataclasses import frozen
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.web_analytics.dags.web_preaggregated_utils import (
     get_partitions,
     recreate_staging_table,
@@ -41,6 +46,8 @@ SCHEDULE_HOUR_UTC = 7
 CONCURRENCY_TAG = {"warehouse_object_reads_backfill_concurrency": "warehouse_object_reads_v1"}
 MAX_RUNTIME_SECONDS = 60 * 60
 STUCK_RUN_AGE = timedelta(hours=3)
+READ_SUMMARY_WINDOW = timedelta(days=30)
+READ_SUMMARY_BATCH_SIZE = 1000
 
 PARTITION_ID_FORMAT = "%Y%m%d"
 READ_SUBJECT_ID = "read_subject_id"
@@ -151,6 +158,19 @@ COUNT_ROLLUP_SOURCE_ROWS_SQL = f"SELECT count() FROM ({ROLLUP_SOURCE_SQL})"
 
 TRUNCATE_STAGING_SQL = f"TRUNCATE TABLE {SHARDED_WAREHOUSE_OBJECT_READS_DAILY_STAGING_TABLE}"
 
+SAVED_QUERY_READ_SUMMARIES_SQL = f"""
+SELECT
+    toUUID(subject_id) AS saved_query_id,
+    toTimeZone(max(max_event_time), 'UTC') AS last_read_at,
+    uniqMergeIf(requests, day >= %(window_start)s) AS read_count,
+    uniqMergeIf(users, day >= %(window_start)s AND has_user_id) AS user_count
+FROM {WAREHOUSE_OBJECT_READS_DAILY_TABLE}
+WHERE read_kind = '{ReadKind.READ.value}'
+    AND subject_kind = '{SubjectKind.SAVED_QUERY.value}'
+    AND isNotNull(toUUIDOrNull(subject_id))
+GROUP BY subject_id
+"""
+
 
 def _day_query_parameters(day: date) -> dict[str, date | datetime | str]:
     day_start = datetime.combine(day, time.min)
@@ -251,6 +271,52 @@ def drop_day_partition(cluster: ClickhouseCluster, day: date) -> None:
     ).result()
 
 
+@frozen
+class SavedQueryReadSummary:
+    saved_query_id: uuid.UUID
+    last_read_at: datetime
+    read_count_30d: int
+    user_count_30d: int
+
+
+def read_saved_query_read_summaries(cluster: ClickhouseCluster, window_start: date) -> list[SavedQueryReadSummary]:
+    rows = cluster.any_host_by_roles(
+        lambda client: client.execute(SAVED_QUERY_READ_SUMMARIES_SQL, {"window_start": window_start}),
+        [ROLLUP_NODE_ROLE],
+    ).result()
+    return [
+        SavedQueryReadSummary(
+            saved_query_id=saved_query_id,
+            last_read_at=last_read_at,
+            read_count_30d=read_count,
+            user_count_30d=user_count,
+        )
+        for saved_query_id, last_read_at, read_count, user_count in rows
+    ]
+
+
+def write_saved_query_read_summaries(summaries: list[SavedQueryReadSummary], window_start: date) -> None:
+    for batch in batched(summaries, READ_SUMMARY_BATCH_SIZE, strict=False):
+        summary_by_id = {summary.saved_query_id: summary for summary in batch}
+        views = list(DataWarehouseSavedQuery.objects.filter(id__in=summary_by_id).only("id"))
+        for view in views:
+            summary = summary_by_id[view.id]
+            view.last_read_at = summary.last_read_at
+            view.read_count_30d = summary.read_count_30d
+            view.user_count_30d = summary.user_count_30d
+        DataWarehouseSavedQuery.objects.bulk_update(views, DataWarehouseSavedQuery.READ_SUMMARY_FIELDS)
+    DataWarehouseSavedQuery.objects.filter(
+        read_count_30d__gt=0, last_read_at__lt=datetime.combine(window_start, time.min, tzinfo=UTC)
+    ).update(read_count_30d=0, user_count_30d=0)
+
+
+def sync_saved_query_read_summaries(context: dagster.OpExecutionContext, cluster: ClickhouseCluster) -> None:
+    window_start = datetime.now(UTC).date() - READ_SUMMARY_WINDOW
+    summaries = read_saved_query_read_summaries(cluster, window_start)
+    write_saved_query_read_summaries(summaries, window_start)
+    context.log.info(f"Wrote read summaries for {len(summaries)} saved queries")
+
+
 @dagster.op
 def rollup_warehouse_object_reads_for_day(
     context: dagster.OpExecutionContext,
@@ -269,6 +335,7 @@ def rollup_warehouse_object_reads_for_day(
     )
     insert_rollup_into_staging(context, cluster, day)
     publish_day(context, cluster, day)
+    sync_saved_query_read_summaries(context, cluster)
 
 
 @dagster.job(

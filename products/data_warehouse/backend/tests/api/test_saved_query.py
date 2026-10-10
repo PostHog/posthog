@@ -955,6 +955,34 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["attr"], "include_columns")
 
+    @parameterized.expand(
+        [
+            ("read_count_30d", ["never_read", "rarely_read", "often_read"]),
+            ("-read_count_30d", ["often_read", "rarely_read", "never_read"]),
+            ("last_read_at", ["never_read", "rarely_read", "often_read"]),
+            ("-last_read_at", ["often_read", "rarely_read", "never_read"]),
+        ]
+    )
+    def test_list_orders_views_by_reads(self, ordering: str, expected_names: list[str]) -> None:
+        now = timezone.now()
+        for name, last_read_at, read_count in (
+            ("rarely_read", now - timedelta(days=20), 1),
+            ("often_read", now - timedelta(days=1), 40),
+            ("never_read", None, 0),
+        ):
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=name,
+                query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                last_read_at=last_read_at,
+                read_count_30d=read_count,
+            )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/", {"ordering": ordering})
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual([row["name"] for row in response.json()["results"]], expected_names)
+
     def test_list_reads_folders_through_the_join(self):
         # Both list serializer folder fields resolve through `instance.folder`, so a page of
         # foldered views used to cost one folder select each, up to the 1000-view page size.
