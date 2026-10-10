@@ -39,7 +39,8 @@ export function SurveyFollowUpWorkflowButton({ surveyId }: { surveyId: string })
                     urlForNewWorkflowWithTrigger(
                         surveyFollowUpTrigger(surveyId),
                         SOURCE,
-                        draftMessage({ kind: 'survey_responded' })
+                        draftMessage({ kind: 'survey_responded' }),
+                        { source: 'survey', source_id: surveyId }
                     )
                 )
             }}

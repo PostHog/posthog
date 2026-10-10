@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -189,6 +191,55 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.email.subject).toEqual(email?.subject ?? '')
         expect(router.values.searchParams).toEqual({})
         expect(createDraft).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        { case: 'untouched', edit: null, subject: 'Written by the model' },
+        { case: 'edited while it loads', edit: 'Typed by the person', subject: 'Typed by the person' },
+    ])('replaces the link email with the AI draft only when it is $case', async ({ edit, subject }) => {
+        let respond: (value: unknown) => void = () => {}
+        useMocks({
+            post: {
+                '/api/projects/:team_id/workflow_email_drafts/': () =>
+                    new Promise((resolve) => {
+                        respond = resolve
+                    }).then((body) => [200, body]),
+            },
+        })
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]: true })
+        logic.unmount()
+        router.actions.push(
+            urlForNewBroadcastWithAudience({
+                properties: LOCAL_AUDIENCE,
+                source: 'error_tracking',
+                email: draftMessage({ kind: 'issue_fixed' }),
+                draftSource: { source: 'error_tracking', source_id: 'issue-1' },
+            })
+        )
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadAiEmailDraft'])
+        expect(logic.values.aiEmailDraftLoading).toBe(true)
+        if (edit) {
+            logic.actions.setEmail({ ...logic.values.email, subject: edit })
+        }
+        respond({
+            subject: 'Written by the model',
+            preheader: '',
+            html: '<p>Hi there,</p>\n<p>Second paragraph.</p>',
+            text: 'Hi there,\n\nSecond paragraph.',
+            generated_by: 'ai',
+            template_reason: null,
+        })
+        await expectLogic(logic).toDispatchActions(['loadAiEmailDraftSuccess'])
+
+        expect(logic.values.aiEmailDraftLoading).toBe(false)
+        expect(logic.values.email.subject).toEqual(subject)
+        expect(logic.values.email.text).toEqual(
+            edit ? draftMessage({ kind: 'issue_fixed' }).paragraphs.join('\n\n') : 'Hi there,\n\nSecond paragraph.'
+        )
     })
 
     it('blocks the recipients step until the person chooses, when a link has an audience it cannot use', async () => {

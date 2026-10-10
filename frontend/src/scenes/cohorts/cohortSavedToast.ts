@@ -26,7 +26,14 @@ export function cohortSavedToast(cohort: Pick<CohortType, 'id' | 'name'>, source
             action: () => {
                 captureMessageAudienceClicked(source, 'broadcast')
                 router.actions.push(
-                    messageAudienceUrl({ properties: cohortAudienceProperties(savedCohort), source }, 'broadcast')
+                    messageAudienceUrl(
+                        {
+                            properties: cohortAudienceProperties(savedCohort),
+                            source,
+                            draftSource: { source: 'cohort', source_id: String(savedCohort.id) },
+                        },
+                        'broadcast'
+                    )
                 )
             },
         },

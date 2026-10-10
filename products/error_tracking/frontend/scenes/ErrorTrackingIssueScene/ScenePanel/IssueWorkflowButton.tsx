@@ -35,7 +35,8 @@ export function IssueWorkflowButton({ issueId }: { issueId: string }): JSX.Eleme
                     urlForNewWorkflowWithTrigger(
                         issueWorkflowTrigger(issueId),
                         SOURCE,
-                        draftMessage({ kind: 'issue_hit' })
+                        draftMessage({ kind: 'issue_hit' }),
+                        { source: 'error_tracking', source_id: issueId }
                     )
                 )
             }}

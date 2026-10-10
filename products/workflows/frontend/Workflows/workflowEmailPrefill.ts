@@ -43,7 +43,6 @@ export function prefilledWorkflow(base: HogFlow, trigger: WorkflowTriggerConfig,
                         replyTo: '',
                         cc: '',
                         bcc: '',
-                        preheader: '',
                         ...content,
                     },
                 },
@@ -58,6 +57,35 @@ export function prefilledWorkflow(base: HogFlow, trigger: WorkflowTriggerConfig,
             { from: withTrigger.id, to: emailAction.id, type: 'continue' },
             { from: emailAction.id, to: exitAction.id, type: 'continue' },
         ],
+    }
+}
+
+export function prefilledEmailContent(workflow: HogFlow): { subject: string; html: string; text: string } | null {
+    const action = workflow.actions.find((action) => action.id === EMAIL_ACTION_ID)
+    const value = (action?.config as Record<string, any> | undefined)?.inputs?.email?.value
+    return value ? { subject: value.subject, html: value.html, text: value.text } : null
+}
+
+export function withPrefilledEmail(workflow: HogFlow, email: MessageDraft): HogFlow {
+    const content = messageDraftEmail(email)
+    return {
+        ...workflow,
+        actions: workflow.actions.map((action) => {
+            const config = action.config as Record<string, any>
+            if (action.id !== EMAIL_ACTION_ID || !config?.inputs?.email?.value) {
+                return action
+            }
+            return {
+                ...action,
+                config: {
+                    ...config,
+                    inputs: {
+                        ...config.inputs,
+                        email: { ...config.inputs.email, value: { ...config.inputs.email.value, ...content } },
+                    },
+                },
+            } as HogFlowAction
+        }),
     }
 }
 
