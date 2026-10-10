@@ -2727,6 +2727,30 @@ class TestRunCronScheduleValidation(SimpleTestCase):
         assert serializer.validated_data["run_cron_schedule"] is None
 
 
+_PRECHECK_QUERY = "SELECT 1 FROM events WHERE timestamp > {since} AND timestamp <= {now}"
+
+
+class TestPrecheckQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("placeholders", _PRECHECK_QUERY, True, _PRECHECK_QUERY),
+            ("padded", "  SELECT 1  ", True, "SELECT 1"),
+            ("blank_turns_it_off", "   ", True, None),
+            ("syntax_error", "SELEC 1", False, None),
+            ("unknown_placeholder", "SELECT 1 WHERE {nope}", False, None),
+            ("not_a_select", "DELETE FROM events", False, None),
+        ]
+    )
+    def test_precheck_query_validation(self, _name: str, query: str, valid: bool, expected: str | None) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"precheck_query": query}, partial=True)
+
+        assert serializer.is_valid() is valid
+        if valid:
+            assert serializer.validated_data["precheck_query"] == expected
+        else:
+            assert "precheck_query" in serializer.errors
+
+
 class TestScoutHarnessConfigAPI(APIBaseTest):
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"
