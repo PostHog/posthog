@@ -301,7 +301,7 @@ describe('reviewHogSettingsLogic', () => {
             })
     })
 
-    it('the scope switch rescopes the effectiveness stats along with the list', async () => {
+    it('the scope switch rescopes the effectiveness stats along with the list, never the skill counts', async () => {
         // The page-level switch must move the stat cards and the reviews list together — dropping
         // the stats reload from the scope listeners (or the scope param from the request) would
         // show one scope's list over the other scope's numbers, the exact confusion the switch
@@ -319,8 +319,13 @@ describe('reviewHogSettingsLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadRecentReviewsSuccess', 'applyDefaultReviewsScope', 'loadRecentReviewsSuccess'])
             .toFinishAllListeners()
+        // The Settings tab's skill counts read the viewer's own Deep reviews, so the Activity switch
+        // must never reload or rescope them.
+        const ownDeepLoads = statsScopes.filter((scope) => scope === 'own_deep').length
+        expect(ownDeepLoads).toBe(1)
+        const listScopes = (): (string | null)[] => statsScopes.filter((scope) => scope !== 'own_deep')
         // The mount-time auto-default to Entire project already rescoped the stats.
-        expect(statsScopes[statsScopes.length - 1]).toBe(ReviewHogReviewsListScope.Everyone)
+        expect(listScopes()[listScopes().length - 1]).toBe(ReviewHogReviewsListScope.Everyone)
 
         logic.actions.setReviewsScope(ReviewHogReviewsListScope.Mine)
         // Old data drops synchronously so neither the cards nor the list ever show the other
@@ -328,7 +333,8 @@ describe('reviewHogSettingsLogic', () => {
         expect(logic.values.perspectiveStats).toBeNull()
         expect(logic.values.recentReviews).toBeNull()
         await expectLogic(logic).toDispatchActions(['loadPerspectiveStatsSuccess'])
-        expect(statsScopes[statsScopes.length - 1]).toBe(ReviewHogReviewsListScope.Mine)
+        expect(listScopes()[listScopes().length - 1]).toBe(ReviewHogReviewsListScope.Mine)
+        expect(statsScopes.filter((scope) => scope === 'own_deep')).toHaveLength(ownDeepLoads)
     })
 
     it('respects an explicit scope choice even when that scope is empty', async () => {

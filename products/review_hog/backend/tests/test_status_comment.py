@@ -90,9 +90,9 @@ class TestFlashHeader:
         # The status comment is rewritten in every state; a state that forgot the label would read
         # as a full review mid-run or at the end, and a full run must never carry it.
         flash, full = render(REVIEW_MODE_FLASH), render(REVIEW_MODE_FULL)
-        assert flash.startswith("### \U0001f994 PostHog Review (flash) ")
+        assert flash.startswith("### \U0001f994 PostHog Review (standard) ")
         assert full.startswith("### \U0001f994 PostHog Review ")
-        assert "(flash)" not in full
+        assert "(standard)" not in full
         assert "FLASH MODE" not in flash + full
 
 
@@ -348,7 +348,7 @@ class TestEnsureStatusComment(BaseTest):
         ensure_status_comment(self.team.id, str(report.id), review_mode=REVIEW_MODE_FLASH)
 
         assert _posts(mock_request) == ["/repos/o/r/issues/123/comments"]
-        assert mock_request.call_args.kwargs["json"]["body"].startswith("### \U0001f994 PostHog Review (flash) ")
+        assert mock_request.call_args.kwargs["json"]["body"].startswith("### \U0001f994 PostHog Review (standard) ")
         report.refresh_from_db()
         assert report.status_comment_id == 777
         assert report.status_comment_edited_at is not None
@@ -519,7 +519,7 @@ class TestFinalizeStatusComment(BaseTest):
         assert "couldn't finish this review" in body
         # The entry point threads the turn's mode into the renderer; a dropped kwarg here would
         # leave a dead flash run reading as a full one.
-        assert body.startswith("### \U0001f994 PostHog Review (flash) ")
+        assert body.startswith("### \U0001f994 PostHog Review (standard) ")
 
 
 class TestResolutionSection:
