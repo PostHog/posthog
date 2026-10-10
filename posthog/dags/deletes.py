@@ -172,6 +172,8 @@ def _start_of_month_after(partition: int) -> datetime:
 # mark the request verified with that row left behind.
 # The team arm stays unbounded: ingestion for a deleted team stops with its token, so late rows
 # there are pipeline stragglers the next run converges on, not a sustained obligation.
+# The closing team set lets ClickHouse skip the granules of every team with nothing pending, because
+# team_id leads the sorting key of every target, instead of looking up each of their rows.
 _DELETE_PREDICATE = """or(
     (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id))
         AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))
@@ -180,7 +182,9 @@ _DELETE_PREDICATE = """or(
     (dictHas(%(pending_deletes_dictionary)s, (team_id, %(event_deletion_type)s, uuid))),
     (dictHas(%(adhoc_event_deletes_dictionary)s, (team_id, uuid))
         AND (inserted_at IS NULL OR inserted_at <= dictGet(%(adhoc_event_deletes_dictionary)s, 'created_at', (team_id, uuid))))
-)"""
+)
+AND (team_id IN (SELECT DISTINCT team_id FROM dictionary(%(pending_deletes_dictionary)s))
+    OR team_id IN (SELECT DISTINCT team_id FROM dictionary(%(adhoc_event_deletes_dictionary)s)))"""
 
 
 # Embedding documents are keyed by the id of the thing they describe, and an Event deletion's key is
