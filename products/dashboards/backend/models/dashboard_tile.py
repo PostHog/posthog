@@ -115,7 +115,7 @@ class DashboardTile(models.Model):
 
     # Tiles that share a group key belong together. The dashboard's `customization.group_titles` names each group.
     group_key = models.CharField(max_length=MAX_GROUP_KEY_LENGTH, null=True, blank=True)
-    badge = models.CharField(max_length=20, choices=DashboardTileBadge.choices, null=True, blank=True)
+    badge = models.CharField(max_length=20, choices=DashboardTileBadge.choices, null=True)
 
     deleted = models.BooleanField(null=True, blank=True)
 

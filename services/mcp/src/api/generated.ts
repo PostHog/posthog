@@ -11342,7 +11342,7 @@ export namespace Schemas {
          * @nullable
          */
       group_key?: string | null;
-      badge?: DashboardTileBadgeEnum | BlankEnum | null;
+      badge?: DashboardTileBadgeEnum | null;
     }
 
     export interface AddDashboardWidgetsBatchResponse {

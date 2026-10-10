@@ -13,10 +13,7 @@ class Migration(migrations.Migration):
             model_name="dashboardtile",
             name="badge",
             field=models.CharField(
-                blank=True,
-                choices=[("winner", "Winner"), ("cheeky-hog", "Cheeky hog")],
-                max_length=20,
-                null=True,
+                choices=[("winner", "Winner"), ("cheeky-hog", "Cheeky hog")], max_length=20, null=True
             ),
         ),
         migrations.AddField(
