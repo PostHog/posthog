@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from functools import reduce
 from typing import Any, Final, Literal
 
-from django.db.models import Func, IntegerField, JSONField, Max, Q, QuerySet
+from django.db.models import Case, CharField, Func, IntegerField, JSONField, Max, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.utils import timezone
@@ -416,6 +416,28 @@ class _RunSignals:
     activity_latest: dict[str, datetime]
 
 
+def _activity_artefacts(queryset: QuerySet) -> QuerySet:
+    """Artefacts that show a run is moving, for the staleness window.
+
+    `finding_outcome` rows come from the outcome sweep after the PR merges, and run outcome notes
+    record that a run already ended. Neither one is a running turn, so counting them would show a
+    dead run as live for another staleness window.
+    """
+    note_author = Case(
+        When(
+            type=ReviewReportArtefact.ArtefactType.NOTE,
+            then=KeyTextTransform("author", _content_json()),
+        ),
+        default=Value(None),
+        output_field=CharField(),
+    )
+    return (
+        queryset.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
+        .annotate(activity_note_author=note_author)
+        .exclude(activity_note_author=RUN_OUTCOME_NOTE_AUTHOR)
+    )
+
+
 def _latest_created_at(queryset: QuerySet) -> dict[str, datetime]:
     rows = queryset.values_list("report_id").annotate(latest=Max("created_at")).values_list("report_id", "latest")
     return {str(report_id): latest for report_id, latest in rows}
@@ -457,7 +479,7 @@ def _run_signals(team_id: int, report_ids: list[str]) -> _RunSignals:
             .annotate(note_author=KeyTextTransform("author", _content_json()))
             .filter(note_author=RESOLUTION_RUN_NOTE_AUTHOR)
         ),
-        activity_latest=_latest_created_at(scoped.exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)),
+        activity_latest=_latest_created_at(_activity_artefacts(scoped)),
     )
 
 
@@ -636,9 +658,9 @@ def in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[str
     if not candidates:
         return set()
     latest_artefact = dict(
-        ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id__in=[report.id for report in candidates])
-        .exclude(type=ReviewReportArtefact.ArtefactType.FINDING_OUTCOME)
+        _activity_artefacts(
+            ReviewReportArtefact.objects.for_team(team_id).filter(report_id__in=[report.id for report in candidates])
+        )
         .values_list("report_id")
         .annotate(latest=Max("created_at"))
         .values_list("report_id", "latest")

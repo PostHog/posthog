@@ -35,7 +35,11 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_perspective_selection,
     persist_pr_snapshot,
 )
-from products.review_hog.backend.reviewer.progress import IN_PROGRESS_STALE_AFTER, RESOLUTION_RUN_NOTE_AUTHOR
+from products.review_hog.backend.reviewer.progress import (
+    IN_PROGRESS_STALE_AFTER,
+    RESOLUTION_RUN_NOTE_AUTHOR,
+    record_run_outcome,
+)
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -832,14 +836,20 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert (latest["status"], latest["total"], latest["fixed"], latest["needs_attention"]) == ("completed", 5, 4, 1)
         assert latest["commits"] == ["good"]
 
-    def test_dead_resolution_run_shows_where_it_stopped(self) -> None:
+    @parameterized.expand([("no_later_activity", False), ("later_run_outcome_note", True)])
+    def test_dead_resolution_run_shows_where_it_stopped(self, _name: str, later_outcome_note: bool) -> None:
         # The silent-death mode: a resolution that dies partway used to leave no trace anywhere.
         # With the run anchor present, no closing note, and activity past the staleness window, the
-        # row must say where it stopped instead of nothing.
+        # row must say where it stopped instead of nothing. A later run outcome note records that a
+        # run ended, so it must not count as activity that revives the dead run.
         with time_machine.travel(timezone.now() - timedelta(hours=2), tick=False):
             report = self._report(pr_number=5, acting_user=self.user, status=ReviewReport.Status.IDLE)
             self._resolution_run(report, ["PRRT_1", "PRRT_2", "PRRT_3"])
             self._thread_verdict(report, "PRRT_1", "fixed")
+        if later_outcome_note:
+            record_run_outcome(
+                self.team.id, str(report.id), stage="resolution", outcome="skipped", reason="no_unresolved_threads"
+            )
 
         row = self.client.get(self.url).json()["results"][0]
 
