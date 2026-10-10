@@ -1,5 +1,6 @@
 import dataclasses
-from datetime import date, datetime
+from collections.abc import Callable
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -27,12 +28,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mailtrap.s
 MAILTRAP_BASE_URL = "https://mailtrap.io"
 # Cheap probe to confirm a token is genuine: every token can list the accounts it has access to.
 DEFAULT_PROBE_PATH = "/api/accounts"
+# Lower bound of the stats window: predates the Mailtrap Email Sending product, so a full refresh
+# covers an account's whole history in one request.
+STATS_START_DATE = "2020-01-01"
 
 
 @dataclasses.dataclass
 class MailtrapResumeConfig:
-    # Opaque cursor for the next page: `next_page_cursor` for email_logs, the last suppression's
-    # UUID for suppressions. A crashed sync resumes from the page after the last one yielded; merge
+    # Opaque cursor for the next page: `next_page_cursor` for email_logs, `pagination.next_token`
+    # for contacts and email_campaigns, the last suppression's UUID for suppressions. A crashed
+    # sync resumes from the page after the last one yielded; merge
     # dedupes the re-pulled page on the primary key. `None` means start from the first page.
     cursor: str | None = None
 
@@ -102,6 +107,18 @@ class LastIdPaginator(BasePaginator):
             self._has_next_page = True
 
 
+def _flatten(field_name: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    def _map(row: dict[str, Any]) -> dict[str, Any]:
+        nested = row.get(field_name)
+        if not isinstance(nested, dict):
+            return row
+        flat = {k: v for k, v in row.items() if k != field_name}
+        flat.update(nested)
+        return flat
+
+    return _map
+
+
 def _build_paginator(config: MailtrapEndpointConfig) -> BasePaginator:
     if config.cursor_response_key is not None and config.cursor_param is not None:
         return JSONResponseCursorPaginator(cursor_path=config.cursor_response_key, cursor_param=config.cursor_param)
@@ -130,7 +147,10 @@ def mailtrap_source(
 ) -> SourceResponse:
     config = MAILTRAP_ENDPOINTS[endpoint]
 
-    params: dict[str, Any] = {}
+    params: dict[str, Any] = dict(config.params)
+    if config.date_range:
+        params["start_date"] = STATS_START_DATE
+        params["end_date"] = datetime.now(UTC).date().isoformat()
     if config.incremental_param is not None:
         # Server-side lower bound (filters[sent_after] / start_time). The framework injects the
         # watermark (db_incremental_field_last_value) once and re-sends it on every page, so cursor
@@ -164,6 +184,7 @@ def mailtrap_source(
                     # is a transient/malformed payload — retry rather than ingest garbage.
                     "data_selector_malformed_retryable": True,
                 },
+                **({"data_map": _flatten(config.flatten_field)} if config.flatten_field else {}),
             }
         ],
     }

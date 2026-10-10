@@ -5425,9 +5425,9 @@ Today (6): `accounts`, `contact_lists`, `email_logs`, `email_templates`, `sendin
 
 Diffed against: <https://github.com/mailtrap/mailtrap-openapi/tree/main/specs>
 
-- [ ] `/api/contacts` — The core marketing audience table; contact_lists is synced but not its members (high)
-- [ ] `/api/email_campaigns` — Campaign objects - currently no campaign table at all despite contact_lists being synced (high)
-- [ ] `/api/stats/date` — Daily aggregated sending stats, the headline dashboard metric (high)
+- [x] `/api/contacts` — The core marketing audience table; contact_lists is synced but not its members (high)
+- [x] `/api/email_campaigns` — Campaign objects - currently no campaign table at all despite contact_lists being synced (high)
+- [x] `/api/stats/date` — Daily aggregated sending stats, the headline dashboard metric (high)
 - [ ] `/api/contacts/{contact_identifier}/events` — Per-contact engagement event stream (opens, clicks, unsubscribes) (high)
 - [ ] `/api/email_campaigns/{email_campaign_id}/stats` — Per-campaign performance metrics; resolves campaign rows into results (high)
 - [ ] `/api/stats/domains` — Sending stats broken down by sending domain, joining to the sending_domains table (medium)
