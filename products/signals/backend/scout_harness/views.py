@@ -58,7 +58,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 from posthog.user_permissions import UserPermissions
@@ -88,6 +93,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     is_operational_scout,
     scout_skill_origin,
 )
+from products.signals.backend.scout_harness.precheck import dry_run_scout_precheck
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -152,6 +158,8 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutEmissionSerializer,
     SignalScoutManualRunRequestSerializer,
     SignalScoutManualRunSerializer,
+    SignalScoutPrecheckTestRequestSerializer,
+    SignalScoutPrecheckTestSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
     validate_scout_repositories,
@@ -3663,6 +3671,46 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             ).data,
             status=status.HTTP_202_ACCEPTED,
         )
+
+    @validated_request(
+        request_serializer=SignalScoutPrecheckTestRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutPrecheckTestSerializer,
+                description="What the pre-check returns now, and whether a scheduled run would start.",
+            ),
+            400: OpenApiResponse(description="The scout has no saved pre-check and the request gives no query."),
+            404: OpenApiResponse(description="Config not found for this project."),
+        },
+        summary="Test a scout pre-check",
+        description=(
+            "Run a scout's pre-check query once and return its rows, without starting a run and without "
+            "saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run "
+            "would get, so the result says whether that run would start or skip. Pass `precheck_query` to "
+            "try a query before you save it, or omit it to try the saved one. A query error comes back in "
+            "the `error` field with a 200, because a scheduled run treats it as a reason to run."
+        ),
+        operation_id="signals_scout_config_precheck_test",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="precheck_test",
+        # The query reads project data and returns it, so the caller needs the query read scope too.
+        required_scopes=["signal_scout:read", "query:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def precheck_test(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        team = _canonical_team(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        config = SignalScoutConfig.objects.for_team(team.id).filter(id=config_id).first()
+        if config is None or config.skill_name in withheld_skills_for_team(team.id):
+            raise exceptions.NotFound()
+        query = request.validated_data.get("precheck_query") or config.precheck_query
+        if not query:
+            raise exceptions.ValidationError({"precheck_query": "This scout has no pre-check query. Give one to test."})
+        result = dry_run_scout_precheck(team, config, query)
+        return Response(SignalScoutPrecheckTestSerializer(dataclasses.asdict(result)).data)
 
     @extend_schema(
         request=None,

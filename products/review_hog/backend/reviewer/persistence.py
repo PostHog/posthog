@@ -663,6 +663,32 @@ def replace_dropped_findings(
             )
 
 
+def load_dropped_findings(
+    *, team_id: int, report_id: str, run_index: int, head_sha: str | None
+) -> list[DroppedFindingArtefact]:
+    """The findings a single-agent turn did not keep, in the order the turn recorded them.
+
+    Scoped to `run_index` like `load_turn_findings`. A retry replaces its turn's rows, so no latest-wins step is needed.
+    """
+    rows = ReviewReportArtefact.objects.for_team(team_id).filter(
+        report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING
+    )
+    if head_sha:
+        # The denormalized column narrows the read to the turn's head, so older turns are never parsed.
+        rows = rows.filter(head_sha=head_sha)
+    rows = rows.order_by("created_at", "id")
+    dropped: list[DroppedFindingArtefact] = []
+    for row in rows:
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable %s artefact %s: %s", row.type, row.id, e)
+            continue
+        if isinstance(content, DroppedFindingArtefact) and content.finding.run_index == run_index:
+            dropped.append(content)
+    return dropped
+
+
 def persist_verdicts(
     *, team_id: int, report_id: str, issues: list[Issue], validations: dict[str, IssueValidation], run_index: int
 ) -> int:
@@ -963,10 +989,13 @@ def finalize_review_report(
     outcome (`publish_persisted_review`), and the workflow's failure activity covers a publish that
     dies past retries.
     """
+    now = timezone.now()
     updates: dict[str, object] = {
         "report_markdown": body_markdown,
         "run_count": run_index,
-        "last_run_at": timezone.now(),
+        "last_run_at": now,
+        # `QuerySet.update()` skips `auto_now`; the reviews table sorts by `updated_at`.
+        "updated_at": now,
         "completed_head_sha": head_sha,
         "run_urgency_threshold": urgency_threshold,
     }

@@ -3,7 +3,9 @@ import logging
 from typing import Any, cast, get_args
 
 from django.db import models
-from django.db.models import Q, QuerySet
+from django.db.models import F, Func, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 from drf_spectacular.openapi import AutoSchema
@@ -22,7 +24,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
-from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.pr_status import PRStatus, PRStatusLookup, ReviewPRState, ReviewRequestOutcomeStatus
 from products.review_hog.backend.preferences import UrgencyThreshold
 from products.review_hog.backend.requested_reviews import (
@@ -36,6 +38,7 @@ from products.review_hog.backend.requested_reviews import (
 )
 from products.review_hog.backend.review_request_rules import ReviewRequestRefusal
 from products.review_hog.backend.reviewer.artefact_content import (
+    DroppedFindingArtefact,
     ReviewIssueCategory,
     ReviewIssueFinding,
     ValidationVerdict,
@@ -43,7 +46,12 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL, effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.persistence import TurnFindingsBundle, load_chunk_set, load_findings_bundle
+from products.review_hog.backend.reviewer.persistence import (
+    TurnFindingsBundle,
+    load_chunk_set,
+    load_dropped_findings,
+    load_findings_bundle,
+)
 from products.review_hog.backend.reviewer.progress import (
     RESOLUTION_COMPLETED,
     RESOLUTION_RESOLVING,
@@ -54,22 +62,28 @@ from products.review_hog.backend.reviewer.progress import (
     SnapshotStats,
     TurnMarker,
     TurnStats,
+    finding_counts,
     in_progress_report_ids,
     latest_resolution_summaries,
     progress_payload,
     resolution_states,
+    running_q,
     snapshot_stats,
     turn_markers,
     turn_stats,
 )
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import completed_turn_review_mode
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_REVIEWS_LIMIT = 5
+DEFAULT_REVIEWS_TABLE_LIMIT = 25
 # Caps "Show more" growth — enrichment (jsonb stats + findings bundle) is per-row work.
 MAX_REVIEWS_LIMIT = 100
+# Far beyond any real history, and well inside PostgreSQL's bigint OFFSET.
+MAX_REVIEWS_TABLE_OFFSET = 1_000_000
 
 # Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
 PERSPECTIVE_STATS_REPORT_LIMIT = 50
@@ -81,6 +95,11 @@ _PRIORITY_DISPLAY_RANK = {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 1
 
 SCOPE_MINE = "mine"
 SCOPE_EVERYONE = "everyone"
+
+
+class ReviewScope(models.TextChoices):
+    MINE = SCOPE_MINE, "Mine"
+    EVERYONE = SCOPE_EVERYONE, "Everyone"
 
 
 class ReviewsListParamsSerializer(serializers.Serializer):
@@ -152,6 +171,11 @@ class ReviewResolutionStatusSerializer(serializers.Serializer):
 class ReviewTriggerReviewMode(models.TextChoices):
     FULL = REVIEW_MODE_FULL, "Deep"
     FLASH = REVIEW_MODE_FLASH, "Standard"
+
+
+class ReviewTurnDesign(models.TextChoices):
+    PIPELINE = REVIEW_DESIGN_PIPELINE, "Pipeline"
+    SINGLE_AGENT = REVIEW_DESIGN_SINGLE_AGENT, "Single agent"
 
 
 class ReviewLatestResolutionStatus(models.TextChoices):
@@ -249,6 +273,14 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
         help_text="What the returned turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did "
         "not record its mode (turns from before the mode was recorded).",
     )
+    review_design = serializers.ChoiceField(
+        choices=ReviewTurnDesign.choices,
+        allow_null=True,
+        help_text="How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep "
+        "and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate "
+        "validation step. Null when the turn recorded no design (turns from before it was recorded ran the "
+        "pipeline).",
+    )
     status_comment_url = serializers.CharField(
         allow_null=True,
         help_text="Link to the review's status comment on the pull request; null when there is no status "
@@ -320,6 +352,64 @@ class ReviewRecentReviewsPageSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(
         help_text='Whether reviews exist beyond this page — drives the list\'s "Show more" button.'
     )
+
+
+class ReviewTableStatus(models.TextChoices):
+    RUNNING = "running", "Running"
+    COMPLETED = "completed", "Completed"
+
+
+class ReviewsTableParamsSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(
+        choices=ReviewScope.choices,
+        default=SCOPE_MINE,
+        help_text="Whose reviews to list: `mine` (the default) for reviews the requesting user ran "
+        "plus reviews of pull requests they authored (matched via their linked GitHub login), "
+        "`everyone` for every review on this project.",
+    )
+    repository = serializers.CharField(
+        required=False,
+        help_text="Only reviews of this repository, as `owner/repo`. Matched case-insensitively.",
+    )
+    review_mode = serializers.ChoiceField(
+        choices=ReviewTriggerReviewMode.choices,
+        required=False,
+        help_text="Only reviews whose latest completed turn ran this mode: 'full' (Deep) or 'flash' "
+        "(Standard). Turns that did not record their mode match neither value.",
+    )
+    status = serializers.ChoiceField(
+        choices=ReviewTableStatus.choices,
+        required=False,
+        help_text="Only reviews in this state: 'running' for reviews with a run in flight (activity within "
+        "the last 30 minutes), 'completed' for reviews with a completed turn and nothing running now.",
+    )
+    published = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Only reviews whose latest completed turn was (true) or was not (false) published to GitHub.",
+    )
+    limit = serializers.IntegerField(
+        default=DEFAULT_REVIEWS_TABLE_LIMIT,
+        min_value=1,
+        max_value=MAX_REVIEWS_LIMIT,
+        help_text=f"Rows per page. Defaults to {DEFAULT_REVIEWS_TABLE_LIMIT}, at most {MAX_REVIEWS_LIMIT}.",
+    )
+    offset = serializers.IntegerField(
+        default=0,
+        min_value=0,
+        max_value=MAX_REVIEWS_TABLE_OFFSET,
+        help_text="How many rows to skip, for paging through the table.",
+    )
+
+
+class ReviewReviewsTablePageSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="How many reviews match the scope and every filter, across all pages.")
+    running_count = serializers.IntegerField(
+        help_text="How many reviews have a run in flight under the scope and filters, ignoring `status`. "
+        "Labels the running quick filter without a second request."
+    )
+    results = ReviewRecentReviewSerializer(many=True, help_text="One page of reviews, most recent activity first.")
 
 
 _TRIGGER_REFUSAL_STATUS = {
@@ -533,6 +623,62 @@ class ReviewFindingSerializer(serializers.Serializer):
     )
 
 
+# Mirrors `DropDisposition`; `_dropped_finding_payload` fails loudly on a value missing here.
+class ReviewDropDisposition(models.TextChoices):
+    OLD_CODE = "old_code", "On unchanged code"
+    DEDUP_PRIOR = "dedup_prior", "Repeat of an earlier review"
+    DEDUP_COMMENT = "dedup_comment", "Already in a PR comment"
+    DEDUP_ANCHOR = "dedup_anchor", "Same spot as another finding"
+    DEDUP_SIBLING = "dedup_sibling", "Repeat of a finding"
+    CAP = "cap", "Over the limit"
+
+
+class ReviewDroppedFindingPriority(models.TextChoices):
+    MUST_FIX = IssuePriority.MUST_FIX.value, "Must fix"
+    SHOULD_FIX = IssuePriority.SHOULD_FIX.value, "Should fix"
+    CONSIDER = IssuePriority.CONSIDER.value, "Consider"
+
+
+class ReviewDroppedFindingSerializer(serializers.Serializer):
+    title = serializers.CharField(help_text="One-line summary of the finding.")
+    file = serializers.CharField(help_text="Repository-relative path of the affected file.")
+    lines = ReviewFindingLineRangeSerializer(many=True, help_text="Affected line ranges within the file.")
+    body = serializers.CharField(help_text="Description of the problem.")
+    suggestion = serializers.CharField(
+        allow_blank=True,
+        help_text="The specific fix the reviewer proposes. Usually empty: a single-agent finding ends its body "
+        "with the fix direction instead.",
+    )
+    priority = serializers.ChoiceField(
+        choices=ReviewDroppedFindingPriority.choices, help_text="The reviewer's priority for the finding."
+    )
+    source_perspective = serializers.CharField(
+        allow_null=True, help_text="The session that raised the finding: the main review or a lens."
+    )
+    disposition = serializers.ChoiceField(
+        choices=ReviewDropDisposition.choices,
+        help_text="Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code "
+        "that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. "
+        "`dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same "
+        "spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below "
+        "the per-review finding limit.",
+    )
+    duplicate_of = serializers.CharField(
+        allow_null=True,
+        help_text="For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. "
+        "Null for other dispositions.",
+    )
+    comment_url = serializers.CharField(
+        allow_null=True,
+        help_text="Link to the PR comment the finding repeats, when `duplicate_of` names one and the PR URL is "
+        "known. Null otherwise.",
+    )
+    rank = serializers.IntegerField(
+        allow_null=True,
+        help_text="For a `cap` drop, the finding's 1-based position in the turn's ranked findings. Null otherwise.",
+    )
+
+
 class ReviewDetailParamsSerializer(serializers.Serializer):
     run_index = serializers.IntegerField(
         required=False,
@@ -572,6 +718,11 @@ class ReviewDetailSerializer(ReviewRecentReviewSerializer):
     dismissed_findings = ReviewFindingSerializer(
         many=True, help_text="The returned turn's findings the validator dismissed, with its reasoning."
     )
+    dropped_findings = ReviewDroppedFindingSerializer(
+        many=True,
+        help_text="The returned turn's findings a single-agent (Standard) review raised but did not post, each "
+        "with the reason. Empty for pipeline turns and for turns that predate the record.",
+    )
 
 
 class ReviewPerspectiveStatItemSerializer(serializers.Serializer):
@@ -609,6 +760,35 @@ class _PageEnvelopeSchema(AutoSchema):
         if getattr(self.view, "action", None) == "list" and operation_id.endswith("_retrieve"):
             return operation_id.removesuffix("_retrieve") + "_list"
         return operation_id
+
+
+def _completed_turn_mode(team_id: int) -> Subquery:
+    """The review mode on the completed turn's marker, matching what `turn_markers` puts on the row."""
+    content = Cast("content", models.JSONField())
+    return Subquery(
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id=OuterRef("id"), type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
+        .annotate(
+            marker_run_index=Cast(KeyTextTransform("run_index", content), models.IntegerField()),
+            marker_review_mode=KeyTextTransform("review_mode", content),
+        )
+        .filter(marker_run_index=OuterRef("run_count"))
+        .order_by("-created_at", "-id")
+        .values_list("marker_review_mode")[:1]
+    )
+
+
+def _completed_turn_published() -> Func:
+    """Whether `published_head_shas` has the completed turn's run index as a key (the row's `turn_published`)."""
+    return Coalesce(
+        Func(
+            F("published_head_shas"),
+            Cast("run_count", models.CharField()),
+            function="jsonb_exists",
+            output_field=models.BooleanField(),
+        ),
+        Value(False),
+    )
 
 
 def _turn_progress(
@@ -708,6 +888,26 @@ def _finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict) ->
     }
 
 
+def _dropped_finding_payload(dropped: DroppedFindingArtefact, pr_url: str | None) -> dict[str, Any]:
+    finding = dropped.finding
+    comment_url = None
+    if pr_url and dropped.duplicate_of and dropped.duplicate_of.startswith("comment:"):
+        comment_url = f"{pr_url}#discussion_r{dropped.duplicate_of.removeprefix('comment:')}"
+    return {
+        "title": finding.title,
+        "file": finding.file,
+        "lines": [{"start": line_range.start, "end": line_range.end} for line_range in finding.lines],
+        "body": finding.body,
+        "suggestion": finding.suggestion,
+        "priority": finding.priority.value,
+        "source_perspective": finding.source_perspective,
+        "disposition": ReviewDropDisposition(dropped.disposition).value,
+        "duplicate_of": dropped.duplicate_of,
+        "comment_url": comment_url,
+        "rank": dropped.rank,
+    }
+
+
 def _selection_payload(turn: TurnStats, chunks: ChunksList | None) -> dict[str, Any] | None:
     """The selector's per-chunk plan for the detail drawer, joined with the chunk set's metadata."""
     if turn.selection_roster is None or turn.selection_chunks is None:
@@ -742,15 +942,7 @@ def _review_payload(
     latest_resolution: ResolutionSummary | None,
 ) -> dict[str, Any]:
     """The list-row payload for one report's turn at `run_index`; the detail endpoint layers findings on top."""
-    counts = dict.fromkeys(IssuePriority, 0)
-    dismissed = 0
-    for finding, verdict in pairs:
-        if verdict is None:
-            continue
-        if verdict.is_valid:
-            counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
-        else:
-            dismissed += 1
+    counts, dismissed = finding_counts(pairs)
     meta = snapshot.meta
     return {
         "id": report.id,
@@ -768,6 +960,7 @@ def _review_payload(
         "published": report.published_head_sha is not None,
         "turn_published": str(run_index) in (report.published_head_shas or {}),
         "review_mode": marker.review_mode if marker else None,
+        "review_design": snapshot.review_design,
         "status_comment_url": f"{report.pr_url}#issuecomment-{report.status_comment_id}"
         if report.pr_url and report.status_comment_id
         else None,
@@ -796,6 +989,38 @@ def _review_payload(
         "perspective_issue_count": turn.perspective_issue_count,
         "blind_spot_issue_count": turn.blind_spot_issue_count,
     }
+
+
+def _review_rows(team_id: int, reports: list[ReviewReport], in_progress_ids: set[str]) -> list[dict[str, Any]]:
+    """List-row payloads for a page of reports, with every per-row read batched across the page."""
+    # Row stats anchor to each report's COMPLETED turn (matching the findings' run_count); the
+    # in-flight progress payload alone reads the live head. Pre-column rows fall back to the live
+    # watermark, which is also correct for never-finalized first turns.
+    snapshots = snapshot_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
+    turns = turn_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
+    report_ids = [str(report.id) for report in reports]
+    bundle = load_findings_bundle(team_id=team_id, report_ids=report_ids)
+    resolution_map = resolution_states(team_id, reports)
+    progress_map = _turn_progress(team_id, reports, in_progress_ids, resolution_map, bundle)
+    markers = turn_markers(team_id, report_ids)
+    latest_resolutions = latest_resolution_summaries(team_id, reports)
+    items = []
+    for report in reports:
+        report_id = str(report.id)
+        items.append(
+            _review_payload(
+                report,
+                report.run_count,
+                snapshots.get(report_id, SnapshotStats()),
+                turns.get(report_id, TurnStats()),
+                bundle.turn(report_id, report.run_count),
+                markers.get((report_id, report.run_count)),
+                progress_map.get(report_id),
+                resolution_map.get(report_id),
+                latest_resolutions.get(report_id),
+            )
+        )
+    return items
 
 
 class EffectiveTeamScopedKeyPermission(BasePermission):
@@ -906,36 +1131,58 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 seen.add(str(report.id))
                 reports.append(report)
         has_more = len(reports) > limit
-        reports = reports[:limit]
-
-        # Row stats anchor to each report's COMPLETED turn (matching the findings' run_count); the
-        # in-flight progress payload alone reads the live head. Pre-column rows fall back to the live
-        # watermark, which is also correct for never-finalized first turns.
-        snapshots = snapshot_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
-        turns = turn_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
-        report_ids = [str(report.id) for report in reports]
-        bundle = load_findings_bundle(team_id=team_id, report_ids=report_ids)
-        resolution_map = resolution_states(team_id, reports)
-        progress_map = _turn_progress(team_id, reports, in_progress_ids, resolution_map, bundle)
-        markers = turn_markers(team_id, report_ids)
-        latest_resolutions = latest_resolution_summaries(team_id, reports)
-        items = []
-        for report in reports:
-            report_id = str(report.id)
-            items.append(
-                _review_payload(
-                    report,
-                    report.run_count,
-                    snapshots.get(report_id, SnapshotStats()),
-                    turns.get(report_id, TurnStats()),
-                    bundle.turn(report_id, report.run_count),
-                    markers.get((report_id, report.run_count)),
-                    progress_map.get(report_id),
-                    resolution_map.get(report_id),
-                    latest_resolutions.get(report_id),
-                )
-            )
+        items = _review_rows(team_id, reports[:limit], in_progress_ids)
         return Response(ReviewRecentReviewsPageSerializer({"results": items, "has_more": has_more}).data)
+
+    @extend_schema(
+        parameters=[ReviewsTableParamsSerializer],
+        responses={
+            200: OpenApiResponse(
+                response=ReviewReviewsTablePageSerializer,
+                description="One page of reviews, most recent activity first, with the total and running counts.",
+            ),
+        },
+        summary="List reviews as a paginated table",
+        description="ReviewHog reviews on this project as a paginated table: reviews with a completed turn "
+        "plus reviews with a run in flight, ordered by last activity, so a review that starts or finishes "
+        "moves to the top. Pages with `limit` and `offset`; `count` is the total across pages. Filters by "
+        "`repository`, `review_mode`, `status`, and `published`. `running_count` counts the running reviews "
+        "under every filter except `status`. By default only the requesting user's reviews; "
+        "`scope=everyone` lists every review on the project.",
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
+    def table(self, request: Request, **kwargs) -> Response:
+        params = ReviewsTableParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        filters = params.validated_data
+        team_id, queryset = self._reports(request, scope=filters["scope"])
+        running = running_q(team_id)
+        # A first turn that died before completing has nothing to show, so it only appears while it runs.
+        queryset = queryset.filter(Q(last_run_at__isnull=False) | running)
+        if "repository" in filters:
+            queryset = queryset.filter(repository__iexact=filters["repository"])
+        if "review_mode" in filters:
+            queryset = queryset.annotate(completed_turn_mode=_completed_turn_mode(team_id)).filter(
+                completed_turn_mode=filters["review_mode"]
+            )
+        if filters["published"] is not None:
+            queryset = queryset.annotate(completed_turn_published=_completed_turn_published()).filter(
+                completed_turn_published=filters["published"]
+            )
+        running_count = queryset.filter(running).count()
+        if filters.get("status") == ReviewTableStatus.RUNNING:
+            queryset = queryset.filter(running)
+        elif filters.get("status") == ReviewTableStatus.COMPLETED:
+            queryset = queryset.filter(last_run_at__isnull=False).exclude(running)
+
+        offset: int = filters["offset"]
+        reports = list(queryset.order_by("-updated_at", "-id")[offset : offset + filters["limit"]])
+        items = _review_rows(team_id, reports, in_progress_report_ids(team_id, reports))
+        return Response(
+            ReviewReviewsTablePageSerializer(
+                {"count": queryset.count(), "running_count": running_count, "results": items}
+            ).data
+        )
 
     @extend_schema(
         parameters=[PerspectiveStatsParamsSerializer],
@@ -1205,6 +1452,12 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             or None,
             "findings": sorted(valid, key=sort_key),
             "dismissed_findings": sorted(dismissed, key=sort_key),
+            "dropped_findings": [
+                _dropped_finding_payload(dropped, report.pr_url)
+                for dropped in load_dropped_findings(
+                    team_id=team_id, report_id=report_id, run_index=run_index, head_sha=turn_head
+                )
+            ],
             "perspective_selection": _selection_payload(turns.get(report_id, TurnStats()), chunk_set),
         }
         return Response(ReviewDetailSerializer(payload).data)
