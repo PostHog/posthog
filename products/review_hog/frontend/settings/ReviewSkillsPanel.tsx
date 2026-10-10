@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSelect, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSkeleton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import {
     REVIEW_SKILL_KIND_LABELS,
@@ -89,15 +89,10 @@ export function ReviewSkillsPanel(): JSX.Element {
                         description={perspective.description}
                         kept={deepSkillKept === null ? undefined : keptFor(perspective.skill_name)}
                         mine={
-                            <LemonSelect<'on' | 'off'>
-                                size="small"
+                            <LemonSwitch
                                 aria-label={`Mine: ${prettifySkillName(perspective.skill_name)}`}
-                                value={perspective.enabled ? 'on' : 'off'}
-                                options={[
-                                    { value: 'on', label: 'On' },
-                                    { value: 'off', label: 'Off' },
-                                ]}
-                                onChange={(value) => togglePerspective(perspective.skill_name, value === 'on')}
+                                checked={perspective.enabled}
+                                onChange={(checked) => togglePerspective(perspective.skill_name, checked)}
                                 disabledReason={
                                     savingSkillNames.includes(perspective.skill_name)
                                         ? 'Saving…'
