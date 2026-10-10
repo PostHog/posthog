@@ -2,11 +2,10 @@
 
 One marker-tagged issue comment per report on the publish (cloud trigger) path: posted right after
 the run's gates pass, edited in place as the pipeline persists progress artefacts, and rewritten
-with the turn's outcome at the end — the full found-vs-published counts, or a failure notice. Always
-edited, never re-posted: comment edits don't notify PR subscribers, while every new comment emails
-everyone. The running and failed bodies are one table with a row per step of the turn. Progress
-renders from the same derivation the reviews API uses (`reviewer.progress`), so the PR comment and
-the UI can never disagree.
+with the turn's outcome at the end. Always edited, never re-posted: comment edits don't notify PR
+subscribers, while every new comment emails everyone. The body is one table with a row per step of
+the turn, filled in as the run progresses. Progress renders from the same derivation the reviews
+API uses (`reviewer.progress`), so the PR comment and the UI can never disagree.
 
 The resolution stage shares the same comment (one ReviewHog voice per PR): its progress and closing
 tally live in a marker-delimited section spliced in by `update_resolution_status_comment`, which
@@ -34,8 +33,8 @@ from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
+    FLASH_LENSES,
     PRIORITIES_BY_URGENCY,
-    PRIORITY_LABELS,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     effective_priority,
@@ -45,7 +44,7 @@ from products.review_hog.backend.reviewer.constants import (
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.thread_resolution import CommitHold
-from products.review_hog.backend.reviewer.persistence import load_findings_bundle, load_valid_findings
+from products.review_hog.backend.reviewer.persistence import load_findings_bundle
 from products.review_hog.backend.reviewer.progress import (
     SnapshotStats,
     TurnStats,
@@ -63,6 +62,7 @@ from products.review_hog.backend.reviewer.tools.github_client import (
 )
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised
 from products.review_hog.backend.reviewer.tools.redaction import redact_secrets
+from products.review_hog.backend.reviewer.tools.single_agent_review import FlashTurnStats
 
 logger = logging.getLogger(__name__)
 
@@ -79,19 +79,22 @@ _THRESHOLD_LABELS = {
     IssuePriority.MUST_FIX: "Must fix",
 }
 
+_PRIORITY_NAMES = {
+    IssuePriority.MUST_FIX: "Must fix",
+    IssuePriority.SHOULD_FIX: "Should fix",
+    IssuePriority.CONSIDER: "Consider",
+}
+
 # Whose threshold gated publishing, keyed by how the acting user resolved (`resolved_from`): the PR
 # author's own settings, the requester's ("requester wins" when someone else triggers the review),
 # or the built-in default when the author has no linked PostHog user. The default variant is
-# defensive — a default-resolved run gates at "All issues", so nothing can be held back — but the
-# comment must never blame a settings page that played no part.
+# defensive, because a default-resolved run gates at "All issues" and nothing can be held back, but
+# the comment must never blame a settings page that played no part.
 _THRESHOLD_ATTRIBUTIONS = {
     "author": "the author's",
     "override": "the requester's",
     "default": "the default",
 }
-# Only personal thresholds live in someone's PostHog Review settings; the default variant has no page to point at.
-_PERSONAL_THRESHOLD_SOURCES = frozenset({"author", "override"})
-
 
 _PERSPECTIVE_LABELS = {
     f"{REVIEW_HOG_PERSPECTIVE_PREFIX}logic-correctness": "Logic",
@@ -100,6 +103,15 @@ _PERSPECTIVE_LABELS = {
 }
 # Longer cells wrap the table on narrow screens, so a long perspective list collapses to a count.
 _MAX_CELL_CHARS = 45
+
+_DROP_REASONS = {
+    "dedup_prior": "repeats",
+    "dedup_comment": "repeats",
+    "dedup_anchor": "repeats",
+    "dedup_sibling": "repeats",
+    "old_code": "unchanged code",
+    "cap": "limit",
+}
 
 # A clean review still posts a comment so silence never looks like a failed run.
 _NO_ISSUES_MEDIA = (
@@ -169,17 +181,13 @@ _TABLE_HEADER = "| Step | Status | Result |"
 
 
 def report_deep_link(team_id: int, report_id: str) -> str:
-    """The app URL opening this report's review drawer — the held-back "View them in PostHog" target.
+    """The app URL opening this report's review drawer — the held-back "view in PostHog" target.
 
     `?review=<report id>` is a permanent public contract (baked into GitHub comments that never get
     re-edited); the frontend's Code review URL sync accepts exactly this param, so the two must keep
     agreeing. Auth-gated like any app link — the same posture as posting Slack links publicly.
     """
     return f"{settings.SITE_URL}/project/{team_id}/code-review?review={report_id}"
-
-
-def _product_name(review_mode: str) -> str:
-    return "PostHog Review (standard)" if review_mode == REVIEW_MODE_FLASH else "PostHog Review"
 
 
 def _plural(count: int, noun: str) -> str:
@@ -267,7 +275,7 @@ def _perspective_names(names: Sequence[str]) -> str:
     return text if len(text) <= _MAX_CELL_CHARS else _plural(len(labels), "perspective")
 
 
-def _pipeline_steps(facts: TurnFacts) -> list[_Step]:
+def _pipeline_steps(facts: TurnFacts, publish_result: str = "") -> list[_Step]:
     raw = None
     blind_spot_result = ""
     if facts.pass_issues is not None:
@@ -301,28 +309,55 @@ def _pipeline_steps(facts: TurnFacts) -> list[_Step]:
             counter=f"{facts.judged}/{facts.merged}" if facts.merged else None,
             partial=True,
         ),
-        _Step(label="Publish"),
+        _Step(label="Publish", result=publish_result),
     ]
 
 
-def _single_agent_steps(facts: TurnFacts) -> list[_Step]:
+def _single_agent_steps(
+    facts: TurnFacts, flash: FlashTurnStats | None = None, failed_sessions: int = 0, publish_result: str = ""
+) -> list[_Step]:
+    sessions = _Step(
+        label="Main review and lenses",
+        result=f"{_plural(facts.passes_done, 'session')} finished" if facts.passes_done else "",
+        partial=True,
+    )
+    merge = _Step(label="Merge and cap")
+    if flash is not None:
+        lenses = len(FLASH_LENSES) * flash.lens_part_count
+        total = 1 + lenses
+        raised = sum(flash.candidates.values())
+        sessions = _Step(
+            label=f"Main review + {lenses} {'lens' if lenses == 1 else 'lenses'}" if lenses else "Main review",
+            result=_plural(raised, "finding"),
+            counter=f"{total - failed_sessions}/{total}",
+        )
+        # An unknown disposition stays out of the cell rather than failing the outcome edit.
+        reasons = ", ".join(
+            dict.fromkeys(
+                _DROP_REASONS[reason] for reason, count in flash.dropped.items() if count and reason in _DROP_REASONS
+            )
+        )
+        merge = _Step(label="Merge and cap", result=f"{raised} → {flash.kept}" + (f" ({reasons})" if reasons else ""))
     return [
         _Step(label="Prepare the diff", result=_count(facts.files_reviewed, "file")),
-        _Step(
-            label="Main review and lenses",
-            result=f"{_plural(facts.passes_done, 'session')} finished" if facts.passes_done else "",
-            partial=True,
-        ),
-        _Step(label="Merge and cap"),
-        _Step(label="Publish"),
+        sessions,
+        merge,
+        _Step(label="Publish", result=publish_result),
     ]
 
 
-def _steps(review_design: str, facts: TurnFacts) -> list[_Step]:
+def _steps(
+    review_design: str,
+    facts: TurnFacts,
+    *,
+    flash: FlashTurnStats | None = None,
+    failed_sessions: int = 0,
+    publish_result: str = "",
+) -> list[_Step]:
     # Branch on the design, not the mode: an older Standard turn ran the full pipeline.
     if review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        return _single_agent_steps(facts)
-    return _pipeline_steps(facts)
+        return _single_agent_steps(facts, flash, failed_sessions, publish_result)
+    return _pipeline_steps(facts, publish_result)
 
 
 _PIPELINE_STEP_BY_STAGE = {
@@ -436,6 +471,52 @@ def render_failed_body(
     )
 
 
+def _priority_counts(counts: dict[IssuePriority, int], priorities: set[IssuePriority]) -> str:
+    return ", ".join(
+        f"{counts[priority]} {_PRIORITY_NAMES[priority]}"
+        for priority in PRIORITIES_BY_URGENCY
+        if priority in priorities and counts.get(priority)
+    )
+
+
+def _publish_result(
+    *,
+    counts: dict[IssuePriority, int],
+    published_count: int,
+    held_back_count: int,
+    threshold: IssuePriority,
+    review_url: str | None,
+    resolved_from: str,
+    report_url: str | None,
+) -> str:
+    parts = []
+    if published_count > 0:
+        posted = f"{published_count} posted"
+        if review_url:
+            posted += f" ([view review]({review_url}))"
+        parts.append(posted)
+    if held_back_count > 0:
+        held = _priority_counts(counts, set(PRIORITIES_BY_URGENCY) - published_priorities_for(threshold))
+        attribution = _THRESHOLD_ATTRIBUTIONS.get(resolved_from, _THRESHOLD_ATTRIBUTIONS["author"])
+        sentence = f'{held} held back by {attribution} "{_THRESHOLD_LABELS[threshold]}" threshold'
+        if report_url:
+            sentence += f" ([view in PostHog]({report_url}))"
+        parts.append(sentence)
+    return " · ".join(parts) or "Nothing to post"
+
+
+def _raised_elsewhere_lines(raised_elsewhere: Sequence[AlreadyRaised], total: int, pr_url: str | None) -> list[str]:
+    shown = raised_elsewhere[:ALREADY_RAISED_SHOWN]
+    lines = ["Also found in comments already on this pull request, so not posted again:"]
+    for raised in shown:
+        link = f" ([comment]({pr_url}#discussion_r{raised.comment_id}))" if pr_url else ""
+        lines.append(f"- {finding_heading(raised.title, raised.level)}, raised by `{raised.commenter}`{link}")
+    hidden = max(total, len(raised_elsewhere)) - len(shown)
+    if hidden > 0:
+        lines.append(f"- and {hidden} more")
+    return lines
+
+
 def render_final_body(
     report_id: str,
     *,
@@ -447,6 +528,11 @@ def render_final_body(
     resolved_from: str = "author",
     report_url: str | None = None,
     review_mode: str = REVIEW_MODE_FULL,
+    review_design: str = REVIEW_DESIGN_PIPELINE,
+    head_sha: str | None = None,
+    facts: TurnFacts = _NO_FACTS,
+    flash: FlashTurnStats | None = None,
+    failed_sessions: int = 0,
     celebrate_clean_reviews: bool = True,
     marker: ReviewHogMarker | None = None,
     capped_lens_parts: int | None = None,
@@ -454,58 +540,41 @@ def render_final_body(
     raised_elsewhere_count: int = 0,
     pr_url: str | None = None,
 ) -> str:
-    """The completed-state body: the full found counts, and how many the threshold held back.
+    """The completed-state body: every step done, what was posted, and what the threshold held back.
 
-    The counts always show everything the run found, even when only a subset was published, so
-    two inline comments on the PR never read as "the review only found two things". The held-back
-    sentence attributes the gating threshold to whoever it actually belonged to (`resolved_from`)
-    and links to the report in PostHog (`report_url`, auth-gated) — the PR is otherwise the only
-    place the author hears about held-back findings, so the comment must not dead-end.
-    `capped_lens_parts` is set when a single-agent turn reviewed a PR past the lens part cap. The
-    note goes here and not in the review body, because a clean turn posts no review. `raised_elsewhere`
-    lists the findings a Full turn did not post because another reviewer's PR comment raises them, each
-    linked to that comment under `pr_url`; `raised_elsewhere_count` counts all of them.
+    The summary and the table count everything the run found, even when only a subset was published,
+    so two inline comments on the PR never read as "the review only found two things". The Publish
+    cell attributes the gating threshold to whoever it belonged to (`resolved_from`) and links to the
+    report in PostHog (`report_url`, auth-gated), because the PR is otherwise the only place the author
+    hears about held-back findings. `capped_lens_parts` is set when a single-agent turn reviewed a PR
+    past the lens part cap. The note goes here and not in the review body, because a clean turn posts
+    no review. `raised_elsewhere` lists the findings a Deep turn did not post because another
+    reviewer's PR comment raises them, each linked to that comment under `pr_url`;
+    `raised_elsewhere_count` counts all of them.
     """
-    found_total = sum(counts.values())
-    found_line = "Found " + ", ".join(
-        f"**{counts[priority]} {PRIORITY_LABELS[priority]}**" for priority in PRIORITIES_BY_URGENCY
+    publish_result = _publish_result(
+        counts=counts,
+        published_count=published_count,
+        held_back_count=held_back_count,
+        threshold=threshold,
+        review_url=review_url,
+        resolved_from=resolved_from,
+        report_url=report_url,
     )
-    lines = [f"### \U0001f994 {_product_name(review_mode)} reviewed this pull request", ""]
-    if found_total == 0 and raised_elsewhere:
-        lines.append("Nothing new to raise.")
-    # A flash turn is the quick pass, so a clean one gets a plain line instead of the celebration.
-    elif found_total == 0 and review_mode == REVIEW_MODE_FLASH:
-        lines.append("Nothing worth raising.")
-    elif found_total == 0 and celebrate_clean_reviews:
-        media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
-        lines.extend(
-            [
-                "Nothing worth raising this time. Enjoy the moment:",
-                "",
-                f"![{media_alt}]({media_url})",
-            ]
-        )
+    steps = _steps(review_design, facts, flash=flash, failed_sessions=failed_sessions, publish_result=publish_result)
+    table = _table(_rows(steps, None))
+
+    found_total = sum(counts.values())
+    if published_count > 0:
+        summary = f"Posted {_plural(published_count, 'finding')}: {_priority_counts(counts, published_priorities_for(threshold))}."
+    elif held_back_count > 0:
+        summary = f"Nothing posted: {_plural(held_back_count, 'finding')} below the urgency threshold."
+    elif raised_elsewhere:
+        summary = "Nothing new to raise."
     else:
-        lines.append(found_line + ".")
-        lines.append("")
-        if published_count > 0:
-            published_line = f"Published {_plural(published_count, 'finding')}"
-            if review_url:
-                published_line += f" ([view the review]({review_url}))"
-            lines.append(published_line + ".")
-        if held_back_count > 0:
-            # An unrecognized resolved_from reads as "author" throughout (attribution AND suffix).
-            source = resolved_from if resolved_from in _THRESHOLD_ATTRIBUTIONS else "author"
-            sentence = (
-                f"{_plural(held_back_count, 'finding')} stayed below {_THRESHOLD_ATTRIBUTIONS[source]} "
-                f'"{_THRESHOLD_LABELS[threshold]}" urgency threshold'
-            )
-            if source in _PERSONAL_THRESHOLD_SOURCES:
-                sentence += " in their PostHog Review settings"
-            sentence += ", so they were not published."
-            if report_url:
-                sentence += f" [View them in PostHog]({report_url})."
-            lines.append(sentence)
+        summary = "Nothing worth raising."
+
+    lines = [_header(review_mode, "reviewed", head_sha), "", summary, "", *table]
     if capped_lens_parts is not None:
         lines.extend(
             [
@@ -514,14 +583,11 @@ def render_final_body(
             ]
         )
     if raised_elsewhere:
-        shown = raised_elsewhere[:ALREADY_RAISED_SHOWN]
-        lines.extend(["", "Also found in comments already on this pull request, so not posted again:"])
-        for raised in shown:
-            link = f" ([comment]({pr_url}#discussion_r{raised.comment_id}))" if pr_url else ""
-            lines.append(f"- {finding_heading(raised.title, raised.level)}, raised by `{raised.commenter}`{link}")
-        hidden = max(raised_elsewhere_count, len(raised_elsewhere)) - len(shown)
-        if hidden > 0:
-            lines.append(f"- and {hidden} more")
+        lines.extend(["", *_raised_elsewhere_lines(raised_elsewhere, raised_elsewhere_count, pr_url)])
+    # A Standard turn is the quick pass, so a clean one gets no celebration.
+    elif found_total == 0 and review_mode != REVIEW_MODE_FLASH and celebrate_clean_reviews:
+        media_url, media_alt = random.choice(_NO_ISSUES_MEDIA)
+        lines.extend(["", f"![{media_alt}]({media_url})"])
     lines.extend(["", status_marker(report_id)])
     if marker is not None:
         lines.append(marker.hidden_comment())
@@ -854,6 +920,9 @@ class FinalizeStatusCommentInput:
     capped_lens_parts: int | None = None
     raised_elsewhere: list[AlreadyRaised] = field(default_factory=list)
     raised_elsewhere_count: int = 0
+    review_design: str = REVIEW_DESIGN_PIPELINE
+    flash_stats: FlashTurnStats | None = None
+    failed_sessions: int = 0
 
 
 def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
@@ -862,11 +931,11 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
         report = ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first()
         if report is None or report.status_comment_id is None or report.pr_number is None:
             return
+        state = _turn_state(input.team_id, report, input.run_index)
         counts = dict.fromkeys(IssuePriority, 0)
-        for finding, verdict in load_valid_findings(
-            team_id=input.team_id, report_id=input.report_id, run_index=input.run_index
-        ):
-            counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
+        for finding, verdict in state.pairs:
+            if verdict is not None and verdict.is_valid:
+                counts[effective_priority(finding.priority, verdict.adjusted_priority)] += 1
         threshold = IssuePriority(input.urgency_threshold)
         published = published_priorities_for(threshold)
         published_count = sum(count for priority, count in counts.items() if priority in published)
@@ -881,6 +950,11 @@ def finalize_status_comment(input: FinalizeStatusCommentInput) -> None:
             resolved_from=input.resolved_from,
             report_url=report_deep_link(input.team_id, input.report_id),
             review_mode=input.review_mode,
+            review_design=input.review_design,
+            head_sha=report.head_sha,
+            facts=turn_facts(state.snapshot, state.turn, state.pairs),
+            flash=input.flash_stats,
+            failed_sessions=input.failed_sessions,
             celebrate_clean_reviews=input.celebrate_clean_reviews,
             marker=input.marker,
             capped_lens_parts=input.capped_lens_parts,

@@ -878,6 +878,13 @@ class ReviewPRWorkflow:
                         capped_lens_parts=meta.lens_chunk_count if meta.lens_chunks_capped else None,
                         raised_elsewhere=dedup.raised_elsewhere if dedup is not None else [],
                         raised_elsewhere_count=dedup.raised_elsewhere_count if dedup is not None else 0,
+                        review_design=review_design,
+                        flash_stats=dedup.flash_stats if dedup is not None else None,
+                        failed_sessions=(
+                            flash_sessions.lens_failures + flash_sessions.lens_timeouts
+                            if flash_sessions is not None
+                            else 0
+                        ),
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
