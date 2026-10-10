@@ -1,5 +1,6 @@
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -52,6 +53,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
             body["run_mode"] = run_mode
         return self.client.post(f"/api/projects/{self.team.id}/review_hog/reviews/trigger/", body, format="json")
 
+    @time_machine.travel("2026-10-10T12:00:00Z", tick=False)
     @patch(_META, return_value=_pr_meta())
     @patch(_ACCESS, return_value=object())
     @patch(_START, return_value="wf-ui-1")
@@ -66,7 +68,23 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files")
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
-        self.assertEqual(resp.json(), {"workflow_id": "wf-ui-1", "status": "started"})
+        # A first run has no report yet, and an author with no linked PostHog user owns nothing, so
+        # nobody opted in to resolution.
+        self.assertEqual(
+            resp.json(),
+            {
+                "workflow_id": "wf-ui-1",
+                "status": "started",
+                "repository": "PostHog/posthog.com",
+                "pr_number": 123,
+                "head_sha": "abc123",
+                "review_mode": "full",
+                "report_id": None,
+                "requested_at": "2026-10-10T12:00:00Z",
+                "resolve_will_run": False,
+                "resolve_skip_reason": "owner_not_opted_in",
+            },
+        )
         mock_access.assert_called_once_with(self.team.id, "PostHog/posthog.com")
         mock_start.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog.com/pull/123",
@@ -105,6 +123,51 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         self.assertIs(mock_start.call_args.kwargs["resolve_comments"], False)
         self.assertEqual(mock_start.call_args.kwargs["review_mode"], expected_review_mode)
         mock_start_resolution.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("owner_opted_in", "review", True, True, None),
+            ("review_only_never_resolves", "review_only", True, False, "run_mode_excludes_resolve"),
+            ("owner_not_opted_in", "review", False, False, "owner_not_opted_in"),
+        ]
+    )
+    @patch(_META, return_value=_pr_meta(head_sha="def456"))
+    @patch(_ACCESS, return_value=object())
+    @patch(_START, return_value="wf-ui-1")
+    def test_trigger_says_which_head_and_report_it_targets_and_whether_resolve_runs(
+        self,
+        _name: str,
+        run_mode: str,
+        owner_opted_in: bool,
+        resolve_will_run: bool,
+        resolve_skip_reason: str | None,
+        _mock_start: MagicMock,
+        _mock_access: MagicMock,
+        _mock_meta: MagicMock,
+    ) -> None:
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-1", extra_data={"login": "octocat"})
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, preferences={"resolve_comments": owner_opted_in}
+        )
+        report = ReviewReport.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="posthog/posthog.com",
+            pr_number=123,
+            head_branch="feature",
+            base_branch="master",
+            published_head_sha="abc123",
+        )
+
+        resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files", run_mode=run_mode)
+
+        self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
+        body = resp.json()
+        self.assertEqual(
+            {key: body[key] for key in ("repository", "pr_number", "head_sha", "report_id")},
+            {"repository": "PostHog/posthog.com", "pr_number": 123, "head_sha": "def456", "report_id": str(report.id)},
+        )
+        self.assertEqual(body["resolve_will_run"], resolve_will_run)
+        self.assertEqual(body["resolve_skip_reason"], resolve_skip_reason)
 
     @patch(_META, return_value=_pr_meta(author="teammate"))
     @patch(_ACCESS, return_value=object())
@@ -237,7 +300,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         # Settling threads on a reviewed head is resolve-only's whole point: the already_reviewed
         # early-return must not apply, and no review workflow may start. A published-at-head report
         # is exactly the state a "Review" click would refuse.
-        ReviewReport.objects.for_team(self.team.id).create(
+        report = ReviewReport.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             repository="posthog/posthog.com",
             pr_number=123,
@@ -249,7 +312,17 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123/files", run_mode="resolve_only")
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
-        self.assertEqual(resp.json(), {"workflow_id": "wf-resolve-1", "status": "started"})
+        body = resp.json()
+        self.assertEqual(
+            {key: body[key] for key in ("workflow_id", "status", "review_mode", "report_id", "resolve_will_run")},
+            {
+                "workflow_id": "wf-resolve-1",
+                "status": "started",
+                "review_mode": None,
+                "report_id": str(report.id),
+                "resolve_will_run": True,
+            },
+        )
         mock_start.assert_not_called()
         mock_start_resolution.assert_called_once_with(
             pr_url="https://github.com/PostHog/posthog.com/pull/123",
@@ -332,7 +405,8 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         resp = self._trigger("https://github.com/PostHog/posthog.com/pull/123", run_mode=run_mode)
 
         self.assertEqual(resp.status_code, status.HTTP_202_ACCEPTED, resp.content)
-        self.assertEqual(resp.json(), {"workflow_id": "wf-ui-1", "status": "joined_running_review"})
+        self.assertEqual(resp.json()["workflow_id"], "wf-ui-1")
+        self.assertEqual(resp.json()["status"], "joined_running_review")
         mock_start.assert_called_once()
         report.refresh_from_db()
         self.assertEqual(report.review_tier, expected_tier.value)
@@ -472,7 +546,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
         _mock_access,
         _mock_meta,
     ):
-        ReviewReport.objects.for_team(self.team.id).create(
+        report = ReviewReport.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             repository="posthog/posthog.com",
             pr_number=123,
@@ -486,6 +560,7 @@ class TestReviewHogUiTriggerApi(APIBaseTest):
 
         self.assertEqual(resp.status_code, expected_status, resp.content)
         self.assertEqual(resp.json()["status"], expected_marker)
+        self.assertEqual(resp.json()["report_id"], str(report.id))
         self.assertEqual(mock_start.called, starts)
 
     @parameterized.expand(

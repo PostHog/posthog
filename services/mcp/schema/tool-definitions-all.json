@@ -2845,6 +2845,21 @@
             "readOnlyHint": true
         }
     },
+    "conversations-tickets-notes-create": {
+        "description": "Add a private note to a support ticket. The note is visible to your team only and is never sent to the customer; this tool has no privacy option. Use it to leave findings where the support engineer works. To reply to the customer, use conversations-tickets-reply-create instead. To change a note later, use conversations-tickets-notes-partial-update. An identical note posted again within a short window returns the original note instead of adding a second one. Returns the note as it appears in the thread.",
+        "category": "Conversations",
+        "feature": "conversations",
+        "summary": "Add private note to support ticket",
+        "title": "Add private note to support ticket",
+        "required_scopes": ["ticket:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "scouts-tool-access"
+    },
     "conversations-tickets-notes-destroy": {
         "description": "Soft-delete a private note on a support ticket. Only private notes authored by the calling user can be deleted. Customer-facing replies cannot be deleted. Message IDs come from conversations-tickets-messages-retrieve. Deleting another user's note or an AI-authored note returns 403 with error_type not_note_author. Deleting a public reply returns 400 with error_type not_private_note. A missing or already-deleted note returns 404 with error_type note_not_found.",
         "category": "Conversations",
@@ -11565,7 +11580,7 @@
         "feature_flag": "notebook-generated-widgets"
     },
     "review-hog-reviews-get": {
-        "description": "Fetch one completed ReviewHog review by `id` (from `review-hog-reviews-list`), including the latest turn's validated `findings` (each with file, line ranges, priority, and the suggested fix), the `dismissed_findings` the validator dropped and why, and the `report_markdown` published to the PR. A first review still in flight has no detail yet — poll `review-hog-reviews-list` until it completes.",
+        "description": "Fetch one ReviewHog review by `id` (from `review-hog-reviews-list` or the trigger's `report_id`). It returns the last completed turn: its validated `findings` (each with file, line ranges, priority, and the suggested fix), the `dismissed_findings` the validator dropped and why, and the `report_markdown` published to the PR. While a re-review runs, the findings are still the previous turn's. A first review that is still running has no detail yet, so poll `review-hog-reviews-list` until it completes.",
         "category": "ReviewHog",
         "feature": "review_hog",
         "summary": "Get a ReviewHog review",
@@ -11580,7 +11595,7 @@
         "feature_flag": "review-hog"
     },
     "review-hog-reviews-list": {
-        "description": "List recent ReviewHog reviews on this project — use it to poll a review's status. Running reviews come first, each with `in_progress: true` and a `progress` object (the in-flight turn's `review_stage` plus `done`/`total` counters); completed reviews follow, newest first, with their finding counts by priority (`must_fix_count`, `should_fix_count`, `consider_count`) and whether they were `published`. Each row's `id` opens the full review via `review-hog-reviews-get`. Defaults to the requesting user's reviews; pass `scope=everyone` for every review on the project, and `limit` to widen the page.",
+        "description": "List recent ReviewHog reviews on this project. Use it to poll a review's status. Running reviews come first, each with `in_progress: true` and a `progress` object (the running turn's `review_stage` plus `done`/`total` counters). Completed reviews follow, newest first, with their finding counts by priority (`must_fix_count`, `should_fix_count`, `consider_count`) and whether they were `published`. Each row's `id` opens the full review with `review-hog-reviews-get`. The default `scope=mine` covers reviews you ran plus reviews of pull requests you authored. Pass `scope=everyone` for every review on the project, and `limit` to widen the page.",
         "category": "ReviewHog",
         "feature": "review_hog",
         "summary": "List ReviewHog reviews",
@@ -11595,7 +11610,7 @@
         "feature_flag": "review-hog"
     },
     "review-hog-reviews-trigger": {
-        "description": "Start a ReviewHog run on a pull request. Pass the PR as `pr_url` (e.g. `https://github.com/PostHog/posthog/pull/123`); the repository must be accessible to the project's GitHub App installation. `run_mode` picks the variant: `review` (the default) reviews the PR, publishes the review to it, and then chains the comment-resolution stage when the requesting user's `resolve_comments` setting is on; `review_only` reviews without resolving; `resolve_only` skips the review and only works the PR's existing unresolved review threads; `flash` runs a Standard review, published on a lower-cost model, and never resolves comments or pushes fixes. IMPORTANT: resolve-capable runs write to the PR itself. They may push signed fix commits to the PR's branch, reply to review threads, and resolve bot-authored threads. Nothing is deleted and the commits are plain appends, but the actions are public to everyone on the PR. Non-blocking: returns a `workflow_id` and `status` of `started` while the run executes. If the PR's current commit already has a published review it returns `already_reviewed` without starting a run (`resolve_only` skips that check, since resolving is useful exactly then), and triggering a PR whose review is already running joins the in-flight run. Poll progress with `review-hog-reviews-list` and read the finished findings with `review-hog-reviews-get`.",
+        "description": "Start a ReviewHog run on a pull request. Pass the PR as `pr_url` (e.g. `https://github.com/PostHog/posthog/pull/123`). The repository must be accessible to the project's GitHub App installation. `run_mode` picks the variant: `review` (the default) is a Deep review, published to the PR, followed by the Resolve stage; `review_only` is a Deep review without Resolve; `flash` is a Standard review on a lower-cost model that never resolves; `resolve_only` skips the review and only works the PR's existing unresolved review threads. Resolve runs only when the pull request owner opted in to resolving comments, not the requester. The owner is the PR author, or the Inbox reviewer for a PR the PostHog app opened. The response's `resolve_will_run` says whether Resolve will run, and `resolve_skip_reason` says why not. IMPORTANT: Resolve writes to the PR itself. It may push signed fix commits to the PR's branch, reply to review threads, and resolve bot-authored threads. Nothing is deleted and the commits are plain appends, but the actions are public to everyone on the PR. Non-blocking: returns `status` `started`, with `repository`, `pr_number`, the `head_sha` the request targets, `review_mode`, `requested_at`, and `report_id` (null on the PR's first run; find it later with `review-hog-reviews-list`). If the PR's current commit already has a published review in the requested mode, it returns `already_reviewed` without starting a run (`resolve_only` skips that check). A request while a review runs is queued on that PR's run and returns `joined_running_review`. Refusals: 409 with `code` `flash_after_full` (the PR has a Deep review, so ask for `review` instead) or `resolution_not_opted_in` (`resolve_only` on a PR whose owner did not opt in); 409 without a code while Resolve runs on the PR, or while a review runs for a `resolve_only` request. Poll progress with `review-hog-reviews-list` and read the findings with `review-hog-reviews-get`.",
         "category": "ReviewHog",
         "feature": "review_hog",
         "summary": "Trigger a ReviewHog review",

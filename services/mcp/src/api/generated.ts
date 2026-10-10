@@ -73093,8 +73093,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `all` - all
-     * * `label` - label
+     * * `all` - All pull requests
+     * * `label` - Labeled pull requests
      */
     export type ReviewModeEnum = typeof ReviewModeEnum[keyof typeof ReviewModeEnum];
 
@@ -73118,8 +73118,8 @@ export namespace Schemas {
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
-       * * `all` - all
-       * * `label` - label */
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
@@ -83546,6 +83546,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `read_only` - Read only
+     * * `support_notes` - Support notes
+     */
+    export type ToolPresetEnum = typeof ToolPresetEnum[keyof typeof ToolPresetEnum];
+
+
+    export const ToolPresetEnum = {
+      ReadOnly: 'read_only',
+      SupportNotes: 'support_notes',
+    } as const;
+
+    /**
      * Editable display name, schedule, enablement, and emit posture for one scout config.
      */
     export interface PatchedSignalScoutConfigUpdate {
@@ -83616,6 +83628,16 @@ export namespace Schemas {
          * @maxLength 64
          */
       suggestion_id?: string;
+      /**
+         * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+         * @nullable
+         */
+      allowed_mcp_tools?: string[] | null;
+      /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+       *
+       * * `read_only` - Read only
+       * * `support_notes` - Support notes */
+      tool_preset?: ToolPresetEnum;
     }
 
     /**
@@ -83659,8 +83681,8 @@ export namespace Schemas {
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
-       * * `all` - all
-       * * `label` - label */
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
@@ -94556,6 +94578,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `run_mode_excludes_resolve` - The run mode never resolves comments
+     * * `owner_not_opted_in` - The pull request owner has not opted in to resolution
+     * * `already_reviewed` - No run starts, because the head already has a review in this mode
+     */
+    export type ResolveSkipReasonEnum = typeof ResolveSkipReasonEnum[keyof typeof ResolveSkipReasonEnum];
+
+
+    export const ResolveSkipReasonEnum = {
+      RunModeExcludesResolve: 'run_mode_excludes_resolve',
+      OwnerNotOptedIn: 'owner_not_opted_in',
+      AlreadyReviewed: 'already_reviewed',
+    } as const;
+
+    /**
      * * `likely_active_soon` - Likely Active Soon
      * * `at_risk_of_inactivity` - At Risk Of Inactivity
      * * `return_after_first_use` - Return After First Use
@@ -95974,11 +96010,52 @@ export namespace Schemas {
       run_mode?: ReviewTriggerRequestRunModeEnum;
     }
 
+    /**
+     * * `full` - Deep
+     * * `flash` - Standard
+     */
+    export type ReviewTriggerReviewModeEnum = typeof ReviewTriggerReviewModeEnum[keyof typeof ReviewTriggerReviewModeEnum];
+
+
+    export const ReviewTriggerReviewModeEnum = {
+      Full: 'full',
+      Flash: 'flash',
+    } as const;
+
     export interface ReviewTriggerResponse {
       /** Temporal workflow id for the started review run; empty when no run was started. */
       workflow_id: string;
-      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already in flight and the request joined its queue. A requested Deep review waits for an active Standard review. */
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already running and the request was queued on that pull request's run, to start after the running turn. A requested Deep review waits for an active Standard review. */
       status: string;
+      /** The pull request's repository as 'owner/repo'. */
+      repository: string;
+      /** The pull request number. */
+      pr_number: number;
+      /**
+         * The pull request's head commit when the request was accepted.
+         * @nullable
+         */
+      head_sha: string | null;
+      /** The review this request runs: 'full' (Deep) or 'flash' (Standard). Null for 'resolve_only', which runs no review.
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
+      /**
+         * Id of the pull request's existing review, for `review-hog-reviews-get`. Null on the pull request's first run, which creates the review later.
+         * @nullable
+         */
+      report_id: string | null;
+      /** Server time when the request was accepted. */
+      requested_at: string;
+      /** Whether this request runs the resolution stage, which can push fix commits to the pull request. */
+      resolve_will_run: boolean;
+      /** Why the resolution stage does not run: 'run_mode_excludes_resolve' ('review_only' and 'flash' never resolve), 'owner_not_opted_in' (the pull request owner has not turned on resolving comments), 'already_reviewed' (no run starts). Null when it runs.
+       *
+       * * `run_mode_excludes_resolve` - The run mode never resolves comments
+       * * `owner_not_opted_in` - The pull request owner has not opted in to resolution
+       * * `already_reviewed` - No run starts, because the head already has a review in this mode */
+      resolve_skip_reason: ResolveSkipReasonEnum | null;
     }
 
     export interface ReviewUserSettings {
@@ -96677,6 +96754,16 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /**
+         * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+         * @nullable
+         */
+      allowed_mcp_tools?: string[] | null;
+      /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+       *
+       * * `read_only` - Read only
+       * * `support_notes` - Support notes */
+      tool_preset?: ToolPresetEnum;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -96932,6 +97019,16 @@ export namespace Schemas {
          * @maxItems 10
          */
       readonly write_scopes: readonly string[];
+      /**
+         * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+         * @nullable
+         */
+      readonly allowed_mcp_tools: readonly string[] | null;
+      /**
+         * Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted.
+         * @nullable
+         */
+      readonly tool_preset: string | null;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -97993,12 +98090,23 @@ export namespace Schemas {
       feature_entitlement: string | null;
     }
 
+    export interface ScoutToolPreset {
+      /** Preset identifier accepted when saving a scout config. */
+      name: string;
+      /** Human-readable preset name. */
+      label: string;
+      /** Exact tool names expanded on save. A preset with non-holdable tools cannot be saved. */
+      tools: string[];
+    }
+
     /**
      * The MCP tool catalogue, with the scout scope postures to read it against.
      */
     export interface ScoutToolCatalogue {
       /** Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out. */
       tools: ScoutToolCatalogueEntry[];
+      /** Tool selections expanded and validated on save. */
+      tool_presets: ScoutToolPreset[];
       /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
       presets: ScoutScopePreset[];
       /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
@@ -99465,6 +99573,17 @@ export namespace Schemas {
       readonly reports: readonly SignalReportMetricSnapshots[];
     }
 
+    export interface SignalReportPriorityUpdate {
+      /** New report priority, from P0 (critical) to P4 (minimal).
+       *
+       * * `P0` - P0
+       * * `P1` - P1
+       * * `P2` - P2
+       * * `P3` - P3
+       * * `P4` - P4 */
+      priority: AutonomyPriorityEnum;
+    }
+
     export interface SignalReportRefundRequest {
       /** Why this PR is being refunded. One of: pr_incorrect (the PR doesn't address what the report promised), pr_not_useful (technically fine but not worth paying for), duplicate (covers work already charged elsewhere), other. Required — refund reviews key on it.
        *
@@ -99780,6 +99899,16 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /**
+         * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+         * @nullable
+         */
+      allowed_mcp_tools?: string[] | null;
+      /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+       *
+       * * `read_only` - Read only
+       * * `support_notes` - Support notes */
+      tool_preset?: ToolPresetEnum;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -105492,8 +105621,8 @@ export namespace Schemas {
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
-       * * `all` - all
-       * * `label` - label */
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;

@@ -29,6 +29,7 @@ from products.review_hog.backend.requested_reviews import (
     RUN_MODE_REVIEW,
     RUN_MODE_REVIEW_ONLY,
     PRReviewRequestStatus,
+    ResolveSkipReason,
     request_pr_review,
 )
 from products.review_hog.backend.review_request_rules import ReviewRequestRefusal
@@ -37,7 +38,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewIssueFinding,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL, effective_priority
+from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL, effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.persistence import load_chunk_set, load_findings_bundle, load_turn_findings
@@ -294,6 +295,11 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
     )
 
 
+class ReviewTriggerReviewMode(models.TextChoices):
+    FULL = REVIEW_MODE_FULL, "Deep"
+    FLASH = REVIEW_MODE_FLASH, "Standard"
+
+
 class ReviewTriggerResponseSerializer(serializers.Serializer):
     workflow_id = serializers.CharField(
         allow_blank=True, help_text="Temporal workflow id for the started review run; empty when no run was started."
@@ -301,8 +307,36 @@ class ReviewTriggerResponseSerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text="Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the "
         "pull request's current commit already has a published review in the requested mode, "
-        "'joined_running_review' when a review was already in flight and the request joined its queue. "
+        "'joined_running_review' when a review was already running and the request was queued on that "
+        "pull request's run, to start after the running turn. "
         "A requested Deep review waits for an active Standard review."
+    )
+    repository = serializers.CharField(help_text="The pull request's repository as 'owner/repo'.")
+    pr_number = serializers.IntegerField(help_text="The pull request number.")
+    head_sha = serializers.CharField(
+        allow_null=True, help_text="The pull request's head commit when the request was accepted."
+    )
+    review_mode = serializers.ChoiceField(
+        choices=ReviewTriggerReviewMode.choices,
+        allow_null=True,
+        help_text="The review this request runs: 'full' (Deep) or 'flash' (Standard). Null for 'resolve_only', "
+        "which runs no review.",
+    )
+    report_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="Id of the pull request's existing review, for `review-hog-reviews-get`. Null on the pull "
+        "request's first run, which creates the review later.",
+    )
+    requested_at = serializers.DateTimeField(help_text="Server time when the request was accepted.")
+    resolve_will_run = serializers.BooleanField(
+        help_text="Whether this request runs the resolution stage, which can push fix commits to the pull request."
+    )
+    resolve_skip_reason = serializers.ChoiceField(
+        choices=ResolveSkipReason.choices,
+        allow_null=True,
+        help_text="Why the resolution stage does not run: 'run_mode_excludes_resolve' ('review_only' and "
+        "'flash' never resolve), 'owner_not_opted_in' (the pull request owner has not turned on resolving "
+        "comments), 'already_reviewed' (no run starts). Null when it runs.",
     )
 
 
@@ -768,18 +802,19 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         },
         summary="Start a review of a pull request",
         description="Start a ReviewHog review of any pull request the project's GitHub App installation can "
-        "access, and publish it back to the PR. The requesting user is the review's acting user: their "
-        "enabled perspectives, blind-spot check, validator, and urgency threshold drive the run, and it "
-        "appears under their recent reviews. Resolution writes to the branch only when the pull request "
-        "owner opted in, whoever asks. `run_mode` picks the variant: a review (which chains the resolution "
-        "stage per the owner's resolve_comments setting), a review without resolving, resolution only, or a "
-        "lower-cost Standard review that never resolves comments and is refused after a published Deep review. "
-        "Nonexistent, closed, and fork PRs are rejected synchronously; "
-        "a PR whose current commit already has a published review returns 'already_reviewed' without "
-        "starting a run (resolve_only skips that check — settling threads on a reviewed head is its whole "
-        "point), and triggering a PR whose run is currently in flight joins that run. "
-        "Otherwise non-blocking: returns the Temporal workflow id immediately while the run executes in "
-        "the worker.",
+        "access, and publish it back to the PR. The run appears under the requesting user's recent reviews. "
+        "A Deep review uses the requester's enabled perspectives, blind-spot check, validator, and urgency "
+        "threshold; a Standard review uses none of them. Resolution writes to the branch only when the pull "
+        "request owner opted in, whoever asks. `run_mode` picks the variant: 'review' is a Deep review that "
+        "chains the resolution stage per the owner's resolve_comments setting, 'review_only' is a Deep review "
+        "without resolving, 'resolve_only' runs resolution only, and 'flash' is a lower-cost Standard review "
+        "that never resolves comments and is refused after a published Deep review. "
+        "Nonexistent, closed, and fork PRs are rejected synchronously. "
+        "A PR whose current commit already has a published review in the requested mode returns "
+        "'already_reviewed' without starting a run (resolve_only skips that check, because settling threads "
+        "on a reviewed head is its whole point). A request while a review runs is queued on that PR's run. "
+        "Otherwise non-blocking: returns immediately with the PR's head, the review's id when one exists, and "
+        "whether resolution will run, while the run executes in the worker.",
     )
     @action(methods=["POST"], detail=False, required_scopes=["review_hog:write"])
     def trigger(self, request: Request, **kwargs) -> Response:
@@ -795,6 +830,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        requested_at = timezone.now()
         try:
             outcome = request_pr_review(
                 team_id=team_id,
@@ -815,7 +851,20 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 status=_TRIGGER_REFUSAL_STATUS[outcome.status],
             )
         return Response(
-            ReviewTriggerResponseSerializer({"workflow_id": outcome.workflow_id, "status": outcome.status.value}).data,
+            ReviewTriggerResponseSerializer(
+                {
+                    "workflow_id": outcome.workflow_id,
+                    "status": outcome.status.value,
+                    "repository": outcome.repository,
+                    "pr_number": outcome.pr_number,
+                    "head_sha": outcome.head_sha,
+                    "review_mode": outcome.review_mode,
+                    "report_id": outcome.report_id,
+                    "requested_at": requested_at,
+                    "resolve_will_run": outcome.resolve_will_run,
+                    "resolve_skip_reason": outcome.resolve_skip_reason,
+                }
+            ).data,
             status=status.HTTP_200_OK
             if outcome.status == PRReviewRequestStatus.ALREADY_REVIEWED
             else status.HTTP_202_ACCEPTED,

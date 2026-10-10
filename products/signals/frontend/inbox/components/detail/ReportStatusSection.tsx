@@ -1,10 +1,14 @@
 import { type ReactNode } from 'react'
 
 import { IconInfo } from '@posthog/icons'
+import { LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 
+import type { ReportPriorityApi } from 'products/signals/frontend/generated/api.schemas'
+
+import { PRIORITY_MEANING, PRIORITY_TAG_TYPE } from '../../filterOptions'
 import { SignalReport } from '../../types'
 import { parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { ReportPullRequest, reportPullRequests } from '../../utils/reportPullRequests'
@@ -47,9 +51,13 @@ function externalClaimLabel(report: SignalReport): string | null {
 export function ReportStatusSection({
     report,
     rightSlot,
+    onPriorityChange,
+    prioritySaving = false,
 }: {
     report: SignalReport
     rightSlot?: ReactNode
+    onPriorityChange?: (priority: ReportPriorityApi) => void
+    prioritySaving?: boolean
 }): JSX.Element {
     const externalClaim = externalClaimLabel(report)
     const pullRequests = reportPullRequests(report)
@@ -60,7 +68,45 @@ export function ReportStatusSection({
             <dl className="m-0 flex flex-col gap-2">
                 <StatusRow label="Report status">{STATUS_LABELS[report.status] ?? report.status}</StatusRow>
                 {externalClaim && <StatusRow label="In progress by">{externalClaim}</StatusRow>}
-                {report.priority && <StatusRow label="Priority">{report.priority}</StatusRow>}
+                {report.priority && (
+                    <StatusRow label="Priority">
+                        {onPriorityChange ? (
+                            <LemonSelect<ReportPriorityApi>
+                                aria-label="Change report priority"
+                                data-attr="report-priority-select"
+                                value={report.priority}
+                                onChange={onPriorityChange}
+                                loading={prioritySaving}
+                                disabledReason={prioritySaving ? 'Saving priority…' : undefined}
+                                size="xsmall"
+                                type="tertiary"
+                                dropdownPlacement="bottom-end"
+                                dropdownMatchSelectWidth={false}
+                                menu={{ className: 'w-56' }}
+                                options={Object.entries(PRIORITY_MEANING).map(([priority, { label }]) => ({
+                                    value: priority as ReportPriorityApi,
+                                    label: `${priority} · ${label}`,
+                                    labelInMenu: (
+                                        <span className="flex items-center gap-2">
+                                            <LemonTag
+                                                type={PRIORITY_TAG_TYPE[priority as ReportPriorityApi]}
+                                                size="small"
+                                            >
+                                                {priority}
+                                            </LemonTag>
+                                            <span className="text-default">{label}</span>
+                                        </span>
+                                    ),
+                                }))}
+                                renderButtonContent={() => (
+                                    <span className="text-default text-xs font-normal">{report.priority}</span>
+                                )}
+                            />
+                        ) : (
+                            report.priority
+                        )}
+                    </StatusRow>
+                )}
                 {pullRequests.map((pullRequest, index) => {
                     const prUrl = safeHttpUrl(pullRequest.url)
                     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
