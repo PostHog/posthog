@@ -67,7 +67,6 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     showNestedArrow
                     propertiesTaxonomicGroupTypes={getInsightPropertyFilterGroupTypes({
                         groupsTaxonomicTypes,
-                        hasPageview,
                         hasScreen,
                     })}
                     addFilterDocLink="https://posthog.com/docs/product-analytics/trends/filters"

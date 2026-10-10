@@ -43,7 +43,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile }): JSX.Elem
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { currentTeam } = useValues(teamLogic)
 
-    const { hasPageview, hasScreen } = getProjectEventExistence()
+    const { hasScreen } = getProjectEventExistence()
 
     const query = tile.insight?.query
     const querySource = isInsightVizNode(query) ? query.source : query
@@ -152,7 +152,6 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile }): JSX.Elem
                                 TaxonomicFilterGroupType.PersonProperties,
                                 TaxonomicFilterGroupType.EventFeatureFlags,
                                 TaxonomicFilterGroupType.EventMetadata,
-                                ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
                                 ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
                                 TaxonomicFilterGroupType.EmailAddresses,
                                 ...groupsTaxonomicTypes,

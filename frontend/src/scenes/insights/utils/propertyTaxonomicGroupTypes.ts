@@ -7,12 +7,10 @@ export function getRetentionPropertyFilterGroupTypes(): TaxonomicFilterGroupType
 
 export function getInsightPropertyFilterGroupTypes({
     groupsTaxonomicTypes,
-    hasPageview,
     hasScreen,
     includeDataWarehouseProperties = false,
 }: {
     groupsTaxonomicTypes: TaxonomicFilterGroupType[]
-    hasPageview: boolean
     hasScreen: boolean
     includeDataWarehouseProperties?: boolean
 }): TaxonomicFilterGroupType[] {
@@ -24,7 +22,6 @@ export function getInsightPropertyFilterGroupTypes({
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.EventMetadata,
-        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
         ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
         TaxonomicFilterGroupType.EmailAddresses,
         ...groupsTaxonomicTypes,

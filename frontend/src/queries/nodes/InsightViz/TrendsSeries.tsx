@@ -43,7 +43,6 @@ export function TrendsSeries(): JSX.Element | null {
 
     const propertiesTaxonomicGroupTypes = getInsightPropertyFilterGroupTypes({
         groupsTaxonomicTypes,
-        hasPageview,
         hasScreen,
         includeDataWarehouseProperties: true,
     })

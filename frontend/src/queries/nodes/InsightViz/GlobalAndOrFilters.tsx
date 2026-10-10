@@ -25,11 +25,10 @@ export function GlobalAndOrFilters({ insightProps }: EditorFilterProps): JSX.Ele
     )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
-    const { hasPageview, hasScreen } = getProjectEventExistence()
+    const { hasScreen } = getProjectEventExistence()
 
     const taxonomicGroupTypes = getInsightPropertyFilterGroupTypes({
         groupsTaxonomicTypes,
-        hasPageview,
         hasScreen,
     })
 

@@ -102,7 +102,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const { hasPageview, hasScreen } = getProjectEventExistence()
+    const { hasScreen } = getProjectEventExistence()
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',
@@ -197,7 +197,6 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.EventFeatureFlags,
                         TaxonomicFilterGroupType.EventMetadata,
-                        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
                         ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
                         TaxonomicFilterGroupType.EmailAddresses,
                         ...groupsTaxonomicTypes,
