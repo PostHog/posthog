@@ -15,6 +15,7 @@ from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import persist_findings, persist_verdict, upsert_review_report
+from products.review_hog.backend.reviewer.progress import run_outcome_markers
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import (
     RESOLUTION_SECTION_START,
@@ -661,13 +662,33 @@ class TestUpdateResolutionStatusComment(BaseTest):
 
 
 class TestFailRun(BaseTest):
-    def test_returns_the_report_to_rest_even_without_a_status_comment(self) -> None:
+    @parameterized.expand(
+        [
+            ("before_finalize", False, 1),
+            # Finalize already bumped run_count, so the dying publish belongs to that same turn.
+            ("in_publish_window", True, 1),
+        ]
+    )
+    def test_returns_the_report_to_rest_and_records_the_failed_turn(
+        self, _name: str, finalized: bool, expected_run_index: int
+    ) -> None:
         # Publishing runs defer finalize's idle write to the publish stage, so the failure path must
         # restore rest itself or a dead run reads as in-progress in the UI until the staleness
         # cutoff. A report with no status comment (nothing to edit on GitHub) must still go idle.
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.ACTIVE
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.status == ReviewReport.Status.ACTIVE
+        report.head_sha = "a" * 40
+        if finalized:
+            report.run_count = 1
+            report.completed_head_sha = report.head_sha
+        report.save(update_fields=["head_sha", "run_count", "completed_head_sha"])
 
-        _fail_run(self.team.id, report_id)
+        _fail_run(self.team.id, report_id, review_mode="flash")
 
-        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).status == ReviewReport.Status.IDLE
+        report.refresh_from_db()
+        assert report.status == ReviewReport.Status.IDLE
+        markers = run_outcome_markers(self.team.id, [report_id])[report_id]
+        assert [(m.outcome, m.reason, m.run_index, m.review_mode, m.head_sha) for m in markers] == [
+            ("failed", "review_failed", expected_run_index, "flash", report.head_sha)
+        ]

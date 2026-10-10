@@ -236,8 +236,12 @@ export function InboxDetailFrame({
         reportTaskToOpen,
         reportChecks,
         reportChecksError,
+        prioritySaving,
+        report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
-    const { setDetailTab, expandEvidence, collapseEvidence } = useActions(inboxReportDetailLogic(logicProps))
+    const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
+        inboxReportDetailLogic(logicProps)
+    )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     // The API returns evidence oldest-first, but a reader wants the most recent signal at the top of
@@ -427,7 +431,12 @@ export function InboxDetailFrame({
                     <aside className={DETAIL_ASIDE_COLLAPSED_CLASS}>{showRailButton}</aside>
                 ) : (
                     <aside className={DETAIL_ASIDE_CLASS}>
-                        <ReportStatusSection report={report} rightSlot={hideRailButton} />
+                        <ReportStatusSection
+                            report={currentReport ?? report}
+                            rightSlot={hideRailButton}
+                            onPriorityChange={updatePriority}
+                            prioritySaving={prioritySaving}
+                        />
                         {/* The observation leads, then the evidence its claims rest on. */}
                         {primaryMetric && (
                             <DetailSection

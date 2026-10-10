@@ -99,6 +99,7 @@ import type {
     SignalReportMergeResponseApi,
     SignalReportMetricRefreshRequestApi,
     SignalReportMetricRefreshResponseApi,
+    SignalReportPriorityUpdateApi,
     SignalReportRefundRequestApi,
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
@@ -705,6 +706,28 @@ export const signalsReportPrReviewCommentReactionDestroy = async (
             method: 'DELETE',
         }
     )
+}
+
+export const getSignalsReportsPriorityUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/priority/`
+}
+
+/**
+ * Append an attributed priority correction, preserving the previous judgment for future learning.
+ * @summary Change a report's priority
+ */
+export const signalsReportsPriorityUpdate = async (
+    projectId: string,
+    id: string,
+    signalReportPriorityUpdateApi: SignalReportPriorityUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportApi> => {
+    return apiMutator<SignalReportApi>(getSignalsReportsPriorityUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportPriorityUpdateApi),
+    })
 }
 
 export const getSignalsReportsRefundCreateUrl = (projectId: string, id: string) => {

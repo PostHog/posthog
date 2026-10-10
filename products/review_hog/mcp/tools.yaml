@@ -43,6 +43,28 @@ tools:
             review with `review-hog-reviews-get`. The default `scope=mine` covers reviews you ran plus reviews of pull
             requests you authored. Pass `scope=everyone` for every review on the project, and `limit` to widen the page.
         feature_flag: review-hog
+    review-hog-reviews-pr-status:
+        operation: review_hog_reviews_pr_status_retrieve
+        enabled: true
+        scopes:
+            - review_hog:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a pull request's ReviewHog status
+        description: >
+            Look up where a pull request's ReviewHog runs stand, by `pr_url`. Works for any PR on the project, also ones
+            you did not trigger. `state` is `not_reviewed`, `queued`, `reviewing`, `resolving`, `idle`, or `unknown`.
+            `latest_review` sums up the latest completed turn (its `id`, `run_index`, `review_mode`, `head_sha` and
+            finding counts by priority), and `latest_resolution` the latest Resolve run. The loop for a run you started:
+            call `review-hog-reviews-trigger`, keep the `requested_at` it returns and the `run_mode` you sent, and poll
+            this tool with them (a minute apart is enough) until `request_outcome.status` is not `pending`. On
+            `completed`, call `review-hog-reviews-get` with `request_outcome.review_id` and `run_index` for the
+            findings; a Deep turn also answers a Standard request. `skipped` and `failed` carry a `reason`, for example
+            `flash_after_full`, `review_failed`, or `no_matching_run` (nothing ran for the request and nothing is
+            queued, so trigger again). `unknown` means the run state could not be read: retry later.
+        feature_flag: review-hog
     review-hog-reviews-trigger:
         operation: review_hog_reviews_trigger_create
         enabled: true
@@ -71,6 +93,9 @@ tools:
             skips that check). A request while a review runs is queued on that PR's run and returns
             `joined_running_review`. Refusals: 409 with `code` `flash_after_full` (the PR has a Deep review, so ask for
             `review` instead) or `resolution_not_opted_in` (`resolve_only` on a PR whose owner did not opt in); 409
-            without a code while Resolve runs on the PR, or while a review runs for a `resolve_only` request. Poll
-            progress with `review-hog-reviews-list` and read the findings with `review-hog-reviews-get`.
+            without a code while Resolve runs on the PR, or while a review runs for a `resolve_only` request. To wait
+            for the result, poll `review-hog-reviews-pr-status` with `pr_url`, `requested_at` and `head_sha` from this
+            response and the `run_mode` you sent, until `request_outcome.status` is not `pending` (`unknown` means retry
+            later), then read the findings with `review-hog-reviews-get` using its `review_id` and `run_index`. An
+            `already_reviewed` response needs no polling.
         feature_flag: review-hog

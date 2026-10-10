@@ -13,6 +13,8 @@ export interface SankeyNodeInput<Meta = unknown> {
     color?: string
     /** Consumer data handed back through tooltips and click handlers. */
     meta?: Meta
+    /** Pin the node to this zero-based column. See `column` in docs/chart-types.md for the rules. */
+    column?: number
 }
 
 /** A directed flow from `source` to `target` (both node ids). The graph must be acyclic. */
@@ -97,6 +99,7 @@ interface LayoutNodeProps {
     label: string
     color: string
     meta?: unknown
+    pinnedColumn?: number
     [key: string]: unknown
 }
 
@@ -108,6 +111,9 @@ interface LayoutLinkProps {
     meta?: unknown
     [key: string]: unknown
 }
+
+/** The layout allocates every column up to the highest pin, so one stray pin must not size it. */
+export const MAX_SANKEY_COLUMN = 1000
 
 const ALIGNMENTS = {
     left: sankeyLeft,
@@ -129,12 +135,27 @@ export const EMPTY_SANKEY_LAYOUT: SankeyChartLayout<never> = {
     nodeWidth: 0,
 }
 
+/** Columns the layout will use: the longest path, or more when a pin reaches further right. */
+function columnCountOf(nodes: readonly SankeyNodeInput<unknown>[], links: readonly SankeyLinkInput<unknown>[]): number {
+    const pinned = nodes.reduce((max, node) => (node.column === undefined ? max : Math.max(max, node.column + 1)), 0)
+    return Math.max(longestPathLength(nodes, links), pinned)
+}
+
 /** Nodes on the longest path through the graph, which is the column count the layout engine
- *  gives it. A cycle stops the count early; the engine reports the cycle itself. */
+ *  gives it. */
 function longestPathLength(
     nodes: readonly SankeyNodeInput<unknown>[],
     links: readonly SankeyLinkInput<unknown>[]
 ): number {
+    return Math.max(1, ...nodeDepths(nodes, links).values())
+}
+
+/** Each node's 1-based depth: the nodes on the longest path that ends at it. A cycle stops the
+ *  count early; the engine reports the cycle itself. */
+function nodeDepths(
+    nodes: readonly SankeyNodeInput<unknown>[],
+    links: readonly SankeyLinkInput<unknown>[]
+): Map<string, number> {
     const incoming = new Map<string, number>(nodes.map((node) => [node.id, 0]))
     const outgoing = new Map<string, string[]>()
     for (const link of links) {
@@ -146,14 +167,12 @@ function longestPathLength(
             outgoing.set(link.source, [link.target])
         }
     }
-    const depth = new Map<string, number>()
+    const depth = new Map<string, number>(nodes.map((node) => [node.id, 1]))
     const ready = nodes.filter((node) => incoming.get(node.id) === 0).map((node) => node.id)
-    let longest = 1
     for (let id = ready.pop(); id !== undefined; id = ready.pop()) {
         const next = (depth.get(id) ?? 1) + 1
         for (const target of outgoing.get(id) ?? []) {
             depth.set(target, Math.max(depth.get(target) ?? 1, next))
-            longest = Math.max(longest, next)
             const remaining = (incoming.get(target) ?? 0) - 1
             incoming.set(target, remaining)
             if (remaining === 0) {
@@ -161,7 +180,33 @@ function longestPathLength(
             }
         }
     }
-    return longest
+    return depth
+}
+
+/** Ids of the flow-ending nodes the layout puts in its last column. Known before the layout runs,
+ *  so the chart can size the right margin for their labels first. */
+export function lastColumnSinkIds(
+    nodes: readonly SankeyNodeInput<unknown>[],
+    links: readonly SankeyLinkInput<unknown>[],
+    nodeAlign: SankeyNodeAlign
+): Set<string> {
+    const hasOutgoing = new Set(links.map((link) => link.source))
+    const lastColumn = columnCountOf(nodes, links) - 1
+    const depths = nodeDepths(nodes, links)
+    // `justify` and `right` move every sink to the last column; `left` and `center` keep it at its depth.
+    const sinksMoveLast = nodeAlign === 'justify' || nodeAlign === 'right'
+    const ids = new Set<string>()
+    for (const node of nodes) {
+        // A pin can hold a node with outgoing links in the last column, and its label sits there too.
+        if (node.column === undefined && hasOutgoing.has(node.id)) {
+            continue
+        }
+        const column = node.column ?? (sinksMoveLast ? lastColumn : (depths.get(node.id) ?? 1) - 1)
+        if (column === lastColumn) {
+            ids.add(node.id)
+        }
+    }
+    return ids
 }
 
 /** Lays the graph out inside `plot`. Pure: safe to call from a memo or a test. Throws when a link
@@ -179,14 +224,19 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     colorForLabel,
     resolveColor,
 }: ComputeSankeyLayoutOptions<NodeMeta, LinkMeta>): SankeyChartLayout<NodeMeta, LinkMeta> {
-    if (nodes.length === 0 || links.length === 0 || plot.plotWidth <= 0 || plot.plotHeight <= 0) {
-        return EMPTY_SANKEY_LAYOUT as SankeyChartLayout<NodeMeta, LinkMeta>
-    }
-
+    // Validate before the empty-layout return, so a bad graph fails before the chart has a size.
     const nodeIds = new Set<string>()
     for (const node of nodes) {
         if (nodeIds.has(node.id)) {
             throw new Error(`duplicate Sankey node id: ${node.id}`)
+        }
+        if (
+            node.column !== undefined &&
+            !(Number.isInteger(node.column) && node.column >= 0 && node.column <= MAX_SANKEY_COLUMN)
+        ) {
+            throw new Error(
+                `Sankey node ${node.id} needs a whole column from 0 to ${MAX_SANKEY_COLUMN}, got ${node.column}`
+            )
         }
         nodeIds.add(node.id)
     }
@@ -204,13 +254,25 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     if (!Number.isFinite(nodePadding) || nodePadding < 0) {
         throw new Error(`Sankey nodePadding must be a finite number of 0 or more: ${nodePadding}`)
     }
-    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, longestPathLength(nodes, links) - 1))
+    if (nodes.length === 0 || links.length === 0 || plot.plotWidth <= 0 || plot.plotHeight <= 0) {
+        return EMPTY_SANKEY_LAYOUT as SankeyChartLayout<NodeMeta, LinkMeta>
+    }
+
+    const columnCount = columnCountOf(nodes, links)
+    const effectiveNodeWidth = Math.min(nodeWidth, plot.plotWidth / Math.max(1, columnCount))
 
     // The engine mutates its inputs, so hand it fresh objects.
     const engineNodes: LayoutNodeProps[] = nodes.map((node) => {
         const label = node.label ?? node.id
-        return { id: node.id, label, color: resolveColor(node.color || colorForLabel(label)), meta: node.meta }
+        return {
+            id: node.id,
+            label,
+            color: resolveColor(node.color || colorForLabel(label)),
+            meta: node.meta,
+            pinnedColumn: node.column,
+        }
     })
+    const hasPinnedColumns = nodes.some((node) => node.column !== undefined)
     const engineLinks: LayoutLinkProps[] = links.map((link) => ({
         source: link.source,
         target: link.target,
@@ -222,6 +284,7 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const graph = sankeyLayout<LayoutNodeProps, LayoutLinkProps>()
         .nodeId((node) => node.id)
         .nodeAlign(ALIGNMENTS[nodeAlign])
+        .nodeColumn(hasPinnedColumns ? (node) => node.pinnedColumn : null)
         .nodeSort(preserveNodeOrder ? null : undefined)
         .nodeWidth(effectiveNodeWidth)
         .nodePadding(nodePadding)
@@ -265,9 +328,9 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
         }
     })
 
-    const columnCount = graph.nodes.reduce((max, node) => Math.max(max, node.layer + 1), 0)
-    // Mirrors the engine's column spacing, so a column with no node still gets a position.
-    const columnStep = columnCount <= 1 ? 0 : (plot.plotWidth - effectiveNodeWidth) / (columnCount - 1)
+    // A pinned column can hold no node, so derive every column's x from the engine's spacing
+    // rather than from the nodes that happen to land in it, and headers never read a hole.
+    const columnStep = columnCount > 1 ? (plot.plotWidth - effectiveNodeWidth) / (columnCount - 1) : 0
     const columnX = Array.from({ length: columnCount }, (_, column) => plot.plotLeft + column * columnStep)
 
     // Zero-value links do not feed a node, so a node fed only by them still counts as a source.
@@ -283,6 +346,15 @@ export function computeSankeyLayout<NodeMeta = unknown, LinkMeta = NodeMeta>({
     return { nodes: outNodes, links: outLinks, columnCount, columnX, total, nodeWidth: effectiveNodeWidth }
 }
 
+/** The part of a drawn node label the hit test needs: its node's index and its box. */
+export interface SankeyLabelHitBox {
+    index: number
+    x0: number
+    x1: number
+    y0: number
+    y1: number
+}
+
 export type SankeyHit = { kind: 'node'; index: number } | { kind: 'link'; index: number }
 
 /** Resolves what sits under the cursor: a node box first, then the nearest ribbon whose thickness
@@ -290,7 +362,8 @@ export type SankeyHit = { kind: 'node'; index: number } | { kind: 'link'; index:
  *  at the horizontal midpoint), so the test follows the painted shape exactly. */
 export function sankeyHitAt(
     layout: SankeyChartLayout<unknown, unknown>,
-    cursor: { x: number; y: number }
+    cursor: { x: number; y: number },
+    labels: readonly SankeyLabelHitBox[] = []
 ): SankeyHit | null {
     for (let i = 0; i < layout.nodes.length; i++) {
         const node = layout.nodes[i]
@@ -299,6 +372,12 @@ export function sankeyHitAt(
         const y1 = y0 + nodeHeight
         if (cursor.x >= node.x0 && cursor.x <= node.x1 && cursor.y >= y0 && cursor.y <= y1) {
             return { kind: 'node', index: i }
+        }
+    }
+    // A label stands for its node, so pointing at a truncated name shows the node's full tooltip.
+    for (const label of labels) {
+        if (cursor.x >= label.x0 && cursor.x <= label.x1 && cursor.y >= label.y0 && cursor.y <= label.y1) {
+            return { kind: 'node', index: label.index }
         }
     }
     let best: { index: number; distance: number } | null = null

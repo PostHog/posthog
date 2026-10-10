@@ -21,8 +21,11 @@ import type {
     ReviewHogRepositoryOverviewRetrieveParams,
     ReviewHogReviewsListParams,
     ReviewHogReviewsPerspectiveStatsRetrieveParams,
+    ReviewHogReviewsPrStatusRetrieveParams,
+    ReviewHogReviewsRetrieveParams,
     ReviewInstallationClaimApi,
     ReviewInstallationClaimCreateApi,
+    ReviewPRStatusApi,
     ReviewPerspectiveConfigApi,
     ReviewPerspectiveStatsApi,
     ReviewProjectSettingsApi,
@@ -568,20 +571,37 @@ export const reviewHogReviewsList = async (
     })
 }
 
-export const getReviewHogReviewsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/review_hog/reviews/${id}/`
+export const getReviewHogReviewsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: ReviewHogReviewsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/review_hog/reviews/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/review_hog/reviews/${id}/`
 }
 
 /**
- * One completed ReviewHog review on this project, with the latest turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.
+ * One completed ReviewHog review on this project, with one turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. The latest completed turn by default; `run_index` reads an older one. `in_progress`, `progress`, and the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed under `scope=everyone` can be opened too.
  * @summary Retrieve one review's detail
  */
 export const reviewHogReviewsRetrieve = async (
     projectId: string,
     id: string,
+    params?: ReviewHogReviewsRetrieveParams,
     options?: RequestInit
 ): Promise<ReviewDetailApi> => {
-    return apiMutator<ReviewDetailApi>(getReviewHogReviewsRetrieveUrl(projectId, id), {
+    return apiMutator<ReviewDetailApi>(getReviewHogReviewsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })
@@ -616,6 +636,40 @@ export const reviewHogReviewsPerspectiveStatsRetrieve = async (
     options?: RequestInit
 ): Promise<ReviewPerspectiveStatsApi> => {
     return apiMutator<ReviewPerspectiveStatsApi>(getReviewHogReviewsPerspectiveStatsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReviewHogReviewsPrStatusRetrieveUrl = (
+    projectId: string,
+    params: ReviewHogReviewsPrStatusRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/review_hog/reviews/pr_status/?${stringifiedParams}`
+        : `/api/projects/${projectId}/review_hog/reviews/pr_status/`
+}
+
+/**
+ * Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called with, to get `request_outcome`, which says when that request is done.
+ * @summary Look up a pull request's review status
+ */
+export const reviewHogReviewsPrStatusRetrieve = async (
+    projectId: string,
+    params: ReviewHogReviewsPrStatusRetrieveParams,
+    options?: RequestInit
+): Promise<ReviewPRStatusApi> => {
+    return apiMutator<ReviewPRStatusApi>(getReviewHogReviewsPrStatusRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

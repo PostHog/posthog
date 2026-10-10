@@ -1,4 +1,4 @@
-import { bezierX, bezierY, computeSankeyLayout, sankeyHitAt } from './sankey-data'
+import { MAX_SANKEY_COLUMN, bezierX, bezierY, computeSankeyLayout, sankeyHitAt } from './sankey-data'
 import type { ComputeSankeyLayoutOptions, SankeyLinkInput, SankeyNodeInput } from './sankey-data'
 
 const PLOT = { plotLeft: 0, plotTop: 0, plotWidth: 600, plotHeight: 300 }
@@ -61,6 +61,65 @@ describe('computeSankeyLayout', () => {
         expect([columnOf('right', 'start'), columnOf('right', 'a'), columnOf('right', 'ended')]).toEqual([0, 1, 2])
     })
 
+    it('pins a node to its own column and widens the graph to fit it', () => {
+        // A late stage with no link from the earlier stages: depth alone would put `late` in the
+        // first column, and the graph would have three columns instead of five.
+        const nodes: SankeyNodeInput[] = [...NODES, { id: 'late', column: 3 }, { id: 'last', column: 4 }]
+        const links: SankeyLinkInput[] = [...LINKS, { source: 'late', target: 'last', value: 2 }]
+        const layout = layoutOf({ nodes, links, nodeAlign: 'left' })
+        const columnOf = (id: string): number | undefined => layout.nodes.find((n) => n.id === id)?.column
+        expect([columnOf('start'), columnOf('done'), columnOf('late'), columnOf('last')]).toEqual([0, 2, 3, 4])
+        expect(layout.columnCount).toBe(5)
+    })
+
+    it('lays out a pinned graph with an empty column between the pins', () => {
+        // Only two nodes, pinned three columns apart with nothing to naturally fill the columns
+        // between them: the graph must not crash spacing out a column with zero nodes in it.
+        const nodes: SankeyNodeInput[] = [
+            { id: 'x', column: 0 },
+            { id: 'y', column: 3 },
+        ]
+        const links: SankeyLinkInput[] = [{ source: 'x', target: 'y', value: 5 }]
+        expect(() => layoutOf({ nodes, links, nodeAlign: 'left' })).not.toThrow()
+        const layout = layoutOf({ nodes, links, nodeAlign: 'left' })
+        const columnOf = (id: string): number | undefined => layout.nodes.find((n) => n.id === id)?.column
+        expect([columnOf('x'), columnOf('y')]).toEqual([0, 3])
+        expect(layout.columnCount).toBe(4)
+        // Headers over the empty columns need an x too, evenly spaced between the pinned ones.
+        expect(layout.columnX).toEqual([0, 590 / 3, (2 * 590) / 3, 590])
+    })
+
+    it('spaces column headers like the nodes when the last column the engine allots is empty', () => {
+        // The unpinned chain is five deep, but `b` is pinned back to column 2, so column 4 holds no node.
+        const nodes: SankeyNodeInput[] = [
+            { id: 'a', column: 0 },
+            { id: 'u1' },
+            { id: 'u2' },
+            { id: 'u3' },
+            { id: 'b', column: 2 },
+        ]
+        const links: SankeyLinkInput[] = [
+            { source: 'a', target: 'u1', value: 5 },
+            { source: 'u1', target: 'u2', value: 5 },
+            { source: 'u2', target: 'u3', value: 5 },
+            { source: 'u3', target: 'b', value: 5 },
+        ]
+        const layout = layoutOf({ nodes, links, nodeAlign: 'left' })
+        expect(layout.columnCount).toBe(5)
+        expect(layout.nodes.map((node) => layout.columnX[node.column])).toEqual(layout.nodes.map((node) => node.x0))
+    })
+
+    it.each([MAX_SANKEY_COLUMN + 1, -1, 1.5, NaN])('rejects a pin of %p instead of moving the node', (column) => {
+        const nodes: SankeyNodeInput[] = [
+            { id: 'x', column: 0 },
+            { id: 'y', column },
+        ]
+        const links: SankeyLinkInput[] = [{ source: 'x', target: 'y', value: 5 }]
+        expect(() => layoutOf({ nodes, links, nodeAlign: 'left' })).toThrow('needs a whole column')
+        const unsized = { plotLeft: 0, plotTop: 0, plotWidth: 0, plotHeight: 0 }
+        expect(() => layoutOf({ nodes, links, nodeAlign: 'left', plot: unsized })).toThrow('needs a whole column')
+    })
+
     it('resolves node colors by label and defaults link color to the source node', () => {
         const layout = layoutOf({
             nodes: [...NODES.slice(0, 3), { id: 'done', label: 'Completed', color: 'var(--success)' }],
@@ -82,6 +141,19 @@ describe('computeSankeyLayout', () => {
         })
         expect(dense.columnCount).toBe(2)
         expect(dense.nodeWidth).toBe(10)
+    })
+
+    it('caps node width by the furthest pin when pins add columns past the longest path', () => {
+        const pinned = layoutOf({
+            nodes: [
+                { id: 'x', column: 0 },
+                { id: 'y', column: 99 },
+            ],
+            links: [{ source: 'x', target: 'y', value: 1 }],
+            nodeAlign: 'left',
+        })
+        expect(pinned.columnCount).toBe(100)
+        expect(pinned.nodeWidth).toBeCloseTo(600 / 100)
     })
 
     it('returns an empty layout without links and throws on a link to a missing node', () => {
