@@ -28,7 +28,7 @@ from ee.hogai.tools.call_mcp_server.installations import (
     _get_installations,
     _get_tool_approval_states,
 )
-from ee.hogai.tools.call_mcp_server.mcp_client import MCPClientError
+from ee.hogai.tools.call_mcp_server.mcp_client import MCPClientError, MCPInvalidToolResultError
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
@@ -661,6 +661,24 @@ class TestAuthRefresh(TestCallMCPServerTool):
 
         tool._refresh_token_for_server.assert_called_once_with(self.SERVER_URL)
         self.assertEqual(result, "success after refresh")
+
+    async def test_invalid_tool_result_is_fatal_without_refresh(self):
+        inst = _make_oauth_installation(server_url=self.SERVER_URL)
+        tool = self._create_tool(installations=[inst])
+        tool._refresh_token_for_server = AsyncMock()
+
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            client = self._make_mock_client()
+            client.call_tool = AsyncMock(
+                side_effect=MCPInvalidToolResultError("Tool search returned an invalid result")
+            )
+            MockClient.return_value = client
+
+            with self.assertRaises(MaxToolFatalError):
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="search")
+
+        tool._refresh_token_for_server.assert_not_called()
+        client.call_tool.assert_called_once()
 
     async def test_refresh_failure_raises_fatal(self):
         inst = _make_oauth_installation(server_url=self.SERVER_URL)

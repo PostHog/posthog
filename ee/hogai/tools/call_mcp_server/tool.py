@@ -28,7 +28,7 @@ from .installations import (
     _mark_needs_reauth_sync,
     _refresh_token_sync,
 )
-from .mcp_client import MCPClient, MCPClientError
+from .mcp_client import MCPClient, MCPClientError, MCPInvalidToolResultError
 
 _APPROVAL_DEFAULT = "needs_approval"
 
@@ -204,6 +204,8 @@ class CallMCPServerTool(MaxTool):
         try:
             result = await self._call_server(server_url, tool_name, arguments)
             return result, None
+        except MCPInvalidToolResultError as e:
+            raise MaxToolFatalError(f"MCP server error: {e}")
         except MCPClientError as e:
             raise MaxToolRetryableError(f"MCP server error: {e}")
 
@@ -222,6 +224,8 @@ class CallMCPServerTool(MaxTool):
     async def _call_server(self, server_url: str, tool_name: str, arguments: dict | None) -> str:
         try:
             return await self._attempt_call(server_url, tool_name, arguments)
+        except MCPInvalidToolResultError:
+            raise
         except MCPClientError:
             # Refresh auth in case that was the issue and retry the tool call once.
             await self._refresh_auth_or_mark_reauth(server_url)
