@@ -15,7 +15,6 @@ export function InboxMcpBanner(): JSX.Element | null {
             action={{
                 children: 'Install PostHog MCP',
                 type: 'primary',
-                status: 'alt',
                 to: 'https://posthog.com/docs/model-context-protocol#get-started-in-30-seconds',
                 targetBlank: true,
                 'data-attr': 'inbox-mcp-banner-install',
