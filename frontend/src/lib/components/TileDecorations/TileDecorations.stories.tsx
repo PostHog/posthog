@@ -71,6 +71,8 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-01',
         pageUrl: urls.dashboard(DASHBOARD_ID),
+        // These stories check the tile decorations. The charts paint async and flake the snapshot.
+        testOptions: { skipCanvasDraw: true },
     },
 }
 export default meta
