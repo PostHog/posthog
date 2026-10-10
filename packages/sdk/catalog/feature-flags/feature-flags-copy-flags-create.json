@@ -1,6 +1,7 @@
 {
     "method": "featureFlags.featureFlagsCopyFlagsCreate",
     "toolName": "feature-flags-copy-flags-create",
+    "operationId": "feature_flags_copy_flags_create",
     "title": "Copy feature flag across projects",
     "category": "Feature flags",
     "description": "Copy a feature flag from one project to other projects within the same organization. Provide the flag key, source project ID, and a list of target project IDs. Optionally copy scheduled changes with copy_schedule. Set copy_dependencies only when the user explicitly wants missing transitive flag dependencies copied too; existing active same-key dependencies in target projects are reused, disabled same-key dependencies are left untouched, and warnings explain any dependencies or schedules that could not be copied. Returns lists of successful and failed copies.",
@@ -88,9 +89,9 @@
                     "role": "original",
                     "text": "Key of the feature flag to copy",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
-                        "pointer": "#/properties/feature_flag_key"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/feature_flags/copy_flags/"
                     }
                 }
             ]
@@ -104,9 +105,9 @@
                     "role": "original",
                     "text": "Source project ID to copy the flag from",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
-                        "pointer": "#/properties/from_project"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/feature_flags/copy_flags/"
                     }
                 }
             ]
@@ -120,9 +121,9 @@
                     "role": "original",
                     "text": "List of target project IDs to copy the flag to",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
-                        "pointer": "#/properties/target_project_ids"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/feature_flags/copy_flags/"
                     }
                 }
             ]
@@ -136,9 +137,9 @@
                     "role": "original",
                     "text": "Whether to also copy scheduled changes for this flag",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
-                        "pointer": "#/properties/copy_schedule"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/feature_flags/copy_flags/"
                     }
                 }
             ]
@@ -152,9 +153,9 @@
                     "role": "original",
                     "text": "Whether to force the copied flag to be disabled in target projects, ignoring the source flag's enabled status",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
-                        "pointer": "#/properties/disable_copied_flag"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/feature_flags/copy_flags/"
                     }
                 }
             ]
@@ -168,9 +169,9 @@
                     "role": "original",
                     "text": "Whether to also copy missing feature flags that this flag depends on",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
-                        "pointer": "#/properties/copy_dependencies"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/feature_flags/copy_flags/"
                     }
                 }
             ]

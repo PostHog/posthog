@@ -1,6 +1,7 @@
 {
     "method": "accessControl.accessControlDefaultRuleSetExecute",
     "toolName": "access-control-default-rule-set-execute",
+    "operationId": "organizations_projects_access_control_default_rules_update",
     "title": "Set or clear the default access rule for a scope (execute)",
     "category": "Access control",
     "description": "Step 2 of 2 for change the default access rule. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",
@@ -33,6 +34,15 @@
         }
     ],
     "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Set or clear the rule everyone in the project gets for a scope, unless a member or role rule of their own applies. The scope is the project (`resource: project` with the project id as `resource_id`), a whole resource type, one object, or one property definition. A null `access_level` removes the rule. Returns the stored rule, or 204 with no body when the rule is cleared.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1projects~1{id}~1access_control_default_rules~1/put"
+            }
+        },
         {
             "role": "override",
             "text": "Sets the level everyone in the project gets for one scope when they have no member rule or role rule of their own there. Use it to change the project baseline (`resource: project` with the project id as `resource_id`, level `none`, `member` or `admin`), the default for a whole tool (`resource: dashboard`, level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current and new level before asking for confirmation. Requires human typed confirmation.",

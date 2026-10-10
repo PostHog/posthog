@@ -47,6 +47,8 @@ export interface ContextLayerClient {
     /**
      * Resolve a channel id to its repo-relative page path in the organization context wiki. Use the returned path with context-wiki-page-retrieve and context-wiki-page-update. Do not derive a path from the channel name.
      *
+     * @sourceDescription The channel's page path. When the channel has no page yet, responds with the canonical path to create it at and `exists: false`.
+     *
      * @mcpTool context-wiki-channel-resolve
      *
      * @requiredScopes organization:read
@@ -57,6 +59,15 @@ export interface ContextLayerClient {
     ): Promise<ContextLayerContextWikiChannelResolveOutput>
     /**
      * Read one repo-relative Markdown page from the organization context wiki. Returns its content and head_sha; pass that head_sha as base_head when updating the page. Reads are bounded. Follow next_offset with the same head_sha and limit until complete is true. Join content chunks in order before editing. On 409, discard the chunks and restart at offset zero.
+     *
+     * @sourceDescription The same organization wiki, reached by an agent run inside a sandbox.
+     *
+     * This exists as a second, project-nested route because a sandbox run token
+     * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+     * project-nested view — on the organization-scoped route above, every sandbox
+     * token is refused before it reaches any of this. The wiki is still one repo
+     * per organization; the project in the path is how a run token proves which
+     * organization it may act for, and is not a scope on the wiki itself.
      *
      * @mcpTool context-wiki-page-retrieve
      *
@@ -69,6 +80,15 @@ export interface ContextLayerClient {
     /**
      * Replace one context wiki page with complete Markdown content. Read it first and pass its head_sha as base_head. A concurrent wiki change returns a conflict instead of being overwritten.
      *
+     * @sourceDescription The same organization wiki, reached by an agent run inside a sandbox.
+     *
+     * This exists as a second, project-nested route because a sandbox run token
+     * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+     * project-nested view — on the organization-scoped route above, every sandbox
+     * token is refused before it reaches any of this. The wiki is still one repo
+     * per organization; the project in the path is how a run token proves which
+     * organization it may act for, and is not a scope on the wiki itself.
+     *
      * @mcpTool context-wiki-page-update
      *
      * @requiredScopes organization:write
@@ -79,6 +99,8 @@ export interface ContextLayerClient {
     ): Promise<ContextLayerContextWikiPageUpdateOutput>
     /**
      * Resolve a channel id to its context wiki page path for an unattended loop run.
+     *
+     * @sourceDescription The channel's page path. When the channel has no page yet, responds with the canonical path to create it at and `exists: false`.
      *
      * @mcpTool loop-context-wiki-channel-resolve
      *
@@ -91,6 +113,15 @@ export interface ContextLayerClient {
     /**
      * Read a bounded context wiki page chunk and its head_sha for an unattended loop run. Follow next_offset with the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard the chunks and restart at offset zero.
      *
+     * @sourceDescription The same organization wiki, reached by an agent run inside a sandbox.
+     *
+     * This exists as a second, project-nested route because a sandbox run token
+     * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+     * project-nested view — on the organization-scoped route above, every sandbox
+     * token is refused before it reaches any of this. The wiki is still one repo
+     * per organization; the project in the path is how a run token proves which
+     * organization it may act for, and is not a scope on the wiki itself.
+     *
      * @mcpTool loop-context-wiki-page-retrieve
      *
      * @requiredScopes task:read, loop_context_internal:write
@@ -101,6 +132,15 @@ export interface ContextLayerClient {
     ): Promise<ContextLayerLoopContextWikiPageRetrieveOutput>
     /**
      * Replace a context wiki page using base_head concurrency for an unattended loop run.
+     *
+     * @sourceDescription The same organization wiki, reached by an agent run inside a sandbox.
+     *
+     * This exists as a second, project-nested route because a sandbox run token
+     * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+     * project-nested view — on the organization-scoped route above, every sandbox
+     * token is refused before it reaches any of this. The wiki is still one repo
+     * per organization; the project in the path is how a run token proves which
+     * organization it may act for, and is not a scope on the wiki itself.
      *
      * @mcpTool loop-context-wiki-page-update
      *
@@ -113,6 +153,8 @@ export interface ContextLayerClient {
     /**
      * Resolve the current task's channel id to its context wiki page path for an unattended task run.
      *
+     * @sourceDescription The channel's page path. When the channel has no page yet, responds with the canonical path to create it at and `exists: false`.
+     *
      * @mcpTool task-context-wiki-channel-resolve
      *
      * @requiredScopes task:read, internal_run:read
@@ -123,6 +165,15 @@ export interface ContextLayerClient {
     ): Promise<ContextLayerTaskContextWikiChannelResolveOutput>
     /**
      * Propose a correction to an existing shared Markdown page under org/, areas/, or decisions/. Read it first and pass head_sha as base_head. This stores an immutable suggestion, not a published edit. Ask the user to open Context > Suggested edits, review the diff, and apply it. Tasks cannot approve suggestions or publish bundles. Shared pages cannot include channel_id frontmatter.
+     *
+     * @sourceDescription The same organization wiki, reached by an agent run inside a sandbox.
+     *
+     * This exists as a second, project-nested route because a sandbox run token
+     * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+     * project-nested view — on the organization-scoped route above, every sandbox
+     * token is refused before it reaches any of this. The wiki is still one repo
+     * per organization; the project in the path is how a run token proves which
+     * organization it may act for, and is not a scope on the wiki itself.
      *
      * @mcpTool task-context-wiki-page-propose
      *
@@ -135,6 +186,15 @@ export interface ContextLayerClient {
     /**
      * Read a bounded context wiki page chunk and its head_sha for an unattended task run. Follow next_offset with the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard the chunks and restart at offset zero.
      *
+     * @sourceDescription The same organization wiki, reached by an agent run inside a sandbox.
+     *
+     * This exists as a second, project-nested route because a sandbox run token
+     * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+     * project-nested view — on the organization-scoped route above, every sandbox
+     * token is refused before it reaches any of this. The wiki is still one repo
+     * per organization; the project in the path is how a run token proves which
+     * organization it may act for, and is not a scope on the wiki itself.
+     *
      * @mcpTool task-context-wiki-page-retrieve
      *
      * @requiredScopes task:read, internal_run:read
@@ -145,6 +205,15 @@ export interface ContextLayerClient {
     ): Promise<ContextLayerTaskContextWikiPageRetrieveOutput>
     /**
      * Replace the current task channel's context page. Read it first and pass head_sha as base_head. Shared pages require task-context-wiki-page-propose and human review. Instruction files, generated indexes, scripts, and other channels' pages cannot be edited.
+     *
+     * @sourceDescription The same organization wiki, reached by an agent run inside a sandbox.
+     *
+     * This exists as a second, project-nested route because a sandbox run token
+     * carries `scoped_teams`, and `APIScopePermission` accepts those only on a
+     * project-nested view — on the organization-scoped route above, every sandbox
+     * token is refused before it reaches any of this. The wiki is still one repo
+     * per organization; the project in the path is how a run token proves which
+     * organization it may act for, and is not a scope on the wiki itself.
      *
      * @mcpTool task-context-wiki-page-update
      *

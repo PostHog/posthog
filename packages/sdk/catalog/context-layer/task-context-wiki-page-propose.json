@@ -1,6 +1,7 @@
 {
     "method": "contextLayer.taskContextWikiPagePropose",
     "toolName": "task-context-wiki-page-propose",
+    "operationId": "context_layer_agent_proposals_create",
     "title": "Suggest a shared wiki edit",
     "category": "Context wiki",
     "description": "Propose a correction to an existing shared Markdown page under org/, areas/, or decisions/. Read it first and pass head_sha as base_head. This stores an immutable suggestion, not a published edit. Ask the user to open Context > Suggested edits, review the diff, and apply it. Tasks cannot approve suggestions or publish bundles. Shared pages cannot include channel_id frontmatter.",
@@ -51,6 +52,15 @@
         }
     ],
     "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The same organization wiki, reached by an agent run inside a sandbox.\n\nThis exists as a second, project-nested route because a sandbox run token\ncarries `scoped_teams`, and `APIScopePermission` accepts those only on a\nproject-nested view — on the organization-scoped route above, every sandbox\ntoken is refused before it reaches any of this. The wiki is still one repo\nper organization; the project in the path is how a run token proves which\norganization it may act for, and is not a scope on the wiki itself.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1context_layer~1agent~1proposals~1/post"
+            }
+        },
         {
             "role": "override",
             "text": "Propose a correction to an existing shared Markdown page under org/, areas/, or decisions/. Read it first and pass head_sha as base_head. This stores an immutable suggestion, not a published edit. Ask the user to open Context > Suggested edits, review the diff, and apply it. Tasks cannot approve suggestions or publish bundles. Shared pages cannot include channel_id frontmatter.",
@@ -117,6 +127,54 @@
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/context_layer.ts",
                         "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeInput",
+            "field": "path",
+            "effectiveDescription": "Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/context_layer/agent/proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeInput",
+            "field": "content",
+            "effectiveDescription": "The complete Markdown content for the page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The complete Markdown content for the page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/context_layer/agent/proposals/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageProposeInput",
+            "field": "base_head",
+            "effectiveDescription": "The head_sha returned when reading the page. Required to bind the proposed edit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The head_sha returned when reading the page. Required to bind the proposed edit.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/context_layer/agent/proposals/"
                     }
                 }
             ]

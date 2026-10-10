@@ -1,8 +1,8 @@
 {
     "schemaVersion": 1,
     "packageVersion": "0.1.0",
-    "sourceRevision": "d2beb2ad2bc90b8353ed1168805905d350dd6e23fbf4cbf12feda50dd5be8e67",
-    "schemaHash": "7eb94240322bd699a595faa09b5a069a1b79a7f296d6ee97a7fb803a2457bbac",
+    "sourceRevision": "3ba731d9a0fbc000bd371a6ee46b1342cca0c7fb9b86cf8d800ff3b5d4061e8d",
+    "schemaHash": "74fd86e2ee5602f987997d2f00d2b32414d27cc116f8f12c77b48ca1fa31138c",
     "tools": [
         {
             "method": "accessControl.accessControlDefaultObjectsList",

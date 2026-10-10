@@ -1,6 +1,7 @@
 {
     "method": "contextLayer.taskContextWikiPageRetrieve",
     "toolName": "task-context-wiki-page-retrieve",
+    "operationId": "context_layer_agent_pages_retrieve",
     "title": "Read this task's context wiki page",
     "category": "Context wiki",
     "description": "Read a bounded context wiki page chunk and its head_sha for an unattended task run. Follow next_offset with the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard the chunks and restart at offset zero.",
@@ -46,6 +47,15 @@
     ],
     "methodDocumentation": [
         {
+            "role": "original",
+            "text": "The same organization wiki, reached by an agent run inside a sandbox.\n\nThis exists as a second, project-nested route because a sandbox run token\ncarries `scoped_teams`, and `APIScopePermission` accepts those only on a\nproject-nested view — on the organization-scoped route above, every sandbox\ntoken is refused before it reaches any of this. The wiki is still one repo\nper organization; the project in the path is how a run token proves which\norganization it may act for, and is not a scope on the wiki itself.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1context_layer~1agent~1pages~1/get"
+            }
+        },
+        {
             "role": "override",
             "text": "Read a bounded context wiki page chunk and its head_sha for an unattended task run. Follow next_offset with the same head_sha and limit until complete is true. Join all content chunks before editing. On 409, discard the chunks and restart at offset zero.",
             "source": {
@@ -64,9 +74,25 @@
                     "role": "original",
                     "text": "Head from the first chunk. Required for continuation. A changed head returns 409.",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/context_layer.ts",
-                        "pointer": "#/properties/head_sha"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/context_layer/agent/pages/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ContextLayerTaskContextWikiPageRetrieveInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum characters to read. Omit for the full page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum characters to read. Omit for the full page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/context_layer/agent/pages/"
                     }
                 }
             ]
@@ -80,9 +106,9 @@
                     "role": "original",
                     "text": "Character offset from next_offset.",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/context_layer.ts",
-                        "pointer": "#/properties/offset"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/context_layer/agent/pages/"
                     }
                 }
             ]
@@ -96,9 +122,9 @@
                     "role": "original",
                     "text": "Repo-relative Markdown path of the page to read.",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/context_layer.ts",
-                        "pointer": "#/properties/path"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/context_layer/agent/pages/"
                     }
                 }
             ]

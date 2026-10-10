@@ -1,6 +1,7 @@
 {
     "method": "managedMigrations.managedMigrationsSupportList",
     "toolName": "managed-migrations-support-list",
+    "operationId": "managed_migrations_support_list",
     "title": "List batch import jobs across all teams (PostHog staff only)",
     "category": "Managed migrations",
     "description": "List batch import (managed migration) jobs across ALL PostHog teams, for troubleshooting customer migrations. PostHog staff only: the backend requires a staff user AND a personal API key explicitly carrying the `batch_import_support:read` scope. A full-access (`*`) key is rejected; OAuth sign-in can never grant this scope.\n\nFilter with `team_id` (the customer's project id) or `status` (`running`, `paused`, `failed`, `completed`), or `search` (matches the developer status message and team name). Results are newest-first.\n\nHow to read a job's state:\n\n- `display_status: waiting_to_start` means the job is `running` but no worker has claimed it yet (`lease_id` is null) - it is queued, not stuck.\n- Workers hold a lease per job: 30 minutes on initial claim, renewed for 5 minutes on each heartbeat. `lease_expired: true` on a `running` job means the worker died or the row is about to be re-claimed by the next worker poll.\n- A `paused` job KEEPS its worker lease; resuming requires clearing the lease (a Django admin action today - this API is read-only).\n- `paused` with a `status_message` mentioning invalid JSON syntax at the resume point usually means a poisoned byte offset: the source bytes changed under the committed offset (re-downloaded nondeterministic export or replaced source file). The fix is Django admin's \"Resume + re-import in-flight part\", which resets the in-flight part to offset 0 (safe for Mixpanel/Amplitude, which dedupe by deterministic event UUID).\n- `backoff_until` in the future means the job is in a transient-failure retry loop (`backoff_attempt` counts consecutive retries), not stuck.\n- `parts_progress` summarizes the worker's units of work: a part is done when its committed byte offset reaches its total size; parts are processed in order, so the in-flight part is the first unfinished one.\n- `status_message` is the developer-facing debugging signal; `display_status_message` is what the customer sees in the PostHog UI.\n\nUse `managed-migrations-support-get` with a job id for the raw worker `state` and `import_config` blobs. Credentials (`secrets`) are never returned.",
@@ -76,6 +77,15 @@
     ],
     "methodDocumentation": [
         {
+            "role": "original",
+            "text": "List batch import (managed migration) jobs across all teams. PostHog staff only.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1managed_migrations_support~1/get"
+            }
+        },
+        {
             "role": "override",
             "text": "List batch import (managed migration) jobs across ALL PostHog teams, for troubleshooting customer migrations. PostHog staff only: the backend requires a staff user AND a personal API key explicitly carrying the `batch_import_support:read` scope. A full-access (`*`) key is rejected; OAuth sign-in can never grant this scope.\n\nFilter with `team_id` (the customer's project id) or `status` (`running`, `paused`, `failed`, `completed`), or `search` (matches the developer status message and team name). Results are newest-first.\n\nHow to read a job's state:\n\n- `display_status: waiting_to_start` means the job is `running` but no worker has claimed it yet (`lease_id` is null) - it is queued, not stuck.\n- Workers hold a lease per job: 30 minutes on initial claim, renewed for 5 minutes on each heartbeat. `lease_expired: true` on a `running` job means the worker died or the row is about to be re-claimed by the next worker poll.\n- A `paused` job KEEPS its worker lease; resuming requires clearing the lease (a Django admin action today - this API is read-only).\n- `paused` with a `status_message` mentioning invalid JSON syntax at the resume point usually means a poisoned byte offset: the source bytes changed under the committed offset (re-downloaded nondeterministic export or replaced source file). The fix is Django admin's \"Resume + re-import in-flight part\", which resets the in-flight part to offset 0 (safe for Mixpanel/Amplitude, which dedupe by deterministic event UUID).\n- `backoff_until` in the future means the job is in a transient-failure retry loop (`backoff_attempt` counts consecutive retries), not stuck.\n- `parts_progress` summarizes the worker's units of work: a part is done when its committed byte offset reaches its total size; parts are processed in order, so the in-flight part is the first unfinished one.\n- `status_message` is the developer-facing debugging signal; `display_status_message` is what the customer sees in the PostHog UI.\n\nUse `managed-migrations-support-get` with a job id for the raw worker `state` and `import_config` blobs. Credentials (`secrets`) are never returned.",
             "source": {
@@ -94,9 +104,9 @@
                     "role": "original",
                     "text": "Number of results to return per page.",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/managed_migrations.ts",
-                        "pointer": "#/properties/limit"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/managed_migrations_support/"
                     }
                 }
             ]
@@ -110,9 +120,9 @@
                     "role": "original",
                     "text": "The initial index from which to return the results.",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/managed_migrations.ts",
-                        "pointer": "#/properties/offset"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/managed_migrations_support/"
                     }
                 }
             ]
@@ -126,9 +136,9 @@
                     "role": "original",
                     "text": "Which field to use when ordering the results.",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/managed_migrations.ts",
-                        "pointer": "#/properties/ordering"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/managed_migrations_support/"
                     }
                 }
             ]
@@ -142,9 +152,9 @@
                     "role": "original",
                     "text": "A search term.",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/managed_migrations.ts",
-                        "pointer": "#/properties/search"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/managed_migrations_support/"
                     }
                 }
             ]
@@ -158,9 +168,9 @@
                     "role": "original",
                     "text": "* `completed` - Completed\n* `failed` - Failed\n* `paused` - Paused\n* `running` - Running",
                     "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/managed_migrations.ts",
-                        "pointer": "#/properties/status"
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/managed_migrations_support/"
                     }
                 }
             ]

@@ -1,6 +1,7 @@
 {
     "method": "contextLayer.taskContextWikiChannelResolve",
     "toolName": "task-context-wiki-channel-resolve",
+    "operationId": "context_layer_agent_channel_pages_retrieve",
     "title": "Resolve this task's channel context page",
     "category": "Context wiki",
     "description": "Resolve the current task's channel id to its context wiki page path for an unattended task run.",
@@ -33,6 +34,15 @@
         }
     ],
     "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "The channel's page path. When the channel has no page yet, responds with the canonical path to create it at and `exists: false`.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1context_layer~1agent~1channel-pages~1{channel_id}~1/get"
+            }
+        },
         {
             "role": "override",
             "text": "Resolve the current task's channel id to its context wiki page path for an unattended task run.",

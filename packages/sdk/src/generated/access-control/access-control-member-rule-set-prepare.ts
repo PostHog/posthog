@@ -10,6 +10,63 @@ export type AccessControlAccessControlMemberRuleSetPrepareRequestSchema2 = strin
 
 /**
  * The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-members-list.
+ *
+ * @sourceDescription The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+ *
+ * * `account` - account
+ * * `action` - action
+ * * `activity_log` - activity_log
+ * * `ai_observability_clusters` - ai_observability_clusters
+ * * `business_knowledge` - business_knowledge
+ * * `customer_analytics` - customer_analytics
+ * * `customer_journey` - customer_journey
+ * * `customer_task` - customer_task
+ * * `dashboard` - dashboard
+ * * `dashboard_template` - dashboard_template
+ * * `data_catalog` - data_catalog
+ * * `data_deletion` - data_deletion
+ * * `dataset` - dataset
+ * * `early_access_feature` - early_access_feature
+ * * `endpoint` - endpoint
+ * * `error_tracking` - error_tracking
+ * * `evaluation` - evaluation
+ * * `experiment` - experiment
+ * * `experiment_holdout` - experiment_holdout
+ * * `experiment_saved_metric` - experiment_saved_metric
+ * * `export` - export
+ * * `external_data_source` - external_data_source
+ * * `feature_flag` - feature_flag
+ * * `heatmap` - heatmap
+ * * `hog_flow` - hog_flow
+ * * `insight` - insight
+ * * `llm_analytics` - llm_analytics
+ * * `llm_playground` - llm_playground
+ * * `llm_prompt` - llm_prompt
+ * * `llm_provider_key` - llm_provider_key
+ * * `llm_skill` - llm_skill
+ * * `logs` - logs
+ * * `marketing_analytics` - marketing_analytics
+ * * `mcp_analytics` - mcp_analytics
+ * * `metrics` - metrics
+ * * `notebook` - notebook
+ * * `project` - project
+ * * `property_definition` - property_definition
+ * * `replay_scanner` - replay_scanner
+ * * `revenue_analytics` - revenue_analytics
+ * * `session_recording` - session_recording
+ * * `session_recording_playlist` - session_recording_playlist
+ * * `sharing_configuration` - sharing_configuration
+ * * `stamphog` - stamphog
+ * * `survey` - survey
+ * * `tagger` - tagger
+ * * `ticket` - ticket
+ * * `toolbar` - toolbar
+ * * `tracing` - tracing
+ * * `vision_alert` - vision_alert
+ * * `warehouse_objects` - warehouse_objects
+ * * `warehouse_table` - warehouse_table
+ * * `warehouse_view` - warehouse_view
+ * * `web_analytics` - web_analytics
  */
 export type AccessControlAccessControlMemberRuleSetPrepareInputResource =
     | 'account'
@@ -69,17 +126,82 @@ export type AccessControlAccessControlMemberRuleSetPrepareInputResource =
 export interface AccessControlAccessControlMemberRuleSetPrepareInput {
     /**
      * Project id. If omitted, uses the active project.
+     *
+     * @sourceDescription A unique value identifying this project.
      * @minimum -2147483648
      * @maximum 2147483647
      */
     id?: number
-    /** The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-members-list. */
+    /** The scope: `project`, a tool name such as `dashboard` or `feature_flag`, or `property_definition`. The tool names are the keys of `resources` in access-control-members-list.
+     *
+     * @sourceDescription The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
+     *
+     * * `account` - account
+     * * `action` - action
+     * * `activity_log` - activity_log
+     * * `ai_observability_clusters` - ai_observability_clusters
+     * * `business_knowledge` - business_knowledge
+     * * `customer_analytics` - customer_analytics
+     * * `customer_journey` - customer_journey
+     * * `customer_task` - customer_task
+     * * `dashboard` - dashboard
+     * * `dashboard_template` - dashboard_template
+     * * `data_catalog` - data_catalog
+     * * `data_deletion` - data_deletion
+     * * `dataset` - dataset
+     * * `early_access_feature` - early_access_feature
+     * * `endpoint` - endpoint
+     * * `error_tracking` - error_tracking
+     * * `evaluation` - evaluation
+     * * `experiment` - experiment
+     * * `experiment_holdout` - experiment_holdout
+     * * `experiment_saved_metric` - experiment_saved_metric
+     * * `export` - export
+     * * `external_data_source` - external_data_source
+     * * `feature_flag` - feature_flag
+     * * `heatmap` - heatmap
+     * * `hog_flow` - hog_flow
+     * * `insight` - insight
+     * * `llm_analytics` - llm_analytics
+     * * `llm_playground` - llm_playground
+     * * `llm_prompt` - llm_prompt
+     * * `llm_provider_key` - llm_provider_key
+     * * `llm_skill` - llm_skill
+     * * `logs` - logs
+     * * `marketing_analytics` - marketing_analytics
+     * * `mcp_analytics` - mcp_analytics
+     * * `metrics` - metrics
+     * * `notebook` - notebook
+     * * `project` - project
+     * * `property_definition` - property_definition
+     * * `replay_scanner` - replay_scanner
+     * * `revenue_analytics` - revenue_analytics
+     * * `session_recording` - session_recording
+     * * `session_recording_playlist` - session_recording_playlist
+     * * `sharing_configuration` - sharing_configuration
+     * * `stamphog` - stamphog
+     * * `survey` - survey
+     * * `tagger` - tagger
+     * * `ticket` - ticket
+     * * `toolbar` - toolbar
+     * * `tracing` - tracing
+     * * `vision_alert` - vision_alert
+     * * `warehouse_objects` - warehouse_objects
+     * * `warehouse_table` - warehouse_table
+     * * `warehouse_view` - warehouse_view
+     * * `web_analytics` - web_analytics */
     resource: AccessControlAccessControlMemberRuleSetPrepareInputResource
-    /** The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool. */
+    /** The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool.
+     *
+     * @sourceDescription The object the rule applies to: the project id for a project rule, an object's primary key for a rule on one object, or a property definition id when `resource` is `property_definition`. Omit it only for a rule on a whole resource type. */
     resource_id?: AccessControlAccessControlMemberRuleSetPrepareRequestSchema0 | null
-    /** The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule. */
+    /** The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule.
+     *
+     * @sourceDescription The level to set. `member` or `admin` for the project, `none`, `viewer`, `editor` or `manager` for a resource type or an object, `none`, `read` or `read_write` for a property. Null removes the rule, so the subject falls back to the level it inherits. */
     access_level: AccessControlAccessControlMemberRuleSetPrepareRequestSchema2 | null
-    /** The organization membership id, as `organization_membership_id` in access-control-members-list. */
+    /** The organization membership id, as `organization_membership_id` in access-control-members-list.
+     *
+     * @sourceDescription The organization membership id, as `organization_membership_id` in the members endpoint. */
     member_id: string
 }
 

@@ -22,8 +22,11 @@ export type ContextLayerLoopContextWikiPageUpdateRequestSchema2 = string | null
  * Request body for creating or replacing one wiki page.
  */
 export interface ContextLayerLoopContextWikiPageUpdateInput {
+    /** Repo-relative Markdown path inside the wiki's structure, for example `projects/12/spaces/general.md`. */
     path: ContextLayerLoopContextWikiPageUpdateRequestSchema0
+    /** The complete Markdown content for the page. */
     content: ContextLayerLoopContextWikiPageUpdateRequestSchema1
+    /** Optimistic-concurrency guard: the head sha the edit is based on. A moved head is rejected with 409 and the current head; omit to write unguarded. */
     base_head?: ContextLayerLoopContextWikiPageUpdateRequestSchema2 | null
 }
 

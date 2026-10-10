@@ -16,6 +16,7 @@ export interface ContextLayerTaskContextWikiPageRetrieveInput {
     /** Head from the first chunk. Required for continuation. A changed head returns 409. */
     head_sha?: ContextLayerTaskContextWikiPageRetrieveRequestSchema0
     /**
+     * Maximum characters to read. Omit for the full page.
      * @minimum 1
      * @maximum 12000
      */
