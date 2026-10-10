@@ -3246,6 +3246,15 @@ class SignalScratchpad(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "key"], name="signal_scratchpad_unique_team_key"),
         ]
+        indexes = [
+            models.Index(fields=["team", "-updated_at", "-id"], name="signal_scratchpad_team_upd_idx"),
+            # The unique `(team, key)` index cannot serve a `key` prefix LIKE under a non-C collation.
+            models.Index(
+                fields=["team", "key"],
+                name="signal_scratchpad_key_like_idx",
+                opclasses=["int4_ops", "varchar_pattern_ops"],
+            ),
+        ]
 
 
 class SignalScoutNote(TeamScopedRootMixin, UUIDModel):
