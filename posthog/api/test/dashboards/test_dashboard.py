@@ -2940,6 +2940,51 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_two["tiles"]) == 1
         assert dashboard_two["tiles"][0]["insight"]["id"] == insight_id
 
+    @parameterized.expand(
+        [
+            ("copy_insight_tile", "insight", "copy_tile", None),
+            ("copy_text_tile", "text", "copy_tile", None),
+            ("move_insight_tile", "insight", "move_tile", None),
+            ("move_text_tile", "text", "move_tile", None),
+            ("move_tile_within_same_dashboard", "insight", "move_tile_same_dashboard", "plans"),
+        ]
+    )
+    def test_copy_or_move_tile_to_another_dashboard_drops_group_key_and_keeps_badge(
+        self, _name: str, kind: str, action: str, expected_group_key: str | None
+    ) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        destination_id, _ = self.dashboard_api.create_dashboard({"name": "destination"})
+        if kind == "insight":
+            self.dashboard_api.create_insight({"dashboards": [source_id]})
+        else:
+            self.dashboard_api.create_text_tile(source_id, text="hello")
+        tile_id = self.dashboard_api.get_dashboard(source_id)["tiles"][0]["id"]
+        self.dashboard_api.update_dashboard(
+            source_id, {"tiles": [{"id": tile_id, "group_key": "plans", "badge": "winner"}]}
+        )
+
+        if action == "copy_tile":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{destination_id}/copy_tile",
+                {"fromDashboardId": source_id, "tileId": tile_id},
+            )
+        else:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{source_id}/move_tile",
+                {
+                    "tile": {"id": tile_id},
+                    "to_dashboard": source_id if action == "move_tile_same_dashboard" else destination_id,
+                },
+            )
+        assert response.status_code == status.HTTP_200_OK
+
+        landed_on = source_id if action == "move_tile_same_dashboard" else destination_id
+        landed_tile = self.dashboard_api.get_dashboard(landed_on)["tiles"][0]
+        assert (landed_tile["group_key"], landed_tile["badge"]) == (expected_group_key, "winner")
+        if action == "copy_tile":
+            source_tile = self.dashboard_api.get_dashboard(source_id)["tiles"][0]
+            assert (source_tile["group_key"], source_tile["badge"]) == ("plans", "winner")
+
     def test_move_text_tile_succeeds_when_destination_has_soft_deleted_shadow_tile(self) -> None:
         """Soft-deleted rows still hold unique (dashboard, text_id); moving must delete them first."""
         dashboard_a_id, _ = self.dashboard_api.create_dashboard({"name": "a"})
