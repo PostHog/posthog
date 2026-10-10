@@ -3,7 +3,8 @@
 Reads SQL migration files from rust/persons_migrations/ and executes them against the
 persons database identified by PERSONS_DB_WRITER_URL. Hobby deploys keep persons in the
 main database and skip the partitioning migrations (via --hobby); local dev and
-production apply all migrations.
+production apply all migrations. Hobby deploys also apply the files in the hobby/
+subdirectory. sqlx ignores subdirectories, so production never sees them.
 
 Tracks applied migrations in a _persons_migrations_applied table so each
 migration is only executed once. Also bridges the sqlx _sqlx_migrations
@@ -37,6 +38,10 @@ HOBBY_SKIP_MIGRATIONS = {
     "20251115000001_add_partition_indexes_and_foreign_keys.sql",
     "20251117000001_rename_person_tables.sql",
 }
+
+# Migrations that only hobby deploys apply. They give the unpartitioned posthog_person table
+# what the skipped partitioning migrations give production, such as the unique (team_id, uuid) index.
+HOBBY_ONLY_MIGRATIONS_DIR = "hobby"
 
 TRACKING_TABLE = "_persons_migrations_applied"
 
@@ -200,6 +205,10 @@ def _apply_migration(conn, cursor, sql_file: Path) -> None:
         _record_migration(cursor, sql_file.name)
 
 
+def _sql_files(directory: Path) -> list[Path]:
+    return sorted((f for f in directory.iterdir() if f.is_file() and f.suffix == ".sql"), key=lambda f: f.name)
+
+
 def _ensure_database_exists(persons_url: str) -> None:
     """Create the persons database named in ``persons_url`` if it doesn't already exist.
 
@@ -254,7 +263,10 @@ class Command(BaseCommand):
         parser.add_argument(
             "--hobby",
             action="store_true",
-            help="Skip partitioning migrations (for hobby deploys where posthog_person is not partitioned).",
+            help=(
+                "Skip partitioning migrations and apply the hobby-only migrations "
+                "(for hobby deploys where posthog_person is not partitioned)."
+            ),
         )
         parser.add_argument(
             "--ensure-database",
@@ -271,7 +283,10 @@ class Command(BaseCommand):
             _ensure_database_exists(persons_url)
 
         migrations_path = self._resolve_migrations_dir(options["migrations_dir"])
-        sql_files = sorted(f for f in migrations_path.iterdir() if f.suffix == ".sql")
+        sql_files = _sql_files(migrations_path)
+        hobby_path = migrations_path / HOBBY_ONLY_MIGRATIONS_DIR
+        if hobby and hobby_path.is_dir():
+            sql_files = sorted([*sql_files, *_sql_files(hobby_path)], key=lambda f: f.name)
         if not sql_files:
             self.stdout.write("No SQL migration files found.")
             return
