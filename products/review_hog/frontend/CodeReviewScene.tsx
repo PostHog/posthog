@@ -32,10 +32,12 @@ import type {
     ReviewIssuePriorityEnumApi,
     ReviewRecentReviewApi,
     ReviewResolutionStatusApi,
+    ReviewTriggerReviewModeEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import {
     ReviewHogReviewsListScope,
     ReviewTriggerRequestRunModeEnumApi,
+    ReviewTurnDesignEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { AdoptSkillModal } from './AdoptSkillModal'
@@ -183,10 +185,20 @@ function prettifyCategory(category: string): string {
     return cleaned.charAt(0).toUpperCase() + cleaned.slice(1)
 }
 
+// Mirror SINGLE_AGENT_SOURCE and the FlashLens sources in reviewer/constants.py.
+const SINGLE_AGENT_MAIN_SOURCE = 'flash-single-agent'
+const SINGLE_AGENT_LENS_PREFIX = 'flash-lens-'
+
 /** Scoreboard label for a finding's source skill — blind-spot skills all read as one sweep. */
 function perspectiveLabel(skillName: string): string {
     if (skillName.startsWith('review-hog-blind-spots-')) {
         return 'Blind spots'
+    }
+    if (skillName === SINGLE_AGENT_MAIN_SOURCE) {
+        return 'Main review'
+    }
+    if (skillName.startsWith(SINGLE_AGENT_LENS_PREFIX)) {
+        return `Lens: ${prettifySkillName(skillName.slice(SINGLE_AGENT_LENS_PREFIX.length))}`
     }
     if (skillName === 'unknown') {
         return 'Unknown'
@@ -230,6 +242,48 @@ function ReviewStatusDot({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
     return (
         <span className="flex w-6 shrink-0 justify-center">
             <span className={`size-2 rounded-full ${color}`} />
+        </span>
+    )
+}
+
+/** A Standard turn on the single-agent design: no chunks, no perspective selection, no separate validation. */
+function isSingleAgentReview(review: ReviewRecentReviewApi | null): boolean {
+    return review?.review_design === ReviewTurnDesignEnumApi.SingleAgent
+}
+
+const REVIEW_MODE_LABEL: Record<ReviewTriggerReviewModeEnumApi, string> = {
+    flash: 'Standard',
+    full: 'Deep',
+}
+
+function ReviewModeTag({ review }: { review: ReviewRecentReviewApi }): JSX.Element | null {
+    if (!review.review_mode) {
+        return null
+    }
+    return (
+        <LemonTag type="muted" size="small">
+            {REVIEW_MODE_LABEL[review.review_mode]}
+        </LemonTag>
+    )
+}
+
+/** "the main review and 2 lenses", from the sessions that ran. Null when the turn recorded none. */
+function singleAgentSessionsLabel(review: ReviewRecentReviewApi): string | null {
+    if (!review.perspective_count) {
+        return null
+    }
+    const lenses = review.perspective_count - 1
+    return lenses > 0 ? `the main review and ${lenses} lens${lenses === 1 ? '' : 'es'}` : 'the main review'
+}
+
+/** The funnel line for a single-agent turn, which has no validation step to count. */
+function SingleAgentFindingsLine({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
+    const kept = review.must_fix_count + review.should_fix_count + review.consider_count
+    const sessions = singleAgentSessionsLabel(review)
+    return (
+        <span>
+            <span className="font-semibold text-default">{kept}</span> finding{kept === 1 ? '' : 's'} kept
+            {sessions ? ` from ${sessions}` : ''}
         </span>
     )
 }
@@ -362,6 +416,7 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
                                 Not published
                             </LemonTag>
                         )}
+                        <ReviewModeTag review={review} />
                     </div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-secondary">
                         <span className="whitespace-nowrap font-mono text-tertiary">
@@ -442,14 +497,32 @@ function RecentReviewRow({ review }: { review: ReviewRecentReviewApi }): JSX.Ele
                         </span>
                     </div>
                     <div className="text-xs text-secondary">
-                        <span className="font-semibold text-default">{review.candidate_count}</span> findings raised →{' '}
-                        <span className="font-semibold text-default">{validated}</span> kept after validation →{' '}
-                        <span className="font-semibold text-default">{review.dismissed_count}</span> dismissed
+                        {isSingleAgentReview(review) ? (
+                            <SingleAgentFindingsLine review={review} />
+                        ) : (
+                            <>
+                                <span className="font-semibold text-default">{review.candidate_count}</span> findings
+                                raised → <span className="font-semibold text-default">{validated}</span> kept after
+                                validation →{' '}
+                                <span className="font-semibold text-default">{review.dismissed_count}</span> dismissed
+                            </>
+                        )}
                     </div>
-                    <div>
+                    <div className="flex flex-wrap items-center gap-2">
                         <LemonButton size="small" type="secondary" onClick={() => openReviewDetail(review)}>
                             View findings
                         </LemonButton>
+                        {review.status_comment_url && (
+                            <LemonButton
+                                size="small"
+                                type="tertiary"
+                                to={review.status_comment_url}
+                                targetBlank
+                                sideIcon={<IconExternal />}
+                            >
+                                View status comment
+                            </LemonButton>
+                        )}
                     </div>
                 </div>
             )}
@@ -663,7 +736,7 @@ function FindingCard({ finding, dismissed }: { finding: ReviewFindingApi; dismis
                     </LemonTag>
                 )}
                 {finding.source_perspective && (
-                    <span className="text-xs text-tertiary">{prettifySkillName(finding.source_perspective)}</span>
+                    <span className="text-xs text-tertiary">{perspectiveLabel(finding.source_perspective)}</span>
                 )}
             </div>
             <span className={`text-base font-semibold ${dismissed ? 'text-secondary' : ''}`}>{finding.title}</span>
@@ -701,15 +774,20 @@ function FindingCard({ finding, dismissed }: { finding: ReviewFindingApi; dismis
                             </LemonMarkdown>
                         ),
                     },
-                    {
-                        key: 'validator',
-                        header: dismissed ? 'Why it was dismissed' : "Why we think it's a valid issue",
-                        content: (
-                            <LemonMarkdown className="text-sm text-secondary" disableImages>
-                                {finding.validator_note}
-                            </LemonMarkdown>
-                        ),
-                    },
+                    // A single-agent turn has no validator, so its note is a placeholder, not reasoning.
+                    ...(isSingleAgentReview(reviewDetail)
+                        ? []
+                        : [
+                              {
+                                  key: 'validator' as const,
+                                  header: dismissed ? 'Why it was dismissed' : "Why we think it's a valid issue",
+                                  content: (
+                                      <LemonMarkdown className="text-sm text-secondary" disableImages>
+                                          {finding.validator_note}
+                                      </LemonMarkdown>
+                                  ),
+                              },
+                          ]),
                 ]}
             />
         </div>
@@ -734,6 +812,9 @@ function DrawerPublishedTab(): JSX.Element {
         return <DrawerFindingsSkeleton />
     }
     const isPublished = reviewDetail?.published ?? false
+    if (!reviewFindingsSplit.published.length && isSingleAgentReview(reviewDetail)) {
+        return <div className="text-sm text-secondary">This review found nothing to post to the pull request.</div>
+    }
     if (!reviewFindingsSplit.published.length) {
         return (
             <div className="text-sm text-secondary">
@@ -795,6 +876,13 @@ function DrawerDismissedTab(): JSX.Element {
 
     if (!reviewDetail) {
         return <DrawerFindingsSkeleton />
+    }
+    if (isSingleAgentReview(reviewDetail)) {
+        return (
+            <div className="text-sm text-secondary">
+                Standard reviews don't run a separate validation step, so there is no validator reasoning to show.
+            </div>
+        )
     }
     if (!reviewDetail.dismissed_findings.length) {
         return <div className="text-sm text-secondary">The validator dismissed nothing on this review.</div>
@@ -894,6 +982,31 @@ function DrawerChunksTab(): JSX.Element {
     )
 }
 
+/** The "How it ran" tab for a single-agent turn, which has no chunk plan to show. */
+function DrawerHowItRanTab(): JSX.Element {
+    const { reviewDetail } = useValues(reviewHogSettingsLogic)
+
+    if (!reviewDetail) {
+        return <DrawerFindingsSkeleton />
+    }
+    const sessions = singleAgentSessionsLabel(reviewDetail)
+    return (
+        <div className="flex flex-col gap-2 text-sm text-secondary">
+            <p className="m-0">
+                A Standard review runs one main review of the whole pull request, plus lenses that each focus on one
+                area. Findings go to the pull request without a separate validation step.
+            </p>
+            <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
+                {sessions && <li>Ran {sessions}</li>}
+                {reviewDetail.files_reviewed !== null && <li>Read {reviewDetail.files_reviewed} files</li>}
+                {reviewDetail.perspective_issue_count !== null && (
+                    <li>Raised {reviewDetail.perspective_issue_count} issues before merging duplicates</li>
+                )}
+            </ul>
+        </div>
+    )
+}
+
 function ReviewDetailDrawer(): JSX.Element {
     const {
         reviewDrawerOpen,
@@ -907,6 +1020,7 @@ function ReviewDetailDrawer(): JSX.Element {
 
     // The list row carries the header facts, so the drawer opens instantly while findings load.
     const review = reviewDetail ?? openedReview
+    const singleAgent = isSingleAgentReview(review)
 
     return (
         <LemonDrawer
@@ -914,11 +1028,20 @@ function ReviewDetailDrawer(): JSX.Element {
             onClose={closeReviewDrawer}
             title={review ? reviewTitle(review) : ''}
             description={
-                review
-                    ? `${review.repository}#${review.pr_number ?? review.head_branch}${
-                          review.pr_author ? ` · by ${review.pr_author}` : ''
-                      }`
-                    : undefined
+                review ? (
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span>
+                            {review.repository}#{review.pr_number ?? review.head_branch}
+                            {review.pr_author ? ` · by ${review.pr_author}` : ''}
+                        </span>
+                        <ReviewModeTag review={review} />
+                        {review.status_comment_url && (
+                            <Link to={review.status_comment_url} target="_blank" targetBlankIcon>
+                                Status comment
+                            </Link>
+                        )}
+                    </span>
+                ) : undefined
             }
             width={640}
             footer={
@@ -930,7 +1053,11 @@ function ReviewDetailDrawer(): JSX.Element {
             }
         >
             <div className="flex flex-col gap-2">
-                {reviewDetail ? (
+                {reviewDetail && singleAgent ? (
+                    <div className="text-sm text-secondary">
+                        <SingleAgentFindingsLine review={reviewDetail} />
+                    </div>
+                ) : reviewDetail ? (
                     <div className="text-sm text-secondary">
                         <span className="font-semibold text-default">{reviewDetail.candidate_count}</span> findings
                         raised · <span className="font-semibold text-default">{reviewDetail.findings.length}</span> kept
@@ -966,7 +1093,8 @@ function ReviewDetailDrawer(): JSX.Element {
                             }`,
                             content: <DrawerPublishedTab />,
                         },
-                        {
+                        // A single-agent turn publishes at every urgency, so nothing sits below a threshold.
+                        !singleAgent && {
                             key: 'below_threshold',
                             label: `Below threshold${
                                 reviewFindingsSplit ? ` (${reviewFindingsSplit.belowThreshold.length})` : ''
@@ -975,14 +1103,12 @@ function ReviewDetailDrawer(): JSX.Element {
                         },
                         {
                             key: 'dismissed',
-                            label: `Dismissed${reviewDetail ? ` (${reviewDetail.dismissed_findings.length})` : ''}`,
+                            label: `Dismissed${reviewDetail && !singleAgent ? ` (${reviewDetail.dismissed_findings.length})` : ''}`,
                             content: <DrawerDismissedTab />,
                         },
-                        {
-                            key: 'chunks',
-                            label: 'Chunks',
-                            content: <DrawerChunksTab />,
-                        },
+                        singleAgent
+                            ? { key: 'how_it_ran', label: 'How it ran', content: <DrawerHowItRanTab /> }
+                            : { key: 'chunks', label: 'Chunks', content: <DrawerChunksTab /> },
                         {
                             key: 'review',
                             label: 'Review body',

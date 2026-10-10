@@ -53,7 +53,7 @@ import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.sch
 
 export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator' | 'resolution'
 
-export type ReviewDrawerTab = 'published' | 'below_threshold' | 'dismissed' | 'chunks' | 'review'
+export type ReviewDrawerTab = 'published' | 'below_threshold' | 'dismissed' | 'chunks' | 'how_it_ran' | 'review'
 
 export type CodeReviewTab = 'activity' | 'settings'
 

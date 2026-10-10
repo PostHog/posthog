@@ -62,6 +62,7 @@ from products.review_hog.backend.reviewer.progress import (
     turn_markers,
     turn_stats,
 )
+from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.review_state import completed_turn_review_mode
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 
@@ -152,6 +153,11 @@ class ReviewResolutionStatusSerializer(serializers.Serializer):
 class ReviewTriggerReviewMode(models.TextChoices):
     FULL = REVIEW_MODE_FULL, "Deep"
     FLASH = REVIEW_MODE_FLASH, "Standard"
+
+
+class ReviewTurnDesign(models.TextChoices):
+    PIPELINE = REVIEW_DESIGN_PIPELINE, "Pipeline"
+    SINGLE_AGENT = REVIEW_DESIGN_SINGLE_AGENT, "Single agent"
 
 
 class ReviewLatestResolutionStatus(models.TextChoices):
@@ -248,6 +254,14 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
         allow_null=True,
         help_text="What the returned turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did "
         "not record its mode (turns from before the mode was recorded).",
+    )
+    review_design = serializers.ChoiceField(
+        choices=ReviewTurnDesign.choices,
+        allow_null=True,
+        help_text="How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep "
+        "and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate "
+        "validation step. Null when the turn recorded no design (turns from before it was recorded ran the "
+        "pipeline).",
     )
     status_comment_url = serializers.CharField(
         allow_null=True,
@@ -768,6 +782,7 @@ def _review_payload(
         "published": report.published_head_sha is not None,
         "turn_published": str(run_index) in (report.published_head_shas or {}),
         "review_mode": marker.review_mode if marker else None,
+        "review_design": snapshot.review_design,
         "status_comment_url": f"{report.pr_url}#issuecomment-{report.status_comment_id}"
         if report.pr_url and report.status_comment_id
         else None,

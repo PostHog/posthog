@@ -620,6 +620,17 @@ export const ReviewTriggerReviewModeEnumApi = {
 } as const
 
 /**
+ * * `pipeline` - Pipeline
+ * * `single_agent` - Single agent
+ */
+export type ReviewTurnDesignEnumApi = (typeof ReviewTurnDesignEnumApi)[keyof typeof ReviewTurnDesignEnumApi]
+
+export const ReviewTurnDesignEnumApi = {
+    Pipeline: 'pipeline',
+    SingleAgent: 'single_agent',
+} as const
+
+/**
  * * `fetching` - fetching
  * * `chunking` - chunking
  * * `selecting` - selecting
@@ -792,6 +803,11 @@ export interface ReviewRecentReviewApi {
      * * `full` - Deep
      * * `flash` - Standard */
     review_mode: ReviewTriggerReviewModeEnumApi | null
+    /** How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).
+     *
+     * * `pipeline` - Pipeline
+     * * `single_agent` - Single agent */
+    review_design: ReviewTurnDesignEnumApi | null
     /**
      * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
      * @nullable
@@ -1023,6 +1039,11 @@ export interface ReviewDetailApi {
      * * `full` - Deep
      * * `flash` - Standard */
     review_mode: ReviewTriggerReviewModeEnumApi | null
+    /** How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).
+     *
+     * * `pipeline` - Pipeline
+     * * `single_agent` - Single agent */
+    review_design: ReviewTurnDesignEnumApi | null
     /**
      * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
      * @nullable
