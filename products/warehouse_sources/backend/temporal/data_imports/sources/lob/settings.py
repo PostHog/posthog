@@ -14,7 +14,7 @@ DATE_CREATED_INCREMENTAL_FIELD: IncrementalField = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class LobEndpointConfig:
     name: str
     path: str

@@ -765,7 +765,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linkrunner/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/linode/linode.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/lob/lob.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/lob/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/logz_io/logz_io.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/logz_io/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/loop_returns/loop_returns.py
