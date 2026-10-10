@@ -32,6 +32,23 @@ export function SingleActiveSkillGroup({
     const active = skills?.find((skill) => skill.active) ?? null
     const saving = !!skills?.some((skill) => savingSkillNames.includes(skill.skill_name))
 
+    const select = skills?.length ? (
+        <LemonSelect
+            size="small"
+            aria-label={`Mine: ${title}`}
+            value={active?.skill_name ?? null}
+            placeholder="Pick a skill"
+            options={skills.map((skill) => ({
+                value: skill.skill_name,
+                label: prettifySkillName(skill.skill_name),
+            }))}
+            onChange={(skillName) => skillName && skillName !== active?.skill_name && onSelect(skillName)}
+            disabledReason={saving ? 'Saving…' : undefined}
+            className="max-w-full"
+            data-attr={dataAttr}
+        />
+    ) : null
+
     return (
         <>
             <SkillGroupHeader title={title} rule="one runs" note={note} />
@@ -39,28 +56,16 @@ export function SingleActiveSkillGroup({
                 <div className="px-4 py-2">
                     <LemonSkeleton className="h-12 w-full" />
                 </div>
-            ) : active === null ? (
+            ) : select === null ? (
                 <span className="px-4 py-2 text-xs text-secondary">No skill of this kind yet.</span>
+            ) : active === null ? (
+                // An archived skill leaves the rest inactive, so the select must stay reachable.
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
+                    <span className="text-xs text-secondary">None selected, so no skill of this kind runs.</span>
+                    {select}
+                </div>
             ) : (
-                <SkillRow
-                    skillName={active.skill_name}
-                    description={active.description}
-                    mine={
-                        <LemonSelect
-                            size="small"
-                            aria-label={`Mine: ${title}`}
-                            value={active.skill_name}
-                            options={skills.map((skill) => ({
-                                value: skill.skill_name,
-                                label: prettifySkillName(skill.skill_name),
-                            }))}
-                            onChange={(skillName) => skillName !== active.skill_name && onSelect(skillName)}
-                            disabledReason={saving ? 'Saving…' : undefined}
-                            className="max-w-full"
-                            data-attr={dataAttr}
-                        />
-                    }
-                />
+                <SkillRow skillName={active.skill_name} description={active.description} mine={select} />
             )}
         </>
     )
