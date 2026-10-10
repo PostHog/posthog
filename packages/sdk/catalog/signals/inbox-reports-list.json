@@ -1,0 +1,1514 @@
+{
+    "method": "signals.inboxReportsList",
+    "toolName": "inbox-reports-list",
+    "operationId": "signals_reports_list",
+    "title": "List signal reports",
+    "category": "Signals",
+    "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers, `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently suppressed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating against the full inbox state, and read each row's `status` (plus `suppression_source`, `dismissal_reason`, and `dismissal_note` on suppressed rows) before acting. A suppressed row's `suppression_source` says whether someone dismissed it (`dismissed`) or a judge held it back before anyone saw it (`safety_judge`, `not_actionable`, `system`). For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log, including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To answer \"what should I look at next\", pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready, actionable reports that have no implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. The other views are `needs_input` (waiting on a human), `needs_decision` (failed reports, plus actionable ready or pending-input reports without an implementation PR), `monitoring` (an implementation PR is open), `resolved`, `dismissed` (suppressed by a person, an agent, a merge, or a closed PR), `held_back` (suppressed by a judge, with nobody's review yet), `not_actionable`, and `all`. Narrow by reviewer with `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot, but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted. Listing reports does not execute metric queries.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsInboxReportsListInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-reports-list.ts",
+        "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+    },
+    "output": {
+        "name": "SignalsInboxReportsListOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-reports-list.ts",
+        "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsInboxReportsListRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema3",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema4",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema5",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema6",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema7",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema8",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema9",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema10",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema11",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema12",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema13",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema14",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema15",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema16",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema17",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema18",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema19",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema20",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema21",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema22",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema23",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema24",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema25",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema26",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListRequestSchema27",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListResponseShape4",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListResponseShape8",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListResponseShape7",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListResponseShape6",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListResponseShape9",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListDataResultsItem",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsListData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-list.ts",
+            "declaration": "dist/generated/signals/inbox-reports-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers, `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently suppressed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating against the full inbox state, and read each row's `status` (plus `suppression_source`, `dismissal_reason`, and `dismissal_note` on suppressed rows) before acting. A suppressed row's `suppression_source` says whether someone dismissed it (`dismissed`) or a judge held it back before anyone saw it (`safety_judge`, `not_actionable`, `system`). For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log, including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To answer \"what should I look at next\", pass `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready, actionable reports that have no implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. The other views are `needs_input` (waiting on a human), `needs_decision` (failed reports, plus actionable ready or pending-input reports without an implementation PR), `monitoring` (an implementation PR is open), `resolved`, `dismissed` (suppressed by a person, an agent, a merge, or a closed PR), `held_back` (suppressed by a judge, with nobody's review yet), `not_actionable`, and `all`. Narrow by reviewer with `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot, but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted. Listing reports does not execute metric queries.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "actionability",
+            "effectiveDescription": "Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "already_addressed",
+            "effectiveDescription": "Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "assignee",
+            "effectiveDescription": "Use 'me' to return reports claimed by the current user, task, or MCP agent.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Use 'me' to return reports claimed by the current user, task, or MCP agent.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "channel_id",
+            "effectiveDescription": "Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "count_only",
+            "effectiveDescription": "Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Return the filtered total with an empty results page. Skips report ordering, serialization, and decorative metadata lookups. Defaults to false.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "created_after",
+            "effectiveDescription": "ISO 8601 datetime. Keeps reports created at or after this time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 datetime. Keeps reports created at or after this time.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "has_implementation_pr",
+            "effectiveDescription": "Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "include_all_statuses",
+            "effectiveDescription": "When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "include_source_metadata",
+            "effectiveDescription": "Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Load them after with `source_metadata`. Defaults to true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Load them after with `source_metadata`. Defaults to true.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "ordering",
+            "effectiveDescription": "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "priority",
+            "effectiveDescription": "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "scope",
+            "effectiveDescription": "Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "scout",
+            "effectiveDescription": "Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "scout_prefix",
+            "effectiveDescription": "Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "search",
+            "effectiveDescription": "Case-insensitive substring match against report title and summary.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Case-insensitive substring match against report title and summary.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "sort",
+            "effectiveDescription": "Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "source_id",
+            "effectiveDescription": "Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "source_product",
+            "effectiveDescription": "Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "status",
+            "effectiveDescription": "Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of statuses to include. Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. Defaults to all statuses except suppressed.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "suggested_reviewers",
+            "effectiveDescription": "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "task_id",
+            "effectiveDescription": "Only reports associated with this task (via the report's task associations).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only reports associated with this task (via the report's task associations).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "teammate_uuid",
+            "effectiveDescription": "PostHog user UUID used when scope=teammate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PostHog user UUID used when scope=teammate.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "unclaimed",
+            "effectiveDescription": "Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by whether the report has no owner and no draft, open, or unknown PR. Resolved reports are never unclaimed.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "unread",
+            "effectiveDescription": "Filter by the current user's report read state.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by the current user's report read state.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "use_priority_preference",
+            "effectiveDescription": "When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListInput",
+            "field": "view",
+            "effectiveDescription": "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "effectiveDescription": "Snapshot-only metric shape for report lists.\n\nOmitting query definitions keeps the paginated inbox payload bounded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Snapshot-only metric shape for report lists.\n\nOmitting query definitions keeps the paginated inbox payload bounded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "metric_id",
+            "effectiveDescription": "Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/metric_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "title",
+            "effectiveDescription": "Short human-readable label for the measurement.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short human-readable label for the measurement.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "kind",
+            "effectiveDescription": "What the value measures, independent of how it is formatted or drawn.\n\n* `affected_users` - affected_users\n* `affected_sessions` - affected_sessions\n* `occurrences` - occurrences\n* `conversion_rate` - conversion_rate\n* `error_rate` - error_rate\n* `duration` - duration\n* `revenue` - revenue\n* `custom` - custom",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the value measures, independent of how it is formatted or drawn.\n\n* `affected_users` - affected_users\n* `affected_sessions` - affected_sessions\n* `occurrences` - occurrences\n* `conversion_rate` - conversion_rate\n* `error_rate` - error_rate\n* `duration` - duration\n* `revenue` - revenue\n* `custom` - custom",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "role",
+            "effectiveDescription": "`primary` for the report's key observation, otherwise `supporting`.\n\n* `primary` - primary\n* `supporting` - supporting",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`primary` for the report's key observation, otherwise `supporting`.\n\n* `primary` - primary\n* `supporting` - supporting",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/role"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "value",
+            "effectiveDescription": "Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "value_at",
+            "effectiveDescription": "When the visible snapshot value was measured; null when value is null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the visible snapshot value was measured; null when value is null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/value_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "series",
+            "effectiveDescription": "Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/series"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "value_format",
+            "effectiveDescription": "How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.\n\n* `number` - number\n* `count` - count\n* `percentage` - percentage\n* `percentage_scaled` - percentage_scaled\n* `duration` - duration\n* `currency` - currency",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.\n\n* `number` - number\n* `count` - count\n* `percentage` - percentage\n* `percentage_scaled` - percentage_scaled\n* `duration` - duration\n* `currency` - currency",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/value_format"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "unit",
+            "effectiveDescription": "Optional short suffix or currency code, such as `users`, `ms`, or `USD`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional short suffix or currency code, such as `users`, `ms`, or `USD`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/unit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "caption",
+            "effectiveDescription": "Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/caption"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "goal_value",
+            "effectiveDescription": "Proposed threshold after release. Informational only; does not schedule a check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Proposed threshold after release. Informational only; does not schedule a check.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/goal_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "goal_direction",
+            "effectiveDescription": "Whether success means at most or at least goal_value.\n\n* `at_most` - at_most\n* `at_least` - at_least",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether success means at most or at least goal_value.\n\n* `at_most` - at_most\n* `at_least` - at_least",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/goal_direction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "goal_grain",
+            "effectiveDescription": "Whether the goal compares with the whole query window or each chart bucket.\n\n* `whole_window` - whole_window\n* `per_interval` - per_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the goal compares with the whole query window or each chart bucket.\n\n* `whole_window` - whole_window\n* `per_interval` - per_interval",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/goal_grain"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "decision_window_days",
+            "effectiveDescription": "Suggested days after release before assessing impact, not a monitoring schedule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Suggested days after release before assessing impact, not a monitoring schedule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/decision_window_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape4",
+            "field": "minimum_data_points",
+            "effectiveDescription": "Optional number of qualifying observations before assessing impact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional number of qualifying observations before assessing impact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/minimum_data_points"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape6",
+            "field": "id",
+            "effectiveDescription": "PR selection ID. Task-output links use a deterministic ID until attached as an artefact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PR selection ID. Task-output links use a deterministic ID until attached as an artefact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape6",
+            "field": "url",
+            "effectiveDescription": "GitHub pull request URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub pull request URL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape6",
+            "field": "state",
+            "effectiveDescription": "Latest known GitHub state.\n\n* `unknown` - Unknown\n* `draft` - Draft\n* `open` - Open\n* `closed` - Closed\n* `merged` - Merged",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest known GitHub state.\n\n* `unknown` - Unknown\n* `draft` - Draft\n* `open` - Open\n* `closed` - Closed\n* `merged` - Merged",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape6",
+            "field": "merged",
+            "effectiveDescription": "Whether this PR merged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this PR merged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/merged"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape6",
+            "field": "review_decision",
+            "effectiveDescription": "Current GitHub code review decision: approved, changes_requested, or review_required. Null when GitHub does not provide a review decision.\n\n* `approved` - Approved\n* `changes_requested` - Changes requested\n* `review_required` - Review required",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current GitHub code review decision: approved, changes_requested, or review_required. Null when GitHub does not provide a review decision.\n\n* `approved` - Approved\n* `changes_requested` - Changes requested\n* `review_required` - Review required",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/review_decision"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape6",
+            "field": "merged_at",
+            "effectiveDescription": "When GitHub reports that this pull request merged. Null when it has not merged or the time is unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When GitHub reports that this pull request merged. Null when it has not merged or the time is unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/merged_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape6",
+            "field": "attached_by",
+            "effectiveDescription": "Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/attached_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape6",
+            "field": "claim_id",
+            "effectiveDescription": "Originating work claim. Null for legacy links without a recorded claim.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Originating work claim. Null for legacy links without a recorded claim.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/claim_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape6",
+            "field": "attached_at",
+            "effectiveDescription": "When the first PR link was recorded. For backfilled links this is the import time; null for an unmigrated link.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the first PR link was recorded. For backfilled links this is the import time; null for an unmigrated link.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/attached_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape7",
+            "field": "kind",
+            "effectiveDescription": "Kind of actor who attached the PR. Null when legacy attribution is unknown.\n\n* `user` - User\n* `task` - Task\n* `agent` - Agent\n* `system` - System",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Kind of actor who attached the PR. Null when legacy attribution is unknown.\n\n* `user` - User\n* `task` - Task\n* `agent` - Agent\n* `system` - System",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape7",
+            "field": "user",
+            "effectiveDescription": "Authenticated principal who attached the PR, when recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Authenticated principal who attached the PR, when recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/user"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape7",
+            "field": "agent",
+            "effectiveDescription": "External agent client name, when recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "External agent client name, when recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/agent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape7",
+            "field": "task_id",
+            "effectiveDescription": "Internal task that attached the PR, when recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Internal task that attached the PR, when recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/task_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListResponseShape9",
+            "field": "claim_id",
+            "effectiveDescription": "Identifier for the active work attempt.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier for the active work attempt.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/claim_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].metrics",
+            "effectiveDescription": "Snapshot-only impact measurements for inbox rows. Live query definitions and authored comparisons are available from the report detail endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Snapshot-only impact measurements for inbox rows. Live query definitions and authored comparisons are available from the report detail endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].priority",
+            "effectiveDescription": "P0–P4 from the latest priority judgment artefact (when present).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "P0–P4 from the latest priority judgment artefact (when present).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/priority"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].actionability",
+            "effectiveDescription": "Actionability choice from the latest actionability judgment artefact (when present).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actionability choice from the latest actionability judgment artefact (when present).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/actionability"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].already_addressed",
+            "effectiveDescription": "Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/already_addressed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].dismissal_reason",
+            "effectiveDescription": "Reason code from the latest dismissal artefact, set when the report was suppressed (when present).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reason code from the latest dismissal artefact, set when the report was suppressed (when present).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/dismissal_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].dismissal_note",
+            "effectiveDescription": "Free-form note captured alongside the dismissal reason (when present).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form note captured alongside the dismissal reason (when present).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/dismissal_note"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].suppression_source",
+            "effectiveDescription": "Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or agent dismissed it, it was merged into another report, or its pull request closed without merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. `system`: suppressed by the pipeline for another reason. Every value except `dismissed` is a verdict nobody has reviewed, listed by the `held_back` inbox view.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or agent dismissed it, it was merged into another report, or its pull request closed without merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. `system`: suppressed by the pipeline for another reason. Every value except `dismissed` is a verdict nobody has reviewed, listed by the `held_back` inbox view.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/suppression_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].suppression_explanation",
+            "effectiveDescription": "The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. Null otherwise, or when the judge gave none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. Null otherwise, or when the judge gave none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/suppression_explanation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].source_products",
+            "effectiveDescription": "Distinct source products contributing signals to this report (from ClickHouse).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct source products contributing signals to this report (from ClickHouse).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/source_products"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].scout_name",
+            "effectiveDescription": "skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/scout_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].pull_requests",
+            "effectiveDescription": "All distinct PRs linked to this report across work attempts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "All distinct PRs linked to this report across work attempts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/pull_requests"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].implementation_pr_url",
+            "effectiveDescription": "Pull request attached to this report's claim, if available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pull request attached to this report's claim, if available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/implementation_pr_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].implementation_pr_state",
+            "effectiveDescription": "Latest known pull request state: unknown, draft, open, closed, or merged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest known pull request state: unknown, draft, open, closed, or merged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/implementation_pr_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].implementation_pr_merged",
+            "effectiveDescription": "Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/implementation_pr_merged"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].tracker_issue_url",
+            "effectiveDescription": "Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/tracker_issue_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].tracker_issue_reference",
+            "effectiveDescription": "How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/tracker_issue_reference"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].tracker_issue_error",
+            "effectiveDescription": "Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/tracker_issue_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].work_state",
+            "effectiveDescription": "Derived remediation state: unclaimed, working, in_review, or done.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Derived remediation state: unclaimed, working, in_review, or done.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/work_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "results[].assignee",
+            "effectiveDescription": "Current user, internal task, or external agent claim owner. Null when unclaimed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current user, internal task, or external agent claim owner. Null when unclaimed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/assignee"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsListData",
+            "field": "_agentNote",
+            "effectiveDescription": "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "You may inspect reports without claiming them. A claim indicates active work that should not be duplicated. Before claiming a report, read the report and its work log. If you decide to begin working to fix the issues identified in the report, call inbox-reports-claim to record that you are working on it. Taking ownership from another actor requires `takeover=true`.\nIf you create a pull request implementing the remediation, call inbox-reports-claim with the returned `claim_id` and `pull_requests` to add it. Send all currently known PRs together, including stacks and cross-repository changes. Release the claim if you stop work without completing the report. If the report should be considered resolved without a pull request, or PostHog cannot observe the pull request merge, resolve it with inbox-reports-set-state.\n",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

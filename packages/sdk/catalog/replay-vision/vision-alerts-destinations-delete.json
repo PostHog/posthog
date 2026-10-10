@@ -1,0 +1,101 @@
+{
+    "method": "replayVision.visionAlertsDestinationsDelete",
+    "toolName": "vision-alerts-destinations-delete",
+    "operationId": "vision_alerts_destinations_delete_create",
+    "title": "Remove replay vision alert destination",
+    "category": "Replay vision",
+    "description": "Remove a notification destination from a replay vision alert. Pass every id in the destination's `hog_function_ids` group, as listed under `destinations` by `vision-alerts-get`; the group is deleted atomically and a partial group fails the call.",
+    "requiredScopes": ["vision_alert:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionAlertsDestinationsDeleteInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-alerts-destinations-delete.ts",
+        "declaration": "dist/generated/replay-vision/vision-alerts-destinations-delete.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionAlertsDestinationsDeleteOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-alerts-destinations-delete.ts",
+        "declaration": "dist/generated/replay-vision/vision-alerts-destinations-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionAlertsDestinationsDeleteRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-destinations-delete.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-destinations-delete.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionAlertsDestinationsDeleteData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-destinations-delete.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-destinations-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Delete a notification destination by deleting its HogFunction group atomically.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1alerts~1{id}~1destinations~1delete~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Remove a notification destination from a replay vision alert. Pass every id in the destination's `hog_function_ids` group, as listed under `destinations` by `vision-alerts-get`; the group is deleted atomically and a partial group fails the call.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionAlertsDestinationsDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this vision alert configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this vision alert configuration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/destinations/delete/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsDestinationsDeleteInput",
+            "field": "hog_function_ids",
+            "effectiveDescription": "HogFunction IDs to delete as one atomic destination group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogFunction IDs to delete as one atomic destination group.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/destinations/delete/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-alerts-get",
+            "method": "replayVision.visionAlertsGet"
+        }
+    ]
+}

@@ -1,0 +1,2179 @@
+{
+    "method": "queries.queryPathsActors",
+    "toolName": "query-paths-actors",
+    "title": "List persons on a paths insight",
+    "category": "Query wrappers",
+    "description": "List the persons behind a paths insight — either everyone who traversed the path, or those at one specific node/edge.\n\nPair this with `query-paths`: first run the paths query to see the flows (each result row is an edge `source → target` with a user count), then call this tool with the **same** paths query as `source`.\n\nTwo modes:\n\n**1. Everyone on the path (A → B).** Set `startPoint` / `endPoint` on the source `pathsFilter` and leave the path keys unset. Returns every actor whose journey matches that start/end constraint. Use this for \"who went from a.com to b.com?\".\n\n**2. Actors at a specific point.** Each node in the path graph has a key of the form `<stepIndex>_<value>` (e.g. `\"3_https://example.com/checkout\"`). The `source` and `target` fields of a `query-paths` result row **are** these keys — copy them verbatim. Set on the source `pathsFilter`:\n\n- `pathEndKey` — persons who **arrived at** that node (use a row's `target`).\n- `pathStartKey` — persons who **departed from** that node (use a row's `source`).\n- Set **both** `pathStartKey` + `pathEndKey` to pin a single edge (the actors behind one `source → target` count).\n- `pathDropoffKey` — persons who **dropped off** at that node. Mutually exclusive with the other two.\n\nSelectors:\n\n- `includeRecordings`: defaults to `true`. Set to `false` to skip fetching matched session recordings (faster if recordings are not needed).\n- `limit`: how many persons to return in one page. Defaults to 100, and anything above 1000 is clamped to 1000.\n- `offset`: how many persons to skip before the returned page. Defaults to 0.\n\nResponse:\n\nEach returned row contains `distinct_id`, `name`, `email`, and `event_count` (number of matching events for that actor), ordered by event count. When `includeRecordings` is `true` (the default), a `recordings` column is also returned with PostHog replay URLs.\n\nThe response also reports `limit`, `offset`, and `hasMore`. When `hasMore` is `true` there are more people on the path — call again with `offset` raised by `limit` to read the next page, and repeat until `hasMore` is `false`.\n\nGuidance:\n\n- Keep the `source` paths query minimal — only include the filters needed to define the same population the user is asking about.\n- The path keys come straight from a `query-paths` result row's `source` / `target`; do not hand-construct them.\n- `pathReplacements` and `showFullUrls` are not exposed — they don't change which actors are returned (`showFullUrls` is display-only; `pathReplacements` is covered by `localPathCleaningFilters`).\n- To read every person, page with `offset` rather than raising `limit` past 1000, and keep `source` identical across pages so rows don't repeat or go missing.\n- When you only need a sample, one page is enough — narrow the source (start/end point, date range, filters) instead of paging through everyone.",
+    "requiredScopes": ["query:read", "person:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/queries/client.ts",
+    "input": {
+        "name": "QueriesQueryPathsActorsInput",
+        "importPath": "@posthog/sdk/queries",
+        "source": "src/generated/queries/query-paths-actors.ts",
+        "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+    },
+    "output": {
+        "name": "QueriesQueryPathsActorsOutput",
+        "importPath": "@posthog/sdk/queries",
+        "source": "src/generated/queries/query-paths-actors.ts",
+        "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema0",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema6",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema7",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema8",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema10",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema11",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema13",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema12",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema15",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema14",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema17",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema16",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema18",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema19",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema20",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema21",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema23",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema22",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema24",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema25",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema26",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema27",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema9",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema30",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema31",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema32",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema33",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema34",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema35",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema36",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema37",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema38",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema39",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema40",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema42",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema44",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema43",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema41",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema41Variant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema41Variant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema41Variant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema41Variant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema41Variant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant6",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant7",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant8",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant9",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant10",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant11",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant12",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant13",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant14",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant15",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant16",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant17",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant18",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema29Variant19",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema28",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsRequestSchema45",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsInputSource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseInteger",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantDateRange",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantDurationRange",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantDateRangeFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponsePathType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantPathCleaningFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantStringOrBooleanValuePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGenericPropertyFilterType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantNumericValuePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantArrayPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantDateTimePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantSetPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGenericPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGenericPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGenericPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGenericPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGenericPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGenericPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGroupPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGroupPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGroupPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGroupPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGroupPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantGroupPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantCohortPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantCohortPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantElementPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantElementPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantElementPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantElementPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantElementPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantElementPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantFlagPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponsePropertyOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponsePropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponsePropertyFilterValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseElementPropertyFilterKey",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseElementPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseFeaturePropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseBehavioralEventSource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantBehavioralPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseTimeUnitType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseInlineBehavioralType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantBehavioralPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantInsightPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsResponseAssistantPathsQuery",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsDataQuerySource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsDataQuery",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsDataResults",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsDataWarningsItem",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryPathsActorsData",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-paths-actors.ts",
+            "declaration": "dist/generated/queries/query-paths-actors.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the persons behind a paths insight — either everyone who traversed the path, or those at one specific node/edge.\n\nPair this with `query-paths`: first run the paths query to see the flows (each result row is an edge `source → target` with a user count), then call this tool with the **same** paths query as `source`.\n\nTwo modes:\n\n**1. Everyone on the path (A → B).** Set `startPoint` / `endPoint` on the source `pathsFilter` and leave the path keys unset. Returns every actor whose journey matches that start/end constraint. Use this for \"who went from a.com to b.com?\".\n\n**2. Actors at a specific point.** Each node in the path graph has a key of the form `<stepIndex>_<value>` (e.g. `\"3_https://example.com/checkout\"`). The `source` and `target` fields of a `query-paths` result row **are** these keys — copy them verbatim. Set on the source `pathsFilter`:\n\n- `pathEndKey` — persons who **arrived at** that node (use a row's `target`).\n- `pathStartKey` — persons who **departed from** that node (use a row's `source`).\n- Set **both** `pathStartKey` + `pathEndKey` to pin a single edge (the actors behind one `source → target` count).\n- `pathDropoffKey` — persons who **dropped off** at that node. Mutually exclusive with the other two.\n\nSelectors:\n\n- `includeRecordings`: defaults to `true`. Set to `false` to skip fetching matched session recordings (faster if recordings are not needed).\n- `limit`: how many persons to return in one page. Defaults to 100, and anything above 1000 is clamped to 1000.\n- `offset`: how many persons to skip before the returned page. Defaults to 0.\n\nResponse:\n\nEach returned row contains `distinct_id`, `name`, `email`, and `event_count` (number of matching events for that actor), ordered by event count. When `includeRecordings` is `true` (the default), a `recordings` column is also returned with PostHog replay URLs.\n\nThe response also reports `limit`, `offset`, and `hasMore`. When `hasMore` is `true` there are more people on the path — call again with `offset` raised by `limit` to read the next page, and repeat until `hasMore` is `false`.\n\nGuidance:\n\n- Keep the `source` paths query minimal — only include the filters needed to define the same population the user is asking about.\n- The path keys come straight from a `query-paths` result row's `source` / `target`; do not hand-construct them.\n- `pathReplacements` and `showFullUrls` are not exposed — they don't change which actors are returned (`showFullUrls` is display-only; `pathReplacements` is covered by `localPathCleaningFilters`).\n- To read every person, page with `offset` rather than raising `limit` past 1000, and keep `source` identical across pages so rows don't repeat or go missing.\n- When you only need a sample, one page is enough — narrow the source (start/end point, date range, filters) instead of paging through everyone.",
+            "source": {
+                "kind": "description_file",
+                "file": "services/mcp/definitions/prompts/query-paths-actors.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema1",
+            "effectiveDescription": "Groups aggregation",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Groups aggregation",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema3",
+            "effectiveDescription": "Date range for the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema4",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema4/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema4",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema4/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema6",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema6/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema7",
+            "effectiveDescription": "Exclude internal and test users by applying the respective filters",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema9",
+            "effectiveDescription": "Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema10",
+            "effectiveDescription": "Maximum number of path edges (connections between steps) to return. Higher values show more detail but can make the visualization harder to read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of path edges (connections between steps) to return. Higher values show more detail but can make the visualization harder to read.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema11",
+            "effectiveDescription": "Filter to only show paths that end at this specific step. Same format as `startPoint`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to only show paths that end at this specific step. Same format as `startPoint`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema12",
+            "effectiveDescription": "Event names or URLs to exclude from the path analysis entirely. Excluded events are filtered out before building the path visualization. Useful for removing noise from common but uninteresting events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event names or URLs to exclude from the path analysis entirely. Excluded events are filtered out before building the path visualization. Useful for removing noise from common but uninteresting events.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema14",
+            "effectiveDescription": "Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema16",
+            "effectiveDescription": "ClickHouse regex-based rules to clean and normalize path values at the query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence. Useful for removing dynamic IDs or parameters from URLs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ClickHouse regex-based rules to clean and normalize path values at the query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence. Useful for removing dynamic IDs or parameters from URLs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema17",
+            "field": "alias",
+            "effectiveDescription": "A human-readable alias that replaces matched path patterns in the visualization. For example, `/user/:id/profile` to replace `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\\\1` for capture group back-references.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A human-readable alias that replaces matched path patterns in the visualization. For example, `/user/:id/profile` to replace `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\\\1` for capture group back-references.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema17/properties/alias"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema17",
+            "field": "regex",
+            "effectiveDescription": "A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias. For example, `\\/user\\/\\d+\\/profile` to match any user profile URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias. For example, `\\/user\\/\\d+\\/profile` to match any user profile URL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema17/properties/regex"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema18",
+            "effectiveDescription": "Maximum number of users who traversed an edge for it to be displayed. Filters out high-traffic paths to focus on less common journeys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of users who traversed an edge for it to be displayed. Filters out high-traffic paths to focus on less common journeys.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema19",
+            "effectiveDescription": "Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema19"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema20",
+            "effectiveDescription": "Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema21",
+            "effectiveDescription": "Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"3_https://example.com/checkout\"`. Take the value verbatim from a `target` field of a `query-paths` result row. Combine with `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by non-actors paths queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"3_https://example.com/checkout\"`. Take the value verbatim from a `target` field of a `query-paths` result row. Combine with `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by non-actors paths queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema21"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema22",
+            "effectiveDescription": "Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema22"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema24",
+            "effectiveDescription": "Actors drilldown only. Restrict the returned persons to those who **departed from** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"2_https://example.com/pricing\"`. Take the value verbatim from a `source` field of a `query-paths` result row. Combine with `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actors drilldown only. Restrict the returned persons to those who **departed from** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"2_https://example.com/pricing\"`. Take the value verbatim from a `source` field of a `query-paths` result row. Combine with `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema24"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema25",
+            "effectiveDescription": "A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema25"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema26",
+            "effectiveDescription": "Filter to only show paths that start from this specific step. The value format depends on the included event types: For `$pageview` paths, use page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen names. For `custom_event` paths, use event names.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to only show paths that start from this specific step. The value format depends on the included event types: For `$pageview` paths, use page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen names. For `custom_event` paths, use event names.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema26"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema27",
+            "effectiveDescription": "Maximum number of steps (path depth) to show in the visualization. Controls how deep the path analysis goes from the start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of steps (path depth) to show in the visualization. Controls how deep the path analysis goes from the start.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema27"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsRequest_Schema28",
+            "effectiveDescription": "Property filters for all series",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for all series",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema28"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsInput",
+            "field": "includeRecordings",
+            "effectiveDescription": "Whether to include matched session recordings for each actor.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to include matched session recordings for each actor.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/includeRecordings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsInput",
+            "field": "offset",
+            "effectiveDescription": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsInput",
+            "field": "source",
+            "effectiveDescription": "The source paths insight query whose actors we are listing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source paths insight query whose actors we are listing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsInput",
+            "field": "output_format",
+            "effectiveDescription": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/output_format"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsQuery",
+            "field": "aggregation_group_type_index",
+            "effectiveDescription": "Groups aggregation",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Groups aggregation",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsQuery/properties/aggregation_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsQuery",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsQuery/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsQuery",
+            "field": "filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users by applying the respective filters",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsQuery/properties/filterTestAccounts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsQuery",
+            "field": "pathsFilter",
+            "effectiveDescription": "Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsQuery/properties/pathsFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsQuery",
+            "field": "properties",
+            "effectiveDescription": "Property filters for all series",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for all series",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsQuery/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsQuery",
+            "field": "samplingFactor",
+            "effectiveDescription": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsQuery/properties/samplingFactor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantDateRange",
+            "effectiveDescription": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantDateRange",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantDateRange",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantDurationRange",
+            "effectiveDescription": "This filter only works with durations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with durations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantDurationRange",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "edgeLimit",
+            "effectiveDescription": "Maximum number of path edges (connections between steps) to return. Higher values show more detail but can make the visualization harder to read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of path edges (connections between steps) to return. Higher values show more detail but can make the visualization harder to read.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/edgeLimit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "endPoint",
+            "effectiveDescription": "Filter to only show paths that end at this specific step. Same format as `startPoint`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to only show paths that end at this specific step. Same format as `startPoint`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/endPoint"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "excludeEvents",
+            "effectiveDescription": "Event names or URLs to exclude from the path analysis entirely. Excluded events are filtered out before building the path visualization. Useful for removing noise from common but uninteresting events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event names or URLs to exclude from the path analysis entirely. Excluded events are filtered out before building the path visualization. Useful for removing noise from common but uninteresting events.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/excludeEvents"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "includeEventTypes",
+            "effectiveDescription": "Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/includeEventTypes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "localPathCleaningFilters",
+            "effectiveDescription": "ClickHouse regex-based rules to clean and normalize path values at the query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence. Useful for removing dynamic IDs or parameters from URLs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ClickHouse regex-based rules to clean and normalize path values at the query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence. Useful for removing dynamic IDs or parameters from URLs.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/localPathCleaningFilters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "maxEdgeWeight",
+            "effectiveDescription": "Maximum number of users who traversed an edge for it to be displayed. Filters out high-traffic paths to focus on less common journeys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of users who traversed an edge for it to be displayed. Filters out high-traffic paths to focus on less common journeys.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/maxEdgeWeight"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "minEdgeWeight",
+            "effectiveDescription": "Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/minEdgeWeight"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "pathDropoffKey",
+            "effectiveDescription": "Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/pathDropoffKey"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "pathEndKey",
+            "effectiveDescription": "Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"3_https://example.com/checkout\"`. Take the value verbatim from a `target` field of a `query-paths` result row. Combine with `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by non-actors paths queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"3_https://example.com/checkout\"`. Take the value verbatim from a `target` field of a `query-paths` result row. Combine with `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by non-actors paths queries.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/pathEndKey"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "pathGroupings",
+            "effectiveDescription": "Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/pathGroupings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "pathStartKey",
+            "effectiveDescription": "Actors drilldown only. Restrict the returned persons to those who **departed from** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"2_https://example.com/pricing\"`. Take the value verbatim from a `source` field of a `query-paths` result row. Combine with `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actors drilldown only. Restrict the returned persons to those who **departed from** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"2_https://example.com/pricing\"`. Take the value verbatim from a `source` field of a `query-paths` result row. Combine with `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/pathStartKey"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "pathsHogQLExpression",
+            "effectiveDescription": "A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/pathsHogQLExpression"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "startPoint",
+            "effectiveDescription": "Filter to only show paths that start from this specific step. The value format depends on the included event types: For `$pageview` paths, use page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen names. For `custom_event` paths, use event names.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to only show paths that start from this specific step. The value format depends on the included event types: For `$pageview` paths, use page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen names. For `custom_event` paths, use event names.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/startPoint"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathsFilter",
+            "field": "stepLimit",
+            "effectiveDescription": "Maximum number of steps (path depth) to show in the visualization. Controls how deep the path analysis goes from the start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of steps (path depth) to show in the visualization. Controls how deep the path analysis goes from the start.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsFilter/properties/stepLimit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathCleaningFilter",
+            "effectiveDescription": "Defines a regex-based path cleaning rule to normalize dynamic path components. Path cleaning rules replace matching URL patterns with a readable alias, which helps group similar paths together (e.g., `/user/123/profile` and `/user/456/profile` become `/user/:id/profile`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines a regex-based path cleaning rule to normalize dynamic path components. Path cleaning rules replace matching URL patterns with a readable alias, which helps group similar paths together (e.g., `/user/123/profile` and `/user/456/profile` become `/user/:id/profile`).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathCleaningFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathCleaningFilter",
+            "field": "alias",
+            "effectiveDescription": "A human-readable alias that replaces matched path patterns in the visualization. For example, `/user/:id/profile` to replace `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\\\1` for capture group back-references.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A human-readable alias that replaces matched path patterns in the visualization. For example, `/user/:id/profile` to replace `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\\\1` for capture group back-references.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathCleaningFilter/properties/alias"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantPathCleaningFilter",
+            "field": "regex",
+            "effectiveDescription": "A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias. For example, `\\/user\\/\\d+\\/profile` to match any user profile URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias. For example, `\\/user\\/\\d+\\/profile` to match any user profile URL.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathCleaningFilter/properties/regex"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantCohortPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantCohortPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantCohortPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "The cohort ID to filter by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The cohort ID to filter by.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantCohortPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantHogQLPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantHogQLPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantHogQLPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantHogQLPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantFlagPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "The feature flag key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The feature flag key.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantFlagPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantFlagPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "event_filters",
+            "effectiveDescription": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/event_filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "explicit_datetime",
+            "effectiveDescription": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/explicit_datetime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "Event name, or action id when event_type is 'actions'",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, or action id when event_type is 'actions'",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "negation",
+            "effectiveDescription": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/negation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "operator_value",
+            "effectiveDescription": "Count threshold for performed_event_multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count threshold for performed_event_multiple",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/operator_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "time_value",
+            "effectiveDescription": "Relative time window size, paired with time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative time window size, paired with time_interval",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/time_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponsePropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponsePersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseElementPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/ElementPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseFeaturePropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event property with \"$feature/\" prepended",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property with \"$feature/\" prepended",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/FeaturePropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseBehavioralEventSource",
+            "effectiveDescription": "Whether a behavioral filter's `key` refers to an event name or an action id",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a behavioral filter's `key` refers to an event name or an action id",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/BehavioralEventSource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsResponseInlineBehavioralType",
+            "effectiveDescription": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/InlineBehavioralType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical PostHog URL returned by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/_posthogUrl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsData",
+            "field": "query.source",
+            "effectiveDescription": "Drills into a paths insight to list the persons behind it. Returned rows are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.\n\nThere are no per-cell selectors like `day` or `series` — everything is configured on the `source` paths query. Two modes:\n- Whole path: set `pathsFilter.startPoint` / `endPoint` (plus `includeEventTypes`, date range,   property filters) to return every actor on that path.\n- Specific node/edge: set `pathsFilter.pathEndKey` (arrived at a node), `pathStartKey` (departed   from a node), both together (a single `source → target` edge), or `pathDropoffKey` (dropped off).   The key value is `<stepIndex>_<value>`, taken verbatim from a `query-paths` result row's   `target` / `source`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Drills into a paths insight to list the persons behind it. Returned rows are `distinct_id`, `name`, `email`, `event_count`, and optionally matched session recordings.\n\nThere are no per-cell selectors like `day` or `series` — everything is configured on the `source` paths query. Two modes:\n- Whole path: set `pathsFilter.startPoint` / `endPoint` (plus `includeEventTypes`, date range,   property filters) to return every actor on that path.\n- Specific node/edge: set `pathsFilter.pathEndKey` (arrived at a node), `pathStartKey` (departed   from a node), both together (a single `source → target` edge), or `pathDropoffKey` (dropped off).   The key value is `<stepIndex>_<value>`, taken verbatim from a `query-paths` result row's   `target` / `source`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsActorsQuery"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsData",
+            "field": "query.source.includeRecordings",
+            "effectiveDescription": "Whether to include matched session recordings for each actor.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to include matched session recordings for each actor.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsActorsQuery/properties/includeRecordings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsData",
+            "field": "query.source.limit",
+            "effectiveDescription": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsActorsQuery/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsData",
+            "field": "query.source.offset",
+            "effectiveDescription": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsActorsQuery/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsData",
+            "field": "query.source.source",
+            "effectiveDescription": "The source paths insight query whose actors we are listing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source paths insight query whose actors we are listing.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantPathsActorsQuery/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryPathsActorsData",
+            "field": "__formatted_results_override",
+            "effectiveDescription": "Formatted results supplied by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Formatted results supplied by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/__formatted_results_override"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-paths",
+            "method": "queries.paths"
+        }
+    ]
+}

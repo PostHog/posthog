@@ -1,0 +1,213 @@
+{
+    "method": "replayVision.visionAlertsDestinationsCreate",
+    "toolName": "vision-alerts-destinations-create",
+    "operationId": "vision_alerts_destinations_create",
+    "title": "Add replay vision alert destination",
+    "category": "Replay vision",
+    "description": "Attach a Slack or webhook notification destination to a replay vision alert. For Slack, get the workspace integration id from `integrations-list` and the channel id from `integrations-channels-retrieve`. One HogFunction is created per alert event kind, atomically. Keep the returned `hog_function_ids`: they identify the destination and are what `vision-alerts-destinations-delete` takes.",
+    "requiredScopes": ["vision_alert:write", "session_recording:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionAlertsDestinationsCreateInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-alerts-destinations-create.ts",
+        "declaration": "dist/generated/replay-vision/vision-alerts-destinations-create.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionAlertsDestinationsCreateOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-alerts-destinations-create.ts",
+        "declaration": "dist/generated/replay-vision/vision-alerts-destinations-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionAlertsDestinationsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-destinations-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionAlertsDestinationsCreateRequestSchema1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-destinations-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionAlertsDestinationsCreateRequestSchema2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-destinations-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionAlertsDestinationsCreateRequestSchema3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-destinations-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionAlertsDestinationsCreateInputType",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-destinations-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-destinations-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionAlertsDestinationsCreateData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-destinations-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-destinations-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create a notification destination for this alert. One HogFunction is created per alert event kind atomically.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1alerts~1{id}~1destinations~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Attach a Slack or webhook notification destination to a replay vision alert. For Slack, get the workspace integration id from `integrations-list` and the channel id from `integrations-channels-retrieve`. One HogFunction is created per alert event kind, atomically. Keep the returned `hog_function_ids`: they identify the destination and are what `vision-alerts-destinations-delete` takes.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionAlertsDestinationsCreateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this vision alert configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this vision alert configuration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/destinations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsDestinationsCreateInput",
+            "field": "type",
+            "effectiveDescription": "Notification destination type.\n\n* `slack` - slack\n* `webhook` - webhook",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notification destination type.\n\n* `slack` - slack\n* `webhook` - webhook",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/destinations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsDestinationsCreateInput",
+            "field": "slack_workspace_id",
+            "effectiveDescription": "Integration ID for the Slack workspace. Required when type=slack.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Integration ID for the Slack workspace. Required when type=slack.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/destinations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsDestinationsCreateInput",
+            "field": "slack_channel_id",
+            "effectiveDescription": "Slack channel ID. Required when type=slack.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel ID. Required when type=slack.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/destinations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsDestinationsCreateInput",
+            "field": "slack_channel_name",
+            "effectiveDescription": "Human-readable channel name for display.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable channel name for display.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/destinations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsDestinationsCreateInput",
+            "field": "webhook_url",
+            "effectiveDescription": "HTTPS endpoint to post to. Required when type=webhook.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HTTPS endpoint to post to. Required when type=webhook.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/destinations/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsDestinationsCreateData",
+            "field": "hog_function_ids",
+            "effectiveDescription": "HogFunctions backing the created destination, one per event kind.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogFunctions backing the created destination, one per event kind.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/hog_function_ids"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "integrations-list",
+            "method": "integrations.integrationsList"
+        },
+        {
+            "toolName": "integrations-channels-retrieve",
+            "method": "integrations.integrationsChannelsRetrieve"
+        },
+        {
+            "toolName": "vision-alerts-destinations-delete",
+            "method": "replayVision.visionAlertsDestinationsDelete"
+        }
+    ]
+}

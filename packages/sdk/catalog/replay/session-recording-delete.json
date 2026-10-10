@@ -1,0 +1,70 @@
+{
+    "method": "replay.sessionRecordingDelete",
+    "toolName": "session-recording-delete",
+    "operationId": "session_recordings_destroy",
+    "title": "Delete session recording",
+    "category": "Session replays",
+    "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows. To delete more than one recording, use `session-recording-bulk-delete` instead of calling this repeatedly.",
+    "requiredScopes": ["session_recording:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay/client.ts",
+    "input": {
+        "name": "ReplaySessionRecordingDeleteInput",
+        "importPath": "@posthog/sdk/replay",
+        "source": "src/generated/replay/session-recording-delete.ts",
+        "declaration": "dist/generated/replay/session-recording-delete.d.ts"
+    },
+    "output": {
+        "name": "ReplaySessionRecordingDeleteOutput",
+        "importPath": "@posthog/sdk/replay",
+        "source": "src/generated/replay/session-recording-delete.ts",
+        "declaration": "dist/generated/replay/session-recording-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplaySessionRecordingDeleteData",
+            "importPath": "@posthog/sdk/replay",
+            "source": "src/generated/replay/session-recording-delete.ts",
+            "declaration": "dist/generated/replay/session-recording-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows. To delete more than one recording, use `session-recording-bulk-delete` instead of calling this repeatedly.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplaySessionRecordingDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this session recording.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this session recording.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/session_recordings/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "session-recording-bulk-delete",
+            "method": "replay.sessionRecordingBulkDelete"
+        }
+    ]
+}

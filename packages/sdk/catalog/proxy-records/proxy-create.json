@@ -1,0 +1,234 @@
+{
+    "method": "proxyRecords.proxyCreate",
+    "toolName": "proxy-create",
+    "operationId": "proxy_records_create",
+    "title": "Create reverse proxy",
+    "category": "Reverse proxy",
+    "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
+    "requiredScopes": ["organization:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/proxy-records/client.ts",
+    "input": {
+        "name": "ProxyRecordsProxyCreateInput",
+        "importPath": "@posthog/sdk/proxy-records",
+        "source": "src/generated/proxy-records/proxy-create.ts",
+        "declaration": "dist/generated/proxy-records/proxy-create.d.ts"
+    },
+    "output": {
+        "name": "ProxyRecordsProxyCreateOutput",
+        "importPath": "@posthog/sdk/proxy-records",
+        "source": "src/generated/proxy-records/proxy-create.ts",
+        "declaration": "dist/generated/proxy-records/proxy-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ProxyRecordsProxyCreateData",
+            "importPath": "@posthog/sdk/proxy-records",
+            "source": "src/generated/proxy-records/proxy-create.ts",
+            "declaration": "dist/generated/proxy-records/proxy-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create a new managed reverse proxy. Provide the domain you want to proxy through. The response includes the CNAME target you need to add as a DNS record. Once the CNAME is configured, the proxy will be automatically verified and provisioned.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1proxy_records~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/proxy-records.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ProxyRecordsProxyCreateInput",
+            "field": "domain",
+            "effectiveDescription": "The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/proxy_records/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyCreateData",
+            "field": "id",
+            "effectiveDescription": "Unique identifier for the proxy record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier for the proxy record.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyCreateData",
+            "field": "domain",
+            "effectiveDescription": "The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/domain"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyCreateData",
+            "field": "target_cname",
+            "effectiveDescription": "The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/target_cname"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyCreateData",
+            "field": "root_redirect_url",
+            "effectiveDescription": "HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/root_redirect_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyCreateData",
+            "field": "root_redirect_supported",
+            "effectiveDescription": "Whether this managed proxy supports a redirect from its root URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this managed proxy supports a redirect from its root URL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/root_redirect_supported"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyCreateData",
+            "field": "status",
+            "effectiveDescription": "Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).\n\n* `waiting` - Waiting\n* `issuing` - Issuing\n* `valid` - Valid\n* `warning` - Warning\n* `erroring` - Erroring\n* `deleting` - Deleting\n* `timed_out` - Timed Out",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).\n\n* `waiting` - Waiting\n* `issuing` - Issuing\n* `valid` - Valid\n* `warning` - Warning\n* `erroring` - Erroring\n* `deleting` - Deleting\n* `timed_out` - Timed Out",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyCreateData",
+            "field": "message",
+            "effectiveDescription": "Human-readable status message with details about errors or warnings, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable status message with details about errors or warnings, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyCreateData",
+            "field": "created_at",
+            "effectiveDescription": "When this proxy record was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this proxy record was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyCreateData",
+            "field": "updated_at",
+            "effectiveDescription": "When this proxy record was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this proxy record was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyCreateData",
+            "field": "created_by",
+            "effectiveDescription": "ID of the user who created this proxy record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the user who created this proxy record.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

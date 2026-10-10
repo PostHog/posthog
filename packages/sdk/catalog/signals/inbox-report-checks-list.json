@@ -1,0 +1,646 @@
+{
+    "method": "signals.inboxReportChecksList",
+    "toolName": "inbox-report-checks-list",
+    "operationId": "signals_report_checks_list",
+    "title": "List a report's checks",
+    "category": "Signals",
+    "description": "List the follow-up checks on one report: open checks first, then finished checks, newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsInboxReportChecksListInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-report-checks-list.ts",
+        "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+    },
+    "output": {
+        "name": "SignalsInboxReportChecksListOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-report-checks-list.ts",
+        "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsInboxReportChecksListRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-checks-list.ts",
+            "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportChecksListRequestSchema1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-checks-list.ts",
+            "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportChecksListResponseShape4",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-checks-list.ts",
+            "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportChecksListResponseShape6",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-checks-list.ts",
+            "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportChecksListResponseShape5",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-checks-list.ts",
+            "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportChecksListResponseShape3",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-checks-list.ts",
+            "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportChecksListResponseShape7",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-checks-list.ts",
+            "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportChecksListResponseShape2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-checks-list.ts",
+            "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportChecksListData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-checks-list.ts",
+            "declaration": "dist/generated/signals/inbox-report-checks-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List the forward-looking checks on a report. A check says what must stay true after the report was acted on, and the coordinator records each verdict as a `check_result` artefact on the report.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1reports~1{report_id}~1checks~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List the follow-up checks on one report: open checks first, then finished checks, newest first within each group. Each row carries the expectation and why it was written, its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`), its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, or `cancelled`) and its `last_outcome`. A `pending` check waits for its report to resolve before its clock starts. Checks are written by scout runs and by the research pipeline, so this surface reads them and does not create them. `query` and `baseline_value` read as null when you cannot read the data they describe.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsInboxReportChecksListInput",
+            "field": "report_id",
+            "effectiveDescription": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/checks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/checks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/checks/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "title",
+            "effectiveDescription": "Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "rationale",
+            "effectiveDescription": "Why the author set the check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the author set the check.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/rationale"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "kind",
+            "effectiveDescription": "How the check is evaluated.\n\n* `metric_threshold` - Metric Threshold\n* `agent` - Agent",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the check is evaluated.\n\n* `metric_threshold` - Metric Threshold\n* `agent` - Agent",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "status",
+            "effectiveDescription": "`pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.\n\n* `pending` - Pending\n* `active` - Active\n* `passed` - Passed\n* `failed` - Failed\n* `errored` - Errored\n* `inconclusive` - Inconclusive\n* `expired` - Expired\n* `cancelled` - Cancelled",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`pending` while the check waits for the report to resolve, `active` while it still runs; every other value is terminal.\n\n* `pending` - Pending\n* `active` - Active\n* `passed` - Passed\n* `failed` - Failed\n* `errored` - Errored\n* `inconclusive` - Inconclusive\n* `expired` - Expired\n* `cancelled` - Cancelled",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "config",
+            "effectiveDescription": "What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the check measures and what the result must satisfy; the shape depends on `kind`. `query` and `baseline_value` are null when you cannot read the data they describe.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "next_run_at",
+            "effectiveDescription": "When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the coordinator next evaluates the check. Provisional while the check is `pending`: the report resolving is what sets it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/next_run_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "soak_minutes",
+            "effectiveDescription": "Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution query window. Null on legacy checks that did not record a soak.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum wait after resolution, in minutes. Metric checks also wait for a full post-resolution query window. Null on legacy checks that did not record a soak.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/soak_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "run_interval_minutes",
+            "effectiveDescription": "Gap between runs for a recurring check; null for a one-shot.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Gap between runs for a recurring check; null for a one-shot.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/run_interval_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "runs_remaining",
+            "effectiveDescription": "Evaluations still owed before the check retires as passed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Evaluations still owed before the check retires as passed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/runs_remaining"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "expires_at",
+            "effectiveDescription": "Horizon after which the check retires without running again.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Horizon after which the check retires without running again.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/expires_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "last_run_at",
+            "effectiveDescription": "When the check last ran; null before its first run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the check last ran; null before its first run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/last_run_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "last_outcome",
+            "effectiveDescription": "Verdict of the most recent run.\n\n* `passed` - Passed\n* `failed` - Failed\n* `errored` - Errored\n* `inconclusive` - Inconclusive",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Verdict of the most recent run.\n\n* `passed` - Passed\n* `failed` - Failed\n* `errored` - Errored\n* `inconclusive` - Inconclusive",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/last_outcome"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "dispatched_at",
+            "effectiveDescription": "When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/dispatched_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape2",
+            "field": "consecutive_errors",
+            "effectiveDescription": "Runs that could not be measured since the last clean one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Runs that could not be measured since the last clean one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/consecutive_errors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape3",
+            "effectiveDescription": "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A deterministic check: measure one number, compare it, record the verdict.\n\nThe number comes either from a metric the report already shows (``metric_id``) or from a query\nthe author supplies. Both end up in the same runner, so a supplied query must satisfy the live\nmetric contract — the node allowlist, the bounded window, and the single-output-series rule.\n\nA caller names one source. When it names a metric, the create path copies that metric's query\ninto ``query`` before the row is stored, so the check keeps measuring what its author saw even if\nthe report's metric is later rewritten under the same id; ``metric_id`` stays as provenance.\n\nUnknown keys are refused rather than ignored, so a misspelled field name is reported instead of\nbeing dropped in silence and stored as it arrived.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape3",
+            "field": "metric_id",
+            "effectiveDescription": "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier of a metric on the report whose query this check measures. The metric's query is copied into `query` when the check is created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/metric_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape3",
+            "field": "query",
+            "effectiveDescription": "Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape3",
+            "field": "comparison",
+            "effectiveDescription": "What the measured value must satisfy to pass.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the measured value must satisfy to pass.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/comparison"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape3",
+            "field": "baseline_value",
+            "effectiveDescription": "The value observed when the check was written, recorded on each result for context.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The value observed when the check was written, recorded on each result for context.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/baseline_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape3",
+            "field": "metric_kind",
+            "effectiveDescription": "How to draw this measurement; copied from a referenced metric.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to draw this measurement; copied from a referenced metric.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/metric_kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape3",
+            "field": "value_format",
+            "effectiveDescription": "How to format measured values; copied from a referenced metric.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to format measured values; copied from a referenced metric.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/value_format"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape3",
+            "field": "unit",
+            "effectiveDescription": "Optional value suffix.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional value suffix.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/unit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape5",
+            "effectiveDescription": "What the measured value must satisfy for the check to pass.\n\nThe operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`\nwould need a second comparison engine for a distinction a soak window does not make, so they are\nnot offered: \"stays at or below 10 a day\" is the same expectation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the measured value must satisfy for the check to pass.\n\nThe operators are the ones the shared alerts comparator expresses exactly. Strict `lt` / `gt`\nwould need a second comparison engine for a distinction a soak window does not make, so they are\nnot offered: \"stays at or below 10 a day\" is the same expectation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape5",
+            "field": "operator",
+            "effectiveDescription": "`lte`, `gte`, or `between`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`lte`, `gte`, or `between`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape5",
+            "field": "value",
+            "effectiveDescription": "The bound for `lte` and `gte`; unused by `between`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The bound for `lte` and `gte`; unused by `between`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape5",
+            "field": "bounds",
+            "effectiveDescription": "The inclusive range for `between`; unused by `lte` and `gte`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The inclusive range for `between`; unused by `lte` and `gte`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/bounds"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape7",
+            "effectiveDescription": "A check a scout run answers: re-probe the report's claim and record one verdict.\n\nThe kind for a claim no single number settles. A resolved error-tracking report is the usual\ncase: \"did the exception stop?\" needs the issue looked up, its recent events read, and the\nstack compared against what the fix changed, which is a run rather than a comparison.\n\nEverything here is prompt material a scout reads, so it is untrusted by construction: it renders\nin the run block the agent is told to weigh, never in the instructions it is told to follow. The\nverdict still comes back through `scout-check-record-result`, so instructions cannot widen what\na check run may write.\n\n``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,\nso it is optional: a check that names none runs on the fleet's follow-up scout\n(see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A check a scout run answers: re-probe the report's claim and record one verdict.\n\nThe kind for a claim no single number settles. A resolved error-tracking report is the usual\ncase: \"did the exception stop?\" needs the issue looked up, its recent events read, and the\nstack compared against what the fix changed, which is a run rather than a comparison.\n\nEverything here is prompt material a scout reads, so it is untrusted by construction: it renders\nin the run block the agent is told to weigh, never in the instructions it is told to follow. The\nverdict still comes back through `scout-check-record-result`, so instructions cannot widen what\na check run may write.\n\n``skill_name`` names the lane. Most reports are pipeline-authored and have no scout behind them,\nso it is optional: a check that names none runs on the fleet's follow-up scout\n(see ``report_check_agent.FALLBACK_CHECK_SKILL_NAME``).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape7",
+            "field": "instructions",
+            "effectiveDescription": "What the run must establish, in the author's own words.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the run must establish, in the author's own words.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/instructions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape7",
+            "field": "skill_name",
+            "effectiveDescription": "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scout skill that runs the check. Omit it to run on the fleet's follow-up scout, which is the right lane for a report no scout authored.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/skill_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListResponseShape7",
+            "field": "probe_hints",
+            "effectiveDescription": "Concrete places to look, such as an issue id, a service name, or a query to repeat.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concrete places to look, such as an issue id, a service name, or a query to repeat.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape7/properties/probe_hints"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportChecksListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,1957 @@
+{
+    "method": "queries.queryLifecycleActors",
+    "toolName": "query-lifecycle-actors",
+    "title": "List persons in a lifecycle bucket",
+    "category": "Query wrappers",
+    "description": "List the persons in a specific bucket of a lifecycle insight. Use this to answer \"who are the new / returning / resurrecting / dormant users on day Y?\".\n\n`source` is the lifecycle query that defines the population (event, date range, filters). Build it directly when the user's request already names a bucket-day, or reuse one you previously ran via `query-lifecycle` when drilling in from a chart.\n\nSelectors:\n\n- `day` **(required)**: the bucket date as an ISO date string (YYYY-MM-DD), e.g. `\"2024-01-15\"`. Must align with the source's interval (a day boundary for `interval=day`, the start of the week for `interval=week`, etc.).\n- `status` **(required)**: which lifecycle bucket to drill into. One of `new`, `returning`, `resurrecting`, `dormant`.\n  - `new` — users seen for the first time (person profile created) during the period.\n  - `returning` — users active in the previous period and active in this one.\n  - `resurrecting` — users inactive for one or more periods and active again now.\n  - `dormant` — users active in the previous period but inactive now.\n- `limit`: how many persons to return in one page. Defaults to 100, and anything above 1000 is clamped to 1000.\n- `offset`: how many persons to skip before the returned page. Defaults to 0.\n\nResponse:\n\nEach returned row contains `distinct_id`, `email`, and `name`. Matched session recordings are not returned — the lifecycle runner does not project per-actor matching events.\n\nThe response also reports `limit`, `offset`, and `hasMore`. When `hasMore` is `true` there are more people in the bucket — call again with `offset` raised by `limit` to read the next page, and repeat until `hasMore` is `false`.\n\nGuidance:\n\n- Lifecycle excludes anonymous users (events with `$process_person_profile: false`), so actor lists only contain identified users — anonymous visitors never appear in any bucket.\n- Lifecycle insights only support a single series and do not expose `compareFilter`, so there is no `series` or `compare` selector here.\n- Keep the `source` lifecycle query minimal — only include the filters needed to define the same lifecycle population the user is asking about.\n- To read every person in a bucket, page with `offset` rather than raising `limit` past 1000, and keep `source`, `day`, and `status` identical across pages so rows don't repeat or go missing.\n- When you only need a sample, one page is enough — tighten the source query (filters, date range) instead of paging through everyone.",
+    "requiredScopes": ["query:read", "person:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/queries/client.ts",
+    "input": {
+        "name": "QueriesQueryLifecycleActorsInput",
+        "importPath": "@posthog/sdk/queries",
+        "source": "src/generated/queries/query-lifecycle-actors.ts",
+        "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+    },
+    "output": {
+        "name": "QueriesQueryLifecycleActorsOutput",
+        "importPath": "@posthog/sdk/queries",
+        "source": "src/generated/queries/query-lifecycle-actors.ts",
+        "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema0",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema6",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema7",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema8",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema9",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema11",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema12",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema13",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema15",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema14",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema10",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema19",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema20",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema21",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema22",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema23",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema24",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema25",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema26",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema27",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema28",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema29",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant6",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant7",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant8",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant9",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant10",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant11",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant12",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant13",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant14",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant15",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant16",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant17",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema18Variant18",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema31",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema33",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema32",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema30",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema30Variant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema30Variant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema30Variant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema30Variant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema30Variant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema17",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema17Variant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema16",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema36",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema35",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema35Variant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema35Variant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema34",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsRequestSchema37",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsInputSource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsInputStatus",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseInteger",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantDateRange",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantDurationRange",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantDateRangeFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseIntervalType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseLifecycleToggle",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantLifecycleFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantStringOrBooleanValuePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGenericPropertyFilterType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantNumericValuePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantArrayPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantDateTimePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantSetPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGenericPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGenericPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGenericPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGenericPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGenericPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGenericPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGroupPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGroupPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGroupPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGroupPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGroupPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantGroupPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantCohortPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantCohortPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantElementPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantElementPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantElementPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantElementPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantElementPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantElementPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantFlagPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponsePropertyOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponsePropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponsePropertyFilterValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseElementPropertyFilterKey",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseElementPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseFeaturePropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseBehavioralEventSource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantBehavioralPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseTimeUnitType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseInlineBehavioralType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantBehavioralPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantInsightPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantLifecycleEventsNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantLifecycleActionsNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantLifecycleSeriesNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantLifecycleQuery",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsResponseAssistantLifecycleStatus",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsDataQuerySource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsDataQuery",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsDataResults",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsDataWarningsItem",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryLifecycleActorsData",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-lifecycle-actors.ts",
+            "declaration": "dist/generated/queries/query-lifecycle-actors.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the persons in a specific bucket of a lifecycle insight. Use this to answer \"who are the new / returning / resurrecting / dormant users on day Y?\".\n\n`source` is the lifecycle query that defines the population (event, date range, filters). Build it directly when the user's request already names a bucket-day, or reuse one you previously ran via `query-lifecycle` when drilling in from a chart.\n\nSelectors:\n\n- `day` **(required)**: the bucket date as an ISO date string (YYYY-MM-DD), e.g. `\"2024-01-15\"`. Must align with the source's interval (a day boundary for `interval=day`, the start of the week for `interval=week`, etc.).\n- `status` **(required)**: which lifecycle bucket to drill into. One of `new`, `returning`, `resurrecting`, `dormant`.\n  - `new` — users seen for the first time (person profile created) during the period.\n  - `returning` — users active in the previous period and active in this one.\n  - `resurrecting` — users inactive for one or more periods and active again now.\n  - `dormant` — users active in the previous period but inactive now.\n- `limit`: how many persons to return in one page. Defaults to 100, and anything above 1000 is clamped to 1000.\n- `offset`: how many persons to skip before the returned page. Defaults to 0.\n\nResponse:\n\nEach returned row contains `distinct_id`, `email`, and `name`. Matched session recordings are not returned — the lifecycle runner does not project per-actor matching events.\n\nThe response also reports `limit`, `offset`, and `hasMore`. When `hasMore` is `true` there are more people in the bucket — call again with `offset` raised by `limit` to read the next page, and repeat until `hasMore` is `false`.\n\nGuidance:\n\n- Lifecycle excludes anonymous users (events with `$process_person_profile: false`), so actor lists only contain identified users — anonymous visitors never appear in any bucket.\n- Lifecycle insights only support a single series and do not expose `compareFilter`, so there is no `series` or `compare` selector here.\n- Keep the `source` lifecycle query minimal — only include the filters needed to define the same lifecycle population the user is asking about.\n- To read every person in a bucket, page with `offset` rather than raising `limit` past 1000, and keep `source`, `day`, and `status` identical across pages so rows don't repeat or go missing.\n- When you only need a sample, one page is enough — tighten the source query (filters, date range) instead of paging through everyone.",
+            "source": {
+                "kind": "description_file",
+                "file": "services/mcp/definitions/prompts/query-lifecycle-actors.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema1",
+            "effectiveDescription": "Groups aggregation",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Groups aggregation",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema3",
+            "effectiveDescription": "Date range for the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema4",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema4/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema4",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema4/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema6",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema6/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema7",
+            "effectiveDescription": "Exclude internal and test users by applying the respective filters",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema8",
+            "effectiveDescription": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema10",
+            "effectiveDescription": "Properties specific to the lifecycle insight",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties specific to the lifecycle insight",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema11",
+            "effectiveDescription": "Whether to show the legend describing series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to show the legend describing series.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema12",
+            "effectiveDescription": "Whether to show a value on each data point.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to show a value on each data point.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema13",
+            "effectiveDescription": "Whether the lifecycle bars should be stacked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the lifecycle bars should be stacked.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema14",
+            "effectiveDescription": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema16",
+            "effectiveDescription": "Property filters for all series",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for all series",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsRequest_Schema34",
+            "effectiveDescription": "Event or action to analyze. Lifecycle insights only support a single series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event or action to analyze. Lifecycle insights only support a single series.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema34"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsInput",
+            "field": "day",
+            "effectiveDescription": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/day"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsInput",
+            "field": "offset",
+            "effectiveDescription": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsInput",
+            "field": "source",
+            "effectiveDescription": "The source lifecycle insight query whose bucket we are drilling into.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source lifecycle insight query whose bucket we are drilling into.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsInput",
+            "field": "status",
+            "effectiveDescription": "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsInput",
+            "field": "output_format",
+            "effectiveDescription": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/output_format"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleQuery",
+            "field": "aggregation_group_type_index",
+            "effectiveDescription": "Groups aggregation",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Groups aggregation",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/aggregation_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleQuery",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleQuery",
+            "field": "filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users by applying the respective filters",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/filterTestAccounts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleQuery",
+            "field": "interval",
+            "effectiveDescription": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/interval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleQuery",
+            "field": "lifecycleFilter",
+            "effectiveDescription": "Properties specific to the lifecycle insight",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties specific to the lifecycle insight",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/lifecycleFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleQuery",
+            "field": "properties",
+            "effectiveDescription": "Property filters for all series",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for all series",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleQuery",
+            "field": "samplingFactor",
+            "effectiveDescription": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/samplingFactor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleQuery",
+            "field": "series",
+            "effectiveDescription": "Event or action to analyze. Lifecycle insights only support a single series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event or action to analyze. Lifecycle insights only support a single series.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/series"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantDateRange",
+            "effectiveDescription": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantDateRange",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantDateRange",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantDurationRange",
+            "effectiveDescription": "This filter only works with durations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with durations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantDurationRange",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleFilter",
+            "field": "showLegend",
+            "effectiveDescription": "Whether to show the legend describing series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to show the legend describing series.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/showLegend"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleFilter",
+            "field": "showValuesOnSeries",
+            "effectiveDescription": "Whether to show a value on each data point.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to show a value on each data point.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/showValuesOnSeries"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleFilter",
+            "field": "stacked",
+            "effectiveDescription": "Whether the lifecycle bars should be stacked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the lifecycle bars should be stacked.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/stacked"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleFilter",
+            "field": "toggledLifecycles",
+            "effectiveDescription": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/toggledLifecycles"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantCohortPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantCohortPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantCohortPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "The cohort ID to filter by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The cohort ID to filter by.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantCohortPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantHogQLPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantHogQLPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantHogQLPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantHogQLPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantFlagPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "The feature flag key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The feature flag key.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantFlagPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantFlagPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "event_filters",
+            "effectiveDescription": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/event_filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "explicit_datetime",
+            "effectiveDescription": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/explicit_datetime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "Event name, or action id when event_type is 'actions'",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, or action id when event_type is 'actions'",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "negation",
+            "effectiveDescription": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/negation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "operator_value",
+            "effectiveDescription": "Count threshold for performed_event_multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count threshold for performed_event_multiple",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/operator_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "time_value",
+            "effectiveDescription": "Relative time window size, paired with time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative time window size, paired with time_interval",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/time_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponsePropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponsePersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseElementPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/ElementPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseFeaturePropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event property with \"$feature/\" prepended",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property with \"$feature/\" prepended",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/FeaturePropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseBehavioralEventSource",
+            "effectiveDescription": "Whether a behavioral filter's `key` refers to an event name or an action id",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a behavioral filter's `key` refers to an event name or an action id",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/BehavioralEventSource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseInlineBehavioralType",
+            "effectiveDescription": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/InlineBehavioralType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleEventsNode",
+            "field": "event",
+            "effectiveDescription": "The event or `null` for all events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event or `null` for all events.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleEventsNode/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleEventsNode",
+            "field": "kind",
+            "effectiveDescription": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleEventsNode/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleActionsNode",
+            "field": "kind",
+            "effectiveDescription": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActionsNode/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleActionsNode",
+            "field": "name",
+            "effectiveDescription": "Action name from the plan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action name from the plan.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActionsNode/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsResponseAssistantLifecycleStatus",
+            "effectiveDescription": "A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleStatus"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical PostHog URL returned by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/_posthogUrl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsData",
+            "field": "query.source",
+            "effectiveDescription": "Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows are `distinct_id`, `email`, and `name`. Lifecycle is a bucket-membership query, so no per-actor `event_count` or matched recordings are projected — the underlying lifecycle runner does not surface a `matching_events` column.\n\nUse the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight is a 4-row stack (new / returning / resurrecting / dormant) per day.\n\nNote: lifecycle insights only support a single series and do not expose `compareFilter`, so `series` and `compare` selectors are intentionally omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Drills into a lifecycle insight to list the persons behind a specific bucket. Returned rows are `distinct_id`, `email`, and `name`. Lifecycle is a bucket-membership query, so no per-actor `event_count` or matched recordings are projected — the underlying lifecycle runner does not surface a `matching_events` column.\n\nUse the selector fields (`day`, `status`) to identify the specific bucket — a lifecycle insight is a 4-row stack (new / returning / resurrecting / dormant) per day.\n\nNote: lifecycle insights only support a single series and do not expose `compareFilter`, so `series` and `compare` selectors are intentionally omitted.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActorsQuery"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsData",
+            "field": "query.source.day",
+            "effectiveDescription": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActorsQuery/properties/day"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsData",
+            "field": "query.source.limit",
+            "effectiveDescription": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActorsQuery/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsData",
+            "field": "query.source.offset",
+            "effectiveDescription": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActorsQuery/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsData",
+            "field": "query.source.source",
+            "effectiveDescription": "The source lifecycle insight query whose bucket we are drilling into.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source lifecycle insight query whose bucket we are drilling into.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActorsQuery/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsData",
+            "field": "query.source.status",
+            "effectiveDescription": "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActorsQuery/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryLifecycleActorsData",
+            "field": "__formatted_results_override",
+            "effectiveDescription": "Formatted results supplied by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Formatted results supplied by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/__formatted_results_override"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-lifecycle",
+            "method": "queries.lifecycle"
+        }
+    ]
+}

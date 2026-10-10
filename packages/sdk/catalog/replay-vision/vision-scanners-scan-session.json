@@ -1,0 +1,126 @@
+{
+    "method": "replayVision.visionScannersScanSession",
+    "toolName": "vision-scanners-scan-session",
+    "operationId": "vision_scanners_observe_create",
+    "title": "Run scanner against a session now",
+    "category": "Replay vision",
+    "description": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining. A scanner can observe a given session only once — re-triggering it on a session that already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.",
+    "requiredScopes": ["replay_scanner:write", "session_recording:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["requires_ai_consent: true"],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersScanSessionInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-scan-session.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-scan-session.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersScanSessionOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-scan-session.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-scan-session.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersScanSessionData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scan-session.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scan-session.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Apply this scanner to one specific session, on demand. Returns 202 with the workflow handle.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1{id}~1observe~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Trigger a scanner against a specific session immediately, bypassing the sampling rate and any scheduled sweep. Returns 202 with a `workflow_id`; the resulting observation appears under `vision-scanners-observations-list` once the Temporal workflow finishes (typically several minutes — rasterising the recording into video and calling the LLM is slow). Useful for ad-hoc scanning during an investigation: pick a scanner that matches the question you want answered, and point it at the session you're examining. A scanner can observe a given session only once — re-triggering it on a session that already has an observation (even a failed or ineligible one) is a no-op and will not produce a fresh scan.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this replay scanner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this replay scanner.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{id}/observe/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionInput",
+            "field": "session_id",
+            "effectiveDescription": "ID of the session recording to apply the scanner to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the session recording to apply the scanner to.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{id}/observe/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionData",
+            "effectiveDescription": "200 from POST /vision/scanners/{id}/observe/ - nothing started, the answer already exists.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "200 from POST /vision/scanners/{id}/observe/ - nothing started, the answer already exists.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionData",
+            "field": "observation_id",
+            "effectiveDescription": "The settled observation this scanner already has for the session. Nothing was started and nothing was charged; read it from /vision/scanners/{id}/observations/, or use the retry action on it to scan the session again.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The settled observation this scanner already has for the session. Nothing was started and nothing was charged; read it from /vision/scanners/{id}/observations/, or use the retry action on it to scan the session again.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/observation_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-observations-list",
+            "method": "replayVision.visionScannersObservationsList"
+        }
+    ]
+}

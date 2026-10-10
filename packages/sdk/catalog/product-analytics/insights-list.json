@@ -1,0 +1,564 @@
+{
+    "method": "productAnalytics.insightsList",
+    "toolName": "insights-list",
+    "operationId": "insights_list",
+    "title": "Get all insights",
+    "category": "Product analytics",
+    "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
+    "requiredScopes": ["insight:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/product-analytics/client.ts",
+    "input": {
+        "name": "ProductAnalyticsInsightsListInput",
+        "importPath": "@posthog/sdk/product-analytics",
+        "source": "src/generated/product-analytics/insights-list.ts",
+        "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+    },
+    "output": {
+        "name": "ProductAnalyticsInsightsListOutput",
+        "importPath": "@posthog/sdk/product-analytics",
+        "source": "src/generated/product-analytics/insights-list.ts",
+        "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema0",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema1",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema2",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema3",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema4",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema5",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema6",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema7",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema8",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema9",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema10",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema11",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema12",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema13",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema14",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema15",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema16",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema17",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListRequestSchema18",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListResponseShape364",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListResponseShape363",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListDataResultsItem",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsListData",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-list.ts",
+            "declaration": "dist/generated/product-analytics/insights-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/product_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "created_by",
+            "effectiveDescription": "JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded array of user IDs. Only returns insights whose `created_by` is in the list, e.g. `[1,42]`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "created_date_from",
+            "effectiveDescription": "Filter by `created_at > created_date_from`. Accepts absolute or relative dates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by `created_at > created_date_from`. Accepts absolute or relative dates.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "created_date_to",
+            "effectiveDescription": "Filter by `created_at < created_date_to`. Accepts absolute or relative dates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by `created_at < created_date_to`. Accepts absolute or relative dates.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "dashboards",
+            "effectiveDescription": "JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded array of dashboard IDs. Returns insights attached to every listed dashboard (AND).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "date_from",
+            "effectiveDescription": "Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by `last_modified_at > date_from`. Accepts absolute dates (`2025-04-23`) or relative strings (`-7d`, `-1m`).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "date_to",
+            "effectiveDescription": "Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by `last_modified_at < date_to`. Accepts absolute dates or relative strings.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "exclude_bi",
+            "effectiveDescription": "Exclude Business intelligence worksheets from the insight list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude Business intelligence worksheets from the insight list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "favorited",
+            "effectiveDescription": "Include this parameter (any value) to restrict results to insights marked as favorited.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Include this parameter (any value) to restrict results to insights marked as favorited.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "include_dashboards",
+            "effectiveDescription": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "insight",
+            "effectiveDescription": "Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Restrict to a single insight type. `JSON` matches non-wrapper query insights; `SQL` matches HogQL queries; `BI` matches editable worksheets.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "last_viewed_date_from",
+            "effectiveDescription": "Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by `last_viewed_at > last_viewed_date_from`. Accepts absolute or relative dates.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "last_viewed_date_to",
+            "effectiveDescription": "Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by `last_viewed_at < last_viewed_date_to`. Accepts absolute or relative dates.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "order",
+            "effectiveDescription": "Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sort by an insight field, with a leading minus for descending order. Supports last_modified_at and last_viewed_at.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "saved",
+            "effectiveDescription": "When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When truthy, restricts results to insights that are saved (or attached to a visible dashboard). When falsy, only unsaved insights.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "search",
+            "effectiveDescription": "Search term matched across name, derived_name, description, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram) matches instead. Each result's `search_match_type` is `exact` or `similar`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search term matched across name, derived_name, description, and tag names. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram) matches instead. Each result's `search_match_type` is `exact` or `similar`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "tags",
+            "effectiveDescription": "JSON-encoded array of tag names. Returns insights with any of the listed tags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded array of tag names. Returns insights with any of the listed tags.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListInput",
+            "field": "user",
+            "effectiveDescription": "Include this parameter (any value) to restrict results to insights created by the authenticated user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Include this parameter (any value) to restrict results to insights created by the authenticated user.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListData",
+            "field": "results[]",
+            "effectiveDescription": "Simplified serializer to speed response times when loading large amounts of objects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Simplified serializer to speed response times when loading large amounts of objects.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListData",
+            "field": "results[].tags[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2/properties/tags/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListData",
+            "field": "results[].dashboards",
+            "effectiveDescription": "\nDEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\nA dashboard ID for each of the dashboards that this insight is displayed on.\nThis field is omitted from session-authenticated responses unless `include_dashboards=true`\nis passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)\nmust opt in the same way. Do not rely on it being present.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "\nDEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\nA dashboard ID for each of the dashboards that this insight is displayed on.\nThis field is omitted from session-authenticated responses unless `include_dashboards=true`\nis passed. Once opt-in enforcement is enabled, API-token callers (personal API keys, OAuth)\nmust opt in the same way. Do not rely on it being present.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2/properties/dashboards"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListData",
+            "field": "results[].alerts[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2/properties/alerts/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

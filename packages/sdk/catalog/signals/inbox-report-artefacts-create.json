@@ -1,0 +1,271 @@
+{
+    "method": "signals.inboxReportArtefactsCreate",
+    "toolName": "inbox-report-artefacts-create",
+    "operationId": "signals_report_artefacts_create",
+    "title": "Append an artefact to a report",
+    "category": "Signals",
+    "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `note` (free-form: note). Follow-up goals live in report checks, not artefacts. Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}), `source_suggestion` (product, reason: a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are rejected. Returns the created artefact including its id.",
+    "requiredScopes": ["task:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsInboxReportArtefactsCreateInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-report-artefacts-create.ts",
+        "declaration": "dist/generated/signals/inbox-report-artefacts-create.d.ts"
+    },
+    "output": {
+        "name": "SignalsInboxReportArtefactsCreateOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-report-artefacts-create.ts",
+        "declaration": "dist/generated/signals/inbox-report-artefacts-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsInboxReportArtefactsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-artefacts-create.ts",
+            "declaration": "dist/generated/signals/inbox-report-artefacts-create.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportArtefactsCreateData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-artefacts-create.ts",
+            "declaration": "dist/generated/signals/inbox-report-artefacts-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers, channel assignments) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1reports~1{report_id}~1artefacts~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `note` (free-form: note). Follow-up goals live in report checks, not artefacts. Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}), `source_suggestion` (product, reason: a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are rejected. Returns the created artefact including its id.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateInput",
+            "field": "report_id",
+            "effectiveDescription": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/artefacts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateInput",
+            "field": "claim_id",
+            "effectiveDescription": "Active claim to attribute this work to. Must belong to the caller and report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Active claim to attribute this work to. Must belong to the caller and report.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/artefacts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateInput",
+            "field": "artefact_type",
+            "effectiveDescription": "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, source_suggestion, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new version supersedes the previous one as the report's canonical status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The artefact type. One of: actionability_judgment, channel_assignment, code_reference, commit, dismissal, note, priority_judgment, related_to, repo_selection, safety_judgment, signal_finding, source_suggestion, suggested_reviewers. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers, channel_assignment, source_suggestion) are latest-wins — appending a new version supersedes the previous one as the report's canonical status.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/artefacts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateInput",
+            "field": "content",
+            "effectiveDescription": "The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/artefacts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateData",
+            "field": "id",
+            "effectiveDescription": "The artefact's unique id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The artefact's unique id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateData",
+            "field": "claim_id",
+            "effectiveDescription": "Claim that produced this artefact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Claim that produced this artefact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/claim_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateData",
+            "field": "report_id",
+            "effectiveDescription": "The id of the report this artefact belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The id of the report this artefact belongs to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/report_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateData",
+            "field": "type",
+            "effectiveDescription": "The artefact type.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The artefact type.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateData",
+            "field": "content",
+            "effectiveDescription": "The artefact payload, parsed from storage.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The artefact payload, parsed from storage.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/content"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateData",
+            "field": "created_at",
+            "effectiveDescription": "When the artefact was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the artefact was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateData",
+            "field": "updated_at",
+            "effectiveDescription": "When the artefact was last written — set on creation and refreshed on each edit. Null only for rows created before this field existed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the artefact was last written — set on creation and refreshed on each edit. Null only for rows created before this field existed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateData",
+            "field": "task_id",
+            "effectiveDescription": "Task the artefact is attributed to, when an agent produced it. Null for user writes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Task the artefact is attributed to, when an agent produced it. Null for user writes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/task_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsCreateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

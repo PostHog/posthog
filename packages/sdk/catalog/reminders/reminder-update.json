@@ -1,0 +1,495 @@
+{
+    "method": "reminders.reminderUpdate",
+    "toolName": "reminder-update",
+    "operationId": "reminders_partial_update",
+    "title": "Update reminder",
+    "category": "Reminders",
+    "description": "Update a reminder's title, message, schedule, timezone, end date, or attached resource. Changing the schedule recomputes the next fire time.",
+    "requiredScopes": ["user:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/reminders/client.ts",
+    "input": {
+        "name": "RemindersReminderUpdateInput",
+        "importPath": "@posthog/sdk/reminders",
+        "source": "src/generated/reminders/reminder-update.ts",
+        "declaration": "dist/generated/reminders/reminder-update.d.ts"
+    },
+    "output": {
+        "name": "RemindersReminderUpdateOutput",
+        "importPath": "@posthog/sdk/reminders",
+        "source": "src/generated/reminders/reminder-update.ts",
+        "declaration": "dist/generated/reminders/reminder-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "RemindersReminderUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateRequestSchema1",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateRequestSchema3",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateRequestSchema5",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateRequestSchema6",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateRequestSchema7",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateRequestSchema8",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateRequestSchema9",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateRequestSchema10",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateResponseShape3",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateResponseShape2",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        },
+        {
+            "name": "RemindersReminderUpdateData",
+            "importPath": "@posthog/sdk/reminders",
+            "source": "src/generated/reminders/reminder-update.ts",
+            "declaration": "dist/generated/reminders/reminder-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Update a reminder's title, message, schedule, timezone, end date, or attached resource. Changing the schedule recomputes the next fire time.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/reminders/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this reminder.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this reminder.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "organization",
+            "effectiveDescription": "ID of the organization this reminder belongs to. You must be a member of it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the organization this reminder belongs to. You must be a member of it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "team",
+            "effectiveDescription": "Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "title",
+            "effectiveDescription": "Short text shown as the notification title when the reminder fires.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short text shown as the notification title when the reminder fires.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "message",
+            "effectiveDescription": "Optional longer body for the notification.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional longer body for the notification.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "resource_type",
+            "effectiveDescription": "Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "resource_id",
+            "effectiveDescription": "ID of the referenced resource; must exist in the chosen project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the referenced resource; must exist in the chosen project.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "scheduled_at",
+            "effectiveDescription": "For a one-off reminder: when it should fire (ISO 8601, future).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a one-off reminder: when it should fire (ISO 8601, future).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "recurrence_interval",
+            "effectiveDescription": "For a recurring reminder: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a recurring reminder: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "cron_expression",
+            "effectiveDescription": "For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "timezone",
+            "effectiveDescription": "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateInput",
+            "field": "end_date",
+            "effectiveDescription": "Optional: recurring reminders stop (status=completed) after this time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional: recurring reminders stop (status=completed) after this time.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/reminders/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "organization",
+            "effectiveDescription": "ID of the organization this reminder belongs to. You must be a member of it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the organization this reminder belongs to. You must be a member of it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/organization"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "team",
+            "effectiveDescription": "Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional ID of the project this reminder is scoped to. Required when targeting a specific resource. Must belong to the chosen organization.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/team"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "title",
+            "effectiveDescription": "Short text shown as the notification title when the reminder fires.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short text shown as the notification title when the reminder fires.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "message",
+            "effectiveDescription": "Optional longer body for the notification.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional longer body for the notification.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "resource_type",
+            "effectiveDescription": "Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional PostHog resource this reminder is about. One of: dashboard, insight, experiment, feature_flag, survey, notebook, replay, error_tracking. Resources are project-scoped, so a team must be set when this is provided.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/resource_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "resource_id",
+            "effectiveDescription": "ID of the referenced resource; must exist in the chosen project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the referenced resource; must exist in the chosen project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/resource_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "scheduled_at",
+            "effectiveDescription": "For a one-off reminder: when it should fire (ISO 8601, future).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a one-off reminder: when it should fire (ISO 8601, future).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/scheduled_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "recurrence_interval",
+            "effectiveDescription": "For a recurring reminder: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a recurring reminder: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/recurrence_interval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "cron_expression",
+            "effectiveDescription": "For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a recurring reminder: a 5-field cron expression (e.g. '0 9 * * 1' = Mondays 9am). May fire at most 4 times per day. Mutually exclusive with recurrence_interval.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/cron_expression"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "timezone",
+            "effectiveDescription": "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "IANA timezone the schedule resolves in (e.g. 'America/New_York'). Defaults to the project timezone when a team is set, otherwise UTC.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/timezone"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "RemindersReminderUpdateData",
+            "field": "end_date",
+            "effectiveDescription": "Optional: recurring reminders stop (status=completed) after this time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional: recurring reminders stop (status=completed) after this time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/reminders.ts",
+                        "pointer": "#/Shape1/properties/end_date"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

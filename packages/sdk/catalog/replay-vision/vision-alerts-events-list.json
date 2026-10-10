@@ -1,0 +1,161 @@
+{
+    "method": "replayVision.visionAlertsEventsList",
+    "toolName": "vision-alerts-events-list",
+    "operationId": "vision_alerts_events_list",
+    "title": "List replay vision alert history",
+    "category": "Replay vision",
+    "description": "List a replay vision alert's history, newest first: state changes (`state_before` to `state_after`), the `metric_value` and `threshold_breached` at each check, and `error_message` on failed checks. Checks that changed nothing are left out. Pass `kind` to narrow to one event kind. Use it to explain why an alert fired, resolved, or broke.",
+    "requiredScopes": ["vision_alert:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionAlertsEventsListInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-alerts-events-list.ts",
+        "declaration": "dist/generated/replay-vision/vision-alerts-events-list.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionAlertsEventsListOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-alerts-events-list.ts",
+        "declaration": "dist/generated/replay-vision/vision-alerts-events-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionAlertsEventsListRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-events-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-events-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionAlertsEventsListRequestSchema1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-events-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-events-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionAlertsEventsListRequestSchema2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-events-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-events-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionAlertsEventsListResponseShape2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-events-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-events-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionAlertsEventsListData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-events-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-events-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Paginated event history for this alert, newest first. Quiet no-op check rows (no state change, no error) are filtered out. Optional `?kind=...` narrows to one kind.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1alerts~1{id}~1events~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List a replay vision alert's history, newest first: state changes (`state_before` to `state_after`), the `metric_value` and `threshold_breached` at each check, and `error_message` on failed checks. Checks that changed nothing are left out. Pass `kind` to narrow to one event kind. Use it to explain why an alert fired, resolved, or broke.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionAlertsEventsListInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this vision alert configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this vision alert configuration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsEventsListInput",
+            "field": "kind",
+            "effectiveDescription": "Narrow the history to one event kind.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Narrow the history to one event kind.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsEventsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsEventsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/events/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionAlertsEventsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

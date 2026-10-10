@@ -1,0 +1,1507 @@
+{
+    "method": "replayVision.visionScannersVariantsList",
+    "toolName": "vision-scanners-variants-list",
+    "operationId": "vision_scanners_variants_list",
+    "title": "Compare an experiment scanner's variants",
+    "category": "Replay vision",
+    "description": "Read an experiment scanner's results side by side per variant: how many observations each variant has, how many distinct people they cover, the median session length, the rate each variant was sampled at, and its latest observations. When the scanner has a variant analysis scout, it also returns that scout's per-variant digests and the differences between variants. Experiment scanners only.",
+    "requiredScopes": ["replay_scanner:read", "session_recording:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersVariantsListInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersVariantsListOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape5",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape8",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape7",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape9",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape11",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape10",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape12",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape13",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape4",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape15",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape16",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape14",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListResponseShape17",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersVariantsListData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-variants-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-variants-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Per-variant readout for an experiment scanner: observation counts, distinct people, median session length, sampling rate and latest observations per variant, read live, plus the digests and differences of the scanner's variant analysis scout.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1{scanner_id}~1variants~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Read an experiment scanner's results side by side per variant: how many observations each variant has, how many distinct people they cover, the median session length, the rate each variant was sampled at, and its latest observations. When the scanner has a variant analysis scout, it also returns that scout's per-variant digests and the differences between variants. Experiment scanners only.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape2",
+            "field": "id",
+            "effectiveDescription": "The experiment's id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment's id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape2",
+            "field": "name",
+            "effectiveDescription": "The experiment's name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment's name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape2",
+            "field": "status",
+            "effectiveDescription": "draft, running, paused, exposure_frozen, or stopped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "draft, running, paused, exposure_frozen, or stopped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape2",
+            "field": "start_date",
+            "effectiveDescription": "When the experiment launched.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the experiment launched.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/start_date"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape2",
+            "field": "end_date",
+            "effectiveDescription": "When the experiment ended; null while it runs.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the experiment ended; null while it runs.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/end_date"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape2",
+            "field": "planned_duration_days",
+            "effectiveDescription": "The experiment's recommended running time in days, when one was set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment's recommended running time in days, when one was set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/planned_duration_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape2",
+            "field": "current_day",
+            "effectiveDescription": "The experiment's day number: 1 on its launch day, frozen once it ends. Null before launch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment's day number: 1 on its launch day, frozen once it ends. Null before launch.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/current_day"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape3",
+            "field": "total_observations",
+            "effectiveDescription": "Succeeded observations of this scanner, attributed to a variant or not.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Succeeded observations of this scanner, attributed to a variant or not.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/total_observations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape3",
+            "field": "first_observation_at",
+            "effectiveDescription": "When the earliest of those observations completed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the earliest of those observations completed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/first_observation_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape3",
+            "field": "last_observation_at",
+            "effectiveDescription": "When the latest of those observations completed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the latest of those observations completed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/last_observation_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape4",
+            "field": "key",
+            "effectiveDescription": "The variant key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The variant key.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape4",
+            "field": "observations",
+            "effectiveDescription": "Succeeded observations attributed to this variant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Succeeded observations attributed to this variant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/observations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape4",
+            "field": "distinct_people",
+            "effectiveDescription": "Distinct people (by distinct id) behind those observations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct people (by distinct id) behind those observations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/distinct_people"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape4",
+            "field": "median_session_duration_s",
+            "effectiveDescription": "Median scanned session length in seconds; null with no observations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Median scanned session length in seconds; null with no observations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/median_session_duration_s"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape4",
+            "field": "sampling_rate",
+            "effectiveDescription": "The 0..1 rate this variant was sampled at when its latest observation was dispatched. Read even counts against it: balanced sampling gives a small variant a higher rate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 0..1 rate this variant was sampled at when its latest observation was dispatched. Read even counts against it: balanced sampling gives a small variant a higher rate.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/sampling_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape4",
+            "field": "analysis_observations",
+            "effectiveDescription": "Summaries of this variant the analysis read: the denominator of its digest and difference counts. Null without a current analysis.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Summaries of this variant the analysis read: the denominator of its digest and difference counts. Null without a current analysis.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/analysis_observations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape4",
+            "field": "digest",
+            "effectiveDescription": "This variant's most notable themes from the variant analysis. Null without a current analysis.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This variant's most notable themes from the variant analysis. Null without a current analysis.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/digest"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape4",
+            "field": "latest_observations",
+            "effectiveDescription": "This variant's most recent observations, newest first.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This variant's most recent observations, newest first.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/latest_observations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape5",
+            "field": "theme",
+            "effectiveDescription": "A short label for the theme, shared across variants.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A short label for the theme, shared across variants.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape5/properties/theme"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape5",
+            "field": "statement",
+            "effectiveDescription": "How the theme shows up for this variant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the theme shows up for this variant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape5/properties/statement"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape5",
+            "field": "count",
+            "effectiveDescription": "How many of this variant's summaries the analysis read show the theme, as the scout counted them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many of this variant's summaries the analysis read show the theme, as the scout counted them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape5/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape5",
+            "field": "read",
+            "effectiveDescription": "How many of this variant's summaries the theme was counted over, when that is fewer than the analysis read in total. Null when the theme was counted over every summary the analysis read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many of this variant's summaries the theme was counted over, when that is fewer than the analysis read in total. Null when the theme was counted over every summary the analysis read.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape5/properties/read"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape5",
+            "field": "example_observation_ids",
+            "effectiveDescription": "Observations of this variant the scout cited for the theme. Ids it can't back are dropped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations of this variant the scout cited for the theme. Ids it can't back are dropped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape5/properties/example_observation_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "scanner_id",
+            "effectiveDescription": "The scanner that produced this observation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scanner that produced this observation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/scanner_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "scanner_origin",
+            "effectiveDescription": "Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.\n\n* `configured` - Configured\n* `inline` - Inline",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the producing scanner came from. `configured` scanners are saved, named, and have a detail page; `inline` ones are throwaways minted for a one-off scan and are not addressable, so callers must not link to them.\n\n* `configured` - Configured\n* `inline` - Inline",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/scanner_origin"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "session_id",
+            "effectiveDescription": "Session recording id this scanner was applied to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Session recording id this scanner was applied to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/session_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "status",
+            "effectiveDescription": "Observation status (pending, running, succeeded, failed, ineligible).\n\n* `pending` - Pending\n* `running` - Running\n* `succeeded` - Succeeded\n* `failed` - Failed\n* `ineligible` - Ineligible",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observation status (pending, running, succeeded, failed, ineligible).\n\n* `pending` - Pending\n* `running` - Running\n* `succeeded` - Succeeded\n* `failed` - Failed\n* `ineligible` - Ineligible",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "error_reason",
+            "effectiveDescription": "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned / pii_detected.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events / no_snapshots / too_large / not_exposed / experiment_unresolved. For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / validation_failed / infra_transient / internal_error / orphaned / pii_detected.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/error_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "workflow_id",
+            "effectiveDescription": "Temporal workflow id for progress queries and debugging. Empty until the workflow starts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Temporal workflow id for progress queries and debugging. Empty until the workflow starts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/workflow_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "scanner_snapshot",
+            "effectiveDescription": "Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Frozen view of the scanner at run time; scanner edits do not retroactively mutate this observation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/scanner_snapshot"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "scanner_result",
+            "effectiveDescription": "Result data persisted on success; null until the observation succeeds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Result data persisted on success; null until the observation succeeds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/scanner_result"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "prompt_question",
+            "effectiveDescription": "The scanner's prompt condensed into the one question it answers about a session. Null when the prompt has changed since this observation was scanned, since the question then describes a different prompt; read `scanner_snapshot.scanner_config.prompt` instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scanner's prompt condensed into the one question it answers about a session. Null when the prompt has changed since this observation was scanned, since the question then describes a different prompt; read `scanner_snapshot.scanner_config.prompt` instead.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/prompt_question"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "prompt_valence",
+            "effectiveDescription": "For a monitor or scorer: `good` when a yes or a high score is good news for the team, `bad` when it is a problem, `neutral` when neither. Judged by AI from the prompt. Null for other scanner types, when not judged, or when the prompt has changed since this observation was scanned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For a monitor or scorer: `good` when a yes or a high score is good news for the team, `bad` when it is a problem, `neutral` when neither. Judged by AI from the prompt. Null for other scanner types, when not judged, or when the prompt has changed since this observation was scanned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/prompt_valence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "triggered_by",
+            "effectiveDescription": "Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.\n\n* `schedule` - Schedule\n* `on_demand` - On demand\n* `retry` - Retry\n* `backfill` - Backfill",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this observation came from the schedule, an on-demand request, a retry of a failed or ineligible observation, or a historical backfill.\n\n* `schedule` - Schedule\n* `on_demand` - On demand\n* `retry` - Retry\n* `backfill` - Backfill",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/triggered_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "triggered_by_user",
+            "effectiveDescription": "User who triggered an on-demand observation; null for scheduled observations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who triggered an on-demand observation; null for scheduled observations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/triggered_by_user"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "backfill_id",
+            "effectiveDescription": "Backfill that dispatched this observation; null for live, on-demand, and retry triggers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Backfill that dispatched this observation; null for live, on-demand, and retry triggers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/backfill_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "distinct_id",
+            "effectiveDescription": "Distinct id of the person in the recorded session (the subject being watched); null if unknown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct id of the person in the recorded session (the subject being watched); null if unknown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/distinct_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "recording_subject_email",
+            "effectiveDescription": "Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/recording_subject_email"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "previous_observation_id",
+            "effectiveDescription": "Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the preceding sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the start of the set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/previous_observation_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "next_observation_id",
+            "effectiveDescription": "Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the following sibling observation for the same scanner (prev/next nav), honoring any list filters and ordering passed to retrieve; only set on retrieve, null at the end of the set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/next_observation_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "label",
+            "effectiveDescription": "The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/label"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "viewed",
+            "effectiveDescription": "Whether the calling user has opened this observation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the calling user has opened this observation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/viewed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "media",
+            "effectiveDescription": "Frames illustrating this observation, in order. Empty until the media render finishes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Frames illustrating this observation, in order. Empty until the media render finishes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/media"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape6",
+            "field": "summary_line",
+            "effectiveDescription": "One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One line of plain text saying what the scanner found: its verdict, score, tags or title, then its own words, with markdown flattened and the text truncated. An observation that produced no result carries the reason instead, and one still in flight carries an empty string. Read this in place of `scanner_result` when you scan a list of observations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/summary_line"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape7",
+            "effectiveDescription": "Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape7",
+            "field": "name",
+            "effectiveDescription": "Scanner name at run time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scanner name at run time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape7",
+            "field": "scanner_type",
+            "effectiveDescription": "Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scanner type (monitor, classifier, scorer, summarizer, experiment) at run time.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/scanner_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape7",
+            "field": "scanner_version",
+            "effectiveDescription": "The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/scanner_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape7",
+            "field": "model",
+            "effectiveDescription": "Concrete model that ran the observation; historical rows may carry since-retired model ids.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concrete model that ran the observation; historical rows may carry since-retired model ids.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape7",
+            "field": "provider",
+            "effectiveDescription": "Concrete provider that ran the observation; historical rows may carry since-retired providers.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concrete provider that ran the observation; historical rows may carry since-retired providers.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape7",
+            "field": "emits_signals",
+            "effectiveDescription": "Whether the observation was run with Signal emission enabled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the observation was run with Signal emission enabled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/emits_signals"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape7",
+            "field": "scanner_config",
+            "effectiveDescription": "Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scanner-type-specific configuration at run time (prompt, tags, scale, etc.).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/scanner_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape7",
+            "field": "variant_sampling_rates",
+            "effectiveDescription": "Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment scanners with balanced sampling: the 0..1 rate each watched variant was sampled at by the tick that dispatched this scan. Null otherwise, so even per-variant counts can be read against the rates that produced them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/variant_sampling_rates"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape9",
+            "effectiveDescription": "Mirrors `temporal.types.ScannerResult` for OpenAPI generation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mirrors `temporal.types.ScannerResult` for OpenAPI generation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape9",
+            "field": "model_output",
+            "effectiveDescription": "Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Validated scanner output. Shape depends on `scanner_snapshot.scanner_type`; always carries `confidence` and `scanner_type`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape9/properties/model_output"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape9",
+            "field": "signals_count",
+            "effectiveDescription": "Number of PostHog Signals emitted from this observation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of PostHog Signals emitted from this observation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape9/properties/signals_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape9",
+            "field": "experiment_variant",
+            "effectiveDescription": "Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment scanners only: the variant the exposure data attributes this session's person to. Null on the other types and on rows scanned before variant attribution shipped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape9/properties/experiment_variant"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape9",
+            "field": "session_duration_s",
+            "effectiveDescription": "Experiment scanners only: the scanned session's duration in seconds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment scanners only: the scanned session's duration in seconds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape9/properties/session_duration_s"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape12",
+            "effectiveDescription": "The team's shared judgement on whether the scanner scored this session correctly.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The team's shared judgement on whether the scanner scored this session correctly.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape12",
+            "field": "is_correct",
+            "effectiveDescription": "True if the scanner scored this session correctly, false if not.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True if the scanner scored this session correctly, false if not.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape12/properties/is_correct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape12",
+            "field": "feedback",
+            "effectiveDescription": "Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape12/properties/feedback"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape13",
+            "effectiveDescription": "One frame illustrating an observation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One frame illustrating an observation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape13",
+            "field": "id",
+            "effectiveDescription": "Id of this media entry.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of this media entry.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape13/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape13",
+            "field": "kind",
+            "effectiveDescription": "`thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter.\n\n* `thumbnail` - Thumbnail\n* `chapter` - Chapter",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`thumbnail` for the single frame that illustrates the observation, `chapter` for the frame of one summary chapter.\n\n* `thumbnail` - Thumbnail\n* `chapter` - Chapter",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape13/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape13",
+            "field": "position",
+            "effectiveDescription": "Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Order among media of the same kind. For a `chapter` frame, the index into `model_output.chapters`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape13/properties/position"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape13",
+            "field": "asset_id",
+            "effectiveDescription": "Export asset holding the bytes; fetch it from the export content endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Export asset holding the bytes; fetch it from the export content endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape13/properties/asset_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape13",
+            "field": "video_start_ms",
+            "effectiveDescription": "Where this media starts in the analysis video, in milliseconds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where this media starts in the analysis video, in milliseconds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape13/properties/video_start_ms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape14",
+            "field": "theme",
+            "effectiveDescription": "The theme the difference rests on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The theme the difference rests on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape14/properties/theme"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape14",
+            "field": "statement",
+            "effectiveDescription": "What differs between the variants.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What differs between the variants.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape14/properties/statement"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape14",
+            "field": "counts",
+            "effectiveDescription": "Summaries the analysis read that show the theme, per variant key, as the scout counted them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Summaries the analysis read that show the theme, per variant key, as the scout counted them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape14/properties/counts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape14",
+            "field": "read",
+            "effectiveDescription": "Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape14/properties/read"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape15",
+            "effectiveDescription": "Summaries the analysis read that show the theme, per variant key, as the scout counted them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Summaries the analysis read that show the theme, per variant key, as the scout counted them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape16",
+            "effectiveDescription": "Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per variant key, how many summaries the theme was counted over, for a theme counted over fewer summaries than the analysis read in total. Empty when it was counted over all of them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape17",
+            "field": "scout_config_id",
+            "effectiveDescription": "The variant analysis scout's config id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The variant analysis scout's config id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape17/properties/scout_config_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape17",
+            "field": "scout_enabled",
+            "effectiveDescription": "Whether the scout runs on its schedule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the scout runs on its schedule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape17/properties/scout_enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape17",
+            "field": "recorded_at",
+            "effectiveDescription": "When the run behind the newest analysis started; null before its first run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run behind the newest analysis started; null before its first run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape17/properties/recorded_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape17",
+            "field": "scanner_version",
+            "effectiveDescription": "The scanner version the newest analysis covered.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scanner version the newest analysis covered.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape17/properties/scanner_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListResponseShape17",
+            "field": "current",
+            "effectiveDescription": "Whether the newest analysis covers the scanner's current version. When false, digests and differences are null until the scout's next run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the newest analysis covers the scanner's current version. When false, digests and differences are null until the scout's next run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape17/properties/current"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListData",
+            "field": "experiment",
+            "effectiveDescription": "The watched experiment; null if it was deleted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The watched experiment; null if it was deleted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/experiment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListData",
+            "field": "window",
+            "effectiveDescription": "The span of observations the counts cover.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The span of observations the counts cover.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/window"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListData",
+            "field": "variants",
+            "effectiveDescription": "One entry per watched variant, plus any variant still holding observations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One entry per watched variant, plus any variant still holding observations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/variants"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListData",
+            "field": "differences",
+            "effectiveDescription": "What differs between variants, from the variant analysis. Null without a current analysis.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What differs between variants, from the variant analysis. Null without a current analysis.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/differences"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListData",
+            "field": "unattributed_count",
+            "effectiveDescription": "Succeeded observations with no attributed variant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Succeeded observations with no attributed variant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/unattributed_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListData",
+            "field": "analysis",
+            "effectiveDescription": "The scanner's variant analysis scout and its newest run; null when none is set up.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scanner's variant analysis scout and its newest run; null when none is set up.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/analysis"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersVariantsListData",
+            "field": "_agentNote",
+            "effectiveDescription": "The observation, people and session counts are counted live and are the numbers to trust. Digest and difference counts come from the variant analysis scout, so read them as shares of each variant's `analysis_observations`, not of `observations`. Balanced sampling gives small variants a higher `sampling_rate`, so even observation counts do not mean even traffic. To read one variant's summaries, call `vision-scanners-observations-list` with `variant` set to its key.\n",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "The observation, people and session counts are counted live and are the numbers to trust. Digest and difference counts come from the variant analysis scout, so read them as shares of each variant's `analysis_observations`, not of `observations`. Balanced sampling gives small variants a higher `sampling_rate`, so even observation counts do not mean even traffic. To read one variant's summaries, call `vision-scanners-observations-list` with `variant` set to its key.\n",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

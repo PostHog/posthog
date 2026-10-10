@@ -1,0 +1,79 @@
+{
+    "method": "replayVision.visionScannersDelete",
+    "toolName": "vision-scanners-delete",
+    "operationId": "vision_scanners_destroy",
+    "title": "Delete replay vision scanner",
+    "category": "Replay vision",
+    "description": "Permanently delete a replay vision scanner by ID. The scanner stops scanning immediately and its scheduled Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via `vision-scanners-update` instead.",
+    "requiredScopes": ["replay_scanner:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersDeleteInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-delete.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-delete.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersDeleteOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-delete.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersDeleteData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-delete.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "CRUD for Replay Vision scanners.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Permanently delete a replay vision scanner by ID. The scanner stops scanning immediately and its scheduled Temporal jobs are removed by the reconciler. Past observations recorded by this scanner are deleted along with it. Use sparingly — to stop a scanner without losing its history, set `enabled: false` via `vision-scanners-update` instead.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this replay scanner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this replay scanner.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-update",
+            "method": "replayVision.visionScannersUpdate"
+        }
+    ]
+}

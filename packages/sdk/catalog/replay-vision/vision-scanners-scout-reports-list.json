@@ -1,0 +1,281 @@
+{
+    "method": "replayVision.visionScannersScoutReportsList",
+    "toolName": "vision-scanners-scout-reports-list",
+    "operationId": "vision_scanners_scout_reports_list",
+    "title": "List scanner scout reports",
+    "category": "Replay vision",
+    "description": "List the reports filed by a scanner's scouts, newest first (at most 50): `report_id`, the `skill_name` of the scout that filed it, `filed_at` and `title`. Read a report's summary and charts with `vision-scanners-scout-reports-get`.",
+    "requiredScopes": ["replay_scanner:read", "session_recording:read", "task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersScoutReportsListInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-scout-reports-list.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-scout-reports-list.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersScoutReportsListOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-scout-reports-list.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-scout-reports-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersScoutReportsListResponseShape2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scout-reports-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scout-reports-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutReportsListResponseShape1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scout-reports-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scout-reports-list.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutReportsListData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scout-reports-list.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scout-reports-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Reports filed by this scanner's scouts, newest first.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1{scanner_id}~1scout_reports~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List the reports filed by a scanner's scouts, newest first (at most 50): `report_id`, the `skill_name` of the scout that filed it, `filed_at` and `title`. Read a report's summary and charts with `vision-scanners-scout-reports-get`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape1",
+            "effectiveDescription": "One report a scanner's scout filed. Enough to read it in Replay Vision; the inbox owns the\nfull record (status, priority, reviewers, run trail).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One report a scanner's scout filed. Enough to read it in Replay Vision; the inbox owns the\nfull record (status, priority, reviewers, run trail).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape1",
+            "field": "report_id",
+            "effectiveDescription": "The report's id, as used by the Signals inbox.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report's id, as used by the Signals inbox.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/report_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape1",
+            "field": "skill_name",
+            "effectiveDescription": "The scout that filed it, as its skill name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scout that filed it, as its skill name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/skill_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape1",
+            "field": "filed_at",
+            "effectiveDescription": "When the run that filed this report started. Later edits do not move it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run that filed this report started. Later edits do not move it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/filed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape1",
+            "field": "title",
+            "effectiveDescription": "The report's title. Empty when the scout left it unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report's title. Empty when the scout left it unset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape1",
+            "field": "summary",
+            "effectiveDescription": "The report body, as markdown. Empty when the scout left it unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report body, as markdown. Empty when the scout left it unset.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape1",
+            "field": "charts",
+            "effectiveDescription": "Charts the scout attached. The summary places one inline with a `[label](chart:<chart_id>)` link; any it does not place render after the body.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Charts the scout attached. The summary places one inline with a `[label](chart:<chart_id>)` link; any it does not place render after the body.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/charts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape2",
+            "effectiveDescription": "One chart attached to a report — rendered in the inbox and referenceable from the summary.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One chart attached to a report — rendered in the inbox and referenceable from the summary.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape2",
+            "field": "chart_id",
+            "effectiveDescription": "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/chart_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape2",
+            "field": "title",
+            "effectiveDescription": "Short heading shown above the chart.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short heading shown above the chart.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape2",
+            "field": "query",
+            "effectiveDescription": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape2",
+            "field": "caption",
+            "effectiveDescription": "Optional one-line note on what to look at in the chart.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional one-line note on what to look at in the chart.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/caption"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutReportsListResponseShape2",
+            "field": "size",
+            "effectiveDescription": "How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n* `small` - small\n* `medium` - medium\n* `large` - large",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n* `small` - small\n* `medium` - medium\n* `large` - large",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/size"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-scout-reports-get",
+            "method": "replayVision.visionScannersScoutReportsGet"
+        }
+    ]
+}

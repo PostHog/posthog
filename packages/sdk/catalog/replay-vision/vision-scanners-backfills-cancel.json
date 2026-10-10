@@ -1,0 +1,246 @@
+{
+    "method": "replayVision.visionScannersBackfillsCancel",
+    "toolName": "vision-scanners-backfills-cancel",
+    "operationId": "vision_scanners_backfills_cancel_create",
+    "title": "Cancel scanner backfill",
+    "category": "Replay vision",
+    "description": "Cancel a scanner's active backfill. Scans already dispatched finish and are billed; nothing new starts. A cancelled backfill cannot be resumed; create a new one for the remaining range.",
+    "requiredScopes": ["replay_scanner:write", "session_recording:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersBackfillsCancelInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-backfills-cancel.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-backfills-cancel.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersBackfillsCancelOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-backfills-cancel.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-backfills-cancel.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersBackfillsCancelResponseShape3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-backfills-cancel.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-backfills-cancel.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersBackfillsCancelResponseShape2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-backfills-cancel.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-backfills-cancel.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersBackfillsCancelData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-backfills-cancel.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-backfills-cancel.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Stop an active backfill; already-dispatched observations finish, nothing new dispatches.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1{scanner_id}~1backfills~1{id}~1cancel~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Cancel a scanner's active backfill. Scans already dispatched finish and are billed; nothing new starts. A cancelled backfill cannot be resumed; create a new one for the remaining range.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this replay scanner backfill.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this replay scanner backfill.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/backfills/{id}/cancel/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelData",
+            "field": "window_start",
+            "effectiveDescription": "Inclusive lower bound of the historical window to scan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Inclusive lower bound of the historical window to scan.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/window_start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelData",
+            "field": "window_end",
+            "effectiveDescription": "Exclusive upper bound of the window; clamped to now at creation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclusive upper bound of the window; clamped to now at creation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/window_end"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelData",
+            "field": "total_count",
+            "effectiveDescription": "Unobserved candidates enumerated at creation; the ceiling is total_count x credits_per_observation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unobserved candidates enumerated at creation; the ceiling is total_count x credits_per_observation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelData",
+            "field": "skipped_count",
+            "effectiveDescription": "Candidates the walk stepped over because this scanner had already tried them. Counted at creation but never dispatched, so progress and remaining spend both have to account for them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Candidates the walk stepped over because this scanner had already tried them. Counted at creation but never dispatched, so progress and remaining spend both have to account for them.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/skipped_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelData",
+            "field": "credits_per_observation",
+            "effectiveDescription": "Per-observation credit price frozen at creation from the snapshot model.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-observation credit price frozen at creation from the snapshot model.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credits_per_observation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelData",
+            "field": "succeeded_count",
+            "effectiveDescription": "Observations from this backfill that succeeded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations from this backfill that succeeded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/succeeded_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelData",
+            "field": "failed_count",
+            "effectiveDescription": "Observations from this backfill that failed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations from this backfill that failed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/failed_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelData",
+            "field": "ineligible_count",
+            "effectiveDescription": "Sessions that turned out ineligible (too short, expired recording, ...).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sessions that turned out ineligible (too short, expired recording, ...).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/ineligible_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelData",
+            "field": "in_flight_count",
+            "effectiveDescription": "Observations from this backfill still pending or running.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations from this backfill still pending or running.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/in_flight_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersBackfillsCancelData",
+            "field": "finished_at",
+            "effectiveDescription": "When the backfill reached a terminal status (completed or cancelled).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the backfill reached a terminal status (completed or cancelled).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/finished_at"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

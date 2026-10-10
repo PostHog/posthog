@@ -1,0 +1,74 @@
+{
+    "method": "proxyRecords.proxyDelete",
+    "toolName": "proxy-delete",
+    "operationId": "proxy_records_destroy",
+    "title": "Delete reverse proxy",
+    "category": "Reverse proxy",
+    "description": "Delete a managed reverse proxy. For proxies still being set up (waiting, erroring, timed_out), the record is removed immediately. For active proxies, a cleanup workflow is started to remove the provisioned infrastructure.",
+    "requiredScopes": ["organization:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/proxy-records/client.ts",
+    "input": {
+        "name": "ProxyRecordsProxyDeleteInput",
+        "importPath": "@posthog/sdk/proxy-records",
+        "source": "src/generated/proxy-records/proxy-delete.ts",
+        "declaration": "dist/generated/proxy-records/proxy-delete.d.ts"
+    },
+    "output": {
+        "name": "ProxyRecordsProxyDeleteOutput",
+        "importPath": "@posthog/sdk/proxy-records",
+        "source": "src/generated/proxy-records/proxy-delete.ts",
+        "declaration": "dist/generated/proxy-records/proxy-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ProxyRecordsProxyDeleteData",
+            "importPath": "@posthog/sdk/proxy-records",
+            "source": "src/generated/proxy-records/proxy-delete.ts",
+            "declaration": "dist/generated/proxy-records/proxy-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Delete a reverse proxy. For proxies in 'waiting', 'erroring', or 'timed_out' status, the record is deleted immediately. For active proxies, a deletion workflow is started to clean up the provisioned infrastructure.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1proxy_records~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete a managed reverse proxy. For proxies still being set up (waiting, erroring, timed_out), the record is removed immediately. For active proxies, a cleanup workflow is started to remove the provisioned infrastructure.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/proxy-records.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ProxyRecordsProxyDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this proxy record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this proxy record.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/proxy_records/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

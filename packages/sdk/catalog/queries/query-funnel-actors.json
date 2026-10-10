@@ -1,0 +1,2900 @@
+{
+    "method": "queries.queryFunnelActors",
+    "toolName": "query-funnel-actors",
+    "title": "List persons who converted or dropped off at a funnel step",
+    "category": "Query wrappers",
+    "description": "List the persons behind one step of a funnel insight — either those who converted through it or those who dropped off at it.\n\nPair this with `query-funnel`: first run the funnel query to read the per-step counts, then call this tool with the **same** funnel query as `source`. There are two mutually exclusive modes, and the selectors you use must match the source funnel's `funnelsFilter.funnelVizType`.\n\n## Step mode (the default — source `funnelVizType: \"steps\"`)\n\nUse `funnelStep` to pick a step. The **sign** picks the direction:\n\n- **Positive** `funnelStep` lists actors who **converted through** that step.\n- **Negative** `funnelStep` lists actors who **dropped off** at that step.\n\nSteps are **1-based**. Examples for a 3-step funnel:\n\n- `funnelStep: 1` — entered the funnel (reached step 1).\n- `funnelStep: 2` — converted through step 2.\n- `funnelStep: -2` — dropped off at step 2 (reached step 1 but not step 2).\n- `funnelStep: 3` — converted through the whole funnel.\n- `funnelStep: -3` — dropped off at step 3.\n\nYou cannot drop off at the entry step, so the smallest negative value is `-2`. To list every person at each step, call this tool once per `(step, direction)` you care about — a single call returns one cohort, not all steps.\n\n- `funnelStepBreakdown` (optional): scope to one breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `[\"Chrome\"]`). Omit for the baseline (non-breakdown) series.\n\n## Trends-dropoff mode (source `funnelVizType: \"trends\"`)\n\nFor a funnel-trends (conversion-over-time) insight, drill into one point on the chart:\n\n- `funnelTrendsDropOff`: `true` lists actors who dropped off, `false` lists those who converted.\n- `funnelTrendsEntrancePeriodStart`: the entrance period as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the point the user is asking about.\n\nUse these two together. Do not mix them with `funnelStep`.\n\n> The funnel `time_to_convert` viz type has no persons drilldown — this tool does not support it.\n\n## Paging\n\n- `limit`: how many persons to return in one page. Defaults to 100, and anything above 1000 is clamped to 1000.\n- `offset`: how many persons to skip before the returned page. Defaults to 0.\n\n## Response\n\nEach returned row contains `distinct_id`, `email`, and `name`, plus a `recordings` column when `includeRecordings` is set (default `true`).\n\nThe response also reports `limit`, `offset`, and `hasMore`. When `hasMore` is `true` there are more people at the step — call again with `offset` raised by `limit` to read the next page, and repeat until `hasMore` is `false`.\n\n## Guidance\n\n- Keep the `source` funnel query identical to the one whose step the user is asking about — the series order, date range, conversion window, and filters all determine who converts at each step.\n- Make sure the mode matches the source's `funnelVizType`: `funnelStep` needs `\"steps\"` (the default), `funnelTrendsDropOff` needs `\"trends\"`. Mixing them returns wrong or empty results.\n- To read every person at a step, page with `offset` rather than raising `limit` past 1000, and keep `source` and the step selectors identical across pages so rows don't repeat or go missing.\n- When you only need a sample, one page is enough — tighten the source (date range, filters) instead of paging through everyone.",
+    "requiredScopes": ["query:read", "person:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/queries/client.ts",
+    "input": {
+        "name": "QueriesQueryFunnelActorsInput",
+        "importPath": "@posthog/sdk/queries",
+        "source": "src/generated/queries/query-funnel-actors.ts",
+        "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+    },
+    "output": {
+        "name": "QueriesQueryFunnelActorsOutput",
+        "importPath": "@posthog/sdk/queries",
+        "source": "src/generated/queries/query-funnel-actors.ts",
+        "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema0",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema6",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema7",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema8",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema11",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema10",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema12",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema9",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema13",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema15",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema16",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema17",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema19",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema18",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema21",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema22",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema20",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema23",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema24",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema25",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema26",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema27",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema28",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema14",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema29",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema30",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema34",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema35",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema36",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema37",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema38",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema39",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema40",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema41",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema42",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema43",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema44",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant6",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant7",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant8",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant9",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant10",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant11",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant12",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant13",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant14",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant15",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant16",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant17",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema33Variant18",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema46",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema48",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema47",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema45",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema45Variant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema45Variant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema45Variant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema45Variant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema45Variant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema32",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema32Variant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema31",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema52",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema51",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema53",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema54",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema50",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema50Variant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema49",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsRequestSchema55",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsInputSource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseInteger",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsBreakdownType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsBreakdownFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantDateRange",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantDurationRange",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantDateRangeFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseBreakdownAttributionType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsExclusionEventsNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilterFunnelAggregateByHogQL",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseStepOrderValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseFunnelStepReference",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseFunnelVizType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseFunnelConversionWindowTimeUnit",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseFunnelLayout",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseIntervalType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantStringOrBooleanValuePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGenericPropertyFilterType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantNumericValuePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantArrayPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantDateTimePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantSetPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGenericPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGenericPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGenericPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGenericPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGenericPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGenericPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGroupPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGroupPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGroupPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGroupPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGroupPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantGroupPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantCohortPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantCohortPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantElementPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantElementPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantElementPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantElementPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantElementPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantElementPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFlagPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponsePropertyOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponsePropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponsePropertyFilterValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseElementPropertyFilterKey",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseElementPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseFeaturePropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseBehavioralEventSource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantBehavioralPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseTimeUnitType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseInlineBehavioralType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantBehavioralPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantInsightPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsMath",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsEventsNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsActionsNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsGroupNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsResponseAssistantFunnelsQuery",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsDataQuerySource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsDataQuery",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsDataResults",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsDataWarningsItem",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        },
+        {
+            "name": "QueriesQueryFunnelActorsData",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/query-funnel-actors.ts",
+            "declaration": "dist/generated/queries/query-funnel-actors.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the persons behind one step of a funnel insight — either those who converted through it or those who dropped off at it.\n\nPair this with `query-funnel`: first run the funnel query to read the per-step counts, then call this tool with the **same** funnel query as `source`. There are two mutually exclusive modes, and the selectors you use must match the source funnel's `funnelsFilter.funnelVizType`.\n\n## Step mode (the default — source `funnelVizType: \"steps\"`)\n\nUse `funnelStep` to pick a step. The **sign** picks the direction:\n\n- **Positive** `funnelStep` lists actors who **converted through** that step.\n- **Negative** `funnelStep` lists actors who **dropped off** at that step.\n\nSteps are **1-based**. Examples for a 3-step funnel:\n\n- `funnelStep: 1` — entered the funnel (reached step 1).\n- `funnelStep: 2` — converted through step 2.\n- `funnelStep: -2` — dropped off at step 2 (reached step 1 but not step 2).\n- `funnelStep: 3` — converted through the whole funnel.\n- `funnelStep: -3` — dropped off at step 3.\n\nYou cannot drop off at the entry step, so the smallest negative value is `-2`. To list every person at each step, call this tool once per `(step, direction)` you care about — a single call returns one cohort, not all steps.\n\n- `funnelStepBreakdown` (optional): scope to one breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `[\"Chrome\"]`). Omit for the baseline (non-breakdown) series.\n\n## Trends-dropoff mode (source `funnelVizType: \"trends\"`)\n\nFor a funnel-trends (conversion-over-time) insight, drill into one point on the chart:\n\n- `funnelTrendsDropOff`: `true` lists actors who dropped off, `false` lists those who converted.\n- `funnelTrendsEntrancePeriodStart`: the entrance period as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the point the user is asking about.\n\nUse these two together. Do not mix them with `funnelStep`.\n\n> The funnel `time_to_convert` viz type has no persons drilldown — this tool does not support it.\n\n## Paging\n\n- `limit`: how many persons to return in one page. Defaults to 100, and anything above 1000 is clamped to 1000.\n- `offset`: how many persons to skip before the returned page. Defaults to 0.\n\n## Response\n\nEach returned row contains `distinct_id`, `email`, and `name`, plus a `recordings` column when `includeRecordings` is set (default `true`).\n\nThe response also reports `limit`, `offset`, and `hasMore`. When `hasMore` is `true` there are more people at the step — call again with `offset` raised by `limit` to read the next page, and repeat until `hasMore` is `false`.\n\n## Guidance\n\n- Keep the `source` funnel query identical to the one whose step the user is asking about — the series order, date range, conversion window, and filters all determine who converts at each step.\n- Make sure the mode matches the source's `funnelVizType`: `funnelStep` needs `\"steps\"` (the default), `funnelTrendsDropOff` needs `\"trends\"`. Mixing them returns wrong or empty results.\n- To read every person at a step, page with `offset` rather than raising `limit` past 1000, and keep `source` and the step selectors identical across pages so rows don't repeat or go missing.\n- When you only need a sample, one page is enough — tighten the source (date range, filters) instead of paging through everyone.",
+            "source": {
+                "kind": "description_file",
+                "file": "services/mcp/definitions/prompts/query-funnel-actors.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema2",
+            "effectiveDescription": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema3",
+            "effectiveDescription": "A breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user’s question**. You must not add a breakdown if the question can be addressed without additional segmentation. When using breakdowns, you must:\n- **Identify the property group** and name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using a breakdown:\n- page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user’s question**. You must not add a breakdown if the question can be addressed without additional segmentation. When using breakdowns, you must:\n- **Identify the property group** and name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using a breakdown:\n- page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema4",
+            "effectiveDescription": "The entity property to break down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The entity property to break down by.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema5",
+            "effectiveDescription": "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema7",
+            "effectiveDescription": "How many distinct values to show.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many distinct values to show.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema8",
+            "effectiveDescription": "Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema9",
+            "effectiveDescription": "Date range for the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema10",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema10/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema10",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema10/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema12",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema12/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema13",
+            "effectiveDescription": "Exclude internal and test users by applying the respective filters",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema14",
+            "effectiveDescription": "Properties specific to the funnels insight",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties specific to the funnels insight",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema15",
+            "effectiveDescription": "Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema16",
+            "effectiveDescription": "Controls how the breakdown value is attributed to a specific step. `first_touch` - the breakdown value is the first property value found in the entire funnel. `last_touch` - the breakdown value is the last property value found in the entire funnel. `all_events` - the breakdown value must be present in all steps of the funnel. `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Controls how the breakdown value is attributed to a specific step. `first_touch` - the breakdown value is the first property value found in the entire funnel. `last_touch` - the breakdown value is the last property value found in the entire funnel. `all_events` - the breakdown value must be present in all steps of the funnel. `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema17",
+            "effectiveDescription": "When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema17"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema18",
+            "effectiveDescription": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema20",
+            "effectiveDescription": "Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema23",
+            "effectiveDescription": "Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B. `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between. `any` - order doesn't matter. Steps can be completed in any sequence.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B. `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between. `any` - order doesn't matter. Steps can be completed in any sequence.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema23"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema24",
+            "effectiveDescription": "Whether conversion shown in the graph should be across all steps or just relative to the previous step.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether conversion shown in the graph should be across all steps or just relative to the previous step.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema24"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema25",
+            "effectiveDescription": "Defines the type of visualization to use. `steps` - one bar per step with the conversion between them (default). Use for \"what's the conversion rate\" and \"where do users drop off\". `trends` - the conversion rate of the whole sequence as a time series. Use whenever the question is about change over time (\"is conversion improving\", \"conversion per week\", \"since we shipped X\"); a `steps` chart cannot show that. `time_to_convert` - a histogram of how long users took to complete the funnel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines the type of visualization to use. `steps` - one bar per step with the conversion between them (default). Use for \"what's the conversion rate\" and \"where do users drop off\". `trends` - the conversion rate of the whole sequence as a time series. Use whenever the question is about change over time (\"is conversion improving\", \"conversion per week\", \"since we shipped X\"); a `steps` chart cannot show that. `time_to_convert` - a histogram of how long users took to complete the funnel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema25"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema26",
+            "effectiveDescription": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema26"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema27",
+            "effectiveDescription": "Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema27"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema28",
+            "effectiveDescription": "Controls how the funnel chart is displayed: vertically (preferred) or horizontally.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Controls how the funnel chart is displayed: vertically (preferred) or horizontally.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema28"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema29",
+            "effectiveDescription": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema29"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema31",
+            "effectiveDescription": "Property filters for all series",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for all series",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema31"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema49",
+            "effectiveDescription": "Events or actions to include. Prioritize the more popular and fresh events and actions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Events or actions to include. Prioritize the more popular and fresh events and actions.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema49"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema51",
+            "field": "custom_name",
+            "effectiveDescription": "Optional custom name for the event if it is needed to be renamed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional custom name for the event if it is needed to be renamed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema51/properties/custom_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema51",
+            "field": "event",
+            "effectiveDescription": "Name of the event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the event.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema51/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema51",
+            "field": "math",
+            "effectiveDescription": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema51/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema51",
+            "field": "optionalInFunnel",
+            "effectiveDescription": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema51/properties/optionalInFunnel"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema51",
+            "field": "version",
+            "effectiveDescription": "version of the node, used for schema migrations",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "version of the node, used for schema migrations",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema51/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema53",
+            "field": "id",
+            "effectiveDescription": "Action ID from the plan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action ID from the plan.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema53/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema53",
+            "field": "math",
+            "effectiveDescription": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema53/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema53",
+            "field": "name",
+            "effectiveDescription": "Action name from the plan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action name from the plan.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema53/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema53",
+            "field": "optionalInFunnel",
+            "effectiveDescription": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema53/properties/optionalInFunnel"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsRequest_Schema53",
+            "field": "version",
+            "effectiveDescription": "version of the node, used for schema migrations",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "version of the node, used for schema migrations",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/$defs/__schema53/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsInput",
+            "field": "funnelStep",
+            "effectiveDescription": "Step mode only (source `funnelVizType: \"steps\"`). The 1-based index of the step to drill into.\n**Positive** lists actors who converted through that step; **negative** lists actors who dropped off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest negative value is `-2` (no one can drop off at the entry step).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Step mode only (source `funnelVizType: \"steps\"`). The 1-based index of the step to drill into.\n**Positive** lists actors who converted through that step; **negative** lists actors who dropped off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest negative value is `-2` (no one can drop off at the entry step).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/funnelStep"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsInput",
+            "field": "funnelStepBreakdown",
+            "effectiveDescription": "Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `[\"Chrome\"]`). Omit for the baseline (non-breakdown) series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `[\"Chrome\"]`). Omit for the baseline (non-breakdown) series.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/funnelStepBreakdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsInput",
+            "field": "funnelTrendsDropOff",
+            "effectiveDescription": "Trends-dropoff mode only (source `funnelVizType: \"trends\"`). When `true`, list the actors who dropped off; when `false`, list those who converted. Use together with `funnelTrendsEntrancePeriodStart`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trends-dropoff mode only (source `funnelVizType: \"trends\"`). When `true`, list the actors who dropped off; when `false`, list those who converted. Use together with `funnelTrendsEntrancePeriodStart`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/funnelTrendsDropOff"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsInput",
+            "field": "funnelTrendsEntrancePeriodStart",
+            "effectiveDescription": "Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about. Use together with `funnelTrendsDropOff`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about. Use together with `funnelTrendsDropOff`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/funnelTrendsEntrancePeriodStart"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsInput",
+            "field": "includeRecordings",
+            "effectiveDescription": "Whether to include matched session recordings for each actor.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to include matched session recordings for each actor.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/includeRecordings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsInput",
+            "field": "offset",
+            "effectiveDescription": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsInput",
+            "field": "source",
+            "effectiveDescription": "The source funnel insight query whose step (or trends point) we are drilling into.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source funnel insight query whose step (or trends point) we are drilling into.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsInput",
+            "field": "output_format",
+            "effectiveDescription": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Output format. \"optimized\" returns a human-readable summary from server-side formatters (recommended for analysis). \"json\" returns the raw query results as JSON.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/output_format"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsQuery",
+            "field": "aggregation_group_type_index",
+            "effectiveDescription": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsQuery/properties/aggregation_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsQuery",
+            "field": "breakdownFilter",
+            "effectiveDescription": "A breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user’s question**. You must not add a breakdown if the question can be addressed without additional segmentation. When using breakdowns, you must:\n- **Identify the property group** and name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using a breakdown:\n- page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user’s question**. You must not add a breakdown if the question can be addressed without additional segmentation. When using breakdowns, you must:\n- **Identify the property group** and name for a breakdown.\n- **Provide the property name** for a breakdown.\n- **Validate that the property value accurately reflects the intended criteria**. Examples of using a breakdown:\n- page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown.\n- conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsQuery/properties/breakdownFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsQuery",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsQuery/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsQuery",
+            "field": "filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users by applying the respective filters",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsQuery/properties/filterTestAccounts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsQuery",
+            "field": "funnelsFilter",
+            "effectiveDescription": "Properties specific to the funnels insight",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties specific to the funnels insight",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsQuery/properties/funnelsFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsQuery",
+            "field": "interval",
+            "effectiveDescription": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsQuery/properties/interval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsQuery",
+            "field": "properties",
+            "effectiveDescription": "Property filters for all series",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for all series",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsQuery/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsQuery",
+            "field": "samplingFactor",
+            "effectiveDescription": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampling rate from 0 to 1 where 1 is 100% of the data.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsQuery/properties/samplingFactor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsQuery",
+            "field": "series",
+            "effectiveDescription": "Events or actions to include. Prioritize the more popular and fresh events and actions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Events or actions to include. Prioritize the more popular and fresh events and actions.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsQuery/properties/series"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsBreakdownFilter",
+            "field": "breakdown",
+            "effectiveDescription": "The entity property to break down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The entity property to break down by.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsBreakdownFilter/properties/breakdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsBreakdownFilter",
+            "field": "breakdown_group_type_index",
+            "effectiveDescription": "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsBreakdownFilter/properties/breakdown_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsBreakdownFilter",
+            "field": "breakdown_limit",
+            "effectiveDescription": "How many distinct values to show.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many distinct values to show.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsBreakdownFilter/properties/breakdown_limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsBreakdownFilter",
+            "field": "breakdown_type",
+            "effectiveDescription": "Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsBreakdownFilter/properties/breakdown_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantDateRange",
+            "effectiveDescription": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantDateRange",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantDateRange",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantDurationRange",
+            "effectiveDescription": "This filter only works with durations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with durations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantDurationRange",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "binCount",
+            "effectiveDescription": "Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/binCount"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "breakdownAttributionType",
+            "effectiveDescription": "Controls how the breakdown value is attributed to a specific step. `first_touch` - the breakdown value is the first property value found in the entire funnel. `last_touch` - the breakdown value is the last property value found in the entire funnel. `all_events` - the breakdown value must be present in all steps of the funnel. `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Controls how the breakdown value is attributed to a specific step. `first_touch` - the breakdown value is the first property value found in the entire funnel. `last_touch` - the breakdown value is the last property value found in the entire funnel. `all_events` - the breakdown value must be present in all steps of the funnel. `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/breakdownAttributionType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "breakdownAttributionValue",
+            "effectiveDescription": "When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/breakdownAttributionValue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "exclusions",
+            "effectiveDescription": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/exclusions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "funnelAggregateByHogQL",
+            "effectiveDescription": "Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Use this field only if the user explicitly asks to aggregate the funnel by unique sessions.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/funnelAggregateByHogQL"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "funnelOrderType",
+            "effectiveDescription": "Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B. `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between. `any` - order doesn't matter. Steps can be completed in any sequence.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B. `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between. `any` - order doesn't matter. Steps can be completed in any sequence.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/funnelOrderType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "funnelStepReference",
+            "effectiveDescription": "Whether conversion shown in the graph should be across all steps or just relative to the previous step.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether conversion shown in the graph should be across all steps or just relative to the previous step.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/funnelStepReference"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "funnelVizType",
+            "effectiveDescription": "Defines the type of visualization to use. `steps` - one bar per step with the conversion between them (default). Use for \"what's the conversion rate\" and \"where do users drop off\". `trends` - the conversion rate of the whole sequence as a time series. Use whenever the question is about change over time (\"is conversion improving\", \"conversion per week\", \"since we shipped X\"); a `steps` chart cannot show that. `time_to_convert` - a histogram of how long users took to complete the funnel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines the type of visualization to use. `steps` - one bar per step with the conversion between them (default). Use for \"what's the conversion rate\" and \"where do users drop off\". `trends` - the conversion rate of the whole sequence as a time series. Use whenever the question is about change over time (\"is conversion improving\", \"conversion per week\", \"since we shipped X\"); a `steps` chart cannot show that. `time_to_convert` - a histogram of how long users took to complete the funnel.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/funnelVizType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "funnelWindowInterval",
+            "effectiveDescription": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/funnelWindowInterval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "funnelWindowIntervalUnit",
+            "effectiveDescription": "Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/funnelWindowIntervalUnit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsFilter",
+            "field": "layout",
+            "effectiveDescription": "Controls how the funnel chart is displayed: vertically (preferred) or horizontally.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Controls how the funnel chart is displayed: vertically (preferred) or horizontally.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsFilter/properties/layout"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsExclusionEventsNode",
+            "effectiveDescription": "Exclustion steps for funnels. The \"from\" and \"to\" steps must not exceed the funnel's series length.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclustion steps for funnels. The \"from\" and \"to\" steps must not exceed the funnel's series length.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsExclusionEventsNode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantCohortPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantCohortPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantCohortPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "The cohort ID to filter by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The cohort ID to filter by.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantCohortPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantHogQLPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantHogQLPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantHogQLPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantHogQLPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFlagPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "The feature flag key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The feature flag key.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFlagPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFlagPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "event_filters",
+            "effectiveDescription": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/event_filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "explicit_datetime",
+            "effectiveDescription": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/explicit_datetime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "Event name, or action id when event_type is 'actions'",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, or action id when event_type is 'actions'",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "negation",
+            "effectiveDescription": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/negation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "operator_value",
+            "effectiveDescription": "Count threshold for performed_event_multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count threshold for performed_event_multiple",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/operator_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "time_value",
+            "effectiveDescription": "Relative time window size, paired with time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative time window size, paired with time_interval",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/time_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantBehavioralPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponsePropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponsePersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseElementPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/ElementPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseFeaturePropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event property with \"$feature/\" prepended",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property with \"$feature/\" prepended",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/FeaturePropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseBehavioralEventSource",
+            "effectiveDescription": "Whether a behavioral filter's `key` refers to an event name or an action id",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a behavioral filter's `key` refers to an event name or an action id",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/BehavioralEventSource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseInlineBehavioralType",
+            "effectiveDescription": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/InlineBehavioralType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsEventsNode",
+            "field": "custom_name",
+            "effectiveDescription": "Optional custom name for the event if it is needed to be renamed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional custom name for the event if it is needed to be renamed.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsEventsNode/properties/custom_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsEventsNode",
+            "field": "event",
+            "effectiveDescription": "Name of the event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the event.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsEventsNode/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsEventsNode",
+            "field": "math",
+            "effectiveDescription": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsEventsNode/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsEventsNode",
+            "field": "optionalInFunnel",
+            "effectiveDescription": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsEventsNode/properties/optionalInFunnel"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsEventsNode",
+            "field": "version",
+            "effectiveDescription": "version of the node, used for schema migrations",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "version of the node, used for schema migrations",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsEventsNode/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsActionsNode",
+            "field": "id",
+            "effectiveDescription": "Action ID from the plan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action ID from the plan.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActionsNode/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsActionsNode",
+            "field": "math",
+            "effectiveDescription": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActionsNode/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsActionsNode",
+            "field": "name",
+            "effectiveDescription": "Action name from the plan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action name from the plan.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActionsNode/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsActionsNode",
+            "field": "optionalInFunnel",
+            "effectiveDescription": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActionsNode/properties/optionalInFunnel"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsActionsNode",
+            "field": "version",
+            "effectiveDescription": "version of the node, used for schema migrations",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "version of the node, used for schema migrations",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActionsNode/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsGroupNode",
+            "effectiveDescription": "Defines a funnel step that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported on grouped steps.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines a funnel step that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported on grouped steps.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsGroupNode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsGroupNode",
+            "field": "name",
+            "effectiveDescription": "Display name for the combined step.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display name for the combined step.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsGroupNode/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsGroupNode",
+            "field": "nodes",
+            "effectiveDescription": "Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsGroupNode/properties/nodes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsResponseAssistantFunnelsGroupNode",
+            "field": "operator",
+            "effectiveDescription": "Only `OR` is supported.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only `OR` is supported.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsGroupNode/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Canonical PostHog URL returned by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/_posthogUrl"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "query.source",
+            "effectiveDescription": "Drills into a funnel insight to list the persons behind one step — either those who converted through it or those who dropped off at it. Returned rows are `distinct_id`, `email`, `name`, and optionally matched session recordings.\n\nPair this with `query-funnel`: run the funnel query first to read the per-step counts, then call this tool with the **same** funnel query as `source`. There are two mutually exclusive modes, and the mode must match the source funnel's `funnelsFilter.funnelVizType`:\n\n1. **Step mode** (source `funnelVizType: \"steps\"`, the default): use `funnelStep` to pick a step.    A **positive** value lists actors who converted **through** that step; a **negative** value lists    actors who **dropped off** at it. Steps are 1-based, so `funnelStep: 2` = converted through step 2,    `funnelStep: -2` = dropped off at step 2. (You cannot drop off at step 1, so the smallest negative    value is `-2`.) Add `funnelStepBreakdown` to scope to one breakdown series.\n\n2. **Trends-dropoff mode** (source `funnelVizType: \"trends\"`): use `funnelTrendsDropOff` together with    `funnelTrendsEntrancePeriodStart` to list the persons behind one point of a funnel-trends    (conversion-over-time) chart.\n\nThe funnel's `time_to_convert` viz type has no persons drilldown — do not use this tool with it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Drills into a funnel insight to list the persons behind one step — either those who converted through it or those who dropped off at it. Returned rows are `distinct_id`, `email`, `name`, and optionally matched session recordings.\n\nPair this with `query-funnel`: run the funnel query first to read the per-step counts, then call this tool with the **same** funnel query as `source`. There are two mutually exclusive modes, and the mode must match the source funnel's `funnelsFilter.funnelVizType`:\n\n1. **Step mode** (source `funnelVizType: \"steps\"`, the default): use `funnelStep` to pick a step.    A **positive** value lists actors who converted **through** that step; a **negative** value lists    actors who **dropped off** at it. Steps are 1-based, so `funnelStep: 2` = converted through step 2,    `funnelStep: -2` = dropped off at step 2. (You cannot drop off at step 1, so the smallest negative    value is `-2`.) Add `funnelStepBreakdown` to scope to one breakdown series.\n\n2. **Trends-dropoff mode** (source `funnelVizType: \"trends\"`): use `funnelTrendsDropOff` together with    `funnelTrendsEntrancePeriodStart` to list the persons behind one point of a funnel-trends    (conversion-over-time) chart.\n\nThe funnel's `time_to_convert` viz type has no persons drilldown — do not use this tool with it.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActorsQuery"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "query.source.funnelStep",
+            "effectiveDescription": "Step mode only (source `funnelVizType: \"steps\"`). The 1-based index of the step to drill into.\n**Positive** lists actors who converted through that step; **negative** lists actors who dropped off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest negative value is `-2` (no one can drop off at the entry step).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Step mode only (source `funnelVizType: \"steps\"`). The 1-based index of the step to drill into.\n**Positive** lists actors who converted through that step; **negative** lists actors who dropped off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest negative value is `-2` (no one can drop off at the entry step).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActorsQuery/properties/funnelStep"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "query.source.funnelStepBreakdown",
+            "effectiveDescription": "Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `[\"Chrome\"]`). Omit for the baseline (non-breakdown) series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `[\"Chrome\"]`). Omit for the baseline (non-breakdown) series.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActorsQuery/properties/funnelStepBreakdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "query.source.funnelTrendsDropOff",
+            "effectiveDescription": "Trends-dropoff mode only (source `funnelVizType: \"trends\"`). When `true`, list the actors who dropped off; when `false`, list those who converted. Use together with `funnelTrendsEntrancePeriodStart`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trends-dropoff mode only (source `funnelVizType: \"trends\"`). When `true`, list the actors who dropped off; when `false`, list those who converted. Use together with `funnelTrendsEntrancePeriodStart`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActorsQuery/properties/funnelTrendsDropOff"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "query.source.funnelTrendsEntrancePeriodStart",
+            "effectiveDescription": "Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about. Use together with `funnelTrendsDropOff`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about. Use together with `funnelTrendsDropOff`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActorsQuery/properties/funnelTrendsEntrancePeriodStart"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "query.source.includeRecordings",
+            "effectiveDescription": "Whether to include matched session recordings for each actor.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to include matched session recordings for each actor.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActorsQuery/properties/includeRecordings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "query.source.limit",
+            "effectiveDescription": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActorsQuery/properties/limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "query.source.offset",
+            "effectiveDescription": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActorsQuery/properties/offset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "query.source.source",
+            "effectiveDescription": "The source funnel insight query whose step (or trends point) we are drilling into.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The source funnel insight query whose step (or trends point) we are drilling into.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFunnelsActorsQuery/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesQueryFunnelActorsData",
+            "field": "__formatted_results_override",
+            "effectiveDescription": "Formatted results supplied by the query tool.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Formatted results supplied by the query tool.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/query-wrapper-factory.ts",
+                        "pointer": "#/properties/__formatted_results_override"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-funnel",
+            "method": "queries.funnel"
+        }
+    ]
+}

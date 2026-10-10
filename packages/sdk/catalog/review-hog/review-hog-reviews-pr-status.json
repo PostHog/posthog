@@ -1,0 +1,615 @@
+{
+    "method": "reviewHog.reviewHogReviewsPrStatus",
+    "toolName": "review-hog-reviews-pr-status",
+    "operationId": "review_hog_reviews_pr_status_retrieve",
+    "title": "Get a pull request's ReviewHog status",
+    "category": "ReviewHog",
+    "description": "Look up where a pull request's ReviewHog runs stand, by `pr_url`. Works for any PR on the project, also ones you did not trigger. `state` is `not_reviewed`, `queued`, `reviewing`, `resolving`, `idle`, or `unknown`. `latest_review` sums up the latest completed turn (its `id`, `run_index`, `review_mode`, `head_sha` and finding counts by priority), and `latest_resolution` the latest Resolve run. The loop for a run you started: call `review-hog-reviews-trigger`, keep the `requested_at` it returns and the `run_mode` you sent, and poll this tool with them (a minute apart is enough) until `request_outcome.status` is not `pending`. On `completed`, call `review-hog-reviews-get` with `request_outcome.review_id` and `run_index` for the findings; a Deep turn also answers a Standard request. `skipped` and `failed` carry a `reason`, for example `flash_after_full`, `review_failed`, or `no_matching_run` (nothing ran for the request and nothing is queued, so trigger again). `unknown` means the run state could not be read: retry later.",
+    "requiredScopes": ["review_hog:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: review-hog"],
+    "methodSource": "src/generated/review-hog/client.ts",
+    "input": {
+        "name": "ReviewHogReviewHogReviewsPrStatusInput",
+        "importPath": "@posthog/sdk/review-hog",
+        "source": "src/generated/review-hog/review-hog-reviews-pr-status.ts",
+        "declaration": "dist/generated/review-hog/review-hog-reviews-pr-status.d.ts"
+    },
+    "output": {
+        "name": "ReviewHogReviewHogReviewsPrStatusOutput",
+        "importPath": "@posthog/sdk/review-hog",
+        "source": "src/generated/review-hog/review-hog-reviews-pr-status.ts",
+        "declaration": "dist/generated/review-hog/review-hog-reviews-pr-status.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReviewHogReviewHogReviewsPrStatusRequestSchema0",
+            "importPath": "@posthog/sdk/review-hog",
+            "source": "src/generated/review-hog/review-hog-reviews-pr-status.ts",
+            "declaration": "dist/generated/review-hog/review-hog-reviews-pr-status.d.ts"
+        },
+        {
+            "name": "ReviewHogReviewHogReviewsPrStatusRequestSchema1",
+            "importPath": "@posthog/sdk/review-hog",
+            "source": "src/generated/review-hog/review-hog-reviews-pr-status.ts",
+            "declaration": "dist/generated/review-hog/review-hog-reviews-pr-status.d.ts"
+        },
+        {
+            "name": "ReviewHogReviewHogReviewsPrStatusRequestSchema2",
+            "importPath": "@posthog/sdk/review-hog",
+            "source": "src/generated/review-hog/review-hog-reviews-pr-status.ts",
+            "declaration": "dist/generated/review-hog/review-hog-reviews-pr-status.d.ts"
+        },
+        {
+            "name": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "importPath": "@posthog/sdk/review-hog",
+            "source": "src/generated/review-hog/review-hog-reviews-pr-status.ts",
+            "declaration": "dist/generated/review-hog/review-hog-reviews-pr-status.d.ts"
+        },
+        {
+            "name": "ReviewHogReviewHogReviewsPrStatusResponseShape3",
+            "importPath": "@posthog/sdk/review-hog",
+            "source": "src/generated/review-hog/review-hog-reviews-pr-status.ts",
+            "declaration": "dist/generated/review-hog/review-hog-reviews-pr-status.d.ts"
+        },
+        {
+            "name": "ReviewHogReviewHogReviewsPrStatusResponseShape4",
+            "importPath": "@posthog/sdk/review-hog",
+            "source": "src/generated/review-hog/review-hog-reviews-pr-status.ts",
+            "declaration": "dist/generated/review-hog/review-hog-reviews-pr-status.d.ts"
+        },
+        {
+            "name": "ReviewHogReviewHogReviewsPrStatusData",
+            "importPath": "@posthog/sdk/review-hog",
+            "source": "src/generated/review-hog/review-hog-reviews-pr-status.ts",
+            "declaration": "dist/generated/review-hog/review-hog-reviews-pr-status.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Where a pull request's ReviewHog runs stand: `state`, the latest completed review turn, and the latest Resolve run. Works for any pull request on the project, also ones the caller did not trigger. Pass the `requested_at` and `head_sha` the trigger returned, and the `run_mode` it was called with, to get `request_outcome`, which says when that request is done.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1review_hog~1reviews~1pr_status~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Look up where a pull request's ReviewHog runs stand, by `pr_url`. Works for any PR on the project, also ones you did not trigger. `state` is `not_reviewed`, `queued`, `reviewing`, `resolving`, `idle`, or `unknown`. `latest_review` sums up the latest completed turn (its `id`, `run_index`, `review_mode`, `head_sha` and finding counts by priority), and `latest_resolution` the latest Resolve run. The loop for a run you started: call `review-hog-reviews-trigger`, keep the `requested_at` it returns and the `run_mode` you sent, and poll this tool with them (a minute apart is enough) until `request_outcome.status` is not `pending`. On `completed`, call `review-hog-reviews-get` with `request_outcome.review_id` and `run_index` for the findings; a Deep turn also answers a Standard request. `skipped` and `failed` carry a `reason`, for example `flash_after_full`, `review_failed`, or `no_matching_run` (nothing ran for the request and nothing is queued, so trigger again). `unknown` means the run state could not be read: retry later.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/review_hog/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusInput",
+            "field": "head_sha",
+            "effectiveDescription": "The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/review_hog/reviews/pr_status/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusInput",
+            "field": "pr_url",
+            "effectiveDescription": "GitHub pull request URL to look up, e.g. 'https://github.com/PostHog/posthog/pull/123'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub pull request URL to look up, e.g. 'https://github.com/PostHog/posthog/pull/123'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/review_hog/reviews/pr_status/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusInput",
+            "field": "requested_at",
+            "effectiveDescription": "The `requested_at` the trigger returned. When set, the response carries `request_outcome` for that request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The `requested_at` the trigger returned. When set, the response carries `request_outcome` for that request.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/review_hog/reviews/pr_status/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusInput",
+            "field": "run_mode",
+            "effectiveDescription": "The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.\n\n* `review` - Review\n* `review_only` - Review only\n* `resolve_only` - Resolve only\n* `flash` - Standard",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.\n\n* `review` - Review\n* `review_only` - Review only\n* `resolve_only` - Resolve only\n* `flash` - Standard",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/review_hog/reviews/pr_status/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "field": "id",
+            "effectiveDescription": "The review's id, for `review-hog-reviews-get`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The review's id, for `review-hog-reviews-get`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "field": "review_mode",
+            "effectiveDescription": "What the turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record it.\n\n* `full` - Deep\n* `flash` - Standard",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record it.\n\n* `full` - Deep\n* `flash` - Standard",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/review_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "field": "head_sha",
+            "effectiveDescription": "The PR head commit the turn reviewed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The PR head commit the turn reviewed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/head_sha"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "field": "run_index",
+            "effectiveDescription": "The turn's index, for `review-hog-reviews-get`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The turn's index, for `review-hog-reviews-get`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/run_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "field": "completed_at",
+            "effectiveDescription": "When the turn completed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the turn completed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "field": "must_fix_count",
+            "effectiveDescription": "The turn's valid findings at must_fix priority.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The turn's valid findings at must_fix priority.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/must_fix_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "field": "should_fix_count",
+            "effectiveDescription": "The turn's valid findings at should_fix priority.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The turn's valid findings at should_fix priority.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/should_fix_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "field": "consider_count",
+            "effectiveDescription": "The turn's valid findings at consider priority.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The turn's valid findings at consider priority.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/consider_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "field": "turn_published",
+            "effectiveDescription": "Whether the turn was published to GitHub.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the turn was published to GitHub.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/turn_published"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape2",
+            "field": "status_comment_url",
+            "effectiveDescription": "Link to the review's status comment on the pull request; null when there is none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Link to the review's status comment on the pull request; null when there is none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/status_comment_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape3",
+            "field": "status",
+            "effectiveDescription": "Where the run stands: 'resolving' while threads are being settled, 'completed' when it finished, 'stopped' when it died partway or a newer review turn replaced it.\n\n* `resolving` - Resolving\n* `stopped` - Stopped\n* `completed` - Completed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the run stands: 'resolving' while threads are being settled, 'completed' when it finished, 'stopped' when it died partway or a newer review turn replaced it.\n\n* `resolving` - Resolving\n* `stopped` - Stopped\n* `completed` - Completed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape3/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape3",
+            "field": "started_at",
+            "effectiveDescription": "When the run queued its threads.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run queued its threads.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape3/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape3",
+            "field": "completed_at",
+            "effectiveDescription": "When the run finished; null unless the status is 'completed'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the run finished; null unless the status is 'completed'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape3/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape3",
+            "field": "total",
+            "effectiveDescription": "Threads queued for this run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Threads queued for this run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape3/properties/total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape3",
+            "field": "fixed",
+            "effectiveDescription": "Threads the run fixed with a commit to the branch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Threads the run fixed with a commit to the branch.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape3/properties/fixed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape3",
+            "field": "needs_attention",
+            "effectiveDescription": "Threads left for the author: judged worth doing but not safe to fix unattended.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Threads left for the author: judged worth doing but not safe to fix unattended.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape3/properties/needs_attention"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape3",
+            "field": "commits",
+            "effectiveDescription": "SHAs of the run's fix commits, oldest first. Only commits confirmed on the pull request branch that touch no protected files; the replies on GitHub link the same commits.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "SHAs of the run's fix commits, oldest first. Only commits confirmed on the pull request branch that touch no protected files; the replies on GitHub link the same commits.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape3/properties/commits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape4",
+            "field": "status",
+            "effectiveDescription": "How the request ended: 'pending' while a run for it is queued or running, 'completed' when a turn of the requested mode or deeper finished after `requested_at` and either started after it or reviewed the given `head_sha` (Deep covers Standard), 'skipped' when the run ended without doing the work, 'failed' when the run died or no run answered the request, 'unknown' when the run state could not be read (retry later).\n\n* `pending` - Pending\n* `completed` - Completed\n* `skipped` - Skipped\n* `failed` - Failed\n* `unknown` - Unknown",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the request ended: 'pending' while a run for it is queued or running, 'completed' when a turn of the requested mode or deeper finished after `requested_at` and either started after it or reviewed the given `head_sha` (Deep covers Standard), 'skipped' when the run ended without doing the work, 'failed' when the run died or no run answered the request, 'unknown' when the run state could not be read (retry later).\n\n* `pending` - Pending\n* `completed` - Completed\n* `skipped` - Skipped\n* `failed` - Failed\n* `unknown` - Unknown",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape4/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape4",
+            "field": "reason",
+            "effectiveDescription": "Why it was skipped or failed: 'flash_after_full' (Standard dropped after a Deep review), 'review_failed', 'stopped' (Resolve died partway), 'no_matching_run' (nothing ran for the request and nothing is queued, for example when the queue replaced it), or a Resolve skip reason such as 'pr_not_open', 'resolution_not_opted_in', 'no_unresolved_threads', 'pr_in_merge_queue'. Null otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why it was skipped or failed: 'flash_after_full' (Standard dropped after a Deep review), 'review_failed', 'stopped' (Resolve died partway), 'no_matching_run' (nothing ran for the request and nothing is queued, for example when the queue replaced it), or a Resolve skip reason such as 'pr_not_open', 'resolution_not_opted_in', 'no_unresolved_threads', 'pr_in_merge_queue'. Null otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape4/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape4",
+            "field": "review_id",
+            "effectiveDescription": "The review to read with `review-hog-reviews-get`; null before the PR has one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The review to read with `review-hog-reviews-get`; null before the PR has one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape4/properties/review_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusResponseShape4",
+            "field": "run_index",
+            "effectiveDescription": "The review turn that answered or failed the request, for `review-hog-reviews-get`. Null for 'resolve_only' and while pending.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The review turn that answered or failed the request, for `review-hog-reviews-get`. Null for 'resolve_only' and while pending.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape4/properties/run_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusData",
+            "field": "repository",
+            "effectiveDescription": "The pull request's repository as 'owner/repo'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The pull request's repository as 'owner/repo'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape1/properties/repository"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusData",
+            "field": "pr_number",
+            "effectiveDescription": "The pull request number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The pull request number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape1/properties/pr_number"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusData",
+            "field": "report_id",
+            "effectiveDescription": "The PR's review id, for `review-hog-reviews-get`; null before its first run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The PR's review id, for `review-hog-reviews-get`; null before its first run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape1/properties/report_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusData",
+            "field": "state",
+            "effectiveDescription": "Where the PR stands now: 'not_reviewed' (no completed review and nothing queued), 'queued' (a run is queued or starting), 'reviewing' (a review turn is running), 'resolving' (Resolve is running), 'idle' (nothing running), 'unknown' (the run state could not be read, retry later).\n\n* `not_reviewed` - Not reviewed\n* `queued` - Queued\n* `reviewing` - Reviewing\n* `resolving` - Resolving\n* `idle` - Idle\n* `unknown` - Unknown",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the PR stands now: 'not_reviewed' (no completed review and nothing queued), 'queued' (a run is queued or starting), 'reviewing' (a review turn is running), 'resolving' (Resolve is running), 'idle' (nothing running), 'unknown' (the run state could not be read, retry later).\n\n* `not_reviewed` - Not reviewed\n* `queued` - Queued\n* `reviewing` - Reviewing\n* `resolving` - Resolving\n* `idle` - Idle\n* `unknown` - Unknown",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape1/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusData",
+            "field": "latest_review",
+            "effectiveDescription": "The latest completed review turn; null before the first one completes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The latest completed review turn; null before the first one completes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape1/properties/latest_review"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusData",
+            "field": "latest_resolution",
+            "effectiveDescription": "The latest Resolve run, finished ones too; null when no Resolve run has queued threads.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The latest Resolve run, finished ones too; null when no Resolve run has queued threads.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape1/properties/latest_resolution"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsPrStatusData",
+            "field": "request_outcome",
+            "effectiveDescription": "How the request at `requested_at` ended; null without `requested_at`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the request at `requested_at` ended; null without `requested_at`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape1/properties/request_outcome"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "review-hog-reviews-trigger",
+            "method": "reviewHog.reviewHogReviewsTrigger"
+        },
+        {
+            "toolName": "review-hog-reviews-get",
+            "method": "reviewHog.reviewHogReviewsGet"
+        }
+    ]
+}
