@@ -122,6 +122,7 @@ export { SankeyChart } from './charts/SankeyChart/SankeyChart'
 export type {
     SankeyChartConfig,
     SankeyChartProps,
+    SankeyHighlight,
     SankeyTooltipContext,
     SankeyTooltipHit,
 } from './charts/SankeyChart/types'

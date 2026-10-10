@@ -1,4 +1,4 @@
-import { drawSankeyHover, sankeyActiveFlow } from './draw-sankey'
+import { drawSankey, drawSankeyHover, emphasisForHit } from './draw-sankey'
 import { computeSankeyLayout } from './sankey-data'
 
 const BACKGROUND = 'hsl(235deg 8% 15%)'
@@ -24,10 +24,13 @@ function layoutOf(secondLinkValue = 10): ReturnType<typeof computeSankeyLayout> 
 function recordingCtx(serialize: Record<string, string>): {
     ctx: CanvasRenderingContext2D
     strokes: string[]
+    strokeAlphas: number[]
     fills: string[]
 } {
     const strokes: string[] = []
+    const strokeAlphas: number[] = []
     const fills: string[] = []
+    const savedAlphas: number[] = []
     let fill = '#000000'
     let stroke = '#000000'
     const ctx = {
@@ -48,12 +51,17 @@ function recordingCtx(serialize: Record<string, string>): {
         beginPath: () => {},
         moveTo: () => {},
         bezierCurveTo: () => {},
-        save: () => {},
-        restore: () => {},
+        save: () => savedAlphas.push(ctx.globalAlpha),
+        restore: () => {
+            ctx.globalAlpha = savedAlphas.pop() ?? 1
+        },
         fillRect: () => fills.push(fill),
-        stroke: () => strokes.push(stroke),
+        stroke: () => {
+            strokes.push(stroke)
+            strokeAlphas.push(ctx.globalAlpha)
+        },
     } as unknown as CanvasRenderingContext2D
-    return { ctx, strokes, fills }
+    return { ctx, strokes, strokeAlphas, fills }
 }
 
 describe('drawSankeyHover', () => {
@@ -66,7 +74,7 @@ describe('drawSankeyHover', () => {
         (_name, serialize, secondLinkValue, expectedStrokes) => {
             const layout = layoutOf(secondLinkValue)
             const { ctx, strokes } = recordingCtx(serialize)
-            drawSankeyHover(ctx, layout, sankeyActiveFlow(layout, { kind: 'link', index: 0 }), {
+            drawSankeyHover(ctx, layout, emphasisForHit(layout, { kind: 'link', index: 0 }), {
                 linkOpacity: 0.4,
                 backgroundColor: BACKGROUND,
                 progress: 1,
@@ -85,7 +93,7 @@ describe('drawSankeyHover', () => {
         layout.links[1].color = 'transparent'
         layout.nodes.find((node) => node.id === 'c')!.color = 'transparent'
         const { ctx, strokes, fills } = recordingCtx({ [BACKGROUND]: '#202023' })
-        drawSankeyHover(ctx, layout, sankeyActiveFlow(layout, { kind: 'link', index: 0 }), {
+        drawSankeyHover(ctx, layout, emphasisForHit(layout, { kind: 'link', index: 0 }), {
             linkOpacity: 0.4,
             backgroundColor: BACKGROUND,
             progress: 1,
@@ -93,5 +101,57 @@ describe('drawSankeyHover', () => {
 
         expect(strokes).toHaveLength(1)
         expect(fills).toHaveLength(2)
+    })
+
+    it.each([
+        ['static layer below the hover target', 'static', 0.4, 0.85],
+        ['hover layer below the hover target', 'hover', 0.4, 0.85],
+        ['static layer above the hover target', 'static', 0.9, 0.9],
+        ['hover layer above the hover target', 'hover', 0.9, 0.9],
+    ])('composites an emphasized ribbon to its target opacity: %s', (_name, layer, linkOpacity, expectedOpacity) => {
+        const layout = layoutOf(0)
+        const emphasis = emphasisForHit(layout, { kind: 'link', index: 0 })
+        const { ctx, strokeAlphas } = recordingCtx({ [BACKGROUND]: '#202023' })
+        if (layer === 'static') {
+            drawSankey(ctx, layout, { linkOpacity, emphasis, backgroundColor: BACKGROUND })
+        } else {
+            drawSankeyHover(ctx, layout, emphasis, { linkOpacity, backgroundColor: BACKGROUND, progress: 1 })
+        }
+
+        // The hover layer sits on a static layer that already drew the ribbon at rest.
+        const painted = layer === 'hover' ? [linkOpacity, ...strokeAlphas] : strokeAlphas
+        const composite = 1 - painted.reduce((clear, alpha) => clear * (1 - alpha), 1)
+        expect(composite).toBeCloseTo(expectedOpacity)
+    })
+
+    it('composites an emphasized ribbon with a translucent color to the target opacity', () => {
+        const layout = layoutOf(0)
+        layout.links[0].color = 'rgba(255, 0, 0, 0.5)'
+        const emphasis = emphasisForHit(layout, { kind: 'link', index: 0 })
+        const { ctx, strokeAlphas } = recordingCtx({ [BACKGROUND]: '#202023' })
+        drawSankey(ctx, layout, { linkOpacity: 0.4, emphasis, backgroundColor: BACKGROUND })
+
+        const painted = strokeAlphas.map((alpha) => alpha * 0.5)
+        const composite = 1 - painted.reduce((clear, alpha) => clear * (1 - alpha), 1)
+        expect(composite).toBeCloseTo(0.5 * 0.85)
+    })
+
+    it('dims an inactive ribbon in proportion to hover progress', () => {
+        const layout = layoutOf()
+        const { ctx, strokes, strokeAlphas } = recordingCtx({ [BACKGROUND]: '#202023' })
+        drawSankeyHover(ctx, layout, emphasisForHit(layout, { kind: 'link', index: 0 }), {
+            linkOpacity: 0.4,
+            backgroundColor: BACKGROUND,
+            progress: 0.5,
+        })
+
+        const fullDim = recordingCtx({ [BACKGROUND]: '#202023' })
+        drawSankeyHover(fullDim.ctx, layout, emphasisForHit(layout, { kind: 'link', index: 0 }), {
+            linkOpacity: 0.4,
+            backgroundColor: BACKGROUND,
+            progress: 1,
+        })
+        expect(strokeAlphas[0]).toBeCloseTo(0.5)
+        expect(strokes[0]).toBe(fullDim.strokes[0])
     })
 })

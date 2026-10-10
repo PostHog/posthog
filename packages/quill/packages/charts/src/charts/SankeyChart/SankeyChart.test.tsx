@@ -50,10 +50,17 @@ describe('SankeyChart', () => {
         expect(chart.canvas.getAttribute('aria-label')).toBe('Sankey chart with 3 nodes and 2 links')
     })
 
-    it('shows the hovered node in the tooltip and fires onNodeClick for it', async () => {
+    it('shows the hovered node in the tooltip, reports it once, and fires onNodeClick for it', async () => {
         const onNodeClick = jest.fn()
+        const onHoverChange = jest.fn()
         const { chart, rerender } = renderHogChart(
-            <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onNodeClick={onNodeClick} />,
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={THEME}
+                onNodeClick={onNodeClick}
+                onHoverChange={onHoverChange}
+            />,
             { nativeTooltip: true }
         )
         await waitFor(() => {
@@ -65,15 +72,28 @@ describe('SankeyChart', () => {
         fireEvent.click(chart.element)
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a', value: 12 }))
 
+        // Repeated moves inside one node report a single hover; leaving reports null.
+        fireEvent.mouseMove(chart.element, nodeCenter('a'))
+        expect(onHoverChange.mock.calls).toEqual([[{ kind: 'node', node: expect.objectContaining({ id: 'a' }) }]])
+        fireEvent.mouseLeave(chart.element)
+        expect(onHoverChange).toHaveBeenLastCalledWith(null)
+
+        await waitFor(() => {
+            fireEvent.mouseMove(chart.element, nodeCenter('a'))
+            expect(getHogChartTooltip()?.textContent).toContain('Tool A')
+        })
+
         rerender(
             <SankeyChart
                 nodes={NODES}
                 links={LINKS}
                 theme={{ ...THEME, colors: [...THEME.colors] }}
                 onNodeClick={onNodeClick}
+                onHoverChange={onHoverChange}
             />
         )
         expect(getHogChartTooltip()?.textContent).toContain('Tool A')
+        expect(onHoverChange).not.toHaveBeenLastCalledWith(null)
 
         onNodeClick.mockClear()
         rerender(
@@ -82,32 +102,69 @@ describe('SankeyChart', () => {
                 links={LINKS}
                 theme={THEME}
                 onNodeClick={onNodeClick}
+                onHoverChange={onHoverChange}
                 config={{ nodeWidth: 24 }}
             />
         )
         await waitFor(() => expect(getHogChartTooltip()).toBeNull())
+        // The hovered node belonged to the old layout, so the host is told it is gone.
+        expect(onHoverChange).toHaveBeenLastCalledWith(null)
         fireEvent.click(chart.element)
         expect(onNodeClick).not.toHaveBeenCalled()
     })
 
-    it('shows the tooltip on a first tap and fires onNodeClick on the second', async () => {
+    it('shows the tooltip on a first tap, fires onNodeClick on the second, and clears on an empty tap', async () => {
         const onNodeClick = jest.fn()
+        const onHoverChange = jest.fn()
         const { chart } = renderHogChart(
-            <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onNodeClick={onNodeClick} />,
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={THEME}
+                onNodeClick={onNodeClick}
+                onHoverChange={onHoverChange}
+            />,
             { nativeTooltip: true }
         )
         // A tap sends no mousemove first, so nothing is hovered when the click arrives. jsdom has
         // no PointerEvent, so the pointer type rides on a MouseEvent React reads it from.
-        const tap = (): void => {
+        const tap = (at: { clientX: number; clientY: number }): void => {
             const down = Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' })
             fireEvent(chart.element, down)
-            fireEvent.click(chart.element, nodeCenter('a'))
+            fireEvent.click(chart.element, at)
         }
-        tap()
+        tap(nodeCenter('a'))
         await waitFor(() => expect(getHogChartTooltip()?.textContent).toContain('Tool A'))
         expect(onNodeClick).not.toHaveBeenCalled()
-        tap()
+        tap(nodeCenter('a'))
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
+
+        // Inside the margin, outside every node and ribbon.
+        tap({ clientX: 2, clientY: 2 })
+        expect(onHoverChange).toHaveBeenLastCalledWith(null)
+    })
+
+    it('ignores a tap on an interactive overlay over a node', () => {
+        const onNodeClick = jest.fn()
+        const onHoverChange = jest.fn()
+        const { chart, getByRole } = renderHogChart(
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={THEME}
+                onNodeClick={onNodeClick}
+                onHoverChange={onHoverChange}
+                config={{ tooltip: { enabled: false } }}
+            >
+                <button data-hog-charts-interactive-overlay="">card</button>
+            </SankeyChart>
+        )
+        const down = Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' })
+        fireEvent(chart.element, down)
+        fireEvent.click(getByRole('button'), nodeCenter('a'))
+
+        expect(onNodeClick).not.toHaveBeenCalled()
+        expect(onHoverChange).not.toHaveBeenCalledWith(expect.objectContaining({ kind: 'node' }))
     })
 
     it('fires the click on the first tap when the tooltip is disabled', () => {
