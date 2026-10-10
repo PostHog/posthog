@@ -5075,15 +5075,14 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         exp_id = response.json()["id"]
         initial_metrics = response.json()["metrics"]
 
-        expected_initial_fingerprints = {
-            "mean": "d2e1f06570c3ec0af658c6255890c0ee509e0a275cbc80f630d8e8718a1b8c25",
-            "funnel": "dc70f252171bb66b8b40a28ba702ad2907c61d0962b54f332dee96afd67b240c",
-            "ratio": "ac46d8229e2ec5558200082a3f5d2e4e6e5041585d4f07dbd28930ee90fad235",
-        }
+        # The stored fingerprint of each metric is the calculation key that the result readers derive.
+        def calculation_key(metric_uuid: str) -> str:
+            calculation_config = get_metric_calculation_config(Experiment.objects.get(id=exp_id), metric_uuid)
+            assert calculation_config is not None
+            return calculation_config.calculation_key()
 
         for metric in initial_metrics:
-            metric_type = metric["metric_type"]
-            self.assertEqual(metric["fingerprint"], expected_initial_fingerprints[metric_type])
+            self.assertEqual(metric["fingerprint"], calculation_key(metric["uuid"]))
 
         # Step 2: Update with different metrics, conversion windows, start_date, stats_config, exposure_criteria
         updated_funnel_metric = {
@@ -5144,15 +5143,48 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         updated_metrics = response.json()["metrics"]
 
-        expected_updated_fingerprints = {
-            "mean": "24bf7ca8d497f33ace065e9e5facd961a4a2cb68938263b4008266fb22055f98",
-            "funnel": "c1325e7c9c494859e14901f144e99532745d6c22a8cb1536ef1cd9574cfa5672",
-            "ratio": "9d74f7f895166c1ac12708a4bc2aa8c61c963bb98a9ad15fecf747b79e706631",
-        }
-
         for metric in updated_metrics:
-            metric_type = metric["metric_type"]
-            self.assertEqual(metric["fingerprint"], expected_updated_fingerprints[metric_type])
+            self.assertEqual(metric["fingerprint"], calculation_key(metric["uuid"]))
+        self.assertTrue(
+            {metric["fingerprint"] for metric in updated_metrics}.isdisjoint(
+                {metric["fingerprint"] for metric in initial_metrics}
+            )
+        )
+
+    @parameterized.expand([("stale_client_fingerprint", "&fingerprint=" + "0" * 64), ("no_client_fingerprint", "")])
+    def test_timeseries_results_reads_the_key_of_the_current_settings(self, _name: str, fingerprint_param: str) -> None:
+        start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="chart-key-flag")
+        experiment = Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            feature_flag=flag,
+            name="Chart key",
+            start_date=start,
+            end_date=start + timedelta(hours=12),
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "mean", "uuid": "m1"}],
+        )
+        calculation_config = get_metric_calculation_config(experiment, "m1")
+        assert calculation_config is not None
+        ExperimentMetricResult.objects.create(
+            experiment=experiment,
+            metric_uuid="m1",
+            fingerprint=calculation_config.calculation_key(),
+            query_from=start,
+            query_to=start + timedelta(days=1),
+            status=ExperimentMetricResult.Status.COMPLETED,
+            result={"variant_results": []},
+            completed_at=start + timedelta(days=1),
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiments/{experiment.id}/timeseries_results/?metric_uuid=m1"
+            f"{fingerprint_param}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["timeseries"] == {start.date().isoformat(): {"variant_results": []}}
+        assert response.json()["legacy_dates"] == []
 
     def test_creating_draft_experiment_sets_status_draft(self):
         response = self.client.post(

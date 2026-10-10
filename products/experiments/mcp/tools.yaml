@@ -1370,14 +1370,15 @@ tools:
             doing" almost always means, use experiment-metrics-recalculation-latest-retrieve instead.
 
 
-            Requires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array
-            — each metric has a uuid and the fingerprint is computed from its configuration), so you generally need to
-            fetch the experiment first.
+            Requires metric_uuid as a query parameter, available on each metric in the experiment's metrics array, so
+            you generally need to fetch the experiment first. The fingerprint parameter is ignored and can be left out.
 
 
             Returns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day,
             overall status ("pending", "completed", "partial", "failed"), computed_at timestamp, and
-            recalculation_status if a recalculation is in progress.
+            recalculation_status if a recalculation is in progress. legacy_dates lists the days whose result was stored
+            before the calculation covered every analytical setting; those numbers may come from other settings, so say
+            so if you report them.
         param_overrides:
             id:
                 cast: string-int

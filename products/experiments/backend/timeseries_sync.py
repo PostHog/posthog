@@ -68,9 +68,11 @@ def sync_timeseries_recalculation(
             if not is_daily_timeseries_metric(calculation_config.definition):
                 continue
             metric_uuids.append(calculation_config.metric_id)
-            row = store.latest_daily_point(calculation_config, since=run_started_at, until=now)
-            if row is not None:
-                points[calculation_config.metric_id] = (calculation_config, row)
+            # A point under the legacy key is not copied: the copy would carry the current key, and a run that
+            # reuses this window would take it as a result of the current settings.
+            stored = store.latest_daily_point(calculation_config, since=run_started_at, until=now, include_legacy=False)
+            if stored is not None:
+                points[calculation_config.metric_id] = (calculation_config, stored.row)
 
         if not points:
             return None

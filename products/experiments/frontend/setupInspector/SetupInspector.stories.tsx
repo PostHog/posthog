@@ -151,6 +151,7 @@ const FULL_CONTEXT: ExperimentSetupContextResponseApi = {
                         any_variant_significant: false,
                         result_completed_at: '2025-01-27T06:00:00Z',
                         result_data_through: '2025-01-27T00:00:00Z',
+                        result_is_legacy: false,
                     },
                 },
                 {
@@ -195,6 +196,7 @@ const FULL_CONTEXT: ExperimentSetupContextResponseApi = {
                         any_variant_significant: true,
                         result_completed_at: '2025-01-05T11:00:00Z',
                         result_data_through: '2025-01-05T10:00:00Z',
+                        result_is_legacy: false,
                     },
                 },
                 {
