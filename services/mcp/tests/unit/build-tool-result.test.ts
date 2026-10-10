@@ -10,7 +10,6 @@ import {
     isToolCallPayload,
 } from '@/lib/build-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { formatResponse } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -355,10 +354,32 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
 
 describe('buildToolResultPayload — non-query use cases', () => {
     it.each([
-        { results: [{ id: 1 }], next: null, count: 1, previous: null },
-        { results: [], next: null, count: 0, previous: null },
-        { results: [{ id: 1 }], next: 'https://example.com/api/items/?cursor=next', previous: null },
-    ])('unwraps optimized lists but preserves JSON and widget data: %j', (handlerResult) => {
+        {
+            handlerResult: { results: [{ id: 1 }], next: null, count: 1, previous: null },
+            optimizedText: 'count: 1\nresults[1]{id}:\n  1',
+        },
+        {
+            handlerResult: { results: [], next: null, count: 0, previous: null },
+            optimizedText: 'count: 0\nresults[0]:',
+        },
+        {
+            handlerResult: {
+                results: [{ id: 1 }, { id: 2 }],
+                next: 'https://example.com/api/items/?limit=2&offset=2',
+                count: 5,
+                previous: null,
+            },
+            optimizedText: 'count: 5\nnext_offset: 2\nresults[2]{id}:\n  1\n  2',
+        },
+        {
+            handlerResult: { results: [{ id: 1 }], next: 'https://example.com/api/items/?cursor=next', previous: null },
+            optimizedText: 'next_cursor: next\nresults[1]{id}:\n  1',
+        },
+        {
+            handlerResult: { results: [{ id: 1 }], next: null, previous: null },
+            optimizedText: '[1]{id}:\n  1',
+        },
+    ])('keeps the pagination envelope ahead of optimized rows: $optimizedText', ({ handlerResult, optimizedText }) => {
         for (const outputFormat of ['optimized', 'json'] as const) {
             const payload = buildToolResultPayload({
                 handlerResult,
@@ -368,7 +389,7 @@ describe('buildToolResultPayload — non-query use cases', () => {
             })
 
             expect(payload.content[0]!.text).toBe(
-                outputFormat === 'json' ? JSON.stringify(handlerResult) : formatResponse(handlerResult.results)
+                outputFormat === 'json' ? JSON.stringify(handlerResult) : optimizedText
             )
             expect(payload._meta?.[APP_DATA_META_KEY]).toEqual(handlerResult)
         }
