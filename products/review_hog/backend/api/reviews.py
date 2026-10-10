@@ -3,7 +3,9 @@ import logging
 from typing import Any, cast, get_args
 
 from django.db import models
-from django.db.models import Q, QuerySet
+from django.db.models import F, Func, OuterRef, Q, QuerySet, Subquery, Value
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
 from drf_spectacular.openapi import AutoSchema
@@ -22,7 +24,7 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scoped_team_ids
 
-from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.pr_status import PRStatus, PRStatusLookup, ReviewPRState, ReviewRequestOutcomeStatus
 from products.review_hog.backend.preferences import UrgencyThreshold
 from products.review_hog.backend.requested_reviews import (
@@ -64,6 +66,7 @@ from products.review_hog.backend.reviewer.progress import (
     latest_resolution_summaries,
     progress_payload,
     resolution_states,
+    running_q,
     snapshot_stats,
     turn_markers,
     turn_stats,
@@ -75,8 +78,11 @@ from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 logger = logging.getLogger(__name__)
 
 DEFAULT_REVIEWS_LIMIT = 5
+DEFAULT_REVIEWS_TABLE_LIMIT = 25
 # Caps "Show more" growth — enrichment (jsonb stats + findings bundle) is per-row work.
 MAX_REVIEWS_LIMIT = 100
+# Far beyond any real history, and well inside PostgreSQL's bigint OFFSET.
+MAX_REVIEWS_TABLE_OFFSET = 1_000_000
 
 # Effectiveness stats aggregate deeper than the list — enough history for survival rates to mean something.
 PERSPECTIVE_STATS_REPORT_LIMIT = 50
@@ -88,6 +94,11 @@ _PRIORITY_DISPLAY_RANK = {IssuePriority.MUST_FIX: 0, IssuePriority.SHOULD_FIX: 1
 
 SCOPE_MINE = "mine"
 SCOPE_EVERYONE = "everyone"
+
+
+class ReviewScope(models.TextChoices):
+    MINE = SCOPE_MINE, "Mine"
+    EVERYONE = SCOPE_EVERYONE, "Everyone"
 
 
 class ReviewsListParamsSerializer(serializers.Serializer):
@@ -340,6 +351,64 @@ class ReviewRecentReviewsPageSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(
         help_text='Whether reviews exist beyond this page — drives the list\'s "Show more" button.'
     )
+
+
+class ReviewTableStatus(models.TextChoices):
+    RUNNING = "running", "Running"
+    COMPLETED = "completed", "Completed"
+
+
+class ReviewsTableParamsSerializer(serializers.Serializer):
+    scope = serializers.ChoiceField(
+        choices=ReviewScope.choices,
+        default=SCOPE_MINE,
+        help_text="Whose reviews to list: `mine` (the default) for reviews the requesting user ran "
+        "plus reviews of pull requests they authored (matched via their linked GitHub login), "
+        "`everyone` for every review on this project.",
+    )
+    repository = serializers.CharField(
+        required=False,
+        help_text="Only reviews of this repository, as `owner/repo`. Matched case-insensitively.",
+    )
+    review_mode = serializers.ChoiceField(
+        choices=ReviewTriggerReviewMode.choices,
+        required=False,
+        help_text="Only reviews whose latest completed turn ran this mode: 'full' (Deep) or 'flash' "
+        "(Standard). Turns that did not record their mode match neither value.",
+    )
+    status = serializers.ChoiceField(
+        choices=ReviewTableStatus.choices,
+        required=False,
+        help_text="Only reviews in this state: 'running' for reviews with a run in flight (activity within "
+        "the last 30 minutes), 'completed' for reviews with a completed turn and nothing running now.",
+    )
+    published = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Only reviews whose latest completed turn was (true) or was not (false) published to GitHub.",
+    )
+    limit = serializers.IntegerField(
+        default=DEFAULT_REVIEWS_TABLE_LIMIT,
+        min_value=1,
+        max_value=MAX_REVIEWS_LIMIT,
+        help_text=f"Rows per page. Defaults to {DEFAULT_REVIEWS_TABLE_LIMIT}, at most {MAX_REVIEWS_LIMIT}.",
+    )
+    offset = serializers.IntegerField(
+        default=0,
+        min_value=0,
+        max_value=MAX_REVIEWS_TABLE_OFFSET,
+        help_text="How many rows to skip, for paging through the table.",
+    )
+
+
+class ReviewReviewsTablePageSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="How many reviews match the scope and every filter, across all pages.")
+    running_count = serializers.IntegerField(
+        help_text="How many reviews have a run in flight under the scope and filters, ignoring `status`. "
+        "Labels the running quick filter without a second request."
+    )
+    results = ReviewRecentReviewSerializer(many=True, help_text="One page of reviews, most recent activity first.")
 
 
 _TRIGGER_REFUSAL_STATUS = {
@@ -692,6 +761,35 @@ class _PageEnvelopeSchema(AutoSchema):
         return operation_id
 
 
+def _completed_turn_mode(team_id: int) -> Subquery:
+    """The review mode on the completed turn's marker, matching what `turn_markers` puts on the row."""
+    content = Cast("content", models.JSONField())
+    return Subquery(
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id=OuterRef("id"), type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
+        .annotate(
+            marker_run_index=Cast(KeyTextTransform("run_index", content), models.IntegerField()),
+            marker_review_mode=KeyTextTransform("review_mode", content),
+        )
+        .filter(marker_run_index=OuterRef("run_count"))
+        .order_by("-created_at", "-id")
+        .values_list("marker_review_mode")[:1]
+    )
+
+
+def _completed_turn_published() -> Func:
+    """Whether `published_head_shas` has the completed turn's run index as a key (the row's `turn_published`)."""
+    return Coalesce(
+        Func(
+            F("published_head_shas"),
+            Cast("run_count", models.CharField()),
+            function="jsonb_exists",
+            output_field=models.BooleanField(),
+        ),
+        Value(False),
+    )
+
+
 def _turn_progress(
     team_id: int,
     reports: list[ReviewReport],
@@ -900,6 +998,38 @@ def _review_payload(
     }
 
 
+def _review_rows(team_id: int, reports: list[ReviewReport], in_progress_ids: set[str]) -> list[dict[str, Any]]:
+    """List-row payloads for a page of reports, with every per-row read batched across the page."""
+    # Row stats anchor to each report's COMPLETED turn (matching the findings' run_count); the
+    # in-flight progress payload alone reads the live head. Pre-column rows fall back to the live
+    # watermark, which is also correct for never-finalized first turns.
+    snapshots = snapshot_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
+    turns = turn_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
+    report_ids = [str(report.id) for report in reports]
+    bundle = load_findings_bundle(team_id=team_id, report_ids=report_ids)
+    resolution_map = resolution_states(team_id, reports)
+    progress_map = _turn_progress(team_id, reports, in_progress_ids, resolution_map, bundle)
+    markers = turn_markers(team_id, report_ids)
+    latest_resolutions = latest_resolution_summaries(team_id, reports)
+    items = []
+    for report in reports:
+        report_id = str(report.id)
+        items.append(
+            _review_payload(
+                report,
+                report.run_count,
+                snapshots.get(report_id, SnapshotStats()),
+                turns.get(report_id, TurnStats()),
+                bundle.turn(report_id, report.run_count),
+                markers.get((report_id, report.run_count)),
+                progress_map.get(report_id),
+                resolution_map.get(report_id),
+                latest_resolutions.get(report_id),
+            )
+        )
+    return items
+
+
 class EffectiveTeamScopedKeyPermission(BasePermission):
     """Reviews live on the root project, and the API scope check covers only the URL project.
 
@@ -1008,36 +1138,58 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 seen.add(str(report.id))
                 reports.append(report)
         has_more = len(reports) > limit
-        reports = reports[:limit]
-
-        # Row stats anchor to each report's COMPLETED turn (matching the findings' run_count); the
-        # in-flight progress payload alone reads the live head. Pre-column rows fall back to the live
-        # watermark, which is also correct for never-finalized first turns.
-        snapshots = snapshot_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
-        turns = turn_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
-        report_ids = [str(report.id) for report in reports]
-        bundle = load_findings_bundle(team_id=team_id, report_ids=report_ids)
-        resolution_map = resolution_states(team_id, reports)
-        progress_map = _turn_progress(team_id, reports, in_progress_ids, resolution_map, bundle)
-        markers = turn_markers(team_id, report_ids)
-        latest_resolutions = latest_resolution_summaries(team_id, reports)
-        items = []
-        for report in reports:
-            report_id = str(report.id)
-            items.append(
-                _review_payload(
-                    report,
-                    report.run_count,
-                    snapshots.get(report_id, SnapshotStats()),
-                    turns.get(report_id, TurnStats()),
-                    bundle.turn(report_id, report.run_count),
-                    markers.get((report_id, report.run_count)),
-                    progress_map.get(report_id),
-                    resolution_map.get(report_id),
-                    latest_resolutions.get(report_id),
-                )
-            )
+        items = _review_rows(team_id, reports[:limit], in_progress_ids)
         return Response(ReviewRecentReviewsPageSerializer({"results": items, "has_more": has_more}).data)
+
+    @extend_schema(
+        parameters=[ReviewsTableParamsSerializer],
+        responses={
+            200: OpenApiResponse(
+                response=ReviewReviewsTablePageSerializer,
+                description="One page of reviews, most recent activity first, with the total and running counts.",
+            ),
+        },
+        summary="List reviews as a paginated table",
+        description="ReviewHog reviews on this project as a paginated table: reviews with a completed turn "
+        "plus reviews with a run in flight, ordered by last activity, so a review that starts or finishes "
+        "moves to the top. Pages with `limit` and `offset`; `count` is the total across pages. Filters by "
+        "`repository`, `review_mode`, `status`, and `published`. `running_count` counts the running reviews "
+        "under every filter except `status`. By default only the requesting user's reviews; "
+        "`scope=everyone` lists every review on the project.",
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["review_hog:read"])
+    def table(self, request: Request, **kwargs) -> Response:
+        params = ReviewsTableParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        filters = params.validated_data
+        team_id, queryset = self._reports(request, scope=filters["scope"])
+        running = running_q(team_id)
+        # A first turn that died before completing has nothing to show, so it only appears while it runs.
+        queryset = queryset.filter(Q(last_run_at__isnull=False) | running)
+        if "repository" in filters:
+            queryset = queryset.filter(repository__iexact=filters["repository"])
+        if "review_mode" in filters:
+            queryset = queryset.annotate(completed_turn_mode=_completed_turn_mode(team_id)).filter(
+                completed_turn_mode=filters["review_mode"]
+            )
+        if filters["published"] is not None:
+            queryset = queryset.annotate(completed_turn_published=_completed_turn_published()).filter(
+                completed_turn_published=filters["published"]
+            )
+        running_count = queryset.filter(running).count()
+        if filters.get("status") == ReviewTableStatus.RUNNING:
+            queryset = queryset.filter(running)
+        elif filters.get("status") == ReviewTableStatus.COMPLETED:
+            queryset = queryset.filter(last_run_at__isnull=False).exclude(running)
+
+        offset: int = filters["offset"]
+        reports = list(queryset.order_by("-updated_at", "-id")[offset : offset + filters["limit"]])
+        items = _review_rows(team_id, reports, in_progress_report_ids(team_id, reports))
+        return Response(
+            ReviewReviewsTablePageSerializer(
+                {"count": queryset.count(), "running_count": running_count, "results": items}
+            ).data
+        )
 
     @extend_schema(
         parameters=[PerspectiveStatsParamsSerializer],

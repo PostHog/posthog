@@ -6,6 +6,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -1176,3 +1178,108 @@ class TestRecentReviewsAPI(APIBaseTest):
         assert self.client.get(f"{self.url}{theirs.id}/").status_code == 200
         assert self.client.get(f"{self.url}{foreign.id}/").status_code == 404
         assert self.client.get(f"{self.url}not-a-uuid/").status_code == 404
+
+    def test_table_pages_by_last_activity_with_counts(self) -> None:
+        # The table orders by activity, not by completion, so a review that starts moves to the top.
+        # A crashed first turn must stay out, a run kept alive only by fresh artefacts must count as
+        # running, and `count` must cover every page while `offset` walks them.
+        now = timezone.now()
+        with time_machine.travel(now - timedelta(hours=4), tick=False):
+            artefact_alive = self._report(pr_number=3, acting_user=self.user, status=ReviewReport.Status.ACTIVE)
+        with time_machine.travel(now - timedelta(hours=3), tick=False):
+            self._report(pr_number=1, acting_user=self.user)
+        with time_machine.travel(now - timedelta(hours=2), tick=False):
+            self._report(pr_number=2, acting_user=self.user)
+            self._report(pr_number=5, acting_user=self.user, completed=False, run_count=0)
+        with time_machine.travel(now - timedelta(minutes=5), tick=False):
+            self._report(pr_number=4, acting_user=self.user, completed=False, run_count=0)
+        other = User.objects.create_and_join(self.organization, "other-table@posthog.com", None)
+        with time_machine.travel(now - timedelta(hours=1), tick=False):
+            self._report(pr_number=6, acting_user=other)
+        with time_machine.travel(now, tick=False):
+            ReviewReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(artefact_alive.id),
+                content=NoteArtefact(note="Chunk 2 reviewed", author="review_hog"),
+                attribution=ArtefactAttribution.system(),
+            )
+
+            mine = self.client.get(f"{self.url}table/").json()
+            second_page = self.client.get(f"{self.url}table/", {"limit": 2, "offset": 1}).json()
+            everyone = self.client.get(f"{self.url}table/", {"scope": "everyone"}).json()
+
+        assert [row["pr_number"] for row in mine["results"]] == [4, 2, 1, 3]
+        assert (mine["count"], mine["running_count"]) == (4, 2)
+        assert [row["pr_number"] for row in second_page["results"]] == [2, 1]
+        assert second_page["count"] == 4
+        assert [row["pr_number"] for row in everyone["results"]] == [4, 6, 2, 1, 3]
+        assert self.client.get(f"{self.url}table/", {"limit": 101}).status_code == 400
+
+    @parameterized.expand(
+        [
+            ("no_filter", {}, {1, 2, 3, 4}, 2),
+            ("repository_ignores_case", {"repository": "posthog/OTHER"}, {3, 4}, 1),
+            ("standard_mode", {"review_mode": "flash"}, {1}, 0),
+            ("deep_mode_ignores_the_in_flight_marker", {"review_mode": "full"}, {2}, 1),
+            ("running", {"status": "running"}, {2, 3}, 2),
+            ("completed", {"status": "completed"}, {1, 4}, 2),
+            ("published_turn", {"published": "true"}, {1}, 0),
+            ("unpublished_turn", {"published": "false"}, {2, 3, 4}, 2),
+        ]
+    )
+    def test_table_filters(
+        self, _name: str, params: dict[str, str], expected: set[int], expected_running_count: int
+    ) -> None:
+        standard = self._report(pr_number=1, acting_user=self.user, published_head_shas={"1": "a"})
+        self._turn_marker(standard, run_index=1, review_mode=REVIEW_MODE_FLASH, head_sha="a")
+        # An older turn was published and a new turn is running: neither may stand in for the completed turn.
+        re_review = self._report(
+            pr_number=2,
+            acting_user=self.user,
+            run_count=2,
+            status=ReviewReport.Status.ACTIVE,
+            published_head_shas={"1": "x"},
+        )
+        self._turn_marker(re_review, run_index=2, review_mode=REVIEW_MODE_FULL, head_sha="y")
+        self._turn_marker(re_review, run_index=3, review_mode=REVIEW_MODE_FLASH, head_sha="z")
+        for pr_number, completed in ((3, False), (4, True)):
+            ReviewReport.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                repository="PostHog/other",
+                pr_number=pr_number,
+                head_branch="b",
+                base_branch="main",
+                acting_user=self.user,
+                run_count=1 if completed else 0,
+                last_run_at=timezone.now() if completed else None,
+                status=ReviewReport.Status.IDLE if completed else ReviewReport.Status.ACTIVE,
+            )
+
+        res = self.client.get(f"{self.url}table/", params)
+
+        assert res.status_code == 200, res.json()
+        assert {row["pr_number"] for row in res.json()["results"]} == expected
+        assert res.json()["count"] == len(expected)
+        assert res.json()["running_count"] == expected_running_count
+        assert self.client.get(f"{self.url}table/", {"status": "failed"}).status_code == 400
+
+    def test_table_query_count_does_not_grow_with_the_page(self) -> None:
+        for pr_number in range(1, 6):
+            report = self._report(pr_number=pr_number, acting_user=self.user, head_sha=f"h{pr_number}")
+            self._finding(report, f"1-{pr_number}", priority=IssuePriority.MUST_FIX)
+            self._turn_marker(report, run_index=1, review_mode=REVIEW_MODE_FULL, head_sha=f"h{pr_number}")
+        running = self._report(pr_number=9, acting_user=self.user, completed=False, run_count=0)
+        ReviewReport.objects.for_team(self.team.id).filter(id=running.id).update(
+            updated_at=timezone.now() + timedelta(minutes=1)
+        )
+
+        self.client.get(f"{self.url}table/")  # warm the per-request auth and team caches
+        query_counts = []
+        for limit in (2, 6):
+            with CaptureQueriesContext(connection) as queries:
+                res = self.client.get(f"{self.url}table/", {"limit": limit})
+            assert len(res.json()["results"]) == limit
+            assert res.json()["results"][0]["in_progress"] is True
+            query_counts.append(len(queries))
+
+        assert query_counts[0] == query_counts[1], query_counts

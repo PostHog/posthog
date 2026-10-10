@@ -23,6 +23,7 @@ import type {
     ReviewHogReviewsPerspectiveStatsRetrieveParams,
     ReviewHogReviewsPrStatusRetrieveParams,
     ReviewHogReviewsRetrieveParams,
+    ReviewHogReviewsTableRetrieveParams,
     ReviewInstallationClaimApi,
     ReviewInstallationClaimCreateApi,
     ReviewPRStatusApi,
@@ -39,6 +40,7 @@ import type {
     ReviewRepositoryWriteApi,
     ReviewRepositoryWriteResponseApi,
     ReviewResolutionConfigApi,
+    ReviewReviewsTablePageApi,
     ReviewTriggerRequestApi,
     ReviewTriggerResponseApi,
     ReviewUserSettingsApi,
@@ -670,6 +672,40 @@ export const reviewHogReviewsPrStatusRetrieve = async (
     options?: RequestInit
 ): Promise<ReviewPRStatusApi> => {
     return apiMutator<ReviewPRStatusApi>(getReviewHogReviewsPrStatusRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReviewHogReviewsTableRetrieveUrl = (
+    projectId: string,
+    params?: ReviewHogReviewsTableRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/review_hog/reviews/table/?${stringifiedParams}`
+        : `/api/projects/${projectId}/review_hog/reviews/table/`
+}
+
+/**
+ * ReviewHog reviews on this project as a paginated table: reviews with a completed turn plus reviews with a run in flight, ordered by last activity, so a review that starts or finishes moves to the top. Pages with `limit` and `offset`; `count` is the total across pages. Filters by `repository`, `review_mode`, `status`, and `published`. `running_count` counts the running reviews under every filter except `status`. By default only the requesting user's reviews; `scope=everyone` lists every review on the project.
+ * @summary List reviews as a paginated table
+ */
+export const reviewHogReviewsTableRetrieve = async (
+    projectId: string,
+    params?: ReviewHogReviewsTableRetrieveParams,
+    options?: RequestInit
+): Promise<ReviewReviewsTablePageApi> => {
+    return apiMutator<ReviewReviewsTablePageApi>(getReviewHogReviewsTableRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
