@@ -43,7 +43,7 @@ export const ReviewHogReviewsListQueryParams = () => zod.object({
 })
 
 /**
- * One completed ReviewHog review on this project, with the latest turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.
+ * One completed ReviewHog review on this project, with one turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. The latest completed turn by default; `run_index` reads an older one. `in_progress`, `progress`, and the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed under `scope=everyone` can be opened too.
  * @summary Retrieve one review's detail
  */
 export const ReviewHogReviewsRetrieveParams = () => zod.object({
@@ -52,6 +52,15 @@ export const ReviewHogReviewsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const ReviewHogReviewsRetrieveQueryParams = () => zod.object({
+    run_index: zod
+        .number()
+        .optional()
+        .describe(
+            "The completed review turn to read, from 1 to `run_count`. Defaults to the latest completed turn. Use it to read an older turn's findings."
         ),
 })
 

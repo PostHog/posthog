@@ -21,6 +21,7 @@ import type {
     ReviewHogRepositoryOverviewRetrieveParams,
     ReviewHogReviewsListParams,
     ReviewHogReviewsPerspectiveStatsRetrieveParams,
+    ReviewHogReviewsRetrieveParams,
     ReviewInstallationClaimApi,
     ReviewInstallationClaimCreateApi,
     ReviewPerspectiveConfigApi,
@@ -568,20 +569,37 @@ export const reviewHogReviewsList = async (
     })
 }
 
-export const getReviewHogReviewsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/review_hog/reviews/${id}/`
+export const getReviewHogReviewsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: ReviewHogReviewsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/review_hog/reviews/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/review_hog/reviews/${id}/`
 }
 
 /**
- * One completed ReviewHog review on this project, with the latest turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.
+ * One completed ReviewHog review on this project, with one turn's validated findings, the findings the validator dismissed (and why), and the review body published to GitHub. The latest completed turn by default; `run_index` reads an older one. `in_progress`, `progress`, and the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed under `scope=everyone` can be opened too.
  * @summary Retrieve one review's detail
  */
 export const reviewHogReviewsRetrieve = async (
     projectId: string,
     id: string,
+    params?: ReviewHogReviewsRetrieveParams,
     options?: RequestInit
 ): Promise<ReviewDetailApi> => {
-    return apiMutator<ReviewDetailApi>(getReviewHogReviewsRetrieveUrl(projectId, id), {
+    return apiMutator<ReviewDetailApi>(getReviewHogReviewsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

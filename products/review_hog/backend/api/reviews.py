@@ -41,18 +41,23 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL, effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.persistence import load_chunk_set, load_findings_bundle, load_turn_findings
+from products.review_hog.backend.reviewer.persistence import TurnFindingsBundle, load_chunk_set, load_findings_bundle
 from products.review_hog.backend.reviewer.progress import (
     IN_PROGRESS_STALE_AFTER,
+    RESOLUTION_COMPLETED,
     RESOLUTION_RESOLVING,
     RESOLUTION_STOPPED,
     REVIEW_STAGES,
     ResolutionRunState,
+    ResolutionSummary,
     SnapshotStats,
+    TurnMarker,
     TurnStats,
+    latest_resolution_summaries,
     progress_payload,
     resolution_states,
     snapshot_stats,
+    turn_markers,
     turn_stats,
 )
 from products.review_hog.backend.reviewer.review_state import completed_turn_review_mode
@@ -142,6 +147,39 @@ class ReviewResolutionStatusSerializer(serializers.Serializer):
     )
 
 
+class ReviewTriggerReviewMode(models.TextChoices):
+    FULL = REVIEW_MODE_FULL, "Deep"
+    FLASH = REVIEW_MODE_FLASH, "Standard"
+
+
+class ReviewLatestResolutionStatus(models.TextChoices):
+    RESOLVING = RESOLUTION_RESOLVING, "Resolving"
+    STOPPED = RESOLUTION_STOPPED, "Stopped"
+    COMPLETED = RESOLUTION_COMPLETED, "Completed"
+
+
+class ReviewLatestResolutionSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(
+        choices=ReviewLatestResolutionStatus.choices,
+        help_text="Where the run stands: 'resolving' while threads are being settled, 'completed' when it "
+        "finished, 'stopped' when it died partway or a newer review turn replaced it.",
+    )
+    started_at = serializers.DateTimeField(help_text="When the run queued its threads.")
+    completed_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the run finished; null unless the status is 'completed'."
+    )
+    total = serializers.IntegerField(help_text="Threads queued for this run.")
+    fixed = serializers.IntegerField(help_text="Threads the run fixed with a commit to the branch.")
+    needs_attention = serializers.IntegerField(
+        help_text="Threads left for the author: judged worth doing but not safe to fix unattended."
+    )
+    commits = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="SHAs of the run's fix commits, oldest first. Only commits confirmed on the pull request "
+        "branch that touch no protected files; the replies on GitHub link the same commits.",
+    )
+
+
 class ReviewSelectionChunkSerializer(serializers.Serializer):
     chunk_id = serializers.IntegerField(help_text="The chunk this row describes, as numbered by the chunker.")
     chunk_type = serializers.CharField(
@@ -195,7 +233,25 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
     last_run_at = serializers.DateTimeField(
         allow_null=True, help_text="When the latest review turn completed; null while the first is in flight."
     )
-    published = serializers.BooleanField(help_text="Whether a review has been published back to GitHub.")
+    published = serializers.BooleanField(
+        help_text="Whether any turn of this report has been published back to GitHub. See `turn_published` "
+        "for the returned turn."
+    )
+    turn_published = serializers.BooleanField(
+        help_text="Whether the returned turn (the latest completed one, or `run_index` on the detail) was "
+        "published to GitHub. False when it found nothing to post or publishing was off."
+    )
+    review_mode = serializers.ChoiceField(
+        choices=ReviewTriggerReviewMode.choices,
+        allow_null=True,
+        help_text="What the returned turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did "
+        "not record its mode (turns from before the mode was recorded).",
+    )
+    status_comment_url = serializers.CharField(
+        allow_null=True,
+        help_text="Link to the review's status comment on the pull request; null when there is no status "
+        "comment or no pull request URL.",
+    )
     full_review_published = serializers.BooleanField(
         help_text="Whether a Deep review of this pull request has been published. No Standard review runs after one."
     )
@@ -213,6 +269,11 @@ class ReviewRecentReviewSerializer(serializers.Serializer):
         help_text="The report's latest resolution run (settling the PR's review threads): live progress "
         "while it runs, or where it stopped when it died partway. Null when there is none, it completed, "
         "or a newer review turn superseded it.",
+    )
+    latest_resolution = ReviewLatestResolutionSerializer(
+        allow_null=True,
+        help_text="The report's latest resolution run, completed runs included: its status, counts, and "
+        "fix commits. Null when no resolution run has queued threads on this report.",
     )
     must_fix_count = serializers.IntegerField(
         help_text="The latest turn's valid findings at must_fix effective priority."
@@ -293,11 +354,6 @@ class ReviewTriggerRequestSerializer(serializers.Serializer):
         "comments, and is refused once the PR has a published Deep review. The owner is the PR's author, "
         "or the Inbox reviewer of a pull request the PostHog app opened.",
     )
-
-
-class ReviewTriggerReviewMode(models.TextChoices):
-    FULL = REVIEW_MODE_FULL, "Deep"
-    FLASH = REVIEW_MODE_FLASH, "Standard"
 
 
 class ReviewTriggerResponseSerializer(serializers.Serializer):
@@ -382,10 +438,20 @@ class ReviewFindingSerializer(serializers.Serializer):
     )
 
 
+class ReviewDetailParamsSerializer(serializers.Serializer):
+    run_index = serializers.IntegerField(
+        required=False,
+        help_text="The completed review turn to read, from 1 to `run_count`. Defaults to the latest "
+        "completed turn. Use it to read an older turn's findings.",
+    )
+
+
 class ReviewDetailSerializer(ReviewRecentReviewSerializer):
+    run_index = serializers.IntegerField(help_text="The review turn this detail describes, from 1 to `run_count`.")
     head_sha = serializers.CharField(
         allow_null=True,
-        help_text="The PR head commit the latest turn reviewed — anchors GitHub links to the exact code.",
+        help_text="The PR head commit the returned turn reviewed. Anchors GitHub links to the exact code. "
+        "Null for an older turn whose head was not recorded.",
     )
     perspective_selection = ReviewPerspectiveSelectionSerializer(
         allow_null=True,
@@ -393,18 +459,23 @@ class ReviewDetailSerializer(ReviewRecentReviewSerializer):
         "without a selection (selector unavailable, failed, or the run predates it).",
     )
     report_markdown = serializers.CharField(
-        allow_blank=True, help_text="The rendered review body published to GitHub, as markdown."
+        allow_blank=True,
+        allow_null=True,
+        help_text="The rendered review body published to GitHub, as markdown. Only kept for the latest "
+        "turn, so null when `run_index` selects an older turn.",
     )
     run_urgency_threshold = serializers.ChoiceField(
         choices=_PRIORITY_CHOICES,
         allow_null=True,
-        help_text="The urgency threshold the completed turn's publishing gated on (stamped at finalize "
+        help_text="The urgency threshold the returned turn's publishing gated on (stamped at finalize "
         "from the run's own resolve snapshot); null for turns that predate its recording — readers "
         "fall back to the viewer's current setting as an approximation.",
     )
-    findings = ReviewFindingSerializer(many=True, help_text="The latest turn's validated findings, most urgent first.")
+    findings = ReviewFindingSerializer(
+        many=True, help_text="The returned turn's validated findings, most urgent first."
+    )
     dismissed_findings = ReviewFindingSerializer(
-        many=True, help_text="The latest turn's findings the validator dismissed, with its reasoning."
+        many=True, help_text="The returned turn's findings the validator dismissed, with its reasoning."
     )
 
 
@@ -478,6 +549,54 @@ def _in_progress_report_ids(team_id: int, reports: list[ReviewReport]) -> set[st
     return fresh
 
 
+def _turn_progress(
+    team_id: int,
+    reports: list[ReviewReport],
+    in_progress_ids: set[str],
+    resolutions: dict[str, ResolutionRunState],
+    bundle: TurnFindingsBundle,
+) -> dict[str, dict[str, Any]]:
+    """The in-flight review turn's stage payload for each visibly running report.
+
+    A resolving report's live run is the resolution, not a review turn. Inferring a review stage
+    from the completed turn's artefacts would relabel it "deduplicating".
+    """
+    resolving_ids = {report_id for report_id, state in resolutions.items() if state.status == RESOLUTION_RESOLVING}
+    in_flight = [
+        report for report in reports if str(report.id) in in_progress_ids and str(report.id) not in resolving_ids
+    ]
+    if not in_flight:
+        return {}
+    live_heads = {str(report.id): report.head_sha for report in in_flight}
+    live_snapshots = snapshot_stats(team_id, live_heads)
+    live_turns = turn_stats(team_id, live_heads)
+    return {
+        str(report.id): progress_payload(
+            team_id,
+            report,
+            live_snapshots.get(str(report.id), SnapshotStats()),
+            live_turns.get(str(report.id), TurnStats()),
+            # The in-flight turn's findings live one run_index ahead of the completed watermark.
+            bundle.turn(str(report.id), report.run_count + 1),
+        )
+        for report in in_flight
+    }
+
+
+def _latest_resolution_payload(summary: ResolutionSummary | None) -> dict[str, Any] | None:
+    if summary is None:
+        return None
+    return {
+        "status": summary.status,
+        "started_at": summary.started_at,
+        "completed_at": summary.completed_at,
+        "total": summary.total,
+        "fixed": summary.fixed,
+        "needs_attention": summary.needs_attention,
+        "commits": list(summary.commits),
+    }
+
+
 def _finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> dict[str, Any]:
     return {
         "title": finding.title,
@@ -517,13 +636,16 @@ def _selection_payload(turn: TurnStats, chunks: ChunksList | None) -> dict[str, 
 
 def _review_payload(
     report: ReviewReport,
+    run_index: int,
     snapshot: SnapshotStats,
     turn: TurnStats,
     pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
-    progress: dict[str, Any] | None = None,
-    resolution: ResolutionRunState | None = None,
+    marker: TurnMarker | None,
+    progress: dict[str, Any] | None,
+    resolution: ResolutionRunState | None,
+    latest_resolution: ResolutionSummary | None,
 ) -> dict[str, Any]:
-    """The list-row payload for one report; the detail endpoint layers findings on top."""
+    """The list-row payload for one report's turn at `run_index`; the detail endpoint layers findings on top."""
     counts = dict.fromkeys(IssuePriority, 0)
     dismissed = 0
     for finding, verdict in pairs:
@@ -548,6 +670,11 @@ def _review_payload(
         "run_count": report.run_count,
         "last_run_at": report.last_run_at,
         "published": report.published_head_sha is not None,
+        "turn_published": str(run_index) in (report.published_head_shas or {}),
+        "review_mode": marker.review_mode if marker else None,
+        "status_comment_url": f"{report.pr_url}#issuecomment-{report.status_comment_id}"
+        if report.pr_url and report.status_comment_id
+        else None,
         # Reads only the per-mode marker, so the list never loads findings to tell older reports apart.
         "full_review_published": REVIEW_MODE_FULL in (report.published_heads_by_mode or {}),
         "in_progress": progress is not None or (resolution is not None and resolution.status == RESOLUTION_RESOLVING),
@@ -561,6 +688,7 @@ def _review_payload(
         }
         if resolution is not None
         else None,
+        "latest_resolution": _latest_resolution_payload(latest_resolution),
         "must_fix_count": counts[IssuePriority.MUST_FIX],
         "should_fix_count": counts[IssuePriority.SHOULD_FIX],
         "consider_count": counts[IssuePriority.CONSIDER],
@@ -689,33 +817,28 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         # watermark, which is also correct for never-finalized first turns.
         snapshots = snapshot_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
         turns = turn_stats(team_id, {str(r.id): r.completed_head_sha or r.head_sha for r in reports})
-        in_flight = [report for report in reports if str(report.id) in in_progress_ids]
-        live_heads = {str(report.id): report.head_sha for report in in_flight}
-        live_snapshots = snapshot_stats(team_id, live_heads) if in_flight else {}
-        live_turns = turn_stats(team_id, live_heads) if in_flight else {}
-        bundle = load_findings_bundle(team_id=team_id, report_ids=[str(report.id) for report in reports])
+        report_ids = [str(report.id) for report in reports]
+        bundle = load_findings_bundle(team_id=team_id, report_ids=report_ids)
         resolution_map = resolution_states(team_id, reports)
+        progress_map = _turn_progress(team_id, reports, in_progress_ids, resolution_map, bundle)
+        markers = turn_markers(team_id, report_ids)
+        latest_resolutions = latest_resolution_summaries(team_id, reports)
         items = []
         for report in reports:
             report_id = str(report.id)
-            snapshot = snapshots.get(report_id, SnapshotStats())
-            turn = turns.get(report_id, TurnStats())
-            pairs = bundle.turn(report_id, report.run_count)
-            resolution = resolution_map.get(report_id)
-            progress = None
-            # A resolving report's live run is the resolution, not a review turn — inferring a
-            # review stage from the completed turn's artefacts would relabel it "deduplicating".
-            if report_id in in_progress_ids and (resolution is None or resolution.status != RESOLUTION_RESOLVING):
-                # The in-flight turn's findings live one run_index ahead of the completed watermark.
-                current_pairs = bundle.turn(report_id, report.run_count + 1)
-                progress = progress_payload(
-                    team_id,
+            items.append(
+                _review_payload(
                     report,
-                    live_snapshots.get(report_id, SnapshotStats()),
-                    live_turns.get(report_id, TurnStats()),
-                    current_pairs,
+                    report.run_count,
+                    snapshots.get(report_id, SnapshotStats()),
+                    turns.get(report_id, TurnStats()),
+                    bundle.turn(report_id, report.run_count),
+                    markers.get((report_id, report.run_count)),
+                    progress_map.get(report_id),
+                    resolution_map.get(report_id),
+                    latest_resolutions.get(report_id),
                 )
-            items.append(_review_payload(report, snapshot, turn, pairs, progress, resolution))
+            )
         return Response(ReviewRecentReviewsPageSerializer({"results": items, "has_more": has_more}).data)
 
     @extend_schema(
@@ -871,17 +994,20 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         )
 
     @extend_schema(
+        parameters=[ReviewDetailParamsSerializer],
         responses={
             200: OpenApiResponse(
                 response=ReviewDetailSerializer,
                 description="The review's detail: findings (valid and dismissed) and the published body.",
             ),
-            404: OpenApiResponse(description="No such review on this project."),
+            404: OpenApiResponse(description="No such review on this project, or no such completed turn."),
         },
         summary="Retrieve one review's detail",
-        description="One completed ReviewHog review on this project, with the latest turn's validated "
-        "findings, the findings the validator dismissed (and why), and the review body published to "
-        "GitHub. Project-wide, so reviews listed under `scope=everyone` can be opened too.",
+        description="One completed ReviewHog review on this project, with one turn's validated findings, "
+        "the findings the validator dismissed (and why), and the review body published to GitHub. The "
+        "latest completed turn by default; `run_index` reads an older one. `in_progress`, `progress`, and "
+        "the resolution fields describe the report now, whatever the turn. Project-wide, so reviews listed "
+        "under `scope=everyone` can be opened too.",
     )
     def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         try:
@@ -895,16 +1021,29 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         if report is None:
             raise NotFound("Review not found.")
 
+        params = ReviewDetailParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+        run_index: int = params.validated_data.get("run_index", report.run_count)
+        if not 1 <= run_index <= report.run_count:
+            raise NotFound("No completed review turn with that run_index.")
+        is_latest = run_index == report.run_count
+
         report_id = str(report.id)
-        # Everything the detail returns — stats, chunk set, link-anchoring head — describes the same
+        marker = turn_markers(team_id, [report_id]).get((report_id, run_index))
+        # Everything the detail returns (stats, chunk set, link-anchoring head) describes the same
         # completed turn the findings come from, never an in-flight turn's watermark.
-        completed_head = report.completed_head_sha or report.head_sha
-        snapshots = snapshot_stats(team_id, {report_id: completed_head})
-        turns = turn_stats(team_id, {report_id: completed_head})
-        pairs = load_turn_findings(team_id=team_id, report_id=report_id, run_index=report.run_count)
-        chunk_set = (
-            load_chunk_set(team_id=team_id, report_id=report_id, head_sha=completed_head) if completed_head else None
-        )
+        if is_latest:
+            turn_head = report.completed_head_sha or report.head_sha
+        else:
+            turn_head = (marker.head_sha if marker else None) or (report.published_head_shas or {}).get(str(run_index))
+        snapshots = snapshot_stats(team_id, {report_id: turn_head})
+        turns = turn_stats(team_id, {report_id: turn_head})
+        bundle = load_findings_bundle(team_id=team_id, report_ids=[report_id])
+        pairs = bundle.turn(report_id, run_index)
+        chunk_set = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=turn_head) if turn_head else None
+        resolutions = resolution_states(team_id, [report])
+        in_progress_ids = _in_progress_report_ids(team_id, [report])
+        progress = _turn_progress(team_id, [report], in_progress_ids, resolutions, bundle).get(report_id)
 
         def sort_key(payload: dict[str, Any]) -> tuple[int, str]:
             return (_PRIORITY_DISPLAY_RANK[IssuePriority(payload["effective_priority"])], payload["file"])
@@ -914,14 +1053,24 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         payload = {
             **_review_payload(
                 report,
+                run_index,
                 snapshots.get(report_id, SnapshotStats()),
                 turns.get(report_id, TurnStats()),
                 pairs,
-                resolution=resolution_states(team_id, [report]).get(report_id),
+                marker,
+                progress,
+                resolutions.get(report_id),
+                latest_resolution_summaries(team_id, [report]).get(report_id),
             ),
-            "head_sha": completed_head,
-            "report_markdown": report.report_markdown,
-            "run_urgency_threshold": report.run_urgency_threshold or None,
+            "run_index": run_index,
+            "head_sha": turn_head,
+            "report_markdown": report.report_markdown if is_latest else None,
+            "run_urgency_threshold": (
+                report.run_urgency_threshold
+                if is_latest
+                else (report.published_urgency_thresholds or {}).get(str(run_index))
+            )
+            or None,
             "findings": sorted(valid, key=sort_key),
             "dismissed_findings": sorted(dismissed, key=sort_key),
             "perspective_selection": _selection_payload(turns.get(report_id, TurnStats()), chunk_set),

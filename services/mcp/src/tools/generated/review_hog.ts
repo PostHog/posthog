@@ -8,7 +8,8 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ReviewHogReviewsGetSchema = () => {
     const ReviewHogReviewsRetrieveParams = orvalSchemas.ReviewHogReviewsRetrieveParams()
-    return ReviewHogReviewsRetrieveParams.omit({ project_id: true })
+    const ReviewHogReviewsRetrieveQueryParams = orvalSchemas.ReviewHogReviewsRetrieveQueryParams()
+    return ReviewHogReviewsRetrieveParams.omit({ project_id: true }).extend(ReviewHogReviewsRetrieveQueryParams.shape)
 }
 
 const reviewHogReviewsGet = (): ToolBase<ReturnType<typeof ReviewHogReviewsGetSchema>, Schemas.ReviewDetail> => ({
@@ -19,6 +20,9 @@ const reviewHogReviewsGet = (): ToolBase<ReturnType<typeof ReviewHogReviewsGetSc
         const result = await context.api.request<Schemas.ReviewDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/review_hog/reviews/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                run_index: params.run_index,
+            },
         })
         return result
     },

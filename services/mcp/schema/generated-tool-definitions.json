@@ -10975,7 +10975,7 @@
         "feature_flag": "notebook-generated-widgets"
     },
     "review-hog-reviews-get": {
-        "description": "Fetch one ReviewHog review by `id` (from `review-hog-reviews-list` or the trigger's `report_id`). It returns the last completed turn: its validated `findings` (each with file, line ranges, priority, and the suggested fix), the `dismissed_findings` the validator dropped and why, and the `report_markdown` published to the PR. While a re-review runs, the findings are still the previous turn's. A first review that is still running has no detail yet, so poll `review-hog-reviews-list` until it completes.",
+        "description": "Fetch one ReviewHog review by `id` (from `review-hog-reviews-list` or the trigger's `report_id`). It returns the last completed turn: its validated `findings` (each with file, line ranges, priority, and the suggested fix), the `dismissed_findings` the validator dropped and why, and the `report_markdown` published to the PR. `run_index` says which turn it is, `review_mode` whether it ran Deep (`full`) or Standard (`flash`), and `turn_published` whether that turn posted to GitHub (`published` means any turn did). Pass `run_index` to read an older turn; `report_markdown` is null then. `in_progress` and `progress` show a running re-review, whose findings are not in this detail yet. `latest_resolution` sums up the latest Resolve run, finished ones too: its `status`, `fixed` and `needs_attention` counts, and the verified fix `commits`. `status_comment_url` links the review's status comment on the PR. A first review that is still running has no detail yet, so poll `review-hog-reviews-list` until it completes.",
         "category": "ReviewHog",
         "feature": "review_hog",
         "summary": "Get a ReviewHog review",
@@ -10990,7 +10990,7 @@
         "feature_flag": "review-hog"
     },
     "review-hog-reviews-list": {
-        "description": "List recent ReviewHog reviews on this project. Use it to poll a review's status. Running reviews come first, each with `in_progress: true` and a `progress` object (the running turn's `review_stage` plus `done`/`total` counters). Completed reviews follow, newest first, with their finding counts by priority (`must_fix_count`, `should_fix_count`, `consider_count`) and whether they were `published`. Each row's `id` opens the full review with `review-hog-reviews-get`. The default `scope=mine` covers reviews you ran plus reviews of pull requests you authored. Pass `scope=everyone` for every review on the project, and `limit` to widen the page.",
+        "description": "List recent ReviewHog reviews on this project. Use it to poll a review's status. Running reviews come first, each with `in_progress: true` and a `progress` object (the running turn's `review_stage` plus `done`/`total` counters). Completed reviews follow, newest first, with their finding counts by priority (`must_fix_count`, `should_fix_count`, `consider_count`), the turn's `review_mode` (`full` for Deep, `flash` for Standard), whether that turn was published (`turn_published`), and `latest_resolution`, the latest Resolve run's outcome including finished runs. Each row's `id` opens the full review with `review-hog-reviews-get`. The default `scope=mine` covers reviews you ran plus reviews of pull requests you authored. Pass `scope=everyone` for every review on the project, and `limit` to widen the page.",
         "category": "ReviewHog",
         "feature": "review_hog",
         "summary": "List ReviewHog reviews",
