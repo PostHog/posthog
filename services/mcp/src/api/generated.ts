@@ -73093,8 +73093,8 @@ export namespace Schemas {
     }
 
     /**
-     * * `all` - all
-     * * `label` - label
+     * * `all` - All pull requests
+     * * `label` - Labeled pull requests
      */
     export type ReviewModeEnum = typeof ReviewModeEnum[keyof typeof ReviewModeEnum];
 
@@ -73118,8 +73118,8 @@ export namespace Schemas {
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
-       * * `all` - all
-       * * `label` - label */
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
@@ -83681,8 +83681,8 @@ export namespace Schemas {
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
-       * * `all` - all
-       * * `label` - label */
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
@@ -94578,6 +94578,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `run_mode_excludes_resolve` - The run mode never resolves comments
+     * * `owner_not_opted_in` - The pull request owner has not opted in to resolution
+     * * `already_reviewed` - No run starts, because the head already has a review in this mode
+     */
+    export type ResolveSkipReasonEnum = typeof ResolveSkipReasonEnum[keyof typeof ResolveSkipReasonEnum];
+
+
+    export const ResolveSkipReasonEnum = {
+      RunModeExcludesResolve: 'run_mode_excludes_resolve',
+      OwnerNotOptedIn: 'owner_not_opted_in',
+      AlreadyReviewed: 'already_reviewed',
+    } as const;
+
+    /**
      * * `likely_active_soon` - Likely Active Soon
      * * `at_risk_of_inactivity` - At Risk Of Inactivity
      * * `return_after_first_use` - Return After First Use
@@ -95996,11 +96010,52 @@ export namespace Schemas {
       run_mode?: ReviewTriggerRequestRunModeEnum;
     }
 
+    /**
+     * * `full` - Deep
+     * * `flash` - Standard
+     */
+    export type ReviewTriggerReviewModeEnum = typeof ReviewTriggerReviewModeEnum[keyof typeof ReviewTriggerReviewModeEnum];
+
+
+    export const ReviewTriggerReviewModeEnum = {
+      Full: 'full',
+      Flash: 'flash',
+    } as const;
+
     export interface ReviewTriggerResponse {
       /** Temporal workflow id for the started review run; empty when no run was started. */
       workflow_id: string;
-      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already in flight and the request joined its queue. A requested Deep review waits for an active Standard review. */
+      /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already running and the request was queued on that pull request's run, to start after the running turn. A requested Deep review waits for an active Standard review. */
       status: string;
+      /** The pull request's repository as 'owner/repo'. */
+      repository: string;
+      /** The pull request number. */
+      pr_number: number;
+      /**
+         * The pull request's head commit when the request was accepted.
+         * @nullable
+         */
+      head_sha: string | null;
+      /** The review this request runs: 'full' (Deep) or 'flash' (Standard). Null for 'resolve_only', which runs no review.
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
+      /**
+         * Id of the pull request's existing review, for `review-hog-reviews-get`. Null on the pull request's first run, which creates the review later.
+         * @nullable
+         */
+      report_id: string | null;
+      /** Server time when the request was accepted. */
+      requested_at: string;
+      /** Whether this request runs the resolution stage, which can push fix commits to the pull request. */
+      resolve_will_run: boolean;
+      /** Why the resolution stage does not run: 'run_mode_excludes_resolve' ('review_only' and 'flash' never resolve), 'owner_not_opted_in' (the pull request owner has not turned on resolving comments), 'already_reviewed' (no run starts). Null when it runs.
+       *
+       * * `run_mode_excludes_resolve` - The run mode never resolves comments
+       * * `owner_not_opted_in` - The pull request owner has not opted in to resolution
+       * * `already_reviewed` - No run starts, because the head already has a review in this mode */
+      resolve_skip_reason: ResolveSkipReasonEnum | null;
     }
 
     export interface ReviewUserSettings {
@@ -105555,8 +105610,8 @@ export namespace Schemas {
       digest_enabled?: boolean;
       /** When reviews run: 'all' reviews every pull request (the default); 'label' reviews only pull requests carrying the trigger label, mirroring the Action's opt-in flow.
        *
-       * * `all` - all
-       * * `label` - label */
+       * * `all` - All pull requests
+       * * `label` - Labeled pull requests */
       review_mode?: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
