@@ -663,6 +663,28 @@ def replace_dropped_findings(
             )
 
 
+def load_dropped_findings(*, team_id: int, report_id: str, run_index: int) -> list[DroppedFindingArtefact]:
+    """The findings a single-agent turn did not keep, in the order the turn recorded them.
+
+    Scoped to `run_index` like `load_turn_findings`. A retry replaces its turn's rows, so no latest-wins step is needed.
+    """
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id=report_id, type=ReviewReportArtefact.ArtefactType.DROPPED_FINDING)
+        .order_by("created_at", "id")
+    )
+    dropped: list[DroppedFindingArtefact] = []
+    for row in rows:
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable %s artefact %s: %s", row.type, row.id, e)
+            continue
+        if isinstance(content, DroppedFindingArtefact) and content.finding.run_index == run_index:
+            dropped.append(content)
+    return dropped
+
+
 def persist_verdicts(
     *, team_id: int, report_id: str, issues: list[Issue], validations: dict[str, IssueValidation], run_index: int
 ) -> int:

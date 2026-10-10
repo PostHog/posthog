@@ -28,6 +28,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type {
+    ReviewDetailApi,
+    ReviewDropDispositionEnumApi,
+    ReviewDroppedFindingApi,
     ReviewFindingApi,
     ReviewIssuePriorityEnumApi,
     ReviewRecentReviewApi,
@@ -296,10 +299,12 @@ function SingleAgentFindingsLine({ review }: { review: ReviewRecentReviewApi }):
 }
 
 /** The drawer header for a single-agent turn: how it ran, and why the posted count can be lower than the raised count. */
-function SingleAgentDrawerSummary({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
+function SingleAgentDrawerSummary({ review }: { review: ReviewDetailApi }): JSX.Element {
+    const { setReviewDrawerTab } = useActions(reviewHogSettingsLogic)
     const { posted, raised } = singleAgentCounts(review)
     const lenses = singleAgentLensCount(review)
     const dropped = raised !== null ? raised - posted : 0
+    const otherLabel = dropped === 1 ? 'The other one' : `The other ${dropped}`
     return (
         <div className="flex flex-col gap-1 text-sm text-secondary">
             <div>
@@ -314,10 +319,15 @@ function SingleAgentDrawerSummary({ review }: { review: ReviewRecentReviewApi })
                 {raised !== null ? (
                     <>
                         {' '}
-                        of <span className="font-semibold text-default">{raised}</span> issues raised. The other{' '}
-                        {dropped === 1 ? 'one repeated' : `${dropped} repeated`} another finding or comment,{' '}
-                        {dropped === 1 ? 'was' : 'were'} on code this pull request did not change, or went over the
-                        per-review limit.
+                        of <span className="font-semibold text-default">{raised}</span> issues raised.{' '}
+                        {/* Turns that predate the dropped-finding record have nothing to switch to. */}
+                        {review.dropped_findings.length ? (
+                            <Link onClick={() => setReviewDrawerTab('not_posted')}>{otherLabel}</Link>
+                        ) : (
+                            otherLabel
+                        )}{' '}
+                        repeated another finding or comment, {dropped === 1 ? 'was' : 'were'} on code this pull request
+                        did not change, or went over the per-review limit.
                     </>
                 ) : (
                     ` issue${posted === 1 ? '' : 's'}.`
@@ -744,9 +754,23 @@ function TriggerReviewSection(): JSX.Element {
 
 type FindingSection = 'description' | 'suggestion' | 'validator'
 
-function FindingCard({ finding, dismissed }: { finding: ReviewFindingApi; dismissed?: boolean }): JSX.Element {
+/** A finding that went through the reviewer's own priority and a verdict, unlike a dropped one. */
+function isJudgedFinding(finding: ReviewFindingApi | ReviewDroppedFindingApi): finding is ReviewFindingApi {
+    return 'validator_note' in finding
+}
+
+function FindingCard({
+    finding,
+    dismissed,
+    reason,
+}: {
+    finding: ReviewFindingApi | ReviewDroppedFindingApi
+    dismissed?: boolean
+    reason?: JSX.Element
+}): JSX.Element {
     const { reviewDetail } = useValues(reviewHogSettingsLogic)
-    const priority = PRIORITY_TAG[finding.effective_priority]
+    const judged = isJudgedFinding(finding) ? finding : null
+    const priority = PRIORITY_TAG[isJudgedFinding(finding) ? finding.effective_priority : finding.priority]
     const location = finding.lines.length
         ? `${finding.file}:${finding.lines.map((r) => (r.end && r.end !== r.start ? `${r.start}–${r.end}` : `${r.start}`)).join(', ')}`
         : finding.file
@@ -764,16 +788,17 @@ function FindingCard({ finding, dismissed }: { finding: ReviewFindingApi; dismis
                 <LemonTag type={dismissed ? 'muted' : priority.type} size="small">
                     {priority.label}
                 </LemonTag>
-                {finding.effective_priority !== finding.reviewer_priority && (
+                {judged && judged.effective_priority !== judged.reviewer_priority && (
                     <LemonTag type="muted" size="small">
-                        was {PRIORITY_TAG[finding.reviewer_priority].label.toLowerCase()}
+                        was {PRIORITY_TAG[judged.reviewer_priority].label.toLowerCase()}
                     </LemonTag>
                 )}
-                {finding.validator_category && (
+                {judged?.validator_category && (
                     <LemonTag type="muted" size="small">
-                        {prettifyCategory(finding.validator_category)}
+                        {prettifyCategory(judged.validator_category)}
                     </LemonTag>
                 )}
+                {reason}
                 {finding.source_perspective && (
                     <span className="text-xs text-tertiary">{perspectiveLabel(finding.source_perspective)}</span>
                 )}
@@ -804,29 +829,34 @@ function FindingCard({ finding, dismissed }: { finding: ReviewFindingApi; dismis
                             </LemonMarkdown>
                         ),
                     },
-                    {
-                        key: 'suggestion',
-                        header: 'Suggested fix',
-                        content: (
-                            <LemonMarkdown className="text-sm text-secondary" disableImages>
-                                {finding.suggestion}
-                            </LemonMarkdown>
-                        ),
-                    },
+                    // A single-agent finding ends its description with the fix, so its suggestion is empty.
+                    ...(finding.suggestion
+                        ? [
+                              {
+                                  key: 'suggestion' as const,
+                                  header: 'Suggested fix',
+                                  content: (
+                                      <LemonMarkdown className="text-sm text-secondary" disableImages>
+                                          {finding.suggestion}
+                                      </LemonMarkdown>
+                                  ),
+                              },
+                          ]
+                        : []),
                     // A single-agent turn has no validator, so its note is a placeholder, not reasoning.
-                    ...(isSingleAgentReview(reviewDetail)
-                        ? []
-                        : [
+                    ...(judged && !isSingleAgentReview(reviewDetail)
+                        ? [
                               {
                                   key: 'validator' as const,
                                   header: dismissed ? 'Why it was dismissed' : "Why we think it's a valid issue",
                                   content: (
                                       <LemonMarkdown className="text-sm text-secondary" disableImages>
-                                          {finding.validator_note}
+                                          {judged.validator_note}
                                       </LemonMarkdown>
                                   ),
                               },
-                          ]),
+                          ]
+                        : []),
                 ]}
             />
         </div>
@@ -874,6 +904,69 @@ function DrawerPublishedTab(): JSX.Element {
             <div className="flex flex-col divide-y divide-primary">
                 {reviewFindingsSplit.published.map((finding, i) => (
                     <FindingCard key={i} finding={finding} />
+                ))}
+            </div>
+        </div>
+    )
+}
+
+const DROP_REASON_LABEL: Record<ReviewDropDispositionEnumApi, string> = {
+    dedup_sibling: 'Repeat of a finding',
+    dedup_comment: 'Already in a PR comment',
+    dedup_prior: 'Repeat of an earlier review',
+    dedup_anchor: 'Same spot as another finding',
+    old_code: 'On unchanged code',
+    cap: 'Over the limit',
+}
+
+// Display order of the reasons: the label map's key order.
+const DROP_REASON_ORDER = Object.keys(DROP_REASON_LABEL) as ReviewDropDispositionEnumApi[]
+
+function DropReason({ finding }: { finding: ReviewDroppedFindingApi }): JSX.Element {
+    const label = DROP_REASON_LABEL[finding.disposition]
+    return (
+        <>
+            <LemonTag type="muted" size="small">
+                {finding.disposition === 'cap' && finding.rank ? `${label} (#${finding.rank})` : label}
+            </LemonTag>
+            {finding.comment_url && (
+                <Link to={finding.comment_url} target="_blank" targetBlankIcon className="text-xs">
+                    View comment
+                </Link>
+            )}
+        </>
+    )
+}
+
+/** The "Not posted" tab for a single-agent turn: findings it raised but dropped as repeats, on unchanged code, or over the limit. */
+function DrawerNotPostedTab(): JSX.Element {
+    const { reviewDetail } = useValues(reviewHogSettingsLogic)
+
+    if (!reviewDetail) {
+        return <DrawerFindingsSkeleton />
+    }
+    if (!reviewDetail.dropped_findings.length) {
+        return (
+            <div className="text-sm text-secondary">
+                {singleAgentCounts(reviewDetail).raised !== null
+                    ? "This review didn't record the issues it left out."
+                    : 'This review posted every issue it raised.'}
+            </div>
+        )
+    }
+    const dropped = [...reviewDetail.dropped_findings].sort(
+        (a, b) =>
+            DROP_REASON_ORDER.indexOf(a.disposition) - DROP_REASON_ORDER.indexOf(b.disposition) ||
+            (a.rank ?? 0) - (b.rank ?? 0)
+    )
+    return (
+        <div className="flex flex-col gap-2">
+            <p className="m-0 text-xs text-secondary">
+                Raised during this review but not posted to the pull request, each with the reason.
+            </p>
+            <div className="flex flex-col divide-y divide-primary">
+                {dropped.map((finding, i) => (
+                    <FindingCard key={i} finding={finding} reason={<DropReason finding={finding} />} />
                 ))}
             </div>
         </div>
@@ -1114,8 +1207,14 @@ function ReviewDetailDrawer(): JSX.Element {
                     </div>
                 )}
                 <LemonTabs<ReviewDrawerTab>
-                    // Standard has no Dismissed tab, so a stale selection falls back to the posted tab.
-                    activeKey={singleAgent && reviewDrawerTab === 'dismissed' ? 'published' : reviewDrawerTab}
+                    // Standard has no Dismissed tab and Deep has no Not posted tab, so a stale selection
+                    // falls back to the posted tab.
+                    activeKey={
+                        (singleAgent && reviewDrawerTab === 'dismissed') ||
+                        (!singleAgent && reviewDrawerTab === 'not_posted')
+                            ? 'published'
+                            : reviewDrawerTab
+                    }
                     onChange={setReviewDrawerTab}
                     tabs={[
                         {
@@ -1128,6 +1227,11 @@ function ReviewDetailDrawer(): JSX.Element {
                                 reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''
                             }`,
                             content: <DrawerPublishedTab />,
+                        },
+                        singleAgent && {
+                            key: 'not_posted',
+                            label: `Not posted${reviewDetail ? ` (${reviewDetail.dropped_findings.length})` : ''}`,
+                            content: <DrawerNotPostedTab />,
                         },
                         // A single-agent turn publishes at every urgency, so nothing sits below a threshold.
                         !singleAgent && {

@@ -36,6 +36,7 @@ from products.review_hog.backend.requested_reviews import (
 )
 from products.review_hog.backend.review_request_rules import ReviewRequestRefusal
 from products.review_hog.backend.reviewer.artefact_content import (
+    DroppedFindingArtefact,
     ReviewIssueCategory,
     ReviewIssueFinding,
     ValidationVerdict,
@@ -43,7 +44,12 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL, effective_priority
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
-from products.review_hog.backend.reviewer.persistence import TurnFindingsBundle, load_chunk_set, load_findings_bundle
+from products.review_hog.backend.reviewer.persistence import (
+    TurnFindingsBundle,
+    load_chunk_set,
+    load_dropped_findings,
+    load_findings_bundle,
+)
 from products.review_hog.backend.reviewer.progress import (
     RESOLUTION_COMPLETED,
     RESOLUTION_RESOLVING,
@@ -547,6 +553,62 @@ class ReviewFindingSerializer(serializers.Serializer):
     )
 
 
+# Mirrors `DropDisposition`; `_dropped_finding_payload` fails loudly on a value missing here.
+class ReviewDropDisposition(models.TextChoices):
+    OLD_CODE = "old_code", "On unchanged code"
+    DEDUP_PRIOR = "dedup_prior", "Repeat of an earlier review"
+    DEDUP_COMMENT = "dedup_comment", "Already in a PR comment"
+    DEDUP_ANCHOR = "dedup_anchor", "Same spot as another finding"
+    DEDUP_SIBLING = "dedup_sibling", "Repeat of a finding"
+    CAP = "cap", "Over the limit"
+
+
+class ReviewDroppedFindingPriority(models.TextChoices):
+    MUST_FIX = IssuePriority.MUST_FIX.value, "Must fix"
+    SHOULD_FIX = IssuePriority.SHOULD_FIX.value, "Should fix"
+    CONSIDER = IssuePriority.CONSIDER.value, "Consider"
+
+
+class ReviewDroppedFindingSerializer(serializers.Serializer):
+    title = serializers.CharField(help_text="One-line summary of the finding.")
+    file = serializers.CharField(help_text="Repository-relative path of the affected file.")
+    lines = ReviewFindingLineRangeSerializer(many=True, help_text="Affected line ranges within the file.")
+    body = serializers.CharField(help_text="Description of the problem.")
+    suggestion = serializers.CharField(
+        allow_blank=True,
+        help_text="The specific fix the reviewer proposes. Usually empty: a single-agent finding ends its body "
+        "with the fix direction instead.",
+    )
+    priority = serializers.ChoiceField(
+        choices=ReviewDroppedFindingPriority.choices, help_text="The reviewer's priority for the finding."
+    )
+    source_perspective = serializers.CharField(
+        allow_null=True, help_text="The session that raised the finding: the main review or a lens."
+    )
+    disposition = serializers.ChoiceField(
+        choices=ReviewDropDisposition.choices,
+        help_text="Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code "
+        "that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. "
+        "`dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same "
+        "spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below "
+        "the per-review finding limit.",
+    )
+    duplicate_of = serializers.CharField(
+        allow_null=True,
+        help_text="For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. "
+        "Null for other dispositions.",
+    )
+    comment_url = serializers.CharField(
+        allow_null=True,
+        help_text="Link to the PR comment the finding repeats, when `duplicate_of` names one and the PR URL is "
+        "known. Null otherwise.",
+    )
+    rank = serializers.IntegerField(
+        allow_null=True,
+        help_text="For a `cap` drop, the finding's 1-based position in the turn's ranked findings. Null otherwise.",
+    )
+
+
 class ReviewDetailParamsSerializer(serializers.Serializer):
     run_index = serializers.IntegerField(
         required=False,
@@ -585,6 +647,11 @@ class ReviewDetailSerializer(ReviewRecentReviewSerializer):
     )
     dismissed_findings = ReviewFindingSerializer(
         many=True, help_text="The returned turn's findings the validator dismissed, with its reasoning."
+    )
+    dropped_findings = ReviewDroppedFindingSerializer(
+        many=True,
+        help_text="The returned turn's findings a single-agent (Standard) review raised but did not post, each "
+        "with the reason. Empty for pipeline turns and for turns that predate the record.",
     )
 
 
@@ -719,6 +786,26 @@ def _finding_payload(finding: ReviewIssueFinding, verdict: ValidationVerdict) ->
         "source_perspective": finding.source_perspective,
         "validator_category": verdict.category,
         "validator_note": verdict.argumentation,
+    }
+
+
+def _dropped_finding_payload(dropped: DroppedFindingArtefact, pr_url: str | None) -> dict[str, Any]:
+    finding = dropped.finding
+    comment_url = None
+    if pr_url and dropped.duplicate_of and dropped.duplicate_of.startswith("comment:"):
+        comment_url = f"{pr_url}#discussion_r{dropped.duplicate_of.removeprefix('comment:')}"
+    return {
+        "title": finding.title,
+        "file": finding.file,
+        "lines": [{"start": line_range.start, "end": line_range.end} for line_range in finding.lines],
+        "body": finding.body,
+        "suggestion": finding.suggestion,
+        "priority": finding.priority.value,
+        "source_perspective": finding.source_perspective,
+        "disposition": ReviewDropDisposition(dropped.disposition).value,
+        "duplicate_of": dropped.duplicate_of,
+        "comment_url": comment_url,
+        "rank": dropped.rank,
     }
 
 
@@ -1220,6 +1307,10 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             or None,
             "findings": sorted(valid, key=sort_key),
             "dismissed_findings": sorted(dismissed, key=sort_key),
+            "dropped_findings": [
+                _dropped_finding_payload(dropped, report.pr_url)
+                for dropped in load_dropped_findings(team_id=team_id, report_id=report_id, run_index=run_index)
+            ],
             "perspective_selection": _selection_payload(turns.get(report_id, TurnStats()), chunk_set),
         }
         return Response(ReviewDetailSerializer(payload).data)
