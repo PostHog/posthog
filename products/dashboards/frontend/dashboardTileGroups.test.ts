@@ -5,7 +5,7 @@ import { calculateLayouts } from 'scenes/dashboard/tileLayouts'
 import type { DashboardLayoutSize, DashboardTile, DashboardWidgetModel, TileLayout } from '~/types'
 
 import { DashboardGridCompaction, getDashboardGridCompactor } from './dashboardCustomization'
-import { getGroupTitlesByTileId } from './dashboardTileGroups'
+import { getGroupTitlesByTileId, hasTileDecorations } from './dashboardTileGroups'
 
 const tile = (id: number, group_key: string | null): DashboardTile =>
     ({ id, group_key, layouts: {}, color: null }) as DashboardTile
@@ -32,7 +32,7 @@ interface GroupTitlesCase {
     expected: Record<number, string>
 }
 
-describe('getGroupTitlesByTileId', () => {
+describe('dashboardTileGroups', () => {
     it.each([
         {
             name: 'puts each title on the top-left tile of its group',
@@ -115,4 +115,44 @@ describe('getGroupTitlesByTileId', () => {
             ).toEqual(expected)
         }
     )
+
+    it.each([
+        {
+            name: 'a title on a rendered tile',
+            tiles: [tile(1, 'plans')],
+            groupTitlesByTileId: { 1: 'Plans' } as Record<number, string>,
+            widgetTilesShown: true,
+            expected: true,
+        },
+        {
+            name: 'a badge on a rendered tile',
+            tiles: [{ ...tile(1, null), badge: 'winner' } as DashboardTile],
+            groupTitlesByTileId: {},
+            widgetTilesShown: true,
+            expected: true,
+        },
+        {
+            name: 'a badge on a widget tile that is shown',
+            tiles: [{ ...widgetTile(1, 'plans'), badge: 'winner' } as DashboardTile],
+            groupTitlesByTileId: {},
+            widgetTilesShown: true,
+            expected: true,
+        },
+        {
+            name: 'a badge on a widget tile that is hidden',
+            tiles: [{ ...widgetTile(1, 'plans'), badge: 'winner' } as DashboardTile],
+            groupTitlesByTileId: {},
+            widgetTilesShown: false,
+            expected: false,
+        },
+        {
+            name: 'no title and no badge',
+            tiles: [tile(1, null)],
+            groupTitlesByTileId: {},
+            widgetTilesShown: true,
+            expected: false,
+        },
+    ])('hasTileDecorations is $expected for $name', ({ tiles, groupTitlesByTileId, widgetTilesShown, expected }) => {
+        expect(hasTileDecorations({ tiles, groupTitlesByTileId, widgetTilesShown })).toBe(expected)
+    })
 })

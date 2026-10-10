@@ -73,3 +73,18 @@ export function getGroupTitlesByTileId({
 
     return Object.fromEntries([...firstTileByGroup.values()].map(({ tileId, title }) => [tileId, title]))
 }
+
+export function hasTileDecorations({
+    tiles,
+    groupTitlesByTileId,
+    widgetTilesShown,
+}: {
+    tiles: DashboardTile[]
+    groupTitlesByTileId: Record<number, string>
+    widgetTilesShown: boolean
+}): boolean {
+    return (
+        Object.keys(groupTitlesByTileId).length > 0 ||
+        tiles.some((tile) => !!tile.badge && (!tile.widget || widgetTilesShown))
+    )
+}

@@ -41,7 +41,7 @@ import { DashboardLayoutSize, DashboardPlacement, DashboardType } from '~/types'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
 import { DashboardTileDecorations } from 'products/dashboards/frontend/components/DashboardTileDecorations/DashboardTileDecorations'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
-import { getGroupTitlesByTileId } from 'products/dashboards/frontend/dashboardTileGroups'
+import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
@@ -277,7 +277,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             }),
         [tiles, layouts, activeBreakpoint, dashboard?.customization?.group_titles, gridCompactor, widgetTilesShown]
     )
-    const hasTileDecorations = Object.keys(groupTitlesByTileId).length > 0 || !!tiles?.some((tile) => tile.badge)
+    const showDecorationSpace = hasTileDecorations({ tiles: tiles || [], groupTitlesByTileId, widgetTilesShown })
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
     const showEditingControls = isEditablePlacement || layoutEditMode
@@ -489,7 +489,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 </LemonBanner>
             )}
             {mounted && (
-                <div className={clsx('relative', hasTileDecorations && 'mt-10')}>
+                <div className={clsx('relative', showDecorationSpace && 'mt-10')}>
                     {layoutEditMode && !isMobileView && (
                         <GridBackground
                             width={gridWidth}
