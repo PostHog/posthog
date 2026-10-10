@@ -1,0 +1,183 @@
+{
+    "method": "featureFlags.featureFlagsMyFlagsRetrieve",
+    "toolName": "feature-flags-my-flags-retrieve",
+    "operationId": "feature_flags_my_flags_retrieve",
+    "title": "Get my evaluated feature flags",
+    "category": "Feature flags",
+    "description": "List feature flags in the current project along with their evaluated value for the authenticated user (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple flags, variant key string for multivariate flags, false if disabled). Pass `flag_keys` to scope the response to specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a very large payload. Optionally pass `groups` as a JSON object to evaluate group-based flags.",
+    "requiredScopes": ["feature_flag:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/feature-flags/client.ts",
+    "input": {
+        "name": "FeatureFlagsFeatureFlagsMyFlagsRetrieveInput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/feature-flags-my-flags-retrieve.ts",
+        "declaration": "dist/generated/feature-flags/feature-flags-my-flags-retrieve.d.ts"
+    },
+    "output": {
+        "name": "FeatureFlagsFeatureFlagsMyFlagsRetrieveOutput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/feature-flags-my-flags-retrieve.ts",
+        "declaration": "dist/generated/feature-flags/feature-flags-my-flags-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FeatureFlagsFeatureFlagsMyFlagsRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-my-flags-retrieve.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-my-flags-retrieve.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsMyFlagsRetrieveRequestSchema1",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-my-flags-retrieve.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-my-flags-retrieve.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsMyFlagsRetrieveResponseShape4",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-my-flags-retrieve.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-my-flags-retrieve.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsMyFlagsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-my-flags-retrieve.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-my-flags-retrieve.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsMyFlagsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-my-flags-retrieve.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-my-flags-retrieve.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsMyFlagsRetrieveData",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-my-flags-retrieve.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-my-flags-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.\n\nIf you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1my_flags~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List feature flags in the current project along with their evaluated value for the authenticated user (the API key owner). Each item includes the flag definition and its current `value` (boolean for simple flags, variant key string for multivariate flags, false if disabled). Pass `flag_keys` to scope the response to specific flags. This is strongly recommended on projects with many flags, since omitting it returns an entry for every flag and can produce a very large payload. Optionally pass `groups` as a JSON object to evaluate group-based flags.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/feature_flags/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FeatureFlagsFeatureFlagsMyFlagsRetrieveInput",
+            "field": "flag_keys",
+            "effectiveDescription": "Optional list of flag keys to scope the response to. When omitted, every flag in the project is returned with its evaluated value, which can be a very large payload on projects with many flags. Pass the specific flag(s) you want to check to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=[\"a\",\"b\"]).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional list of flag keys to scope the response to. When omitted, every flag in the project is returned with its evaluated value, which can be a very large payload on projects with many flags. Pass the specific flag(s) you want to check to keep the response small. Accepts either repeated query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=[\"a\",\"b\"]).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_flags/my_flags/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsMyFlagsRetrieveInput",
+            "field": "groups",
+            "effectiveDescription": "Groups for feature flag evaluation (JSON object string)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Groups for feature flag evaluation (JSON object string)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_flags/my_flags/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsMyFlagsRetrieveResponseShape2",
+            "field": "value",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsMyFlagsRetrieveResponseShape3",
+            "field": "evaluation_runtime",
+            "effectiveDescription": "Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape3/properties/evaluation_runtime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsMyFlagsRetrieveResponseShape3",
+            "field": "bucketing_identifier",
+            "effectiveDescription": "Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape3/properties/bucketing_identifier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsMyFlagsRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

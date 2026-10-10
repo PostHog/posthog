@@ -1,0 +1,337 @@
+{
+    "method": "fieldNotes.fieldNotesGet",
+    "toolName": "field-notes-get",
+    "operationId": "field_notes_retrieve",
+    "title": "Get field note",
+    "category": "Field notes",
+    "description": "Get a single field note by id, including the full element context (selector, element chain, inferred selectors, attributes) needed to locate the element in code.",
+    "requiredScopes": ["field_note:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: field-notes"],
+    "methodSource": "src/generated/field-notes/client.ts",
+    "input": {
+        "name": "FieldNotesFieldNotesGetInput",
+        "importPath": "@posthog/sdk/field-notes",
+        "source": "src/generated/field-notes/field-notes-get.ts",
+        "declaration": "dist/generated/field-notes/field-notes-get.d.ts"
+    },
+    "output": {
+        "name": "FieldNotesFieldNotesGetOutput",
+        "importPath": "@posthog/sdk/field-notes",
+        "source": "src/generated/field-notes/field-notes-get.ts",
+        "declaration": "dist/generated/field-notes/field-notes-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FieldNotesFieldNotesGetResponseShape2",
+            "importPath": "@posthog/sdk/field-notes",
+            "source": "src/generated/field-notes/field-notes-get.ts",
+            "declaration": "dist/generated/field-notes/field-notes-get.d.ts"
+        },
+        {
+            "name": "FieldNotesFieldNotesGetResponseShape3",
+            "importPath": "@posthog/sdk/field-notes",
+            "source": "src/generated/field-notes/field-notes-get.ts",
+            "declaration": "dist/generated/field-notes/field-notes-get.d.ts"
+        },
+        {
+            "name": "FieldNotesFieldNotesGetResponseShape5",
+            "importPath": "@posthog/sdk/field-notes",
+            "source": "src/generated/field-notes/field-notes-get.ts",
+            "declaration": "dist/generated/field-notes/field-notes-get.d.ts"
+        },
+        {
+            "name": "FieldNotesFieldNotesGetResponseShape4",
+            "importPath": "@posthog/sdk/field-notes",
+            "source": "src/generated/field-notes/field-notes-get.ts",
+            "declaration": "dist/generated/field-notes/field-notes-get.d.ts"
+        },
+        {
+            "name": "FieldNotesFieldNotesGetData",
+            "importPath": "@posthog/sdk/field-notes",
+            "source": "src/generated/field-notes/field-notes-get.ts",
+            "declaration": "dist/generated/field-notes/field-notes-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, read, update, and resolve toolbar field notes — UI feedback a user\npoints at on their own site, surfaced to coding agents over MCP.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1field_notes~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get a single field note by id, including the full element context (selector, element chain, inferred selectors, attributes) needed to locate the element in code.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/field_notes/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FieldNotesFieldNotesGetInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this field note.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this field note.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/field_notes/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetResponseShape2",
+            "effectiveDescription": "Structured element metadata (inferred selectors, attributes, component hints).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Structured element metadata (inferred selectors, attributes, component hints).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetResponseShape3",
+            "field": "width",
+            "effectiveDescription": "Viewport width in pixels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Viewport width in pixels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape3/properties/width"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetResponseShape3",
+            "field": "height",
+            "effectiveDescription": "Viewport height in pixels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Viewport height in pixels.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape3/properties/height"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "comment",
+            "effectiveDescription": "The note the user wrote about the element.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The note the user wrote about the element.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/comment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "field_note_status",
+            "effectiveDescription": "Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.\n\n* `pending` - Pending\n* `acknowledged` - Acknowledged\n* `resolved` - Resolved\n* `dismissed` - Dismissed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle of the field note: pending, acknowledged, resolved, or dismissed. Ignored on create.\n\n* `pending` - Pending\n* `acknowledged` - Acknowledged\n* `resolved` - Resolved\n* `dismissed` - Dismissed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/field_note_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "resolution",
+            "effectiveDescription": "Optional note left by the agent when acknowledging, resolving, or dismissing the field note.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional note left by the agent when acknowledging, resolving, or dismissing the field note.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/resolution"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "url",
+            "effectiveDescription": "Full URL of the page the field note was made on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full URL of the page the field note was made on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "host",
+            "effectiveDescription": "Hostname of the page, used to scope field notes to a site.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Hostname of the page, used to scope field notes to a site.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/host"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "pathname",
+            "effectiveDescription": "Path portion of the URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Path portion of the URL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/pathname"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "selector",
+            "effectiveDescription": "CSS selector that locates the element on the page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "CSS selector that locates the element on the page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/selector"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "element_text",
+            "effectiveDescription": "Visible text of the element, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Visible text of the element, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/element_text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "element_chain",
+            "effectiveDescription": "Serialized autocapture-style element chain from the element up to the document root.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serialized autocapture-style element chain from the element up to the document root.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/element_chain"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "element_context",
+            "effectiveDescription": "Structured element metadata (inferred selectors, attributes, component hints).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Structured element metadata (inferred selectors, attributes, component hints).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/element_context"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "viewport",
+            "effectiveDescription": "Viewport size when the field note was made, as {width, height}.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Viewport size when the field note was made, as {width, height}.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/viewport"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FieldNotesFieldNotesGetData",
+            "field": "screenshot_url",
+            "effectiveDescription": "URL of an uploaded screenshot captured with the field_note.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL of an uploaded screenshot captured with the field_note.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/field_notes.ts",
+                        "pointer": "#/Shape1/properties/screenshot_url"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

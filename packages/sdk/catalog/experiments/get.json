@@ -1,0 +1,3342 @@
+{
+    "method": "experiments.get",
+    "toolName": "experiment-get",
+    "operationId": "experiments_retrieve",
+    "title": "Get experiment details",
+    "category": "Experiments",
+    "description": "Get a single experiment by ID. If you have the experiment's feature flag key instead of its ID, call experiment-get-by-flag-key. If you have neither, load the finding-experiments skill to resolve the user's reference first.\n\nReturns the full experiment object including: status (draft/running/paused/exposure_frozen/stopped — \"paused\" is a virtual value returned when the experiment is launched but its feature flag has been deactivated, \"exposure_frozen\" when its flag's release groups are narrowed to the already-exposed cohort so enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if ended, running_time_calculation (minimum detectable effect, recommended running time and sample size), stats_config, type (web/product), and resolved_exposure_event (the event exposures are counted on when no custom exposure event is configured — resolved server-side to $feature_flag_called or $experiment_exposure; use it in SQL instead of hardcoding either name).",
+    "requiredScopes": ["experiment:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsGetInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/get.ts",
+        "declaration": "dist/generated/experiments/get.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsGetOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/get.ts",
+        "declaration": "dist/generated/experiments/get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsGetResponseEvaluationRuntimeEnum",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseBlankEnum",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseNullEnum",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseBucketingIdentifierEnum",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyGenericSchemaType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyGenericSchemaOperator",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyGenericSchema",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyExistsSchemaType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyExistsSchemaOperator",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyExistsSchema",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyDateSchemaType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyDateSchemaOperator",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyDateSchema",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertySemverSchemaType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertySemverSchemaOperator",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertySemverSchema",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyMultiContainsSchemaType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyMultiContainsSchemaOperator",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyMultiContainsSchema",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyCohortInSchemaType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyCohortInSchemaOperator",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyCohortInSchema",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyFlagEvaluatesSchemaType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyFlagEvaluatesSchemaOperator",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertyFlagEvaluatesSchema",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagFilterPropertySchema",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeatureFlagConditionGroupSchema",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseRoleAtOrganizationEnum",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentParametersVariantNotes",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentParametersVariantNotesVariant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentParameters",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseConversionRateInputType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseManualMetricType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentExposureEstimateConfig",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentRunningTimeCalculation",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentTypeEnum",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseKind2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponsePropertyOperator",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponsePersonMetadataPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseKey10",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseElementPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseEventMetadataPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseSessionPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseCohortPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseDurationType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseRecordingPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseLogEntryPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseGroupPropertyFilterGroupKeyNames",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseGroupPropertyFilterGroupKeyNamesVariant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseGroupPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFeaturePropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFlagPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseEmptyPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseDataWarehousePropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseDataWarehousePersonPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseErrorTrackingIssueFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseLogPropertyFilterType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseLogPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseMetricPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseSpanPropertyFilterType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseSpanPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseRevenueAnalyticsPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseAccountCustomPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseWorkflowVariablePropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseBehavioralEventSource",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseTimeUnitType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseInlineBehavioralType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseBehavioralPropertyFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiExposureConfig",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseMultipleVariantHandling",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiExposureCriteria",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiBreakdownAttributionType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiPropertyBreakdownType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiPropertyBreakdown",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseGroupTypeIndex",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiGroupBreakdown",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiBreakdownFilter",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseKind1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentMetricMathType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseMathGroupTypeIndex",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiEventSource",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseFunnelConversionWindowTimeUnit",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentMetricOutlierHandling",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseStepOrderValue",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentMetricGoal",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentMetricType",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseKind3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiRetentionStart",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseStartHandling",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiMetric",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseExperimentApiMetricsList",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetResponseConclusionEnum",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataFeatureFlagFilters",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataFeatureFlag",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataHoldoutCreatedByHedgehogConfig",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataHoldoutCreatedByHedgehogConfigVariant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataHoldoutCreatedBy",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataHoldout",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataSavedMetricsItem",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataCreatedByHedgehogConfig",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataCreatedByHedgehogConfigVariant1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataCreatedBy",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetDataStatus",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        },
+        {
+            "name": "ExperimentsGetData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/get.ts",
+            "declaration": "dist/generated/experiments/get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Retrieve a single experiment by ID, including its current status, metrics, feature flag, and results metadata.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get a single experiment by ID. If you have the experiment's feature flag key instead of its ID, call experiment-get-by-flag-key. If you have neither, load the finding-experiments skill to resolve the user's reference first.\n\nReturns the full experiment object including: status (draft/running/paused/exposure_frozen/stopped — \"paused\" is a virtual value returned when the experiment is launched but its feature flag has been deactivated, \"exposure_frozen\" when its flag's release groups are narrowed to the already-exposed cohort so enrollment is closed while metrics keep flowing), start_date and end_date, linked feature_flag (with variants, filters, active state), metrics and metrics_secondary arrays, conclusion and conclusion_comment if ended, running_time_calculation (minimum detectable effect, recommended running time and sample size), stats_config, type (web/product), and resolved_exposure_event (the event exposures are counted on when no custom exposure event is configured — resolved server-side to $feature_flag_called or $experiment_exposure; use it in SQL instead of hardcoding either name).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsGetInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1{id}~1/get/parameters/0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseEvaluationRuntimeEnum",
+            "effectiveDescription": "* `server` - Server\n* `client` - Client\n* `all` - All",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `server` - Server\n* `client` - Client\n* `all` - All",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/EvaluationRuntimeEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseBucketingIdentifierEnum",
+            "effectiveDescription": "* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BucketingIdentifierEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagConditionGroupSchema",
+            "field": "properties",
+            "effectiveDescription": "Property conditions for this release condition group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property conditions for this release condition group.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagConditionGroupSchema/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagConditionGroupSchema",
+            "field": "rollout_percentage",
+            "effectiveDescription": "Rollout percentage for this release condition group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rollout percentage for this release condition group.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagConditionGroupSchema/properties/rollout_percentage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagConditionGroupSchema",
+            "field": "variant",
+            "effectiveDescription": "Variant key override for multivariate flags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Variant key override for multivariate flags.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagConditionGroupSchema/properties/variant"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagConditionGroupSchema",
+            "field": "aggregation_group_type_index",
+            "effectiveDescription": "Group type index for this condition set. None means person-level aggregation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index for this condition set. None means person-level aggregation.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagConditionGroupSchema/properties/aggregation_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyGenericSchema",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyGenericSchema/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyGenericSchema",
+            "field": "type",
+            "effectiveDescription": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyGenericSchema/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyGenericSchema",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyGenericSchema/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyGenericSchema",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyGenericSchema/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyGenericSchema",
+            "field": "value",
+            "effectiveDescription": "Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyGenericSchema/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyGenericSchema",
+            "field": "operator",
+            "effectiveDescription": "Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyGenericSchema/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyExistsSchema",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyExistsSchema/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyExistsSchema",
+            "field": "type",
+            "effectiveDescription": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyExistsSchema/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyExistsSchema",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyExistsSchema/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyExistsSchema",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyExistsSchema/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyExistsSchema",
+            "field": "operator",
+            "effectiveDescription": "Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyExistsSchema/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyExistsSchema",
+            "field": "value",
+            "effectiveDescription": "Optional value. Runtime behavior determines whether this is ignored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional value. Runtime behavior determines whether this is ignored.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyExistsSchema/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyDateSchema",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyDateSchema/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyDateSchema",
+            "field": "type",
+            "effectiveDescription": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyDateSchema/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyDateSchema",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyDateSchema/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyDateSchema",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyDateSchema/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyDateSchema",
+            "field": "operator",
+            "effectiveDescription": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyDateSchema/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyDateSchema",
+            "field": "value",
+            "effectiveDescription": "Date value in ISO format or relative date expression.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date value in ISO format or relative date expression.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyDateSchema/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertySemverSchema",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertySemverSchema/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertySemverSchema",
+            "field": "type",
+            "effectiveDescription": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertySemverSchema/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertySemverSchema",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertySemverSchema/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertySemverSchema",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertySemverSchema/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertySemverSchema",
+            "field": "operator",
+            "effectiveDescription": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertySemverSchema/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertySemverSchema",
+            "field": "value",
+            "effectiveDescription": "Semantic version string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Semantic version string.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertySemverSchema/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyMultiContainsSchema",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyMultiContainsSchema/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyMultiContainsSchema",
+            "field": "type",
+            "effectiveDescription": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyMultiContainsSchema/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyMultiContainsSchema",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyMultiContainsSchema/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyMultiContainsSchema",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyMultiContainsSchema/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyMultiContainsSchema",
+            "field": "operator",
+            "effectiveDescription": "Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyMultiContainsSchema/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyMultiContainsSchema",
+            "field": "value",
+            "effectiveDescription": "List of strings to evaluate against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of strings to evaluate against.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyMultiContainsSchema/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyCohortInSchema",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyCohortInSchema/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyCohortInSchema",
+            "field": "type",
+            "effectiveDescription": "Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyCohortInSchema/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyCohortInSchema",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyCohortInSchema/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyCohortInSchema",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyCohortInSchema/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyCohortInSchema",
+            "field": "operator",
+            "effectiveDescription": "Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyCohortInSchema/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyCohortInSchema",
+            "field": "value",
+            "effectiveDescription": "Cohort comparison value (single or list, depending on usage).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cohort comparison value (single or list, depending on usage).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyCohortInSchema/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyFlagEvaluatesSchema",
+            "field": "key",
+            "effectiveDescription": "Property key used in this feature flag condition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property key used in this feature flag condition.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyFlagEvaluatesSchema/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyFlagEvaluatesSchema",
+            "field": "type",
+            "effectiveDescription": "Flag property type required for flag dependency checks.\n\n* `flag` - flag",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Flag property type required for flag dependency checks.\n\n* `flag` - flag",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyFlagEvaluatesSchema/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyFlagEvaluatesSchema",
+            "field": "cohort_name",
+            "effectiveDescription": "Resolved cohort name for cohort-type filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resolved cohort name for cohort-type filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyFlagEvaluatesSchema/properties/cohort_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyFlagEvaluatesSchema",
+            "field": "group_type_index",
+            "effectiveDescription": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyFlagEvaluatesSchema/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyFlagEvaluatesSchema",
+            "field": "operator",
+            "effectiveDescription": "Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyFlagEvaluatesSchema/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeatureFlagFilterPropertyFlagEvaluatesSchema",
+            "field": "value",
+            "effectiveDescription": "Value to compare flag evaluation against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare flag evaluation against.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagFilterPropertyFlagEvaluatesSchema/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseRoleAtOrganizationEnum",
+            "effectiveDescription": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `student` - Student\n* `other` - Other",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/RoleAtOrganizationEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentParameters",
+            "field": "minimum_detectable_effect",
+            "effectiveDescription": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentParameters/properties/minimum_detectable_effect"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentParameters",
+            "field": "variant_notes",
+            "effectiveDescription": "Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentParameters/properties/variant_notes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentRunningTimeCalculation",
+            "field": "exposure_estimate_config",
+            "effectiveDescription": "How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the exposure estimate is configured: manual user-entered values or automatic from live experiment data.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentRunningTimeCalculation/properties/exposure_estimate_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentRunningTimeCalculation",
+            "field": "minimum_detectable_effect",
+            "effectiveDescription": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentRunningTimeCalculation/properties/minimum_detectable_effect"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentRunningTimeCalculation",
+            "field": "recommended_running_time",
+            "effectiveDescription": "Estimated number of days needed to reach the recommended sample size.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Estimated number of days needed to reach the recommended sample size.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentRunningTimeCalculation/properties/recommended_running_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentRunningTimeCalculation",
+            "field": "recommended_sample_size",
+            "effectiveDescription": "Recommended number of exposed users needed for statistical significance.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Recommended number of exposed users needed for statistical significance.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentRunningTimeCalculation/properties/recommended_sample_size"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentExposureEstimateConfig",
+            "field": "conversionRateInputType",
+            "effectiveDescription": "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'manual' when the baseline value and exposure rate were entered by hand, 'automatic' when derived from live experiment data.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentExposureEstimateConfig/properties/conversionRateInputType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentExposureEstimateConfig",
+            "field": "manualBaselineValue",
+            "effectiveDescription": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Manually entered baseline metric value (a conversion percentage for funnel metrics). Only used in manual mode.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentExposureEstimateConfig/properties/manualBaselineValue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentExposureEstimateConfig",
+            "field": "manualExposureRate",
+            "effectiveDescription": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Manually entered estimate of users exposed to the experiment per day. Only used in manual mode.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentExposureEstimateConfig/properties/manualExposureRate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentExposureEstimateConfig",
+            "field": "manualMetricType",
+            "effectiveDescription": "Metric type the manual baseline value refers to. Only used in manual mode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Metric type the manual baseline value refers to. Only used in manual mode.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentExposureEstimateConfig/properties/manualMetricType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentTypeEnum",
+            "effectiveDescription": "* `web` - web\n* `product` - product",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `web` - web\n* `product` - product",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentTypeEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiExposureCriteria",
+            "field": "activation_config",
+            "effectiveDescription": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiExposureCriteria/properties/activation_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiExposureCriteria",
+            "field": "multiple_variant_handling",
+            "effectiveDescription": "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiExposureCriteria/properties/multiple_variant_handling"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiExposureConfig",
+            "field": "event",
+            "effectiveDescription": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiExposureConfig/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiExposureConfig",
+            "field": "id",
+            "effectiveDescription": "Action ID. Required when kind is 'ActionsNode'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action ID. Required when kind is 'ActionsNode'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiExposureConfig/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiExposureConfig",
+            "field": "kind",
+            "effectiveDescription": "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiExposureConfig/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiExposureConfig",
+            "field": "properties",
+            "effectiveDescription": "Property filters (event, person, and other supported types). Pass an empty array if no filters needed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters (event, person, and other supported types). Pass an empty array if no filters needed.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiExposureConfig/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponsePersonMetadataPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Top-level columns on the persons table (e.g. created_at), not properties JSON",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top-level columns on the persons table (e.g. created_at), not properties JSON",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/PersonMetadataPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFeaturePropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event property with \"$feature/\" prepended",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property with \"$feature/\" prepended",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeaturePropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFlagPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "The key should be the flag ID",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The key should be the flag ID",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FlagPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFlagPropertyFilter",
+            "field": "operator",
+            "effectiveDescription": "Only flag_evaluates_to operator is allowed for flag dependencies",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only flag_evaluates_to operator is allowed for flag dependencies",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FlagPropertyFilter/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFlagPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Feature flag dependency",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Feature flag dependency",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FlagPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseFlagPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "The value can be true, false, or a variant name",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The value can be true, false, or a variant name",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FlagPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseAccountCustomPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Customer analytics account custom property — the key is the property definition id",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Customer analytics account custom property — the key is the property definition id",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/AccountCustomPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseBehavioralPropertyFilter",
+            "field": "event_filters",
+            "effectiveDescription": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BehavioralPropertyFilter/properties/event_filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseBehavioralPropertyFilter",
+            "field": "explicit_datetime",
+            "effectiveDescription": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BehavioralPropertyFilter/properties/explicit_datetime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseBehavioralPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "Event name, or action id when event_type is 'actions'",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, or action id when event_type is 'actions'",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BehavioralPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseBehavioralPropertyFilter",
+            "field": "negation",
+            "effectiveDescription": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BehavioralPropertyFilter/properties/negation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseBehavioralPropertyFilter",
+            "field": "operator",
+            "effectiveDescription": "Count comparison for performed_event_multiple, defaults to exact",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count comparison for performed_event_multiple, defaults to exact",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BehavioralPropertyFilter/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseBehavioralPropertyFilter",
+            "field": "operator_value",
+            "effectiveDescription": "Count threshold for performed_event_multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count threshold for performed_event_multiple",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BehavioralPropertyFilter/properties/operator_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseBehavioralPropertyFilter",
+            "field": "time_value",
+            "effectiveDescription": "Relative time window size, paired with time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative time window size, paired with time_interval",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BehavioralPropertyFilter/properties/time_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseBehavioralPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BehavioralPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponse_ExperimentApiMetricsList",
+            "effectiveDescription": "List wrapper for OpenAPI schema generation — the field stores an array of metrics.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List wrapper for OpenAPI schema generation — the field stores an array of metrics.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/_ExperimentApiMetricsList"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "breakdownAttributionType",
+            "effectiveDescription": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For funnel metrics with breakdowns: which step the breakdown value is read from. 'all_events' is not supported for experiment funnels.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/breakdownAttributionType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "breakdownAttributionValue",
+            "effectiveDescription": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When breakdownAttributionType is 'step', the 0-indexed step to attribute from.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/breakdownAttributionValue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "breakdownFilter",
+            "effectiveDescription": "Break the metric results down by up to 3 event, person, session or group properties.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Break the metric results down by up to 3 event, person, session or group properties.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/breakdownFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "completion_event",
+            "effectiveDescription": "For retention metrics: completion event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For retention metrics: completion event.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/completion_event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "conversion_window",
+            "effectiveDescription": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/conversion_window"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "conversion_window_unit",
+            "effectiveDescription": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/conversion_window_unit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "denominator",
+            "effectiveDescription": "For ratio metrics: denominator source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: denominator source.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/denominator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "denominator_outlier_handling",
+            "effectiveDescription": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/denominator_outlier_handling"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "funnel_order_type",
+            "effectiveDescription": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/funnel_order_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "goal",
+            "effectiveDescription": "Whether higher or lower values indicate success.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether higher or lower values indicate success.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/goal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "ignore_zeros",
+            "effectiveDescription": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: exclude zero values when computing the winsorization percentile thresholds.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/ignore_zeros"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "lower_bound_percentile",
+            "effectiveDescription": "For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile). Per-user values below this percentile are clamped to it before aggregation.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/lower_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "name",
+            "effectiveDescription": "Human-readable metric name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable metric name.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "numerator",
+            "effectiveDescription": "For ratio metrics: numerator source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: numerator source.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/numerator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "numerator_outlier_handling",
+            "effectiveDescription": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For ratio metrics: winsorization applied to the numerator aggregate, independently of the denominator and each with its own percentile thresholds.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/numerator_outlier_handling"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "series",
+            "effectiveDescription": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For funnel metrics: array of EventsNode/ActionsNode steps.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/series"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "source",
+            "effectiveDescription": "For mean metrics: event source.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: event source.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "start_event",
+            "effectiveDescription": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event; a conversion window or 'last_seen' start_handling is rejected then, because the start is always the user's first exposure.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/start_event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "threshold",
+            "effectiveDescription": "For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: when set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "upper_bound_percentile",
+            "effectiveDescription": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For mean metrics: winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). Per-user values above this percentile are clamped to it before aggregation.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/upper_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiMetric",
+            "field": "uuid",
+            "effectiveDescription": "Unique identifier. Auto-generated if omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier. Auto-generated if omitted.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiMetric/properties/uuid"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiBreakdownFilter",
+            "field": "breakdown_limit",
+            "effectiveDescription": "Maximum number of breakdown values to compute results for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of breakdown values to compute results for.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiBreakdownFilter/properties/breakdown_limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiBreakdownFilter",
+            "field": "breakdowns",
+            "effectiveDescription": "Properties to break the metric results down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties to break the metric results down by.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiBreakdownFilter/properties/breakdowns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiPropertyBreakdown",
+            "field": "property",
+            "effectiveDescription": "Property name to break down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property name to break down by.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiPropertyBreakdown/properties/property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiPropertyBreakdown",
+            "field": "type",
+            "effectiveDescription": "Where the property lives. Defaults to 'event'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the property lives. Defaults to 'event'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiPropertyBreakdown/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiGroupBreakdown",
+            "field": "group_type_index",
+            "effectiveDescription": "Which group type the property belongs to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which group type the property belongs to.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiGroupBreakdown/properties/group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiGroupBreakdown",
+            "field": "property",
+            "effectiveDescription": "Property name to break down by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property name to break down by.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiGroupBreakdown/properties/property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiEventSource",
+            "field": "event",
+            "effectiveDescription": "Event name, e.g. '$pageview'. Required for EventsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, e.g. '$pageview'. Required for EventsNode.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiEventSource/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiEventSource",
+            "field": "id",
+            "effectiveDescription": "Action ID. Required for ActionsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action ID. Required for ActionsNode.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiEventSource/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiEventSource",
+            "field": "math",
+            "effectiveDescription": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiEventSource/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiEventSource",
+            "field": "math_group_type_index",
+            "effectiveDescription": "Group type index to aggregate over. Required when math is 'unique_group'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index to aggregate over. Required when math is 'unique_group'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiEventSource/properties/math_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiEventSource",
+            "field": "math_hogql",
+            "effectiveDescription": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiEventSource/properties/math_hogql"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiEventSource",
+            "field": "math_property",
+            "effectiveDescription": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiEventSource/properties/math_property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiEventSource",
+            "field": "properties",
+            "effectiveDescription": "Event property filters to narrow which events are counted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property filters to narrow which events are counted.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiEventSource/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentMetricOutlierHandling",
+            "field": "lower_bound_percentile",
+            "effectiveDescription": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Winsorization lower percentile bound, as a fraction in [0, 1] (e.g. 0.01 for the 1st percentile).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentMetricOutlierHandling/properties/lower_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentMetricOutlierHandling",
+            "field": "upper_bound_percentile",
+            "effectiveDescription": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentMetricOutlierHandling/properties/upper_bound_percentile"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiRetentionStart",
+            "field": "event",
+            "effectiveDescription": "Event name, e.g. '$pageview'. Required for EventsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, e.g. '$pageview'. Required for EventsNode.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiRetentionStart/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiRetentionStart",
+            "field": "id",
+            "effectiveDescription": "Action ID. Required for ActionsNode.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action ID. Required for ActionsNode.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiRetentionStart/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiRetentionStart",
+            "field": "kind",
+            "effectiveDescription": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiRetentionStart/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiRetentionStart",
+            "field": "math",
+            "effectiveDescription": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to aggregate this source. Defaults to 'total' (event count). Use 'sum' together with math_property to aggregate a numeric property — e.g. a ratio numerator of revenue per order. Other options: 'avg', 'min', 'max', 'unique_session', 'dau', 'unique_group', 'hogql'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiRetentionStart/properties/math"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiRetentionStart",
+            "field": "math_group_type_index",
+            "effectiveDescription": "Group type index to aggregate over. Required when math is 'unique_group'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Group type index to aggregate over. Required when math is 'unique_group'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiRetentionStart/properties/math_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiRetentionStart",
+            "field": "math_hogql",
+            "effectiveDescription": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL aggregation expression. Required when math is 'hogql' — without it the metric silently falls back to a plain count/sum.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiRetentionStart/properties/math_hogql"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiRetentionStart",
+            "field": "math_property",
+            "effectiveDescription": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Numeric event property to aggregate when math is 'sum', 'avg', 'min', or 'max' (e.g. 'revenue').",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiRetentionStart/properties/math_property"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseExperimentApiRetentionStart",
+            "field": "properties",
+            "effectiveDescription": "Event property filters to narrow which events are counted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property filters to narrow which events are counted.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentApiRetentionStart/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetResponseConclusionEnum",
+            "effectiveDescription": "* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ConclusionEnum"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "effectiveDescription": "Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "name",
+            "effectiveDescription": "Name of the experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "description",
+            "effectiveDescription": "Description of the experiment hypothesis and expected outcomes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Description of the experiment hypothesis and expected outcomes.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "feature_flag_key",
+            "effectiveDescription": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/feature_flag_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "feature_flag.evaluation_runtime",
+            "effectiveDescription": "Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Specifies where this feature flag should be evaluated\n\n* `server` - Server\n* `client` - Client\n* `all` - All",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MinimalFeatureFlag/properties/evaluation_runtime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "feature_flag.bucketing_identifier",
+            "effectiveDescription": "Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier used for bucketing users into rollout and variants\n\n* `distinct_id` - User ID (default)\n* `device_id` - Device ID",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/MinimalFeatureFlag/properties/bucketing_identifier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "holdout",
+            "effectiveDescription": "A holdout group — a stable slice of users excluded from experiment exposure.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A holdout group — a stable slice of users excluded from experiment exposure.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentHoldout"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "holdout.name",
+            "effectiveDescription": "Human-readable name for the holdout group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for the holdout group.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentHoldout/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "holdout.description",
+            "effectiveDescription": "Optional description of what this holdout reserves and why.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional description of what this holdout reserves and why.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentHoldout/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "holdout.filters",
+            "effectiveDescription": "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentHoldout/properties/filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "holdout.user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentHoldout/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "holdout_id",
+            "effectiveDescription": "ID of a holdout group to exclude from the experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of a holdout group to exclude from the experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/holdout_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "parameters",
+            "effectiveDescription": "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) belongs on the `feature_flag` object; send it there. For backward compatibility, config still sent through these deprecated keys is copied onto the linked flag rather than rejected, and reads project the flag's current config back into this field. Excluded variants live on the top-level `excluded_variants` field, not here.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/parameters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "running_time_calculation",
+            "effectiveDescription": "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/running_time_calculation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "excluded_variants",
+            "effectiveDescription": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/excluded_variants"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "saved_metrics[]",
+            "effectiveDescription": "A shared metric's link to one experiment, as the experiment API returns it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A shared metric's link to one experiment, as the experiment API returns it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/ExperimentToSavedMetric"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "saved_metrics_ids",
+            "effectiveDescription": "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/saved_metrics_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "archived",
+            "effectiveDescription": "Whether the experiment is archived.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the experiment is archived.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/archived"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "type",
+            "effectiveDescription": "Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment type: web for frontend UI changes, product for backend/API changes.\n\n* `web` - web\n* `product` - product",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "exposure_criteria",
+            "effectiveDescription": "Exposure configuration including filter test accounts and custom exposure events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exposure configuration including filter test accounts and custom exposure events.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/exposure_criteria"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "metrics",
+            "effectiveDescription": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "metrics_secondary",
+            "effectiveDescription": "Secondary metrics for additional measurements. Same format as primary metrics.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Secondary metrics for additional measurements. Same format as primary metrics.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/metrics_secondary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "conclusion",
+            "effectiveDescription": "Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/conclusion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "conclusion_comment",
+            "effectiveDescription": "Comment about the experiment conclusion.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comment about the experiment conclusion.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/conclusion_comment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "flag_cleanup_task_id",
+            "effectiveDescription": "ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the Desktop task opened to remove the experiment's feature-flag code, when one was requested via open_cleanup_pr on end/ship_variant. Read its status via the flag_cleanup_task action.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/flag_cleanup_task_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "repository",
+            "effectiveDescription": "GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub repository holding this experiment's feature-flag code, in `organization/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/repository"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "primary_metrics_ordered_uuids",
+            "effectiveDescription": "Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/primary_metrics_ordered_uuids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "secondary_metrics_ordered_uuids",
+            "effectiveDescription": "Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/secondary_metrics_ordered_uuids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "version",
+            "effectiveDescription": "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optimistic-concurrency token. Reads return the experiment's current version, bumped on every update. Send the version you last read with an update to detect concurrent edits: a stale update merges concurrent changes where safe — metric collections per metric uuid, other fields per field — using the base values sent in `original_experiment`, and fails with HTTP 409 only when the same metric or field changed on both sides (or no base value was sent for a changed field). Omit to skip the check.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "status",
+            "effectiveDescription": "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the already-exposed cohort while metrics keep flowing — virtual state derived from the flag's release groups, not stored), 'stopped' (ended).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "is_legacy",
+            "effectiveDescription": "Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/is_legacy"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "can_freeze_exposure",
+            "effectiveDescription": "Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether enrollment can be frozen right now: the experiment must be running (not draft, paused, stopped, or already frozen) and its feature flag must have release conditions that a person cohort can narrow (no group aggregation, no holdout, no early access conditions).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/can_freeze_exposure"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "resolved_exposure_event",
+            "effectiveDescription": "The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/resolved_exposure_event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "tags",
+            "effectiveDescription": "Organizational tags for this experiment (up to 100, 255 characters each).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Organizational tags for this experiment (up to 100, 255 characters each).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/Experiment/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsGetData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL of this resource in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL of this resource in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

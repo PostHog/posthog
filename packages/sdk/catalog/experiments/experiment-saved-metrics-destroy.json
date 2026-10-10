@@ -1,0 +1,65 @@
+{
+    "method": "experiments.experimentSavedMetricsDestroy",
+    "toolName": "experiment-saved-metrics-destroy",
+    "operationId": "experiment_saved_metrics_destroy",
+    "title": "Delete shared experiment metric",
+    "category": "Experiments",
+    "description": "Delete a shared metric by ID. REQUIRES EXPLICIT USER CONFIRMATION — confirm by name first, and warn that any experiments using it will lose access.",
+    "requiredScopes": ["experiment_saved_metric:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentSavedMetricsDestroyInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-saved-metrics-destroy.ts",
+        "declaration": "dist/generated/experiments/experiment-saved-metrics-destroy.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentSavedMetricsDestroyOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-saved-metrics-destroy.ts",
+        "declaration": "dist/generated/experiments/experiment-saved-metrics-destroy.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentSavedMetricsDestroyData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-saved-metrics-destroy.ts",
+            "declaration": "dist/generated/experiments/experiment-saved-metrics-destroy.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Delete a shared metric by ID. REQUIRES EXPLICIT USER CONFIRMATION — confirm by name first, and warn that any experiments using it will lose access.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentSavedMetricsDestroyInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this experiment saved metric.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this experiment saved metric.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiment_saved_metrics/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,121 @@
+{
+    "method": "experiments.experimentDuplicate",
+    "toolName": "experiment-duplicate",
+    "operationId": "experiments_duplicate_create",
+    "title": "Duplicate experiment",
+    "category": "Experiments",
+    "description": "Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nCreate a copy of an experiment as a new draft. The duplicate includes the original's metrics, parameters, and configuration but starts fresh with no dates or results. Rejects experiments that use legacy metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).\n\nIMPORTANT: always provide a unique feature_flag_key that differs from the original experiment's flag key. If omitted or if the same key is provided, the duplicate will reuse the original experiment's feature flag — meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments. Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults to \"Original Name (Copy)\").",
+    "requiredScopes": ["experiment:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentDuplicateInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-duplicate.ts",
+        "declaration": "dist/generated/experiments/experiment-duplicate.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentDuplicateOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-duplicate.ts",
+        "declaration": "dist/generated/experiments/experiment-duplicate.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentDuplicateData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-duplicate.ts",
+            "declaration": "dist/generated/experiments/experiment-duplicate.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.\n\nIntercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate\ndecorator on serializer methods and converts them into the same responses the viewset path\nproduces (see decorators._result_to_response), so both paths share one contract.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1{id}~1duplicate~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nCreate a copy of an experiment as a new draft. The duplicate includes the original's metrics, parameters, and configuration but starts fresh with no dates or results. Rejects experiments that use legacy metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).\n\nIMPORTANT: always provide a unique feature_flag_key that differs from the original experiment's flag key. If omitted or if the same key is provided, the duplicate will reuse the original experiment's feature flag — meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments. Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults to \"Original Name (Copy)\").",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentDuplicateInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/duplicate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentDuplicateInput",
+            "field": "name",
+            "effectiveDescription": "Name of the experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/duplicate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentDuplicateInput",
+            "field": "feature_flag_key",
+            "effectiveDescription": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/duplicate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentDuplicateData",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

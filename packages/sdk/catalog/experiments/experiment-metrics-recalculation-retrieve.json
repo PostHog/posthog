@@ -1,0 +1,329 @@
+{
+    "method": "experiments.experimentMetricsRecalculationRetrieve",
+    "toolName": "experiment-metrics-recalculation-retrieve",
+    "operationId": "experiments_metrics_recalculation_retrieve",
+    "title": "Get experiment recalculation run",
+    "category": "Experiments",
+    "description": "Get one specific metrics recalculation run by its UUID, for the experiment it belongs to. Use this to poll a run you started with experiment-metrics-recalculation-create, or the active_run.id returned by experiment-metrics-recalculation-latest-retrieve.\n\nTo read an experiment's current results without a specific run id, use experiment-metrics-recalculation-latest-retrieve instead.\n\nReturns the run's status (pending, in_progress, completed, failed), progress counters (completed_metrics and failed_metrics out of total_metrics, plus rows_read against estimated_rows_total), the results array once metrics finish, and metric_errors for metrics that failed. metric_retries holds transient state for metrics between failed attempts; ignore entries for metrics that already have a result, as those are stale.\n\nReturns 404 if the run id does not exist or belongs to a different experiment.",
+    "requiredScopes": ["experiment:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentMetricsRecalculationRetrieveInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-metrics-recalculation-retrieve.ts",
+        "declaration": "dist/generated/experiments/experiment-metrics-recalculation-retrieve.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentMetricsRecalculationRetrieveOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-metrics-recalculation-retrieve.ts",
+        "declaration": "dist/generated/experiments/experiment-metrics-recalculation-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-metrics-recalculation-retrieve.ts",
+            "declaration": "dist/generated/experiments/experiment-metrics-recalculation-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.\n\nIntercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate\ndecorator on serializer methods and converts them into the same responses the viewset path\nproduces (see decorators._result_to_response), so both paths share one contract.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1{id}~1metrics_recalculation~1{recalculation_id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get one specific metrics recalculation run by its UUID, for the experiment it belongs to. Use this to poll a run you started with experiment-metrics-recalculation-create, or the active_run.id returned by experiment-metrics-recalculation-latest-retrieve.\n\nTo read an experiment's current results without a specific run id, use experiment-metrics-recalculation-latest-retrieve instead.\n\nReturns the run's status (pending, in_progress, completed, failed), progress counters (completed_metrics and failed_metrics out of total_metrics, plus rows_read against estimated_rows_total), the results array once metrics finish, and metric_errors for metrics that failed. metric_retries holds transient state for metrics between failed attempts; ignore entries for metrics that already have a result, as those are stale.\n\nReturns 404 if the run id does not exist or belongs to a different experiment.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/metrics_recalculation/{recalculation_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveInput",
+            "field": "recalculation_id",
+            "effectiveDescription": "UUID of the recalculation run to fetch. This is the run's own id, not the experiment id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the recalculation run to fetch. This is the run's own id, not the experiment id.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/metrics_recalculation/{recalculation_id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "id",
+            "effectiveDescription": "Unique identifier for this recalculation job",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier for this recalculation job",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "experiment_id",
+            "effectiveDescription": "ID of the experiment being recalculated",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the experiment being recalculated",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/experiment_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "status",
+            "effectiveDescription": "Current status of the recalculation job\n\n* `pending` - Pending\n* `in_progress` - In Progress\n* `completed` - Completed\n* `failed` - Failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current status of the recalculation job\n\n* `pending` - Pending\n* `in_progress` - In Progress\n* `completed` - Completed\n* `failed` - Failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "total_metrics",
+            "effectiveDescription": "Total number of metrics to recalculate",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of metrics to recalculate",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/total_metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "completed_metrics",
+            "effectiveDescription": "Number of metrics with a COMPLETED result row in this run (derived, not stored)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of metrics with a COMPLETED result row in this run (derived, not stored)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/completed_metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "failed_metrics",
+            "effectiveDescription": "Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/failed_metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "metric_errors",
+            "effectiveDescription": "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/metric_errors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "created_at",
+            "effectiveDescription": "When the job was created",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the job was created",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "started_at",
+            "effectiveDescription": "When processing started",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When processing started",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "completed_at",
+            "effectiveDescription": "When processing completed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When processing completed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "query_to",
+            "effectiveDescription": "Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/query_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "metric_retries",
+            "effectiveDescription": "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Transient retry state per metric_uuid: {attempt, max_attempts, error_type, message, next_retry_at}. message is a user-safe description of the error that triggered the retry. Present only while a metric is between failed attempts; cleared when it succeeds or fails terminally, so treat entries for metrics that already have a result as stale.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/metric_retries"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "rows_read",
+            "effectiveDescription": "Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/rows_read"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "estimated_rows_total",
+            "effectiveDescription": "ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/estimated_rows_total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

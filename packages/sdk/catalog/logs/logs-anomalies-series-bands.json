@@ -1,0 +1,534 @@
+{
+    "method": "logs.logsAnomaliesSeriesBands",
+    "toolName": "logs-anomalies-series-bands",
+    "operationId": "logs_anomalies_series_bands_create",
+    "title": "Per-series log volume with expected bands",
+    "category": "Logs",
+    "description": "Return log volume for every (namespace, environment, severity) series of one service, each with an expected band learned from the same time of week over the previous weeks of the volume rollup. This is the data behind the Anomalies tab in the logs UI. A bucket whose observed count sits above upper or below lower fell outside the expected range. Ranges target 99% coverage of individual buckets, so an out-of-range bucket is a reason to investigate, not a confirmed incident. lower and upper are null while a series is still learning. band_ready_at gives the earliest end of a rolling window of the same length with enough earlier history. Waiting does not add earlier history to a fixed historical window; select a more recent window instead. Omit intervalMinutes and the grain is picked from the window (7 days gives 60 minutes, 1 day gives 15); pass 5, 15, 30 or 60 to choose. A series too sparse or too quiet for the requested grain comes back coarser, with its own interval_minutes and a coarsened_reason. Requires a serviceName (use logs-services-create or the resource attribute values tool to discover services). The window defaults to the last 7 days, may span at most 7 days, and may start at most 35 days ago. Synchronous and read only.",
+    "requiredScopes": ["logs:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["feature_flag: logs-anomalies"],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsAnomaliesSeriesBandsInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+        "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsAnomaliesSeriesBandsOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+        "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsRequestSchema1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        },
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsRequestSchema2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        },
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        },
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsRequestSchema4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        },
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsRequestSchema5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        },
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsRequestSchema6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        },
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsRequestSchema7",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        },
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsRequestSchema3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        },
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsResponseShape3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        },
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        },
+        {
+            "name": "LogsLogsAnomaliesSeriesBandsData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-anomalies-series-bands.ts",
+            "declaration": "dist/generated/logs/logs-anomalies-series-bands.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Returns log volume over the requested window for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. The window defaults to the last 7 days and may span at most 7 days. Synchronous and read only.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1logs~1anomalies~1series_bands~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Return log volume for every (namespace, environment, severity) series of one service, each with an expected band learned from the same time of week over the previous weeks of the volume rollup. This is the data behind the Anomalies tab in the logs UI. A bucket whose observed count sits above upper or below lower fell outside the expected range. Ranges target 99% coverage of individual buckets, so an out-of-range bucket is a reason to investigate, not a confirmed incident. lower and upper are null while a series is still learning. band_ready_at gives the earliest end of a rolling window of the same length with enough earlier history. Waiting does not add earlier history to a fixed historical window; select a more recent window instead. Omit intervalMinutes and the grain is picked from the window (7 days gives 60 minutes, 1 day gives 15); pass 5, 15, 30 or 60 to choose. A series too sparse or too quiet for the requested grain comes back coarser, with its own interval_minutes and a coarsened_reason. Requires a serviceName (use logs-services-create or the resource attribute values tool to discover services). The window defaults to the last 7 days, may span at most 7 days, and may start at most 35 days ago. Synchronous and read only.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/logs/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsRequest_Schema0",
+            "field": "date_from",
+            "effectiveDescription": "Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema0/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsRequest_Schema0",
+            "field": "date_to",
+            "effectiveDescription": "End of the window. Same format as date_from. Omit or null for \"now\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the window. Same format as date_from. Omit or null for \"now\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema0/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsInput",
+            "field": "serviceName",
+            "effectiveDescription": "Service whose per-series volume to chart (the log record's service_name).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Service whose per-series volume to chart (the log record's service_name).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/anomalies/series_bands/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsInput",
+            "field": "dateRange",
+            "effectiveDescription": "Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/anomalies/series_bands/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsInput",
+            "field": "intervalMinutes",
+            "effectiveDescription": "Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.\n\n* `5` - 5\n* `15` - 15\n* `30` - 30\n* `60` - 60",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display grain in minutes for buckets and bands. One of 5, 15, 30, 60. The window may hold at most 500 buckets per series at the chosen grain, so a finer grain needs a shorter window. Omit it to let the window pick its grain, the coarsest that still cuts it into about 168 buckets. A series too sparse to read at this grain is returned at a coarser one; see each series' interval_minutes.\n\n* `5` - 5\n* `15` - 15\n* `30` - 30\n* `60` - 60",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/anomalies/series_bands/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "field": "namespace",
+            "effectiveDescription": "Namespace of the emitting resource; empty when the logs carry none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Namespace of the emitting resource; empty when the logs carry none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/namespace"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "field": "environment",
+            "effectiveDescription": "Deployment environment of the emitting resource; empty when the logs carry none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Deployment environment of the emitting resource; empty when the logs carry none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/environment"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "field": "severity",
+            "effectiveDescription": "Lowercased log severity of this series (for example info, error).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lowercased log severity of this series (for example info, error).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "field": "total_count",
+            "effectiveDescription": "Total observed log count over the window. Series are ordered by this, descending.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total observed log count over the window. Series are ordered by this, descending.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "field": "baseline_weeks",
+            "effectiveDescription": "Full weeks of history behind the band, 0 to 5. Four complete weeks are required: at least two for fitting and two separate weeks for calibration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full weeks of history behind the band, 0 to 5. Four complete weeks are required: at least two for fitting and two separate weeks for calibration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/baseline_weeks"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "field": "history_start",
+            "effectiveDescription": "Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of sustained traffic inside the fetched lookback: the first bucket followed by a week with enough non-empty buckets. A stray earlier row does not move it. The window start when no traffic is sustained yet.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/history_start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "field": "band_ready_at",
+            "effectiveDescription": "Earliest end of a rolling window of this length with four complete preceding weeks. Null when the band is ready. A fixed historical window does not gain history by waiting. Check the buckets' lower and upper values to determine whether a band is present.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Earliest end of a rolling window of this length with four complete preceding weeks. Null when the band is ready. A fixed historical window does not gain history by waiting. Check the buckets' lower and upper values to determine whether a band is present.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/band_ready_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "field": "interval_minutes",
+            "effectiveDescription": "Grain of this series' buckets, in minutes. Equals the response interval_minutes unless the series was too sparse at that grain and was coarsened to the next rung it is dense enough to read at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Grain of this series' buckets, in minutes. Equals the response interval_minutes unless the series was too sparse at that grain and was coarsened to the next rung it is dense enough to read at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/interval_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "field": "coarsened_reason",
+            "effectiveDescription": "Why this series was too thin to read at the requested grain, or null when it was not. sparse: fewer than 20% of its buckets held any records. quiet: its non-empty buckets averaged under 5 records. A series that fails every rung is returned at the coarsest one. A series that a coarser rung has no rows for, or that the request's time budget cannot refetch, keeps the requested grain and still carries its reason.\n\n* `sparse` - sparse\n* `quiet` - quiet",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why this series was too thin to read at the requested grain, or null when it was not. sparse: fewer than 20% of its buckets held any records. quiet: its non-empty buckets averaged under 5 records. A series that fails every rung is returned at the coarsest one. A series that a coarser rung has no rows for, or that the request's time budget cannot refetch, keeps the requested grain and still carries its reason.\n\n* `sparse` - sparse\n* `quiet` - quiet",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/coarsened_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape2",
+            "field": "buckets",
+            "effectiveDescription": "One entry per display bucket across the window at this series' interval_minutes, oldest first, zero-filled. A coarsened series' window is snapped to its grain, so it can end short of window_end.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One entry per display bucket across the window at this series' interval_minutes, oldest first, zero-filled. A coarsened series' window is snapped to its grain, so it can end short of window_end.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/buckets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape3",
+            "field": "time",
+            "effectiveDescription": "Start of the display bucket (UTC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the display bucket (UTC).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape3",
+            "field": "observed",
+            "effectiveDescription": "Log count observed in this bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Log count observed in this bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/observed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape3",
+            "field": "lower",
+            "effectiveDescription": "Lower edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lower edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/lower"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape3",
+            "field": "upper",
+            "effectiveDescription": "Upper edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Upper edge of the calibrated count range targeting 99% marginal bucket coverage under stable traffic. Null without four complete preceding weeks.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/upper"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsResponseShape3",
+            "field": "verdict",
+            "effectiveDescription": "Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready. An out-of-range bucket is not a confirmed incident or an alert.\n\n* `above` - Above the band\n* `below` - Below the band",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the observed count sits against the band: above when it exceeds upper, below when it falls under lower. Null while it sits inside the band, or while the band is not ready. An out-of-range bucket is not a confirmed incident or an alert.\n\n* `above` - Above the band\n* `below` - Below the band",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape3/properties/verdict"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsData",
+            "field": "service_name",
+            "effectiveDescription": "Service the series belong to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Service the series belong to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/service_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsData",
+            "field": "window_start",
+            "effectiveDescription": "Start of the observed window (UTC, inclusive).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the observed window (UTC, inclusive).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/window_start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsData",
+            "field": "window_end",
+            "effectiveDescription": "End of the observed window (UTC, exclusive).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the observed window (UTC, exclusive).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/window_end"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsData",
+            "field": "interval_minutes",
+            "effectiveDescription": "Display grain requested, or picked to cut the window into about 168 buckets when the request left it out.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Display grain requested, or picked to cut the window into about 168 buckets when the request left it out.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/interval_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsData",
+            "field": "series_truncated",
+            "effectiveDescription": "True when the service has more series than the response carries; the quietest were dropped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the service has more series than the response carries; the quietest were dropped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/series_truncated"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAnomaliesSeriesBandsData",
+            "field": "series",
+            "effectiveDescription": "One entry per (namespace, environment, severity) series, ordered by observed volume descending.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One entry per (namespace, environment, severity) series, ordered by observed volume descending.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/series"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

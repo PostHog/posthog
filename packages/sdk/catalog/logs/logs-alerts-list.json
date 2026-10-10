@@ -1,0 +1,356 @@
+{
+    "method": "logs.logsAlertsList",
+    "toolName": "logs-alerts-list",
+    "operationId": "logs_alerts_list",
+    "title": "List log alerts",
+    "category": "Logs",
+    "description": "List log alert configurations in the current project, newest first. Returns alert name, state, threshold, filters, and scheduling details. Use this to review existing alerts before creating or modifying them.",
+    "requiredScopes": ["logs:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsAlertsListInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-list.ts",
+        "declaration": "dist/generated/logs/logs-alerts-list.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsAlertsListOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-list.ts",
+        "declaration": "dist/generated/logs/logs-alerts-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsAlertsListRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsListRequestSchema1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsListRequestSchema2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsListResponseShape32",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsListResponseShape31",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsListDataResultsItem",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsListData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-list.ts",
+            "declaration": "dist/generated/logs/logs-alerts-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List log alert configurations in the current project, newest first. Returns alert name, state, threshold, filters, and scheduling details. Use this to review existing alerts before creating or modifying them.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/logs/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsAlertsListInput",
+            "field": "created_by",
+            "effectiveDescription": "Only return log alerts created by the user with this UUID.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only return log alerts created by the user with this UUID.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListResponseShape31",
+            "field": "blocked_windows",
+            "effectiveDescription": "Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Blocked local time windows when the alert must not run. Overlapping or identical windows are merged when saved. At most five windows before normalization; empty array clears quiet hours.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape31/properties/blocked_windows"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListResponseShape32",
+            "field": "start",
+            "effectiveDescription": "Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start time HH:MM (24-hour, project timezone). Inclusive. Each window must span ≥ 30 minutes on the local daily timeline (half-open [start, end)).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape32/properties/start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListResponseShape32",
+            "field": "end",
+            "effectiveDescription": "End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End time HH:MM (24-hour). Exclusive (half-open interval). Each window must span ≥ 30 minutes locally.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape32/properties/end"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "results[].id",
+            "effectiveDescription": "Unique identifier for this alert.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier for this alert.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "results[].name",
+            "effectiveDescription": "Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable name for this alert. Defaults to 'Untitled alert' on create when omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "results[].enabled",
+            "effectiveDescription": "Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the alert is actively being evaluated. Disabling resets the state to not_firing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "results[].state",
+            "effectiveDescription": "Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.\n\n* `not_firing` - Not firing\n* `firing` - Firing\n* `pending_resolve` - Pending resolve\n* `errored` - Errored\n* `snoozed` - Snoozed\n* `broken` - Broken",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current alert state: not_firing, firing, pending_resolve, errored, or snoozed. Server-managed.\n\n* `not_firing` - Not firing\n* `firing` - Firing\n* `pending_resolve` - Pending resolve\n* `errored` - Errored\n* `snoozed` - Snoozed\n* `broken` - Broken",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "results[].threshold_count",
+            "effectiveDescription": "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/threshold_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "results[].threshold_operator",
+            "effectiveDescription": "Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/threshold_operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "results[].window_minutes",
+            "effectiveDescription": "Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/window_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "results[].schedule_restriction",
+            "effectiveDescription": "Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Blocked local time windows when the alert must not run. Times use the project timezone. Null disables quiet hours.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/schedule_restriction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "results[].created_at",
+            "effectiveDescription": "When the alert was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the alert was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "results[].updated_at",
+            "effectiveDescription": "When the alert was last modified.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the alert was last modified.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

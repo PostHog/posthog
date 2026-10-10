@@ -1,0 +1,297 @@
+{
+    "method": "experiments.experimentActivity",
+    "toolName": "experiment-activity",
+    "operationId": "experiments_activity_retrieve",
+    "title": "Get experiment change history",
+    "category": "Experiments",
+    "description": "Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment, its holdouts and shared metrics, and its linked feature flag (rollout, targeting): who made each change, what was changed (field-level before/after values), and when, newest first. Lifecycle actions (launch, end, ship variant, etc.) appear as updates to the underlying fields (start_date, end_date, conclusion, ...). Use limit and page query params for pagination.",
+    "requiredScopes": ["activity_log:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentActivityInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-activity.ts",
+        "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentActivityOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-activity.ts",
+        "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentActivityRequestSchema0",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-activity.ts",
+            "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentActivityRequestSchema1",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-activity.ts",
+            "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentActivityResponseShape3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-activity.ts",
+            "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentActivityResponseShape5",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-activity.ts",
+            "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentActivityResponseShape6",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-activity.ts",
+            "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentActivityResponseShape7",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-activity.ts",
+            "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentActivityResponseShape4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-activity.ts",
+            "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentActivityResponseShape2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-activity.ts",
+            "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentActivityData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-activity.ts",
+            "declaration": "dist/generated/experiments/experiment-activity.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Change history for this experiment.\n\nReturns a paginated audit trail of changes to the experiment, its holdouts and\nshared metrics, and its linked feature flag: who made each change, what changed\n(field-level before/after values), and when. Ordered newest first.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1{id}~1activity~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get the audit trail for a specific experiment by ID. Returns a paginated list of changes to the experiment, its holdouts and shared metrics, and its linked feature flag (rollout, targeting): who made each change, what was changed (field-level before/after values), and when, newest first. Lifecycle actions (launch, end, ship variant, etc.) appear as updates to the underlying fields (start_date, end_date, conclusion, ...). Use limit and page query params for pagination.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentActivityInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/activity/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityInput",
+            "field": "limit",
+            "effectiveDescription": "Number of items per page",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of items per page",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/activity/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityInput",
+            "field": "page",
+            "effectiveDescription": "Page number",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page number",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/activity/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityResponseShape2",
+            "field": "is_system",
+            "effectiveDescription": "Whether the activity was performed by the system rather than a user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the activity was performed by the system rather than a user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape2/properties/is_system"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityResponseShape2",
+            "field": "was_impersonated",
+            "effectiveDescription": "Whether the acting user was being impersonated by PostHog staff.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the acting user was being impersonated by PostHog staff.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape2/properties/was_impersonated"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityResponseShape2",
+            "field": "client",
+            "effectiveDescription": "API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape2/properties/client"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityResponseShape5",
+            "field": "before",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape5/properties/before"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityResponseShape5",
+            "field": "after",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape5/properties/after"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityResponseShape6",
+            "field": "source",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape6/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityResponseShape6",
+            "field": "target",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape6/properties/target"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityResponseShape7",
+            "field": "payload",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape7/properties/payload"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentActivityData",
+            "effectiveDescription": "Response shape for paginated activity log endpoints.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response shape for paginated activity log endpoints.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

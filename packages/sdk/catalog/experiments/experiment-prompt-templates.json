@@ -1,0 +1,63 @@
+{
+    "method": "experiments.experimentPromptTemplates",
+    "toolName": "experiment-prompt-templates",
+    "operationId": "experiments_prompt_templates_retrieve",
+    "title": "List LLM prompt metric templates",
+    "category": "Experiments",
+    "description": "List the metric templates accepted by experiment-create-from-prompt. Each entry has a key (the value to pass in that tool's templates parameter), a label, and a description of what the metric measures.",
+    "requiredScopes": ["experiment:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentPromptTemplatesInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-prompt-templates.ts",
+        "declaration": "dist/generated/experiments/experiment-prompt-templates.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentPromptTemplatesOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-prompt-templates.ts",
+        "declaration": "dist/generated/experiments/experiment-prompt-templates.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentPromptTemplatesDataItem",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-prompt-templates.ts",
+            "declaration": "dist/generated/experiments/experiment-prompt-templates.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentPromptTemplatesData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-prompt-templates.ts",
+            "declaration": "dist/generated/experiments/experiment-prompt-templates.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "List the LLM metric templates that can be passed to `create_from_prompt`.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1prompt_templates~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "List the metric templates accepted by experiment-create-from-prompt. Each entry has a key (the value to pass in that tool's templates parameter), a label, and a description of what the metric measures.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": []
+}

@@ -1,0 +1,215 @@
+{
+    "method": "events.eventDefinitionUpdate",
+    "toolName": "event-definition-update",
+    "title": "Update event definition",
+    "category": "Events & properties",
+    "description": "Update event definition metadata. Can update description, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
+    "requiredScopes": ["event_definition:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/events/client.ts",
+    "input": {
+        "name": "EventsEventDefinitionUpdateInput",
+        "importPath": "@posthog/sdk/events",
+        "source": "src/generated/events/event-definition-update.ts",
+        "declaration": "dist/generated/events/event-definition-update.d.ts"
+    },
+    "output": {
+        "name": "EventsEventDefinitionUpdateOutput",
+        "importPath": "@posthog/sdk/events",
+        "source": "src/generated/events/event-definition-update.ts",
+        "declaration": "dist/generated/events/event-definition-update.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "EventsEventDefinitionUpdateRequestSchema0",
+            "importPath": "@posthog/sdk/events",
+            "source": "src/generated/events/event-definition-update.ts",
+            "declaration": "dist/generated/events/event-definition-update.d.ts"
+        },
+        {
+            "name": "EventsEventDefinitionUpdateRequestSchema2",
+            "importPath": "@posthog/sdk/events",
+            "source": "src/generated/events/event-definition-update.ts",
+            "declaration": "dist/generated/events/event-definition-update.d.ts"
+        },
+        {
+            "name": "EventsEventDefinitionUpdateRequestSchema4",
+            "importPath": "@posthog/sdk/events",
+            "source": "src/generated/events/event-definition-update.ts",
+            "declaration": "dist/generated/events/event-definition-update.d.ts"
+        },
+        {
+            "name": "EventsEventDefinitionUpdateRequestSchema6",
+            "importPath": "@posthog/sdk/events",
+            "source": "src/generated/events/event-definition-update.ts",
+            "declaration": "dist/generated/events/event-definition-update.d.ts"
+        },
+        {
+            "name": "EventsEventDefinitionUpdateInputData",
+            "importPath": "@posthog/sdk/events",
+            "source": "src/generated/events/event-definition-update.ts",
+            "declaration": "dist/generated/events/event-definition-update.d.ts"
+        },
+        {
+            "name": "EventsEventDefinitionUpdateResponseShape3",
+            "importPath": "@posthog/sdk/events",
+            "source": "src/generated/events/event-definition-update.ts",
+            "declaration": "dist/generated/events/event-definition-update.d.ts"
+        },
+        {
+            "name": "EventsEventDefinitionUpdateResponseShape2",
+            "importPath": "@posthog/sdk/events",
+            "source": "src/generated/events/event-definition-update.ts",
+            "declaration": "dist/generated/events/event-definition-update.d.ts"
+        },
+        {
+            "name": "EventsEventDefinitionUpdateData",
+            "importPath": "@posthog/sdk/events",
+            "source": "src/generated/events/event-definition-update.ts",
+            "declaration": "dist/generated/events/event-definition-update.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Update event definition metadata. Can update description, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/event-definition-update/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "EventsEventDefinitionUpdateRequest_Schema0",
+            "effectiveDescription": "Description explaining when the event is triggered",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Description explaining when the event is triggered",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EventsEventDefinitionUpdateRequest_Schema2",
+            "effectiveDescription": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EventsEventDefinitionUpdateRequest_Schema4",
+            "effectiveDescription": "Mark as verified to indicate the event is properly instrumented and tracking correctly",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mark as verified to indicate the event is properly instrumented and tracking correctly",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EventsEventDefinitionUpdateRequest_Schema6",
+            "effectiveDescription": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EventsEventDefinitionUpdateInput",
+            "field": "eventName",
+            "effectiveDescription": "The name of the event to update (e.g. \"$pageview\", \"user_signed_up\")",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The name of the event to update (e.g. \"$pageview\", \"user_signed_up\")",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/eventName"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EventsEventDefinitionUpdateInput",
+            "field": "data",
+            "effectiveDescription": "The event definition data to update",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event definition data to update",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/data"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EventsEventDefinitionUpdateData",
+            "field": "tags[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/tags/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "EventsEventDefinitionUpdateData",
+            "field": "primary_property",
+            "effectiveDescription": "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/primary_property"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

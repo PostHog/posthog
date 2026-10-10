@@ -1,0 +1,760 @@
+{
+    "method": "logs.logsAlertsSimulateCreate",
+    "toolName": "logs-alerts-simulate-create",
+    "operationId": "logs_alerts_simulate_create",
+    "title": "Simulate log alert",
+    "category": "Logs",
+    "description": "Run a draft alert configuration against historical logs and return per-bucket results from the full state machine — count, threshold_breached, state, notification (none/fire/resolve), reason. Use to validate threshold + N-of-M settings before creating an alert. Read-only; no alert records are written. Aim for fire_count between 0 and 3 over a `-7d` lookback for a healthy threshold.",
+    "requiredScopes": ["logs:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsAlertsSimulateCreateInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+        "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsAlertsSimulateCreateOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+        "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema7",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema8",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema9",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema11",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema12",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema13",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema10",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema10Variant1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema10Variant2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema10Variant3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema10Variant4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema10Variant5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema14",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema15",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema16",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema17",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema18",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema19",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant7",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant8",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant9",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant10",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant11",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant13",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant12",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant14",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant15",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant16",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant17",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant18",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant19",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant20",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant21",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant22",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant23",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant24",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant25",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant26",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant27",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema0Variant1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema20",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema21",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema22",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema23",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema24",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateRequestSchema25",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateInputFilters",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateInputThresholdOperator",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateResponseShape2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        },
+        {
+            "name": "LogsLogsAlertsSimulateCreateData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-alerts-simulate-create.ts",
+            "declaration": "dist/generated/logs/logs-alerts-simulate-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Simulate a logs alert on historical data using the full state machine. Read-only — no alert check records are created.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1logs~1alerts~1simulate~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Run a draft alert configuration against historical logs and return per-bucket results from the full state machine — count, threshold_breached, state, notification (none/fire/resolve), reason. Use to validate threshold + N-of-M settings before creating an alert. Read-only; no alert records are written. Aim for fire_count between 0 and 3 over a `-7d` lookback for a healthy threshold.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/logs/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateInput",
+            "field": "filters",
+            "effectiveDescription": "Filter criteria — same format as LogsAlertConfiguration.filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter criteria — same format as LogsAlertConfiguration.filters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/simulate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateInput",
+            "field": "threshold_count",
+            "effectiveDescription": "Threshold count to evaluate against.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Threshold count to evaluate against.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/simulate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateInput",
+            "field": "threshold_operator",
+            "effectiveDescription": "Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the alert fires when the count is above or below the threshold.\n\n* `above` - Above\n* `below` - Below",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/simulate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateInput",
+            "field": "window_minutes",
+            "effectiveDescription": "Window size in minutes — determines bucket interval.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Window size in minutes — determines bucket interval.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/simulate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateInput",
+            "field": "check_interval_minutes",
+            "effectiveDescription": "How often the alert is evaluated, in minutes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How often the alert is evaluated, in minutes.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/simulate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateInput",
+            "field": "evaluation_periods",
+            "effectiveDescription": "Total check periods in the N-of-M evaluation window (M).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total check periods in the N-of-M evaluation window (M).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/simulate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateInput",
+            "field": "datapoints_to_alarm",
+            "effectiveDescription": "How many periods must breach to fire (N in N-of-M).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many periods must breach to fire (N in N-of-M).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/simulate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateInput",
+            "field": "cooldown_minutes",
+            "effectiveDescription": "Minutes to wait after firing before sending another notification.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minutes to wait after firing before sending another notification.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/simulate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateInput",
+            "field": "date_from",
+            "effectiveDescription": "Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d').",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/alerts/simulate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateResponseShape2",
+            "field": "timestamp",
+            "effectiveDescription": "Bucket start timestamp.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket start timestamp.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/timestamp"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateResponseShape2",
+            "field": "count",
+            "effectiveDescription": "Number of matching logs in this bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of matching logs in this bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateResponseShape2",
+            "field": "threshold_breached",
+            "effectiveDescription": "Whether the count crossed the threshold in this bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the count crossed the threshold in this bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/threshold_breached"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateResponseShape2",
+            "field": "state",
+            "effectiveDescription": "Alert state after evaluating this bucket.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Alert state after evaluating this bucket.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateResponseShape2",
+            "field": "notification",
+            "effectiveDescription": "Notification action: none, fire, or resolve.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Notification action: none, fire, or resolve.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/notification"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateResponseShape2",
+            "field": "reason",
+            "effectiveDescription": "Human-readable explanation of the state transition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable explanation of the state transition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateData",
+            "field": "buckets",
+            "effectiveDescription": "Time-bucketed counts with full state machine evaluation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time-bucketed counts with full state machine evaluation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/buckets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateData",
+            "field": "fire_count",
+            "effectiveDescription": "Number of times the alert would have sent a fire notification.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of times the alert would have sent a fire notification.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/fire_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateData",
+            "field": "resolve_count",
+            "effectiveDescription": "Number of times the alert would have sent a resolve notification.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of times the alert would have sent a resolve notification.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/resolve_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateData",
+            "field": "total_buckets",
+            "effectiveDescription": "Total number of buckets in the simulation window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of buckets in the simulation window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/total_buckets"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateData",
+            "field": "threshold_count",
+            "effectiveDescription": "Threshold count used for evaluation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Threshold count used for evaluation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/threshold_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAlertsSimulateCreateData",
+            "field": "threshold_operator",
+            "effectiveDescription": "Threshold operator used for evaluation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Threshold operator used for evaluation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/threshold_operator"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

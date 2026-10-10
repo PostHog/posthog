@@ -1,0 +1,87 @@
+{
+    "method": "llmAnalytics.getLlmTotalCostsForProject",
+    "toolName": "get-llm-total-costs-for-project",
+    "title": "Get LLM costs",
+    "category": "AI observability",
+    "description": "Fetch daily LLM cost per model for the project over the last N days (default 7). Runs a trends query summing $ai_total_cost_usd on $ai_generation events broken down by $ai_model — call when the user asks how much the team is spending on LLMs or which model costs the most. For the current user's own spend use llma-personal-spend; for custom cost cuts (per user, per trace, per provider) query $ai_generation events with execute-sql.",
+    "requiredScopes": ["warehouse_table:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/llm-analytics/client.ts",
+    "input": {
+        "name": "LlmAnalyticsGetLlmTotalCostsForProjectInput",
+        "importPath": "@posthog/sdk/llm-analytics",
+        "source": "src/generated/llm-analytics/get-llm-total-costs-for-project.ts",
+        "declaration": "dist/generated/llm-analytics/get-llm-total-costs-for-project.d.ts"
+    },
+    "output": {
+        "name": "LlmAnalyticsGetLlmTotalCostsForProjectOutput",
+        "importPath": "@posthog/sdk/llm-analytics",
+        "source": "src/generated/llm-analytics/get-llm-total-costs-for-project.ts",
+        "declaration": "dist/generated/llm-analytics/get-llm-total-costs-for-project.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LlmAnalyticsGetLlmTotalCostsForProjectRequestSchema0",
+            "importPath": "@posthog/sdk/llm-analytics",
+            "source": "src/generated/llm-analytics/get-llm-total-costs-for-project.ts",
+            "declaration": "dist/generated/llm-analytics/get-llm-total-costs-for-project.d.ts"
+        },
+        {
+            "name": "LlmAnalyticsGetLlmTotalCostsForProjectData",
+            "importPath": "@posthog/sdk/llm-analytics",
+            "source": "src/generated/llm-analytics/get-llm-total-costs-for-project.ts",
+            "declaration": "dist/generated/llm-analytics/get-llm-total-costs-for-project.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Fetch daily LLM cost per model for the project over the last N days (default 7). Runs a trends query summing $ai_total_cost_usd on $ai_generation events broken down by $ai_model — call when the user asks how much the team is spending on LLMs or which model costs the most. For the current user's own spend use llma-personal-spend; for custom cost cuts (per user, per trace, per provider) query $ai_generation events with execute-sql.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/get-llm-total-costs-for-project/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LlmAnalyticsGetLlmTotalCostsForProjectInput",
+            "field": "projectId",
+            "effectiveDescription": "Project ID. Defaults to the active project when omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Project ID. Defaults to the active project when omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/projectId"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LlmAnalyticsGetLlmTotalCostsForProjectData",
+            "field": "results[]",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape1/properties/results/items"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

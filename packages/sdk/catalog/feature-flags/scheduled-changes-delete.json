@@ -1,0 +1,74 @@
+{
+    "method": "featureFlags.scheduledChangesDelete",
+    "toolName": "scheduled-changes-delete",
+    "operationId": "scheduled_changes_destroy",
+    "title": "Delete a scheduled change",
+    "category": "Feature flags",
+    "description": "Delete a scheduled change by ID. This permanently removes the scheduled change and it will not be executed.",
+    "requiredScopes": ["feature_flag:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/feature-flags/client.ts",
+    "input": {
+        "name": "FeatureFlagsScheduledChangesDeleteInput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/scheduled-changes-delete.ts",
+        "declaration": "dist/generated/feature-flags/scheduled-changes-delete.d.ts"
+    },
+    "output": {
+        "name": "FeatureFlagsScheduledChangesDeleteOutput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/scheduled-changes-delete.ts",
+        "declaration": "dist/generated/feature-flags/scheduled-changes-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FeatureFlagsScheduledChangesDeleteData",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/scheduled-changes-delete.ts",
+            "declaration": "dist/generated/feature-flags/scheduled-changes-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, read, update and delete scheduled changes.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1scheduled_changes~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete a scheduled change by ID. This permanently removes the scheduled change and it will not be executed.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/feature_flags/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FeatureFlagsScheduledChangesDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this scheduled change.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this scheduled change.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/scheduled_changes/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

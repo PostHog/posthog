@@ -1,0 +1,157 @@
+{
+    "method": "featureFlags.enable",
+    "toolName": "feature-flag-enable",
+    "operationId": "feature_flags_enable_create",
+    "title": "Enable feature flag",
+    "category": "Feature flags",
+    "description": "Turn a feature flag on. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to true and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change. There is no request body. To change who the flag is served to, use `update-feature-flag`.\n\nReturns 400 when the flag is archived (call `feature-flag-unarchive` first) or when a flag it depends on is disabled. Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag succeeds and changes nothing, so retrying is safe.\n\n`feature-flag-get-definition-by-key` also finds archived flags. `feature-flag-get-all` hides archived flags unless you pass `{\"archived\":\"true\"}`.\n\nTo turn the flag on at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
+    "requiredScopes": ["feature_flag:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/feature-flags/client.ts",
+    "input": {
+        "name": "FeatureFlagsEnableInput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/enable.ts",
+        "declaration": "dist/generated/feature-flags/enable.d.ts"
+    },
+    "output": {
+        "name": "FeatureFlagsEnableOutput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/enable.ts",
+        "declaration": "dist/generated/feature-flags/enable.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FeatureFlagsEnableData",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/enable.ts",
+            "declaration": "dist/generated/feature-flags/enable.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Enable a feature flag.\n\nSets `active` to true and changes nothing else. Targeting, variants, payloads, tags and\narchived state are left as they are. An archived flag is refused: unarchive it first. A\nflag whose own flag dependencies are disabled or use an unsupported configuration\nformat is also refused. An already-enabled flag is returned unchanged.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1{id}~1enable~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Turn a feature flag on. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nSets `active` to true and changes nothing else. This tool never accepts or replaces the `filters` object, so targeting, rollout percentages, variants and payloads cannot change. There is no request body. To change who the flag is served to, use `update-feature-flag`.\n\nReturns 400 when the flag is archived (call `feature-flag-unarchive` first) or when a flag it depends on is disabled. Returns 409 when an approval policy gates enabling. Enabling an already-enabled flag succeeds and changes nothing, so retrying is safe.\n\n`feature-flag-get-definition-by-key` also finds archived flags. `feature-flag-get-all` hides archived flags unless you pass `{\"archived\":\"true\"}`.\n\nTo turn the flag on at a future time instead, use `scheduled-changes-create` with the `update_status` operation.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/feature_flags/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FeatureFlagsEnableInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this feature flag.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this feature flag.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1{id}~1enable~1/post/parameters/0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsEnableData",
+            "effectiveDescription": "Serializer mixin that handles tags for objects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer mixin that handles tags for objects.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlag"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsEnableData",
+            "field": "archived",
+            "effectiveDescription": "Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlag/properties/archived"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsEnableData",
+            "field": "status",
+            "effectiveDescription": "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlag/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsEnableData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL of this resource in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL of this resource in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "feature-flag-get-definition-by-key",
+            "method": "flags.featureFlagGetDefinitionByKey"
+        },
+        {
+            "toolName": "feature-flag-get-all",
+            "method": "featureFlags.list"
+        },
+        {
+            "toolName": "update-feature-flag",
+            "method": "featureFlags.updateFeatureFlag"
+        },
+        {
+            "toolName": "feature-flag-unarchive",
+            "method": "featureFlags.unarchive"
+        },
+        {
+            "toolName": "scheduled-changes-create",
+            "method": "featureFlags.scheduledChangesCreate"
+        }
+    ]
+}

@@ -1,0 +1,133 @@
+{
+    "method": "featureFlags.featureFlagsBulkKeysRetrieve",
+    "toolName": "feature-flags-bulk-keys-retrieve",
+    "operationId": "feature_flags_bulk_keys_retrieve",
+    "title": "Look up feature flag keys by ID",
+    "category": "Feature flags",
+    "description": "Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.",
+    "requiredScopes": ["feature_flag:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/feature-flags/client.ts",
+    "input": {
+        "name": "FeatureFlagsFeatureFlagsBulkKeysRetrieveInput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/feature-flags-bulk-keys-retrieve.ts",
+        "declaration": "dist/generated/feature-flags/feature-flags-bulk-keys-retrieve.d.ts"
+    },
+    "output": {
+        "name": "FeatureFlagsFeatureFlagsBulkKeysRetrieveOutput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/feature-flags-bulk-keys-retrieve.ts",
+        "declaration": "dist/generated/feature-flags/feature-flags-bulk-keys-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FeatureFlagsFeatureFlagsBulkKeysRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-bulk-keys-retrieve.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-bulk-keys-retrieve.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsBulkKeysRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-bulk-keys-retrieve.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-bulk-keys-retrieve.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsBulkKeysRetrieveData",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-bulk-keys-retrieve.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-bulk-keys-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get feature flag keys by IDs.\nAccepts a list of feature flag IDs and returns a mapping of ID to key.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1bulk_keys~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Resolve feature flag IDs to their string keys in one call. Pass `ids` as a list of integer flag IDs. Returns `keys` as a mapping of stringified ID to key for the IDs that exist in this project. Useful when you have IDs from another tool (e.g., dependent flags, scheduled changes) and need the keys for downstream calls.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/feature_flags/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FeatureFlagsFeatureFlagsBulkKeysRetrieveInput",
+            "field": "ids",
+            "effectiveDescription": "Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_flags/bulk_keys/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsBulkKeysRetrieveResponseShape2",
+            "effectiveDescription": "Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsBulkKeysRetrieveData",
+            "field": "keys",
+            "effectiveDescription": "Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mapping of feature flag ID (as a string) to flag key, for IDs that exist in this project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape1/properties/keys"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsBulkKeysRetrieveData",
+            "field": "warning",
+            "effectiveDescription": "Present when some submitted IDs were not numeric and were ignored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Present when some submitted IDs were not numeric and were ignored.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/feature_flags.ts",
+                        "pointer": "#/Shape1/properties/warning"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

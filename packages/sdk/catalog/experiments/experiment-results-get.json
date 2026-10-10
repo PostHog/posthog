@@ -1,0 +1,184 @@
+{
+    "method": "experiments.experimentResultsGet",
+    "toolName": "experiment-results-get",
+    "title": "Get experiment results",
+    "category": "Experiments",
+    "description": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results younger than 24 hours are served from cache, and refresh=true does not change that: it computes only when no cached result is that fresh, which is also the default. To recompute, use experiment-metrics-recalculation-create. Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, the legacy insight payload, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, credible_intervals, per-breakdown stats).",
+    "requiredScopes": ["experiment:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentResultsGetInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-results-get.ts",
+        "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentResultsGetOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-results-get.ts",
+        "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentResultsGetRequestSchema0",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape3",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape2",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape5",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape6",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape7",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape4",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape11",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape10",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape9",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape12",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetResponseShape8",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        },
+        {
+            "name": "ExperimentsExperimentResultsGetData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-results-get.ts",
+            "declaration": "dist/generated/experiments/experiment-results-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Run an experiment's metric queries and return primary/secondary metric results plus exposure data in one call, with self-describing per-metric metadata: each row in metrics.primary.results / metrics.secondary.results carries a `metric` summary (uuid, name, metric_type, goal, and source - 'inline' for metrics defined on the experiment, 'shared' for saved metrics, with saved_metric_id/saved_metric_name set on shared rows). Rows are ordered to match the experiment UI (primary_metrics_ordered_uuids / secondary_metrics_ordered_uuids); a row whose metric query failed is kept with data: null so positions stay aligned. Results younger than 24 hours are served from cache, and refresh=true does not change that: it computes only when no cached result is that fresh, which is also the default. To recompute, use experiment-metrics-recalculation-create. Only works with new experiments (not legacy ExperimentTrendsQuery / ExperimentFunnelsQuery). Sibling tools: experiment-metrics-recalculation-latest-retrieve reads the most recent completed background recalculation run instead of executing queries in-call (pair it with experiment-metrics-recalculation-create to refresh); experiment-timeseries-results returns one metric's day-by-day history. Note the response strips UI-only bulk fields (clickhouse_sql, hogql, the legacy insight payload, per-funnel-step step_sessions) while preserving statistical fields (sum, sum_squares, step_counts, credible_intervals, per-breakdown stats).",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/experiment-results-get/description"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentResultsGetInput",
+            "field": "id",
+            "effectiveDescription": "The ID of the experiment to get comprehensive results for",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The ID of the experiment to get comprehensive results for",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentResultsGetInput",
+            "field": "refresh",
+            "effectiveDescription": "Asks for a blocking calculation. A cached result younger than 24 hours is still returned, so this does not force a recomputation. Defaults to false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Asks for a blocking calculation. A cached result younger than 24 hours is still returned, so this does not force a recomputation. Defaults to false.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/properties/refresh"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentResultsGetResponseShape6",
+            "effectiveDescription": "Construct a type with a set of properties K of type T",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Construct a type with a set of properties K of type T",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentResultsGetResponseShape10",
+            "field": "data",
+            "effectiveDescription": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The MCP handler declares this value as arbitrary JSON. Its fields depend on the requested resource.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/index.ts",
+                        "pointer": "#/Shape10/properties/data"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

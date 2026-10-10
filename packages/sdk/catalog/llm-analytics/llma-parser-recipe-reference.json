@@ -1,0 +1,53 @@
+{
+    "method": "llmAnalytics.llmaParserRecipeReference",
+    "toolName": "llma-parser-recipe-reference",
+    "title": "Parser recipe reference",
+    "category": "AI observability",
+    "description": "Returns the LLM analytics parser recipe DSL reference: the syntax and a set of worked examples for writing parser recipes. Call this before `llma-parser-recipe-create` so you know the recipe grammar.",
+    "requiredScopes": ["llm_analytics:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/llm-analytics/client.ts",
+    "input": {
+        "name": "LlmAnalyticsLlmaParserRecipeReferenceInput",
+        "importPath": "@posthog/sdk/llm-analytics",
+        "source": "src/generated/llm-analytics/llma-parser-recipe-reference.ts",
+        "declaration": "dist/generated/llm-analytics/llma-parser-recipe-reference.d.ts"
+    },
+    "output": {
+        "name": "LlmAnalyticsLlmaParserRecipeReferenceOutput",
+        "importPath": "@posthog/sdk/llm-analytics",
+        "source": "src/generated/llm-analytics/llma-parser-recipe-reference.ts",
+        "declaration": "dist/generated/llm-analytics/llma-parser-recipe-reference.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LlmAnalyticsLlmaParserRecipeReferenceData",
+            "importPath": "@posthog/sdk/llm-analytics",
+            "source": "src/generated/llm-analytics/llma-parser-recipe-reference.ts",
+            "declaration": "dist/generated/llm-analytics/llma-parser-recipe-reference.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Returns the LLM analytics parser recipe DSL reference: the syntax and a set of worked examples for writing parser recipes. Call this before `llma-parser-recipe-create` so you know the recipe grammar.",
+            "source": {
+                "kind": "mcp_json",
+                "file": "services/mcp/schema/tool-definitions-all.json",
+                "pointer": "/llma-parser-recipe-reference/description"
+            }
+        }
+    ],
+    "typeDocumentation": [],
+    "relatedTools": [
+        {
+            "toolName": "llma-parser-recipe-create",
+            "method": "llmAnalytics.llmaParserRecipeCreate"
+        }
+    ]
+}

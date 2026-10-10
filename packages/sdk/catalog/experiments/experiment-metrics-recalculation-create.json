@@ -1,0 +1,281 @@
+{
+    "method": "experiments.experimentMetricsRecalculationCreate",
+    "toolName": "experiment-metrics-recalculation-create",
+    "operationId": "experiments_metrics_recalculation_create",
+    "title": "Recalculate experiment metrics",
+    "category": "Experiments",
+    "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nStart a fresh calculation of every metric on this experiment against the latest data. Use this when the user asks to refresh, recalculate, or re-run results, or when results returned by experiment-metrics-recalculation-latest-retrieve look stale. Reading results does NOT trigger a new run, this tool is the only way to start one.\n\nThis queues background work that can take minutes on large experiments. Safe to call more than once: if a run is already pending or in progress, it returns that run (with is_existing true, HTTP 200) instead of starting a second one.\n\nThe response has no results array, the run has only just been queued. Take the returned id and poll experiment-metrics-recalculation-retrieve with it, or call experiment-metrics-recalculation-latest-retrieve, until status is completed or failed. Watch rows_read and completed_metrics for progress. Do not poll in a tight loop; wait a few seconds between checks.",
+    "requiredScopes": ["experiment:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentMetricsRecalculationCreateInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-metrics-recalculation-create.ts",
+        "declaration": "dist/generated/experiments/experiment-metrics-recalculation-create.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentMetricsRecalculationCreateOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-metrics-recalculation-create.ts",
+        "declaration": "dist/generated/experiments/experiment-metrics-recalculation-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-metrics-recalculation-create.ts",
+            "declaration": "dist/generated/experiments/experiment-metrics-recalculation-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Trigger a batch recalculation of all metrics for this experiment.\n\nReturns 201 with the new pending recalculation, or 200 with the active one if a recalculation is\nalready pending or in progress for this experiment. A manual trigger within five minutes after the latest\ncompleted run finished returns 429 with a Retry-After header. The response payload intentionally does not\ninclude the `results` array — at POST time the workflow has just been queued and no per-metric\nresults exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow\nprogresses.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1{id}~1metrics_recalculation~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nStart a fresh calculation of every metric on this experiment against the latest data. Use this when the user asks to refresh, recalculate, or re-run results, or when results returned by experiment-metrics-recalculation-latest-retrieve look stale. Reading results does NOT trigger a new run, this tool is the only way to start one.\n\nThis queues background work that can take minutes on large experiments. Safe to call more than once: if a run is already pending or in progress, it returns that run (with is_existing true, HTTP 200) instead of starting a second one.\n\nThe response has no results array, the run has only just been queued. Take the returned id and poll experiment-metrics-recalculation-retrieve with it, or call experiment-metrics-recalculation-latest-retrieve, until status is completed or failed. Watch rows_read and completed_metrics for progress. Do not poll in a tight loop; wait a few seconds between checks.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/metrics_recalculation/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "id",
+            "effectiveDescription": "Unique identifier for this recalculation job",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier for this recalculation job",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "experiment_id",
+            "effectiveDescription": "ID of the experiment being recalculated",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the experiment being recalculated",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/experiment_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "status",
+            "effectiveDescription": "Current status of the recalculation job\n\n* `pending` - Pending\n* `in_progress` - In Progress\n* `completed` - Completed\n* `failed` - Failed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current status of the recalculation job\n\n* `pending` - Pending\n* `in_progress` - In Progress\n* `completed` - Completed\n* `failed` - Failed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "total_metrics",
+            "effectiveDescription": "Total number of metrics to recalculate",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of metrics to recalculate",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/total_metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "completed_metrics",
+            "effectiveDescription": "Number of metrics with a COMPLETED result row in this run (derived, not stored)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of metrics with a COMPLETED result row in this run (derived, not stored)",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/completed_metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "failed_metrics",
+            "effectiveDescription": "Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of failed metrics in this run (derived): FAILED result rows plus discovery-step failures that never made it to a result row",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/failed_metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "metric_errors",
+            "effectiveDescription": "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Terminal failure per metric_uuid: {step, message, error_type, retriable, timestamp}. retriable is true when a transient error exhausted its attempts, so a heal_latest_run or manual_retry can succeed; false when the metric config, the data, or a resource limit must change first",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/metric_errors"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "created_at",
+            "effectiveDescription": "When the job was created",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the job was created",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "started_at",
+            "effectiveDescription": "When processing started",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When processing started",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/started_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "completed_at",
+            "effectiveDescription": "When processing completed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When processing completed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/completed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "query_to",
+            "effectiveDescription": "Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Upper time bound the metrics in this run were calculated against (the data freshness cutoff). Shared by every metric in the run; null until processing starts",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/query_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "is_existing",
+            "effectiveDescription": "True if returning an existing job rather than a newly created one",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True if returning an existing job rather than a newly created one",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/is_existing"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentMetricsRecalculationCreateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

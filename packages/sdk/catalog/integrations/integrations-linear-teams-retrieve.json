@@ -1,0 +1,119 @@
+{
+    "method": "integrations.integrationsLinearTeamsRetrieve",
+    "toolName": "integrations-linear-teams-retrieve",
+    "operationId": "integrations_linear_teams_retrieve",
+    "title": "List Linear teams",
+    "category": "Integrations",
+    "description": "List Linear teams available through a connected Linear integration. Use integrations-list with kind=linear first to find the integration id, then pass a returned team id as `config.team_id` when creating an error tracking external reference.",
+    "requiredScopes": ["integration:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/integrations/client.ts",
+    "input": {
+        "name": "IntegrationsIntegrationsLinearTeamsRetrieveInput",
+        "importPath": "@posthog/sdk/integrations",
+        "source": "src/generated/integrations/integrations-linear-teams-retrieve.ts",
+        "declaration": "dist/generated/integrations/integrations-linear-teams-retrieve.d.ts"
+    },
+    "output": {
+        "name": "IntegrationsIntegrationsLinearTeamsRetrieveOutput",
+        "importPath": "@posthog/sdk/integrations",
+        "source": "src/generated/integrations/integrations-linear-teams-retrieve.ts",
+        "declaration": "dist/generated/integrations/integrations-linear-teams-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "IntegrationsIntegrationsLinearTeamsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/integrations",
+            "source": "src/generated/integrations/integrations-linear-teams-retrieve.ts",
+            "declaration": "dist/generated/integrations/integrations-linear-teams-retrieve.d.ts"
+        },
+        {
+            "name": "IntegrationsIntegrationsLinearTeamsRetrieveData",
+            "importPath": "@posthog/sdk/integrations",
+            "source": "src/generated/integrations/integrations-linear-teams-retrieve.ts",
+            "declaration": "dist/generated/integrations/integrations-linear-teams-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List Linear teams available through a connected Linear integration. Use integrations-list with kind=linear first to find the integration id, then pass a returned team id as `config.team_id` when creating an error tracking external reference.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/integrations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "IntegrationsIntegrationsLinearTeamsRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this integration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this integration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/integrations/{id}/linear_teams/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsLinearTeamsRetrieveResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Linear team ID to pass as error tracking config.team_id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Linear team ID to pass as error tracking config.team_id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/integrations.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsLinearTeamsRetrieveResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Linear team display name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Linear team display name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/integrations.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsLinearTeamsRetrieveData",
+            "field": "teams",
+            "effectiveDescription": "Linear teams available to this integration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Linear teams available to this integration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/integrations.ts",
+                        "pointer": "#/Shape1/properties/teams"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

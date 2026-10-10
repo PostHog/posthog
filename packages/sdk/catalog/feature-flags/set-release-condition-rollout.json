@@ -1,0 +1,203 @@
+{
+    "method": "featureFlags.setReleaseConditionRollout",
+    "toolName": "feature-flag-set-release-condition-rollout",
+    "operationId": "feature_flags_set_release_condition_rollout_create",
+    "title": "Set feature flag release condition rollout",
+    "category": "Feature flags",
+    "description": "Set what percentage of one release condition's audience a feature flag is served to. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nChanges `rollout_percentage` on the release condition at `condition_index` and nothing else. This tool never accepts or replaces the `filters` object, so the condition's property filters, the other conditions, the variants and the payloads cannot change.\n\nCheck `aggregation_group_type_index` on the condition, and on `filters` when the condition sets none. When it is set, the flag buckets groups of that type instead of people, so 25 serves 25% of those groups rather than 25% of users. Say groups when you report the change.\n\nRead the flag first. `condition_index` counts the conditions in `filters.groups` from 0, and only the definition you read says which condition is which, so never guess an index on a flag with more than one condition. Send the `version` that same read returned. Returns 409 when anyone changed the flag after that version, and writes nothing. Read the flag again, check the conditions still mean what you thought, and call again with the new version. Do not retry with the same version: after a call writes a change that version is no longer current, so a blind retry is the same 409. A call that sets the percentage the condition already has writes nothing and returns the version unchanged.\n\nOn a multivariate flag this sets how many of the matching users or groups get a variant at all. It does not change how the variants are split between them. When the user asks for a bare percentage on a multivariate flag, ask which of the two they mean. Use `update-feature-flag` to change the split between variants.\n\nReturns 400 when the flag has no release condition at that index, or when the percentage is outside 0 through 100. Returns 409 when an approval policy gates rollout changes.",
+    "requiredScopes": ["feature_flag:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/feature-flags/client.ts",
+    "input": {
+        "name": "FeatureFlagsSetReleaseConditionRolloutInput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/set-release-condition-rollout.ts",
+        "declaration": "dist/generated/feature-flags/set-release-condition-rollout.d.ts"
+    },
+    "output": {
+        "name": "FeatureFlagsSetReleaseConditionRolloutOutput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/set-release-condition-rollout.ts",
+        "declaration": "dist/generated/feature-flags/set-release-condition-rollout.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FeatureFlagsSetReleaseConditionRolloutDataFilters",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/set-release-condition-rollout.ts",
+            "declaration": "dist/generated/feature-flags/set-release-condition-rollout.d.ts"
+        },
+        {
+            "name": "FeatureFlagsSetReleaseConditionRolloutData",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/set-release-condition-rollout.ts",
+            "declaration": "dist/generated/feature-flags/set-release-condition-rollout.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Set what percentage of one release condition's audience a feature flag is served to.\n\nChanges `rollout_percentage` on the release condition at `condition_index` and nothing\nelse. The condition's property filters, every other condition, the variants, payloads,\nholdout and every remaining field are left as they are.\n\nSend the `version` your last read returned. A change to the flag after that version is\nrefused with 409, because a condition index only names the condition you read. Read the\nflag again and decide the percentage against its current definition.\n\nOn a multivariate flag this sets how many of the matching users get a variant at all. It\ndoes not change how the variants are split between them.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1{id}~1set_release_condition_rollout~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Set what percentage of one release condition's audience a feature flag is served to. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nChanges `rollout_percentage` on the release condition at `condition_index` and nothing else. This tool never accepts or replaces the `filters` object, so the condition's property filters, the other conditions, the variants and the payloads cannot change.\n\nCheck `aggregation_group_type_index` on the condition, and on `filters` when the condition sets none. When it is set, the flag buckets groups of that type instead of people, so 25 serves 25% of those groups rather than 25% of users. Say groups when you report the change.\n\nRead the flag first. `condition_index` counts the conditions in `filters.groups` from 0, and only the definition you read says which condition is which, so never guess an index on a flag with more than one condition. Send the `version` that same read returned. Returns 409 when anyone changed the flag after that version, and writes nothing. Read the flag again, check the conditions still mean what you thought, and call again with the new version. Do not retry with the same version: after a call writes a change that version is no longer current, so a blind retry is the same 409. A call that sets the percentage the condition already has writes nothing and returns the version unchanged.\n\nOn a multivariate flag this sets how many of the matching users or groups get a variant at all. It does not change how the variants are split between them. When the user asks for a bare percentage on a multivariate flag, ask which of the two they mean. Use `update-feature-flag` to change the split between variants.\n\nReturns 400 when the flag has no release condition at that index, or when the percentage is outside 0 through 100. Returns 409 when an approval policy gates rollout changes.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/feature_flags/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FeatureFlagsSetReleaseConditionRolloutInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this feature flag.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this feature flag.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1{id}~1set_release_condition_rollout~1/post/parameters/0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsSetReleaseConditionRolloutInput",
+            "field": "condition_index",
+            "effectiveDescription": "Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagSetReleaseConditionRolloutRequest/properties/condition_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsSetReleaseConditionRolloutInput",
+            "field": "rollout_percentage",
+            "effectiveDescription": "Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage of the users matching that condition who are served the flag, 0 through 100. On a multivariate flag this is how many matching users get a variant at all, not how the variants are split between them. Fractional percentages such as 0.5 are accepted, the same as a write that sends `filters`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagSetReleaseConditionRolloutRequest/properties/rollout_percentage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsSetReleaseConditionRolloutInput",
+            "field": "version",
+            "effectiveDescription": "The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlagSetReleaseConditionRolloutRequest/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsSetReleaseConditionRolloutData",
+            "effectiveDescription": "Serializer mixin that handles tags for objects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer mixin that handles tags for objects.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlag"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsSetReleaseConditionRolloutData",
+            "field": "archived",
+            "effectiveDescription": "Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlag/properties/archived"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsSetReleaseConditionRolloutData",
+            "field": "status",
+            "effectiveDescription": "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlag/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsSetReleaseConditionRolloutData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL of this resource in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL of this resource in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "feature-flag-get-definition-by-key",
+            "method": "flags.featureFlagGetDefinitionByKey"
+        },
+        {
+            "toolName": "feature-flag-get-all",
+            "method": "featureFlags.list"
+        },
+        {
+            "toolName": "update-feature-flag",
+            "method": "featureFlags.updateFeatureFlag"
+        }
+    ]
+}

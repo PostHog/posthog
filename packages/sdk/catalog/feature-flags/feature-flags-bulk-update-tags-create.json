@@ -1,0 +1,136 @@
+{
+    "method": "featureFlags.featureFlagsBulkUpdateTagsCreate",
+    "toolName": "feature-flags-bulk-update-tags-create",
+    "operationId": "feature_flags_bulk_update_tags_create",
+    "title": "Bulk update tags on feature flags",
+    "category": "Feature flags",
+    "description": "Add, remove, or replace tags on multiple feature flags in one call. Provide `ids` (up to 500), an `action` ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-flag final tag list) and `skipped` (flags missing or without edit permission, with reason).",
+    "requiredScopes": ["feature_flag:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/feature-flags/client.ts",
+    "input": {
+        "name": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateInput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/feature-flags-bulk-update-tags-create.ts",
+        "declaration": "dist/generated/feature-flags/feature-flags-bulk-update-tags-create.d.ts"
+    },
+    "output": {
+        "name": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateOutput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/feature-flags-bulk-update-tags-create.ts",
+        "declaration": "dist/generated/feature-flags/feature-flags-bulk-update-tags-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-bulk-update-tags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-bulk-update-tags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateRequestSchema1",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-bulk-update-tags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-bulk-update-tags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateInputAction",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-bulk-update-tags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-bulk-update-tags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateResponseShape2",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-bulk-update-tags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-bulk-update-tags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateResponseShape3",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-bulk-update-tags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-bulk-update-tags-create.d.ts"
+        },
+        {
+            "name": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateData",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/feature-flags-bulk-update-tags-create.ts",
+            "declaration": "dist/generated/feature-flags/feature-flags-bulk-update-tags-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Bulk update tags on multiple objects.\n\nPAT access: this action has no ``required_scopes=`` on the decorator —\ninheriting viewsets must add ``\"bulk_update_tags\"`` to their\n``scope_object_write_actions`` list to accept personal API keys.\nWithout that opt-in, ``APIScopePermission`` rejects PAT requests with\n\"This action does not support personal API key access\". Done per-viewset\nso granting ``<scope>:write`` for one resource doesn't leak access to\nsibling resources that share this mixin.\n\nAccepts:\n- {\"ids\": [...], \"action\": \"add\"|\"remove\"|\"set\", \"tags\": [\"tag1\", \"tag2\"]}\n\nActions:\n- \"add\": Add tags to existing tags on each object\n- \"remove\": Remove specific tags from each object\n- \"set\": Replace all tags on each object with the provided list",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1bulk_update_tags~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Add, remove, or replace tags on multiple feature flags in one call. Provide `ids` (up to 500), an `action` ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-flag final tag list) and `skipped` (flags missing or without edit permission, with reason).",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/feature_flags/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateInput",
+            "field": "ids",
+            "effectiveDescription": "List of object IDs to update tags on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "List of object IDs to update tags on.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_flags/bulk_update_tags/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateInput",
+            "field": "action",
+            "effectiveDescription": "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n* `add` - add\n* `remove` - remove\n* `set` - set",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_flags/bulk_update_tags/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsFeatureFlagsBulkUpdateTagsCreateInput",
+            "field": "tags",
+            "effectiveDescription": "Tag names to add, remove, or set (up to 100 per request, 255 characters each).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tag names to add, remove, or set (up to 100 per request, 255 characters each).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/feature_flags/bulk_update_tags/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

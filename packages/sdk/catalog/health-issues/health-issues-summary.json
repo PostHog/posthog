@@ -1,0 +1,186 @@
+{
+    "method": "healthIssues.healthIssuesSummary",
+    "toolName": "health-issues-summary",
+    "operationId": "health_issues_summary_retrieve",
+    "title": "Summarize health issues",
+    "category": "Health",
+    "description": "Returns aggregated counts of active, non-dismissed health issues for the project, broken down by severity and by kind. Use for a quick overall health check before drilling into specifics with the list tool.",
+    "requiredScopes": ["health_issue:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/health-issues/client.ts",
+    "input": {
+        "name": "HealthIssuesHealthIssuesSummaryInput",
+        "importPath": "@posthog/sdk/health-issues",
+        "source": "src/generated/health-issues/health-issues-summary.ts",
+        "declaration": "dist/generated/health-issues/health-issues-summary.d.ts"
+    },
+    "output": {
+        "name": "HealthIssuesHealthIssuesSummaryOutput",
+        "importPath": "@posthog/sdk/health-issues",
+        "source": "src/generated/health-issues/health-issues-summary.ts",
+        "declaration": "dist/generated/health-issues/health-issues-summary.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "HealthIssuesHealthIssuesSummaryResponseShape3",
+            "importPath": "@posthog/sdk/health-issues",
+            "source": "src/generated/health-issues/health-issues-summary.ts",
+            "declaration": "dist/generated/health-issues/health-issues-summary.d.ts"
+        },
+        {
+            "name": "HealthIssuesHealthIssuesSummaryResponseShape4",
+            "importPath": "@posthog/sdk/health-issues",
+            "source": "src/generated/health-issues/health-issues-summary.ts",
+            "declaration": "dist/generated/health-issues/health-issues-summary.d.ts"
+        },
+        {
+            "name": "HealthIssuesHealthIssuesSummaryResponseShape2",
+            "importPath": "@posthog/sdk/health-issues",
+            "source": "src/generated/health-issues/health-issues-summary.ts",
+            "declaration": "dist/generated/health-issues/health-issues-summary.d.ts"
+        },
+        {
+            "name": "HealthIssuesHealthIssuesSummaryData",
+            "importPath": "@posthog/sdk/health-issues",
+            "source": "src/generated/health-issues/health-issues-summary.ts",
+            "declaration": "dist/generated/health-issues/health-issues-summary.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Returns aggregated counts of active, non-dismissed health issues for the project, split into `unsnoozed` and `snoozed` groups and broken down by severity and by kind within each. Use for a quick overview of overall project health before drilling in with the list endpoint.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1health_issues~1summary~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Returns aggregated counts of active, non-dismissed health issues for the project, broken down by severity and by kind. Use for a quick overall health check before drilling into specifics with the list tool.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/health_issues.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "HealthIssuesHealthIssuesSummaryResponseShape2",
+            "field": "total",
+            "effectiveDescription": "Total number of issues in this group.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total number of issues in this group.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/health_issues.ts",
+                        "pointer": "#/Shape2/properties/total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "HealthIssuesHealthIssuesSummaryResponseShape2",
+            "field": "by_severity",
+            "effectiveDescription": "Count of issues in this group keyed by severity ('critical', 'warning', 'info').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count of issues in this group keyed by severity ('critical', 'warning', 'info').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/health_issues.ts",
+                        "pointer": "#/Shape2/properties/by_severity"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "HealthIssuesHealthIssuesSummaryResponseShape2",
+            "field": "by_kind",
+            "effectiveDescription": "Count of issues in this group keyed by check kind (e.g. 'sdk_outdated').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count of issues in this group keyed by check kind (e.g. 'sdk_outdated').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/health_issues.ts",
+                        "pointer": "#/Shape2/properties/by_kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "HealthIssuesHealthIssuesSummaryResponseShape3",
+            "effectiveDescription": "Count of issues in this group keyed by severity ('critical', 'warning', 'info').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count of issues in this group keyed by severity ('critical', 'warning', 'info').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/health_issues.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "HealthIssuesHealthIssuesSummaryResponseShape4",
+            "effectiveDescription": "Count of issues in this group keyed by check kind (e.g. 'sdk_outdated').",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count of issues in this group keyed by check kind (e.g. 'sdk_outdated').",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/health_issues.ts",
+                        "pointer": "#/Shape4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "HealthIssuesHealthIssuesSummaryData",
+            "field": "unsnoozed",
+            "effectiveDescription": "Counts for active, non-dismissed issues that are not currently snoozed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counts for active, non-dismissed issues that are not currently snoozed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/health_issues.ts",
+                        "pointer": "#/Shape1/properties/unsnoozed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "HealthIssuesHealthIssuesSummaryData",
+            "field": "snoozed",
+            "effectiveDescription": "Counts for active, non-dismissed issues whose snooze has not expired yet. Reported separately so callers can decide for themselves whether a snoozed issue is worth surfacing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counts for active, non-dismissed issues whose snooze has not expired yet. Reported separately so callers can decide for themselves whether a snoozed issue is worth surfacing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/health_issues.ts",
+                        "pointer": "#/Shape1/properties/snoozed"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

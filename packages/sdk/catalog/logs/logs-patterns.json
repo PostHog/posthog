@@ -1,0 +1,549 @@
+{
+    "method": "logs.logsPatterns",
+    "toolName": "logs-patterns",
+    "operationId": "logs_patterns_create",
+    "title": "Mine log patterns",
+    "category": "Logs",
+    "description": "Mine recurring log templates (\"patterns\") from the logs matching a filter set, ordered by frequency. Each pattern is a message template with the variable parts masked — e.g. `Connected to <ip> in <num>ms` — plus occurrence estimates, severity mix, the services it appears in, and a ready-made predicate for fetching its matching lines.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"serviceNames\": [\"api\"], \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nThis is the fastest way to understand what a log stream is _saying_ without reading raw rows: one call summarizes millions of lines into at most 200 templates.\n\n# When to use\n\n- To triage an unfamiliar or noisy stream: mine the last hour, scan the top templates by `estimated_count`, and look for anything with a non-zero error share in `severity_counts`.\n- To find what's new or dominant during an incident window: mine with `severityLevels: [\"error\", \"fatal\"]` and a `dateRange` covering the incident.\n- As the entry point of a drill-down loop: mine → pick a suspicious pattern → filter logs to exactly its lines using `match_patterns`, or `match_regex` and `match_literal` when it is empty (see below) → read the raw rows with `query-logs`.\n- To quantify repetition before proposing log sampling or cleanup: `volume_share_pct` tells you how much of the stream one template accounts for.\n\n## Pick the right tool\n\n- Raw log lines matching a filter → `query-logs`.\n- A single number (how many logs match) → `logs-count`; per-time-bucket counts → `logs-count-ranges`.\n- Distribution of a dimension (which services emit the errors?) → `logs-facet-values-create`.\n- Use **this** tool to summarize message _content_ — what distinct things the logs say and how often.\n\n# Reading the response\n\n- `source` reports what was used: `stored_patterns` for exact stored-pattern aggregation followed by Drain3 grouping, or `body_mining` for body masking and Drain3. Include this distinction in your answer.\n- `pattern_version` identifies the version used for stored patterns. `fallback_reason` explains body mining: flag disabled, insufficient version coverage, an empty window, or comparison mode.\n- The `logs_patterns_query_v2` flag enables the stored-pattern path only when one version supplies nonempty patterns for at least 99% of **all** matching rows. This is the dominant version, not necessarily the newest.\n- On the stored-pattern path, `represented_count` counts the rows in the returned groups. `remainder_count` accounts for other versions, unstamped rows, the long tail and groups outside the display limit. Report this remainder rather than implying the returned groups cover everything.\n- `pattern` — the template. Body mining masks `<uuid>`, `<ip>`, `<hex>`, `<num>`, and `<*>` for any word position that varied. Stored patterns use the ingestion vocabulary instead: `<N>`, `<TIMESTAMP>`, `<KLOGTIME>`, `<UUID>`, `<IP>`, `<HOST>`, `<HEX>`, `<ID>`, `<EMAIL>`, `<JSON_ARRAY>`, and `<JSON:keys>` for a JSON body reduced to its key set.\n- `estimated_count` / `estimated_error_count` — occurrences extrapolated to the full window. When `sampled` is false these are exact.\n- `severity_counts` — occurrences per severity, never extrapolated: sample counts when `sampled` is true, exact counts over every matching row otherwise. A template split across `info` and `error` often means the same code path logging both outcomes.\n- `services` — up to 4 service names the pattern was seen in.\n- `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the raw bodies of the pattern's own sampled rows. Always null on the stored-pattern path, which pivots with `match_patterns` instead, and null on the mining path when no trustworthy regex could be compiled. For JSON logs the pattern is mined from the extracted message field, so the regex may be unanchored, because the message is a substring of the raw line. It still targets the raw stored body.\n- `match_literal` — longest literal run of the template, a plain-text fallback when `match_regex` is null. Also null on the stored-pattern path.\n\nMining samples the window (`sampled: true` when it did): counts are estimates, and rare patterns (below roughly 1 in `scanned_count` of the volume) may be missing entirely. Narrow the `dateRange` or filters to mine a finer-grained sample.\n\n## Pivoting to a pattern's raw lines\n\nTo fetch the lines behind a pattern, call `query-logs` with the appropriate filters in `filterGroup`:\n\n- If `match_patterns` is nonempty, use **both** exact filters instead of a message predicate: `{ \"key\": \"pattern\", \"value\": [\"<canonical member>\", \"...\"], \"operator\": \"exact\", \"type\": \"log\" }` and `{ \"key\": \"pattern_version\", \"value\": 3, \"operator\": \"exact\", \"type\": \"log\" }`. Substitute the returned members and version, and combine the filters with AND. Keep the original time range and filters. Do not narrow these exact groups using example services or severities.\n- If `match_regex` is set: `{ \"key\": \"message\", \"value\": \"<match_regex>\", \"operator\": \"regex\", \"type\": \"log\" }`\n- Else if `match_literal` is set: `{ \"key\": \"message\", \"value\": \"<match_literal>\", \"operator\": \"icontains\", \"type\": \"log\" }`\n\nFor body-mined patterns, also pass the pattern's `services` as `serviceNames` and (when every entry is one of trace/debug/info/warn/error/fatal) the keys of `severity_counts` as `severityLevels` — both make the query dramatically cheaper.\n\n# Parameters\n\n## query.dateRange\n\nDate range to mine. Defaults to the last hour (`-1h`).\n\n- `date_from`: ISO 8601 timestamp or relative format: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: Same format. Omit or null for \"now\".\n\n## query.severityLevels\n\nMine only these severities: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.serviceNames\n\nRestrict mining to these services. Recommended once you know the target service — it prunes the scan and spends the whole sample budget on one service's templates.\n\n## query.searchTerm\n\nFull-text search over log bodies applied before mining. Useful to mine only the sub-stream around a keyword (e.g. `timeout`).\n\n## query.filterGroup\n\nProperty filters applied before mining. Same format as `query-logs` filters.\n\n# Examples\n\n## What is this stream saying? (last hour, everything)\n\n```json\n{ \"query\": { \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\n## Dominant error templates during an incident\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"2024-01-15T09:00:00Z\", \"date_to\": \"2024-01-15T11:00:00Z\" }\n  }\n}\n```\n\n## Mine one service's logs around a keyword\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"checkout\"],\n    \"searchTerm\": \"payment\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```",
+    "requiredScopes": ["logs:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsPatternsInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-patterns.ts",
+        "declaration": "dist/generated/logs/logs-patterns.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsPatternsOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-patterns.ts",
+        "declaration": "dist/generated/logs/logs-patterns.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsPatternsRequestSchema2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema4Item",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema8",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema10ItemType",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema10ItemOperator",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema10Item",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema10",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema12",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema13",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsRequestSchema15",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsInputQuery",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        },
+        {
+            "name": "LogsLogsPatternsData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-patterns.ts",
+            "declaration": "dist/generated/logs/logs-patterns.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Mine recurring log templates (\"patterns\") from the logs matching a filter set, ordered by frequency. Each pattern is a message template with the variable parts masked — e.g. `Connected to <ip> in <num>ms` — plus occurrence estimates, severity mix, the services it appears in, and a ready-made predicate for fetching its matching lines.\n\nAll parameters go inside `query` — top-level fields are rejected:\n\n```json\n{ \"query\": { \"serviceNames\": [\"api\"], \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\nThis is the fastest way to understand what a log stream is _saying_ without reading raw rows: one call summarizes millions of lines into at most 200 templates.\n\n# When to use\n\n- To triage an unfamiliar or noisy stream: mine the last hour, scan the top templates by `estimated_count`, and look for anything with a non-zero error share in `severity_counts`.\n- To find what's new or dominant during an incident window: mine with `severityLevels: [\"error\", \"fatal\"]` and a `dateRange` covering the incident.\n- As the entry point of a drill-down loop: mine → pick a suspicious pattern → filter logs to exactly its lines using `match_patterns`, or `match_regex` and `match_literal` when it is empty (see below) → read the raw rows with `query-logs`.\n- To quantify repetition before proposing log sampling or cleanup: `volume_share_pct` tells you how much of the stream one template accounts for.\n\n## Pick the right tool\n\n- Raw log lines matching a filter → `query-logs`.\n- A single number (how many logs match) → `logs-count`; per-time-bucket counts → `logs-count-ranges`.\n- Distribution of a dimension (which services emit the errors?) → `logs-facet-values-create`.\n- Use **this** tool to summarize message _content_ — what distinct things the logs say and how often.\n\n# Reading the response\n\n- `source` reports what was used: `stored_patterns` for exact stored-pattern aggregation followed by Drain3 grouping, or `body_mining` for body masking and Drain3. Include this distinction in your answer.\n- `pattern_version` identifies the version used for stored patterns. `fallback_reason` explains body mining: flag disabled, insufficient version coverage, an empty window, or comparison mode.\n- The `logs_patterns_query_v2` flag enables the stored-pattern path only when one version supplies nonempty patterns for at least 99% of **all** matching rows. This is the dominant version, not necessarily the newest.\n- On the stored-pattern path, `represented_count` counts the rows in the returned groups. `remainder_count` accounts for other versions, unstamped rows, the long tail and groups outside the display limit. Report this remainder rather than implying the returned groups cover everything.\n- `pattern` — the template. Body mining masks `<uuid>`, `<ip>`, `<hex>`, `<num>`, and `<*>` for any word position that varied. Stored patterns use the ingestion vocabulary instead: `<N>`, `<TIMESTAMP>`, `<KLOGTIME>`, `<UUID>`, `<IP>`, `<HOST>`, `<HEX>`, `<ID>`, `<EMAIL>`, `<JSON_ARRAY>`, and `<JSON:keys>` for a JSON body reduced to its key set.\n- `estimated_count` / `estimated_error_count` — occurrences extrapolated to the full window. When `sampled` is false these are exact.\n- `severity_counts` — occurrences per severity, never extrapolated: sample counts when `sampled` is true, exact counts over every matching row otherwise. A template split across `info` and `error` often means the same code path logging both outcomes.\n- `services` — up to 4 service names the pattern was seen in.\n- `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the raw bodies of the pattern's own sampled rows. Always null on the stored-pattern path, which pivots with `match_patterns` instead, and null on the mining path when no trustworthy regex could be compiled. For JSON logs the pattern is mined from the extracted message field, so the regex may be unanchored, because the message is a substring of the raw line. It still targets the raw stored body.\n- `match_literal` — longest literal run of the template, a plain-text fallback when `match_regex` is null. Also null on the stored-pattern path.\n\nMining samples the window (`sampled: true` when it did): counts are estimates, and rare patterns (below roughly 1 in `scanned_count` of the volume) may be missing entirely. Narrow the `dateRange` or filters to mine a finer-grained sample.\n\n## Pivoting to a pattern's raw lines\n\nTo fetch the lines behind a pattern, call `query-logs` with the appropriate filters in `filterGroup`:\n\n- If `match_patterns` is nonempty, use **both** exact filters instead of a message predicate: `{ \"key\": \"pattern\", \"value\": [\"<canonical member>\", \"...\"], \"operator\": \"exact\", \"type\": \"log\" }` and `{ \"key\": \"pattern_version\", \"value\": 3, \"operator\": \"exact\", \"type\": \"log\" }`. Substitute the returned members and version, and combine the filters with AND. Keep the original time range and filters. Do not narrow these exact groups using example services or severities.\n- If `match_regex` is set: `{ \"key\": \"message\", \"value\": \"<match_regex>\", \"operator\": \"regex\", \"type\": \"log\" }`\n- Else if `match_literal` is set: `{ \"key\": \"message\", \"value\": \"<match_literal>\", \"operator\": \"icontains\", \"type\": \"log\" }`\n\nFor body-mined patterns, also pass the pattern's `services` as `serviceNames` and (when every entry is one of trace/debug/info/warn/error/fatal) the keys of `severity_counts` as `severityLevels` — both make the query dramatically cheaper.\n\n# Parameters\n\n## query.dateRange\n\nDate range to mine. Defaults to the last hour (`-1h`).\n\n- `date_from`: ISO 8601 timestamp or relative format: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: Same format. Omit or null for \"now\".\n\n## query.severityLevels\n\nMine only these severities: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.serviceNames\n\nRestrict mining to these services. Recommended once you know the target service — it prunes the scan and spends the whole sample budget on one service's templates.\n\n## query.searchTerm\n\nFull-text search over log bodies applied before mining. Useful to mine only the sub-stream around a keyword (e.g. `timeout`).\n\n## query.filterGroup\n\nProperty filters applied before mining. Same format as `query-logs` filters.\n\n# Examples\n\n## What is this stream saying? (last hour, everything)\n\n```json\n{ \"query\": { \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\n## Dominant error templates during an incident\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"2024-01-15T09:00:00Z\", \"date_to\": \"2024-01-15T11:00:00Z\" }\n  }\n}\n```\n\n## Mine one service's logs around a keyword\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"checkout\"],\n    \"searchTerm\": \"payment\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```",
+            "source": {
+                "kind": "description_file",
+                "file": "products/logs/mcp/prompts/logs-patterns.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema0",
+            "effectiveDescription": "Date range to mine patterns from. Defaults to last hour.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range to mine patterns from. Defaults to last hour.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema0",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema1/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema0",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema1/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema4",
+            "effectiveDescription": "Filter by log severity levels before mining.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by log severity levels before mining.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema4",
+            "field": "[]",
+            "effectiveDescription": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema5/items"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema6",
+            "effectiveDescription": "Restrict mining to these service names.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Restrict mining to these service names.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema8",
+            "effectiveDescription": "Full-text search term to filter log bodies before mining.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Full-text search term to filter log bodies before mining.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema10",
+            "effectiveDescription": "Property filters applied before mining. Same shape as the query-logs endpoint.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters applied before mining. Same shape as the query-logs endpoint.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema10",
+            "field": "[].key",
+            "effectiveDescription": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema11/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema10",
+            "field": "[].type",
+            "effectiveDescription": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema11/items/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema10",
+            "field": "[].operator",
+            "effectiveDescription": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema11/items/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema10",
+            "field": "[].value",
+            "effectiveDescription": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema11/items/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema13",
+            "effectiveDescription": "Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scope mining to one person (UUID or numeric ID). Expanded server-side to the person's distinct IDs and matched against the team's configured distinct-id log attribute keys.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsRequest_Schema15",
+            "effectiveDescription": "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scope mining to one session ID. Matched server-side against the team's configured session-id log attribute keys plus the built-in conventions, in both log attributes and resource attributes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsInput",
+            "field": "query",
+            "effectiveDescription": "The patterns query to execute.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The patterns query to execute.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/patterns/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsData",
+            "field": "source",
+            "effectiveDescription": "Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.\n\n* `stored_patterns` - stored_patterns\n* `body_mining` - body_mining",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether counts come from stored-pattern aggregation or body masking and Drain3 mining.\n\n* `stored_patterns` - stored_patterns\n* `body_mining` - body_mining",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsData",
+            "field": "pattern_version",
+            "effectiveDescription": "Stored pattern version used. Null for body mining.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stored pattern version used. Null for body mining.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/pattern_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsData",
+            "field": "fallback_reason",
+            "effectiveDescription": "Why body mining was used. Null for stored-pattern aggregation.\n\n* `flag_disabled` - flag_disabled\n* `insufficient_version_coverage` - insufficient_version_coverage\n* `empty_window` - empty_window\n* `comparison` - comparison",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why body mining was used. Null for stored-pattern aggregation.\n\n* `flag_disabled` - flag_disabled\n* `insufficient_version_coverage` - insufficient_version_coverage\n* `empty_window` - empty_window\n* `comparison` - comparison",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/fallback_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsData",
+            "field": "pattern_coverage_pct",
+            "effectiveDescription": "Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage of all matching rows with a nonempty pattern at the selected version. Null for body mining.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/pattern_coverage_pct"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsData",
+            "field": "represented_count",
+            "effectiveDescription": "Exact rows represented by the returned stored-pattern groups. Null for body mining.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact rows represented by the returned stored-pattern groups. Null for body mining.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/represented_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsData",
+            "field": "remainder_count",
+            "effectiveDescription": "Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Matching rows outside returned groups, including other versions, unstamped rows and the long tail. Null for body mining.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/remainder_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsData",
+            "field": "scanned_count",
+            "effectiveDescription": "Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows scanned: the sample size for body mining, or the full matching count for stored-pattern aggregation.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/scanned_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsData",
+            "field": "total_count",
+            "effectiveDescription": "Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/total_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsData",
+            "field": "sampled",
+            "effectiveDescription": "True when the window held more rows than the sample cap, so patterns were mined from a deterministic, evenly-distributed sample rather than every matching row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the window held more rows than the sample cap, so patterns were mined from a deterministic, evenly-distributed sample rather than every matching row.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/sampled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsPatternsData",
+            "field": "sample_coverage_pct",
+            "effectiveDescription": "Share of the window's log rows that were eligible for sampling (0–100). Below 100, the scan was bounded to evenly-spaced time slices across the window to keep the query within its execution budget; rows outside the slices could not appear in the sample.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Share of the window's log rows that were eligible for sampling (0–100). Below 100, the scan was bounded to evenly-spaced time slices across the window to keep the query within its execution budget; rows outside the slices could not appear in the sample.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/sample_coverage_pct"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "query-logs",
+            "method": "logs.queryLogs"
+        },
+        {
+            "toolName": "logs-count",
+            "method": "logs.logsCount"
+        },
+        {
+            "toolName": "logs-count-ranges",
+            "method": "logs.logsCountRanges"
+        },
+        {
+            "toolName": "logs-facet-values-create",
+            "method": "logs.logsFacetValuesCreate"
+        }
+    ]
+}

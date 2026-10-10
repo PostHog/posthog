@@ -1,0 +1,425 @@
+{
+    "method": "featureFlags.list",
+    "toolName": "feature-flag-get-all",
+    "operationId": "feature_flags_list",
+    "title": "Get all feature flags",
+    "category": "Feature flags",
+    "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools. Pass `active: \"STALE\"` to list only stale flags. PostHog calls a flag stale when it is enabled and was last called over 30 days ago, or was never called, is over 30 days old and is rolled out to everyone. The filter does not return a never-called flag with an empty `groups` list in `filters`, even when `feature-flags-status-retrieve` calls it stale. Stale flags are cleanup candidates, not proof that a flag is unused. Disabled flags are not checked for staleness, so `status: ACTIVE` on a disabled flag is expected. Each row carries `status`, `last_called_at`, `active` and `created_at`. For the reason behind one flag's status, and its rollout summary, use `feature-flags-status-retrieve`.",
+    "requiredScopes": ["feature_flag:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/feature-flags/client.ts",
+    "input": {
+        "name": "FeatureFlagsListInput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/list.ts",
+        "declaration": "dist/generated/feature-flags/list.d.ts"
+    },
+    "output": {
+        "name": "FeatureFlagsListOutput",
+        "importPath": "@posthog/sdk/feature-flags",
+        "source": "src/generated/feature-flags/list.ts",
+        "declaration": "dist/generated/feature-flags/list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "FeatureFlagsListInputActive",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/list.ts",
+            "declaration": "dist/generated/feature-flags/list.d.ts"
+        },
+        {
+            "name": "FeatureFlagsListInputArchived",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/list.ts",
+            "declaration": "dist/generated/feature-flags/list.d.ts"
+        },
+        {
+            "name": "FeatureFlagsListInputEligibleForExperiment",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/list.ts",
+            "declaration": "dist/generated/feature-flags/list.d.ts"
+        },
+        {
+            "name": "FeatureFlagsListInputEvaluationRuntime",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/list.ts",
+            "declaration": "dist/generated/feature-flags/list.d.ts"
+        },
+        {
+            "name": "FeatureFlagsListInputHasEvaluationContexts",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/list.ts",
+            "declaration": "dist/generated/feature-flags/list.d.ts"
+        },
+        {
+            "name": "FeatureFlagsListInputType",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/list.ts",
+            "declaration": "dist/generated/feature-flags/list.d.ts"
+        },
+        {
+            "name": "FeatureFlagsListDataResultsItem",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/list.ts",
+            "declaration": "dist/generated/feature-flags/list.d.ts"
+        },
+        {
+            "name": "FeatureFlagsListData",
+            "importPath": "@posthog/sdk/feature-flags",
+            "source": "src/generated/feature-flags/list.ts",
+            "declaration": "dist/generated/feature-flags/list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.\n\nIf you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools. Pass `active: \"STALE\"` to list only stale flags. PostHog calls a flag stale when it is enabled and was last called over 30 days ago, or was never called, is over 30 days old and is rolled out to everyone. The filter does not return a never-called flag with an empty `groups` list in `filters`, even when `feature-flags-status-retrieve` calls it stale. Stale flags are cleanup candidates, not proof that a flag is unused. Disabled flags are not checked for staleness, so `status: ACTIVE` on a disabled flag is expected. Each row carries `status`, `last_called_at`, `active` and `created_at`. For the reason behind one flag's status, and its rollout summary, use `feature-flags-status-retrieve`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/feature_flags/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "active",
+            "effectiveDescription": "Filter by flag state. `\"true\"` returns enabled flags, `\"false\"` returns disabled flags, and `\"STALE\"` returns enabled flags that PostHog classifies as stale.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'true' and 'false' filter on serving state, the flag's `active` column. 'STALE' returns enabled flags only, so a disabled flag is never STALE. An enabled flag matches when its last recorded `$feature_flag_called` event is more than 30 days old. With no recorded event, it matches when it is at least 30 days old and either stores `filters` as `{}` or serves one result to everyone through a release condition at 100% with no property filters. A flag with no recorded event and an empty `groups` list does not match, even when its `status` reads STALE. The reverse also happens: a multivariate flag matches when a variant is at 100% under a release condition at 100% with no property filters, or when that condition names a variant. Its `status` can still read ACTIVE, because an earlier variant in the list or an earlier targeted condition can serve a different result. In a flag of either type that mixes person and group aggregation, the filter also counts a group-aggregated condition at 100% with no property filters, which `status` does not. An SDK that sends no `$feature_flag_called` event leaves no record, so a STALE flag can still be in use.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/0"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Filter by flag state. `\"true\"` returns enabled flags, `\"false\"` returns disabled flags, and `\"STALE\"` returns enabled flags that PostHog classifies as stale.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/feature_flags/mcp/tools.yaml",
+                        "pointer": "/tools/feature-flag-get-all/param_overrides/active/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "archived",
+            "effectiveDescription": "Filter by archived state. When omitted, archived flags are excluded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by archived state. When omitted, archived flags are excluded.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "created_by_id",
+            "effectiveDescription": "Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "eligible_for_experiment",
+            "effectiveDescription": "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "evaluation_runtime",
+            "effectiveDescription": "Filter feature flags by their evaluation runtime.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter feature flags by their evaluation runtime.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "excluded_properties",
+            "effectiveDescription": "JSON-encoded list of feature flag keys to exclude from the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded list of feature flag keys to exclude from the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "excluded_tags",
+            "effectiveDescription": "JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "has_evaluation_contexts",
+            "effectiveDescription": "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "key",
+            "effectiveDescription": "Filter by exact feature flag key match. Case insensitive.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by exact feature flag key match. Case insensitive.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "limit",
+            "effectiveDescription": "Number of results to return per page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of results to return per page.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "offset",
+            "effectiveDescription": "The initial index from which to return the results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The initial index from which to return the results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "search",
+            "effectiveDescription": "Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/12"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete tools.",
+                    "source": {
+                        "kind": "mcp_yaml",
+                        "file": "products/feature_flags/mcp/tools.yaml",
+                        "pointer": "/tools/feature-flag-get-all/param_overrides/search/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListInput",
+            "field": "tags",
+            "effectiveDescription": "JSON-encoded list of tag names to filter feature flags by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "JSON-encoded list of tag names to filter feature flags by.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/paths/~1api~1projects~1{project_id}~1feature_flags~1/get/parameters/13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListData",
+            "field": "results[]",
+            "effectiveDescription": "Serializer mixin that handles tags for objects.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serializer mixin that handles tags for objects.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlag"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListData",
+            "field": "results[].name",
+            "effectiveDescription": "contains the description for the flag (field name `name` is kept for backwards-compatibility)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "contains the description for the flag (field name `name` is kept for backwards-compatibility)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlag/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListData",
+            "field": "results[].status",
+            "effectiveDescription": "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the serving state. Read the `active` field for that. A disabled flag that is not archived or deleted reports ACTIVE, because disabled flags are not evaluated for staleness.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlag/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListData",
+            "field": "results[].last_called_at",
+            "effectiveDescription": "Last time this feature flag was called (from $feature_flag_called events)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Last time this feature flag was called (from $feature_flag_called events)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/FeatureFlag/properties/last_called_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListData",
+            "field": "results[]._posthogUrl",
+            "effectiveDescription": "URL of this resource in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL of this resource in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "FeatureFlagsListData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL of this resource in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL of this resource in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "feature-flags-status-retrieve",
+            "method": "featureFlags.status"
+        }
+    ]
+}

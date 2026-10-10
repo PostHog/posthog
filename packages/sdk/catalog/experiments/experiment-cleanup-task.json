@@ -1,0 +1,138 @@
+{
+    "method": "experiments.experimentCleanupTask",
+    "toolName": "experiment-cleanup-task",
+    "operationId": "experiments_flag_cleanup_task_retrieve",
+    "title": "Get flag cleanup task status",
+    "category": "Experiments",
+    "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nStatus of the flag cleanup task opened when this experiment was ended or shipped with open_cleanup_pr=true. Returns run_status, is_terminal, and pr_url: the draft pull request that removes the experiment's feature flag code, null until the task opens it. A cleanup typically takes several minutes; poll until is_terminal is true rather than assuming failure. A terminal run without a pr_url means the task found no flag references to remove, or it failed.\n\nReturns 404 when no cleanup task was opened for this experiment.",
+    "requiredScopes": ["experiment:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/experiments/client.ts",
+    "input": {
+        "name": "ExperimentsExperimentCleanupTaskInput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-cleanup-task.ts",
+        "declaration": "dist/generated/experiments/experiment-cleanup-task.d.ts"
+    },
+    "output": {
+        "name": "ExperimentsExperimentCleanupTaskOutput",
+        "importPath": "@posthog/sdk/experiments",
+        "source": "src/generated/experiments/experiment-cleanup-task.ts",
+        "declaration": "dist/generated/experiments/experiment-cleanup-task.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ExperimentsExperimentCleanupTaskData",
+            "importPath": "@posthog/sdk/experiments",
+            "source": "src/generated/experiments/experiment-cleanup-task.ts",
+            "declaration": "dist/generated/experiments/experiment-cleanup-task.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Status of the flag-cleanup Desktop task opened for this experiment.\n\nWhen an experiment was ended or shipped with open_cleanup_pr=true, a Desktop task\nremoves the experiment's feature-flag code and opens a draft pull request. This\nreturns that task's latest run status and the PR URL once one is opened. Poll\nuntil is_terminal is true. Returns 404 when no cleanup task was opened.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1experiments~1{id}~1flag_cleanup_task~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first.\n\nStatus of the flag cleanup task opened when this experiment was ended or shipped with open_cleanup_pr=true. Returns run_status, is_terminal, and pr_url: the draft pull request that removes the experiment's feature flag code, null until the task opens it. A cleanup typically takes several minutes; poll until is_terminal is true rather than assuming failure. A terminal run without a pr_url means the task found no flag references to remove, or it failed.\n\nReturns 404 when no cleanup task was opened for this experiment.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/experiments/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ExperimentsExperimentCleanupTaskInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this experiment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this experiment.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/experiments/{id}/flag_cleanup_task/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCleanupTaskData",
+            "field": "task_id",
+            "effectiveDescription": "ID of the flag-cleanup Desktop task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the flag-cleanup Desktop task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/task_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCleanupTaskData",
+            "field": "run_status",
+            "effectiveDescription": "Status of the task's latest run.\n\n* `not_started` - not_started\n* `queued` - queued\n* `in_progress` - in_progress\n* `completed` - completed\n* `failed` - failed\n* `cancelled` - cancelled",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Status of the task's latest run.\n\n* `not_started` - not_started\n* `queued` - queued\n* `in_progress` - in_progress\n* `completed` - completed\n* `failed` - failed\n* `cancelled` - cancelled",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/run_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCleanupTaskData",
+            "field": "is_terminal",
+            "effectiveDescription": "Whether the run has finished (successfully or not). Stop polling once true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the run has finished (successfully or not). Stop polling once true.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/is_terminal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ExperimentsExperimentCleanupTaskData",
+            "field": "pr_url",
+            "effectiveDescription": "URL of the pull request the task opened, when it opened one.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL of the pull request the task opened, when it opened one.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/experiments.ts",
+                        "pointer": "#/Shape1/properties/pr_url"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

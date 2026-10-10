@@ -1,0 +1,465 @@
+{
+    "method": "logs.logsAttributesList",
+    "toolName": "logs-attributes-list",
+    "operationId": "logs_attributes_retrieve",
+    "title": "List log attributes",
+    "category": "Logs",
+    "description": "List available log attribute names for filtering. Defaults to attribute_type \"log\" (log-level attributes). To search resource-level attributes (e.g. k8s.pod.name, k8s.namespace.name), you MUST explicitly pass attribute_type: \"resource\" — it will NOT return resource attributes unless you do. Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
+    "requiredScopes": ["logs:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/logs/client.ts",
+    "input": {
+        "name": "LogsLogsAttributesListInput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-attributes-list.ts",
+        "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+    },
+    "output": {
+        "name": "LogsLogsAttributesListOutput",
+        "importPath": "@posthog/sdk/logs",
+        "source": "src/generated/logs/logs-attributes-list.ts",
+        "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "LogsLogsAttributesListRequestSchema0",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema3",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema1",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema4ItemType",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema4ItemOperator",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema4Item",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema4",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema5",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema6",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema7",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema8",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema9",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema10",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListRequestSchema11",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListResponseShape2",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        },
+        {
+            "name": "LogsLogsAttributesListData",
+            "importPath": "@posthog/sdk/logs",
+            "source": "src/generated/logs/logs-attributes-list.ts",
+            "declaration": "dist/generated/logs/logs-attributes-list.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List available log attribute names for filtering. Defaults to attribute_type \"log\" (log-level attributes). To search resource-level attributes (e.g. k8s.pod.name, k8s.namespace.name), you MUST explicitly pass attribute_type: \"resource\" — it will NOT return resource attributes unless you do. Accepts optional serviceNames, dateRange, and filterGroup to narrow which logs are scanned.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/logs/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "LogsLogsAttributesListRequest_Schema1",
+            "field": "date_from",
+            "effectiveDescription": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema1/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListRequest_Schema1",
+            "field": "date_to",
+            "effectiveDescription": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema1/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListRequest_Schema4",
+            "field": "[].key",
+            "effectiveDescription": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema4/items/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListRequest_Schema4",
+            "field": "[].type",
+            "effectiveDescription": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n* `log` - log\n* `log_attribute` - log_attribute\n* `log_resource_attribute` - log_resource_attribute",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema4/items/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListRequest_Schema4",
+            "field": "[].operator",
+            "effectiveDescription": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comparison operator.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `starts_with` - starts_with\n* `not_starts_with` - not_starts_with\n* `ends_with` - ends_with\n* `not_ends_with` - not_ends_with\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `lt` - lt\n* `is_date_exact` - is_date_exact\n* `is_date_before` - is_date_before\n* `is_date_after` - is_date_after\n* `is_set` - is_set\n* `is_not_set` - is_not_set",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema4/items/properties/operator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListRequest_Schema4",
+            "field": "[].value",
+            "effectiveDescription": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Value to compare against. String, number, or array of strings. Omit for is_set/is_not_set operators.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/$defs/__schema4/items/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListInput",
+            "field": "attribute_type",
+            "effectiveDescription": "Type of attributes: \"log\" for log attributes, \"resource\" for resource attributes. Defaults to \"log\".\n\n* `log` - log\n* `resource` - resource",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type of attributes: \"log\" for log attributes, \"resource\" for resource attributes. Defaults to \"log\".\n\n* `log` - log\n* `resource` - resource",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/attributes/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListInput",
+            "field": "dateRange",
+            "effectiveDescription": "Date range to search within. Defaults to last hour.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range to search within. Defaults to last hour.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/attributes/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListInput",
+            "field": "filterGroup",
+            "effectiveDescription": "Property filters to narrow which logs are scanned for attributes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters to narrow which logs are scanned for attributes.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/attributes/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListInput",
+            "field": "keys",
+            "effectiveDescription": "Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/attributes/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListInput",
+            "field": "limit",
+            "effectiveDescription": "Max results (default: 100)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Max results (default: 100)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/attributes/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListInput",
+            "field": "offset",
+            "effectiveDescription": "Pagination offset (default: 0)",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pagination offset (default: 0)",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/attributes/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListInput",
+            "field": "search",
+            "effectiveDescription": "Search filter for attribute names",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Search filter for attribute names",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/attributes/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListInput",
+            "field": "search_values",
+            "effectiveDescription": "When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, the search query also matches attribute values (not just keys). Each result indicates whether it matched on key or value.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/attributes/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListInput",
+            "field": "serviceNames",
+            "effectiveDescription": "Filter attributes to those appearing in logs from these services.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter attributes to those appearing in logs from these services.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/logs/attributes/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListResponseShape2",
+            "field": "propertyFilterType",
+            "effectiveDescription": "Property filter type: \"log_attribute\" or \"log_resource_attribute\". Use this as the `type` field when filtering.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filter type: \"log_attribute\" or \"log_resource_attribute\". Use this as the `type` field when filtering.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/propertyFilterType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListResponseShape2",
+            "field": "matchedOn",
+            "effectiveDescription": "How the search query matched this row: \"key\" if the attribute key matched, \"value\" if a value matched.\n\n* `key` - key\n* `value` - value",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the search query matched this row: \"key\" if the attribute key matched, \"value\" if a value matched.\n\n* `key` - key\n* `value` - value",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/matchedOn"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListResponseShape2",
+            "field": "matchedValue",
+            "effectiveDescription": "Sample matching value — only set when matchedOn is \"value\".",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sample matching value — only set when matchedOn is \"value\".",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape2/properties/matchedValue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListData",
+            "field": "results",
+            "effectiveDescription": "Available attribute keys matching the filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Available attribute keys matching the filters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "LogsLogsAttributesListData",
+            "field": "count",
+            "effectiveDescription": "Total attribute keys matched (not paginated).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total attribute keys matched (not paginated).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/logs.ts",
+                        "pointer": "#/Shape1/properties/count"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

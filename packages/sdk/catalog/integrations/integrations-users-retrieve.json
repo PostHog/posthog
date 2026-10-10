@@ -1,0 +1,277 @@
+{
+    "method": "integrations.integrationsUsersRetrieve",
+    "toolName": "integrations-users-retrieve",
+    "operationId": "integrations_users_retrieve",
+    "title": "List integration Slack members",
+    "category": "Integrations",
+    "description": "List the Slack workspace members a Slack integration can send direct messages to. Slack-only — non-Slack integration ids return an error (400 if the integration is otherwise visible, 404 if it isn't). Returns each member's id (e.g. U0123ABC), name (handle without the leading @), and display_name; bots, deactivated accounts, and Slackbot are excluded. Supports `search` (fuzzy match on display name and handle, plus id-contains), `limit`, `offset`, and a `user_id` query parameter for a direct lookup. Results are cached for 1 hour (no force-refresh exposed via MCP). Use this to find member ids when configuring a scout's Slack DM destination — pass them as `output_destinations.slack.users` entries (`member_id|@display-name`) via scout-config-update or scout-create. Requires the Slack integration's id; use integrations-list (filter by kind=slack) to find it.",
+    "requiredScopes": ["integration:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/integrations/client.ts",
+    "input": {
+        "name": "IntegrationsIntegrationsUsersRetrieveInput",
+        "importPath": "@posthog/sdk/integrations",
+        "source": "src/generated/integrations/integrations-users-retrieve.ts",
+        "declaration": "dist/generated/integrations/integrations-users-retrieve.d.ts"
+    },
+    "output": {
+        "name": "IntegrationsIntegrationsUsersRetrieveOutput",
+        "importPath": "@posthog/sdk/integrations",
+        "source": "src/generated/integrations/integrations-users-retrieve.ts",
+        "declaration": "dist/generated/integrations/integrations-users-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "IntegrationsIntegrationsUsersRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/integrations",
+            "source": "src/generated/integrations/integrations-users-retrieve.ts",
+            "declaration": "dist/generated/integrations/integrations-users-retrieve.d.ts"
+        },
+        {
+            "name": "IntegrationsIntegrationsUsersRetrieveRequestSchema1",
+            "importPath": "@posthog/sdk/integrations",
+            "source": "src/generated/integrations/integrations-users-retrieve.ts",
+            "declaration": "dist/generated/integrations/integrations-users-retrieve.d.ts"
+        },
+        {
+            "name": "IntegrationsIntegrationsUsersRetrieveRequestSchema2",
+            "importPath": "@posthog/sdk/integrations",
+            "source": "src/generated/integrations/integrations-users-retrieve.ts",
+            "declaration": "dist/generated/integrations/integrations-users-retrieve.d.ts"
+        },
+        {
+            "name": "IntegrationsIntegrationsUsersRetrieveRequestSchema3",
+            "importPath": "@posthog/sdk/integrations",
+            "source": "src/generated/integrations/integrations-users-retrieve.ts",
+            "declaration": "dist/generated/integrations/integrations-users-retrieve.d.ts"
+        },
+        {
+            "name": "IntegrationsIntegrationsUsersRetrieveRequestSchema4",
+            "importPath": "@posthog/sdk/integrations",
+            "source": "src/generated/integrations/integrations-users-retrieve.ts",
+            "declaration": "dist/generated/integrations/integrations-users-retrieve.d.ts"
+        },
+        {
+            "name": "IntegrationsIntegrationsUsersRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/integrations",
+            "source": "src/generated/integrations/integrations-users-retrieve.ts",
+            "declaration": "dist/generated/integrations/integrations-users-retrieve.d.ts"
+        },
+        {
+            "name": "IntegrationsIntegrationsUsersRetrieveData",
+            "importPath": "@posthog/sdk/integrations",
+            "source": "src/generated/integrations/integrations-users-retrieve.ts",
+            "declaration": "dist/generated/integrations/integrations-users-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "List the Slack workspace members a Slack integration can send direct messages to. Slack-only — non-Slack integration ids return an error (400 if the integration is otherwise visible, 404 if it isn't). Returns each member's id (e.g. U0123ABC), name (handle without the leading @), and display_name; bots, deactivated accounts, and Slackbot are excluded. Supports `search` (fuzzy match on display name and handle, plus id-contains), `limit`, `offset`, and a `user_id` query parameter for a direct lookup. Results are cached for 1 hour (no force-refresh exposed via MCP). Use this to find member ids when configuring a scout's Slack DM destination — pass them as `output_destinations.slack.users` entries (`member_id|@display-name`) via scout-config-update or scout-create. Requires the Slack integration's id; use integrations-list (filter by kind=slack) to find it.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/integrations/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this integration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this integration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/integrations/{id}/users/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveInput",
+            "field": "force_refresh",
+            "effectiveDescription": "Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/integrations/{id}/users/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveInput",
+            "field": "limit",
+            "effectiveDescription": "Maximum number of members to return per request (max 200).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum number of members to return per request (max 200).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/integrations/{id}/users/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveInput",
+            "field": "offset",
+            "effectiveDescription": "Number of members to skip before returning results.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of members to skip before returning results.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/integrations/{id}/users/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveInput",
+            "field": "search",
+            "effectiveDescription": "Optional case-insensitive member name or ID search query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional case-insensitive member name or ID search query.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/integrations/{id}/users/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveInput",
+            "field": "user_id",
+            "effectiveDescription": "Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/integrations/{id}/users/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Slack member ID (e.g. U0123ABC) — post to it to open a direct message.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack member ID (e.g. U0123ABC) — post to it to open a direct message.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/integrations.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveResponseShape2",
+            "field": "name",
+            "effectiveDescription": "Slack username (handle) without the leading '@'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack username (handle) without the leading '@'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/integrations.ts",
+                        "pointer": "#/Shape2/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveResponseShape2",
+            "field": "display_name",
+            "effectiveDescription": "Name to show in pickers: the member's display name, falling back to their real name or handle.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name to show in pickers: the member's display name, falling back to their real name or handle.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/integrations.ts",
+                        "pointer": "#/Shape2/properties/display_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveData",
+            "field": "users",
+            "effectiveDescription": "Human Slack workspace members the PostHog Slack app can DM.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human Slack workspace members the PostHog Slack app can DM.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/integrations.ts",
+                        "pointer": "#/Shape1/properties/users"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveData",
+            "field": "lastRefreshedAt",
+            "effectiveDescription": "ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-member lookups).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO 8601 timestamp of the last full Slack API refresh (only set on full lists, not single-member lookups).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/integrations.ts",
+                        "pointer": "#/Shape1/properties/lastRefreshedAt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "IntegrationsIntegrationsUsersRetrieveData",
+            "field": "has_more",
+            "effectiveDescription": "Whether more members match the current search beyond this page.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether more members match the current search beyond this page.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/integrations.ts",
+                        "pointer": "#/Shape1/properties/has_more"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}
