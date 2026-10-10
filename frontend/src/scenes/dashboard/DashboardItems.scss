@@ -31,6 +31,15 @@
         &:has(> .handle) {
             content-visibility: visible;
         }
+
+        /* Tile decorations draw outside the tile box, so the same paint clip would cut them off */
+        &:has(
+            .DashboardTileDecorations__group-title,
+            .DashboardTileDecorations__crown,
+            .DashboardTileDecorations__hog
+        ) {
+            content-visibility: visible;
+        }
     }
 
     &.dashboard-tile-spacing-changing {
