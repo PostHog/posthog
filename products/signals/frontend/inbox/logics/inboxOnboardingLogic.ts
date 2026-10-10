@@ -541,7 +541,11 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
     }),
 
     selectors({
-        isSelfDrivingSetUp: [(s) => [s.enabledSourcesCount, s.scoutConfigs], computeIsSelfDrivingSetUp],
+        isSelfDrivingSetUp: [
+            (s) => [s.enabledSourcesCount, s.scoutConfigs],
+            (enabledSourcesCount: number, scoutConfigs: SignalScoutConfig[] | null): boolean =>
+                computeIsSelfDrivingSetUp(enabledSourcesCount, scoutConfigs),
+        ],
         // Every watcher loader has settled, so the set-up verdict is trustworthy.
         isSetupLoaded: [
             (s) => [s.sourceConfigs, s.scoutConfigs, s.hasEmittingScanner],
