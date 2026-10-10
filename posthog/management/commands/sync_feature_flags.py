@@ -30,6 +30,7 @@ INACTIVE_FLAGS = [
     "insight-horizontal-controls",
     "flagged-feature-indicator",
     "today-rail-nav",
+    "product-analytics-quill-insight",
 ]
 
 FRONTEND_FEATURE_FLAGS_PATH = Path("frontend/src/lib/constants.tsx")

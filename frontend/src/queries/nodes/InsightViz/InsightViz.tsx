@@ -141,7 +141,13 @@ export function InsightViz({
                                     embedded={isEmbedded}
                                 />
                                 {!isEmbedded ? (
-                                    <div className="flex-1 max-h-full overflow-auto pb-8">
+                                    <div
+                                        className={clsx(
+                                            'flex-1 max-h-full overflow-auto',
+                                            // A host that draws its own frame also sets the space under the chart.
+                                            !context?.hideChartFrame && 'pb-8'
+                                        )}
+                                    >
                                         <SelectorMatchChangeNotice insightProps={insightProps} />
                                         {display}
                                     </div>

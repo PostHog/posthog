@@ -503,6 +503,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_PATHS_STRIP_QUERY_STRING: 'paths-strip-query-string', // owner: #team-product-analytics, gates the "Ignore URL query strings" switch on paths insights
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS: 'product-analytics-quarter-year-intervals', // owner: @sampennington #team-product-analytics, gates quarter/year interval selection on insights
+    PRODUCT_ANALYTICS_QUILL_INSIGHT: 'product-analytics-quill-insight', // owner: @sampennington #team-product-analytics, replaces the insight screen with the quill one for every insight; needs today-rail-nav
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics
     PRODUCT_AUTONOMY: 'product-autonomy', // owner: #team-self-driving
     PRODUCT_BUSINESS_KNOWLEDGE: 'product-business-knowledge', // owner: @veryayskiy #team-conversations

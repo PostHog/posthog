@@ -538,6 +538,9 @@ export function InsightVizDisplay({
     }
 
     function renderAIAnalysisSection(): JSX.Element | null {
+        if (context?.hideAIAnalysis) {
+            return null
+        }
         return shouldShowAIAnalysisSection({
             editMode,
             embedded,
@@ -564,7 +567,7 @@ export function InsightVizDisplay({
             <div
                 className={clsx(
                     `InsightVizDisplay InsightVizDisplay--type-${activeView.toLowerCase()}`,
-                    !embedded && 'border rounded bg-surface-primary'
+                    !embedded && !context?.hideChartFrame && 'border rounded bg-surface-primary'
                 )}
                 data-attr={INSIGHT_GRAPH_DATA_ATTR}
             >

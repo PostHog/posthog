@@ -71,6 +71,10 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableNouns?: [string, string]
     compactDataTableToolbar?: boolean
     hideRecordingButton?: boolean
+    /** Leave out the PostHog AI section that an insight shows under its chart. */
+    hideAIAnalysis?: boolean
+    /** Draw an insight chart without the bordered card around it or the space under it, for a host with its own frame. */
+    hideChartFrame?: boolean
     /** Custom expandable config for DataTable rows */
     expandable?: ExpandableConfig<DataTableRow>
     /** Ignore action/event names in series labels (show only breakdown/compare values) */
@@ -105,6 +109,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     includeHiddenEvents?: boolean
     /** Drop axis ticks and titles, for thumbnail-sized renders such as the chart type gallery. */
     hideAxes?: boolean
+    /** Draw only the series, with no grid or axis lines and the plot running to the edges, for thumbnail-sized renders. */
+    bareChart?: boolean
     /** Hide or resize the visualization selector when the host provides its own chart picker. */
     chartTypeSelectorClassName?: string
 }
