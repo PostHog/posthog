@@ -1103,6 +1103,14 @@ class ChartSettingsDisplay(BaseModel):
     )
     color: str | None = None
     displayType: DisplayType | None = None
+    excludeFromTotal: bool | None = Field(
+        default=None,
+        description=("Keep this series out of the tooltip's total row, e.g. a target line over stacked bars."),
+    )
+    hideValueLabel: bool | None = Field(
+        default=None,
+        description='Hide this series\' labels when "Show values on series" is on.',
+    )
     label: str | None = None
     trendLine: bool | None = None
     yAxisPosition: YAxisPosition | None = None

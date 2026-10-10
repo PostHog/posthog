@@ -1,5 +1,6 @@
 import {
     MAX_CATEGORY_LABEL_WIDTH,
+    type Series,
     type TooltipContext,
     type TrendLineConfig,
     type ValueLabelContext,
@@ -342,6 +343,19 @@ describe('sqlLineGraphAdapter', () => {
             expect(plain.visibility).toBeUndefined()
         })
 
+        it.each<[string, AxisSeries<number | null>['settings'], Series['visibility']]>([
+            ['keeps an excluded series out of the total', { display: { excludeFromTotal: true } }, { total: false }],
+            ['hides value labels for the series', { display: { hideValueLabel: true } }, { valueLabel: false }],
+            [
+                'combines both flags',
+                { display: { excludeFromTotal: true, hideValueLabel: true } },
+                { total: false, valueLabel: false },
+            ],
+        ])('%s', (_name, settings, expected) => {
+            const [series] = buildSeries([ySeries('target', [5], settings)], ChartDisplayType.ActionsStackedBar)
+            expect(series.visibility).toEqual(expected)
+        })
+
         it('only pins an explicit color, leaving palette assignment to quill otherwise', () => {
             const [withColor, withoutColor] = buildSeries(
                 [ySeries('a', [1], { display: { color: '#abcdef' } }), ySeries('b', [2])],
@@ -583,6 +597,14 @@ describe('sqlLineGraphAdapter', () => {
             // a sum of counts as e.g. "15,061.4%".
             const config = buildSqlTooltipConfig({}, [
                 ySeries('growth', [2.4], { formatting: { style: 'percent' } }),
+                ySeries('revenue', [1], { formatting: { prefix: '$' } }),
+            ])
+            expect(config.totalFormatter!(15059)).toBe('$15059')
+        })
+
+        it('formats the total with the first column in the sum, skipping an excluded column', () => {
+            const config = buildSqlTooltipConfig({}, [
+                ySeries('target', [1], { display: { excludeFromTotal: true }, formatting: { suffix: ' goal' } }),
                 ySeries('revenue', [1], { formatting: { prefix: '$' } }),
             ])
             expect(config.totalFormatter!(15059)).toBe('$15059')

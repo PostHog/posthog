@@ -32,6 +32,8 @@ export interface ySeriesLogicValues {
         displayType: 'area' | 'auto' | 'bar' | 'line'
         label: string
         trendLine: boolean
+        excludeFromTotal: boolean
+        hideValueLabel: boolean
         yAxisPosition: 'left' | 'right'
     }
     displayAllErrors: Record<string, any>
@@ -42,6 +44,8 @@ export interface ySeriesLogicValues {
             displayType: 'area' | 'auto' | 'bar' | 'line'
             label: string
             trendLine: boolean
+            excludeFromTotal: boolean
+            hideValueLabel: boolean
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -56,6 +60,8 @@ export interface ySeriesLogicValues {
             displayType: 'area' | 'auto' | 'bar' | 'line'
             label: string
             trendLine: boolean
+            excludeFromTotal: boolean
+            hideValueLabel: boolean
             yAxisPosition: 'left' | 'right'
         },
         ValidationErrorType
@@ -115,6 +121,8 @@ export interface ySeriesLogicActions {
         displayType: 'area' | 'auto' | 'bar' | 'line'
         label: string
         trendLine: boolean
+        excludeFromTotal: boolean
+        hideValueLabel: boolean
         yAxisPosition: 'left' | 'right'
     }) => {
         values?: {
@@ -122,6 +130,8 @@ export interface ySeriesLogicActions {
             displayType: 'area' | 'auto' | 'bar' | 'line'
             label: string
             trendLine: boolean
+            excludeFromTotal: boolean
+            hideValueLabel: boolean
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -154,6 +164,8 @@ export interface ySeriesLogicActions {
             displayType: 'area' | 'auto' | 'bar' | 'line'
             label: string
             trendLine: boolean
+            excludeFromTotal: boolean
+            hideValueLabel: boolean
             yAxisPosition: 'left' | 'right'
         }>
     ) => {
@@ -162,6 +174,8 @@ export interface ySeriesLogicActions {
             displayType: 'area' | 'auto' | 'bar' | 'line'
             label: string
             trendLine: boolean
+            excludeFromTotal: boolean
+            hideValueLabel: boolean
             yAxisPosition: 'left' | 'right'
         }>
     }
@@ -211,6 +225,8 @@ export interface ySeriesLogicActions {
         displayType: 'area' | 'auto' | 'bar' | 'line'
         label: string
         trendLine: boolean
+        excludeFromTotal: boolean
+        hideValueLabel: boolean
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
@@ -218,6 +234,8 @@ export interface ySeriesLogicActions {
             displayType: 'area' | 'auto' | 'bar' | 'line'
             label: string
             trendLine: boolean
+            excludeFromTotal: boolean
+            hideValueLabel: boolean
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -226,6 +244,8 @@ export interface ySeriesLogicActions {
         displayType: 'area' | 'auto' | 'bar' | 'line'
         label: string
         trendLine: boolean
+        excludeFromTotal: boolean
+        hideValueLabel: boolean
         yAxisPosition: 'left' | 'right'
     }) => {
         display: {
@@ -233,6 +253,8 @@ export interface ySeriesLogicActions {
             displayType: 'area' | 'auto' | 'bar' | 'line'
             label: string
             trendLine: boolean
+            excludeFromTotal: boolean
+            hideValueLabel: boolean
             yAxisPosition: 'left' | 'right'
         }
     }
@@ -353,6 +375,8 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                 color: props.series?.settings?.display?.color ?? getSeriesColor(props.seriesIndex),
                 label: props.series?.settings?.display?.label ?? '',
                 trendLine: props.series?.settings?.display?.trendLine ?? false,
+                excludeFromTotal: props.series?.settings?.display?.excludeFromTotal ?? false,
+                hideValueLabel: props.series?.settings?.display?.hideValueLabel ?? false,
                 yAxisPosition: props.series?.settings?.display?.yAxisPosition ?? 'left',
                 displayType: props.series?.settings?.display?.displayType ?? 'auto',
             },
@@ -362,6 +386,8 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
                         color: display.color,
                         label: display.label,
                         trendLine: display.trendLine,
+                        excludeFromTotal: display.excludeFromTotal,
+                        hideValueLabel: display.hideValueLabel,
                         yAxisPosition: display.yAxisPosition,
                         displayType: display.displayType,
                     },
