@@ -267,24 +267,63 @@ function ReviewModeTag({ review }: { review: ReviewRecentReviewApi }): JSX.Eleme
     )
 }
 
-/** "the main review and 2 lenses", from the sessions that ran. Null when the turn recorded none. */
-function singleAgentSessionsLabel(review: ReviewRecentReviewApi): string | null {
-    if (!review.perspective_count) {
-        return null
-    }
-    const lenses = review.perspective_count - 1
-    return lenses > 0 ? `the main review and ${lenses} lens${lenses === 1 ? '' : 'es'}` : 'the main review'
+/** Lens count from the sessions that ran: one session is the main pass, the rest are lenses. Null when the turn recorded none. */
+function singleAgentLensCount(review: ReviewRecentReviewApi): number | null {
+    return review.perspective_count ? review.perspective_count - 1 : null
+}
+
+/** Posted findings, and how many were raised before drops. Raised is null when unknown or not above posted. */
+function singleAgentCounts(review: ReviewRecentReviewApi): { posted: number; raised: number | null } {
+    const posted = review.must_fix_count + review.should_fix_count + review.consider_count
+    const raised = review.perspective_issue_count
+    return { posted, raised: raised !== null && raised > posted ? raised : null }
 }
 
 /** The funnel line for a single-agent turn, which has no validation step to count. */
 function SingleAgentFindingsLine({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
-    const kept = review.must_fix_count + review.should_fix_count + review.consider_count
-    const sessions = singleAgentSessionsLabel(review)
+    const { posted, raised } = singleAgentCounts(review)
     return (
         <span>
-            <span className="font-semibold text-default">{kept}</span> finding{kept === 1 ? '' : 's'} kept
-            {sessions ? ` from ${sessions}` : ''}
+            Posted <span className="font-semibold text-default">{posted}</span>
+            {raised !== null && (
+                <>
+                    {' '}
+                    of <span className="font-semibold text-default">{raised}</span> raised
+                </>
+            )}
         </span>
+    )
+}
+
+/** The drawer header for a single-agent turn: how it ran, and why the posted count can be lower than the raised count. */
+function SingleAgentDrawerSummary({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
+    const { posted, raised } = singleAgentCounts(review)
+    const lenses = singleAgentLensCount(review)
+    const dropped = raised !== null ? raised - posted : 0
+    return (
+        <div className="flex flex-col gap-1 text-sm text-secondary">
+            <div>
+                Standard review: one main pass over the whole pull request
+                {lenses
+                    ? ` plus ${lenses} ${lenses === 1 ? 'lens that focuses' : 'lenses that each focus'} on one area`
+                    : ''}
+                . No separate validation step.
+            </div>
+            <div>
+                Posted <span className="font-semibold text-default">{posted}</span>
+                {raised !== null ? (
+                    <>
+                        {' '}
+                        of <span className="font-semibold text-default">{raised}</span> issues raised. The other{' '}
+                        {dropped === 1 ? 'one repeated' : `${dropped} repeated`} another finding or comment,{' '}
+                        {dropped === 1 ? 'was' : 'were'} on code this pull request did not change, or went over the
+                        per-review limit.
+                    </>
+                ) : (
+                    ` issue${posted === 1 ? '' : 's'}.`
+                )}
+            </div>
+        </div>
     )
 }
 
@@ -877,13 +916,6 @@ function DrawerDismissedTab(): JSX.Element {
     if (!reviewDetail) {
         return <DrawerFindingsSkeleton />
     }
-    if (isSingleAgentReview(reviewDetail)) {
-        return (
-            <div className="text-sm text-secondary">
-                Standard reviews don't run a separate validation step, so there is no validator reasoning to show.
-            </div>
-        )
-    }
     if (!reviewDetail.dismissed_findings.length) {
         return <div className="text-sm text-secondary">The validator dismissed nothing on this review.</div>
     }
@@ -989,21 +1021,26 @@ function DrawerHowItRanTab(): JSX.Element {
     if (!reviewDetail) {
         return <DrawerFindingsSkeleton />
     }
-    const sessions = singleAgentSessionsLabel(reviewDetail)
+    const lenses = singleAgentLensCount(reviewDetail)
+    const { posted, raised } = singleAgentCounts(reviewDetail)
+    const issuesRaised = reviewDetail.perspective_issue_count
     return (
-        <div className="flex flex-col gap-2 text-sm text-secondary">
-            <p className="m-0">
-                A Standard review runs one main review of the whole pull request, plus lenses that each focus on one
-                area. Findings go to the pull request without a separate validation step.
-            </p>
-            <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
-                {sessions && <li>Ran {sessions}</li>}
-                {reviewDetail.files_reviewed !== null && <li>Read {reviewDetail.files_reviewed} files</li>}
-                {reviewDetail.perspective_issue_count !== null && (
-                    <li>Raised {reviewDetail.perspective_issue_count} issues before merging duplicates</li>
-                )}
-            </ul>
-        </div>
+        <ul className="m-0 flex list-disc flex-col gap-1 pl-5 text-sm text-secondary">
+            {lenses !== null && (
+                <li>
+                    Ran the main review and {lenses} lens{lenses === 1 ? '' : 'es'}
+                </li>
+            )}
+            {reviewDetail.files_reviewed !== null && <li>Read {reviewDetail.files_reviewed} files</li>}
+            {issuesRaised !== null && (
+                <li>
+                    Raised {issuesRaised} issues
+                    {raised !== null
+                        ? `; ${raised - posted} not posted (repeats, unchanged code, or over the limit)`
+                        : ''}
+                </li>
+            )}
+        </ul>
     )
 }
 
@@ -1054,9 +1091,7 @@ function ReviewDetailDrawer(): JSX.Element {
         >
             <div className="flex flex-col gap-2">
                 {reviewDetail && singleAgent ? (
-                    <div className="text-sm text-secondary">
-                        <SingleAgentFindingsLine review={reviewDetail} />
-                    </div>
+                    <SingleAgentDrawerSummary review={reviewDetail} />
                 ) : reviewDetail ? (
                     <div className="text-sm text-secondary">
                         <span className="font-semibold text-default">{reviewDetail.candidate_count}</span> findings
@@ -1079,7 +1114,8 @@ function ReviewDetailDrawer(): JSX.Element {
                     </div>
                 )}
                 <LemonTabs<ReviewDrawerTab>
-                    activeKey={reviewDrawerTab}
+                    // Standard has no Dismissed tab, so a stale selection falls back to the posted tab.
+                    activeKey={singleAgent && reviewDrawerTab === 'dismissed' ? 'published' : reviewDrawerTab}
                     onChange={setReviewDrawerTab}
                     tabs={[
                         {
@@ -1088,7 +1124,7 @@ function ReviewDetailDrawer(): JSX.Element {
                             // actually posted; findings a store-only run kept above the bar read
                             // "Kept". `review` falls back to the list row, so a published review
                             // doesn't flash "Kept" while its detail loads.
-                            label: `${review?.published ? 'Published' : 'Kept'}${
+                            label: `${review?.published ? (singleAgent ? 'Posted' : 'Published') : 'Kept'}${
                                 reviewFindingsSplit ? ` (${reviewFindingsSplit.published.length})` : ''
                             }`,
                             content: <DrawerPublishedTab />,
@@ -1101,9 +1137,10 @@ function ReviewDetailDrawer(): JSX.Element {
                             }`,
                             content: <DrawerBelowThresholdTab />,
                         },
-                        {
+                        // A single-agent turn has no validator, so there are no dismissals to show.
+                        !singleAgent && {
                             key: 'dismissed',
-                            label: `Dismissed${reviewDetail && !singleAgent ? ` (${reviewDetail.dismissed_findings.length})` : ''}`,
+                            label: `Dismissed${reviewDetail ? ` (${reviewDetail.dismissed_findings.length})` : ''}`,
                             content: <DrawerDismissedTab />,
                         },
                         singleAgent
