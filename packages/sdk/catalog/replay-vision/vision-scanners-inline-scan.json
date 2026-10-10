@@ -1,0 +1,403 @@
+{
+    "method": "replayVision.visionScannersInlineScan",
+    "toolName": "vision-scanners-inline-scan",
+    "operationId": "vision_scanners_inline_scan_create",
+    "title": "Scan sessions against a prompt",
+    "category": "Replay vision",
+    "description": "Answer a one-off question about session recordings you already have in hand, without creating a scanner first. Pass the `session_ids` and a `prompt`; no scheduled scanner is created, though the observations it produces persist and are reused on a repeat call. Prefer this over `vision-scanners-create` whenever you have specific sessions and a question about them — a scanner is for a standing watch over future recordings, and creating one to answer a single question leaves a scheduled sweep behind. `scanner_type` defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or `summarizer` with the matching `scanner_config` (`tags`, `scale`, optional `length`) when you want structured output. `summarizer` produces PostHog's own AI summary of a recording, the same one the Summarize button in the replay player runs when you pass its prompt and `scanner_config` (the investigating-replay skill carries them), so use it for \"summarize this recording\" and \"what happened in this session\". Results are not returned inline: the response gives a `scan_id`, which is a scanner id, and you read the observations from `vision-scanners-observations-list` with `scanner_id` set to it, polling until each session's observation leaves `pending`/`running`. `vision-observations-list` works too when you want one session's observations across every scanner, since it takes a `session_id` rather than a scanner. Asking the same question again returns the same `scan_id` and reuses the answers it already has, so re-asking is cheap and sessions already scanned come back as `already_scanned` rather than being charged twice. Scans cost credits per session at the same rate a scanner does; check `vision-quota-get` first if the batch is large, since sessions past the monthly limit come back as `skipped_quota` instead of failing the call.",
+    "requiredScopes": ["replay_scanner:write", "session_recording:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["requires_ai_consent: true"],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersInlineScanInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersInlineScanOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersInlineScanRequestSchema1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersInlineScanRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersInlineScanRequestSchema2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersInlineScanRequestSchema3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersInlineScanRequestSchema5",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersInlineScanRequestSchema7",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersInlineScanResponseBulkObserveResultScanOutcome",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersInlineScanResponseBulkObserveResult",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersInlineScanData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-inline-scan.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-inline-scan.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Scan named sessions against a prompt without saving a scanner first, for one-off questions.\n\nThe config resolves to a scanner minted on first use, so asking the same question twice reuses\nthe observations it already has, while a different question about the same session gets its own.\n\nWith `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a\nrecording ID. It resolves to the Summarize button's own scanner only when the prompt and\n`scanner_config` match what the button sends, since the config is what the key fingerprints.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1inline_scan~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Answer a one-off question about session recordings you already have in hand, without creating a scanner first. Pass the `session_ids` and a `prompt`; no scheduled scanner is created, though the observations it produces persist and are reused on a repeat call. Prefer this over `vision-scanners-create` whenever you have specific sessions and a question about them — a scanner is for a standing watch over future recordings, and creating one to answer a single question leaves a scheduled sweep behind. `scanner_type` defaults to `monitor` (open-ended); pass `classifier`, `scorer`, or `summarizer` with the matching `scanner_config` (`tags`, `scale`, optional `length`) when you want structured output. `summarizer` produces PostHog's own AI summary of a recording, the same one the Summarize button in the replay player runs when you pass its prompt and `scanner_config` (the investigating-replay skill carries them), so use it for \"summarize this recording\" and \"what happened in this session\". Results are not returned inline: the response gives a `scan_id`, which is a scanner id, and you read the observations from `vision-scanners-observations-list` with `scanner_id` set to it, polling until each session's observation leaves `pending`/`running`. `vision-observations-list` works too when you want one session's observations across every scanner, since it takes a `session_id` rather than a scanner. Asking the same question again returns the same `scan_id` and reuses the answers it already has, so re-asking is cheap and sessions already scanned come back as `already_scanned` rather than being charged twice. Scans cost credits per session at the same rate a scanner does; check `vision-quota-get` first if the batch is large, since sessions past the monthly limit come back as `skipped_quota` instead of failing the call.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanRequest_Schema0",
+            "effectiveDescription": "Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanRequest_Schema2",
+            "effectiveDescription": "What to look for in these sessions, in plain language. The same instruction a saved scanner carries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What to look for in these sessions, in plain language. The same instruction a saved scanner carries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanRequest_Schema3",
+            "effectiveDescription": "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanRequest_Schema5",
+            "effectiveDescription": "Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanRequest_Schema7",
+            "effectiveDescription": "Model to scan with. Determines what each observation costs in credits.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Model to scan with. Determines what each observation costs in credits.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#/$defs/__schema7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanInput",
+            "effectiveDescription": "Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Body of POST /vision/scanners/inline_scan/ - a prompt plus the sessions to point it at.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/api/generated.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanInput",
+            "field": "session_ids",
+            "effectiveDescription": "Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/inline_scan/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanInput",
+            "field": "prompt",
+            "effectiveDescription": "What to look for in these sessions, in plain language. The same instruction a saved scanner carries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What to look for in these sessions, in plain language. The same instruction a saved scanner carries.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/inline_scan/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanInput",
+            "field": "scanner_type",
+            "effectiveDescription": "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/inline_scan/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanInput",
+            "field": "scanner_config",
+            "effectiveDescription": "Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/inline_scan/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanInput",
+            "field": "model",
+            "effectiveDescription": "Model to scan with. Determines what each observation costs in credits.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Model to scan with. Determines what each observation costs in credits.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/inline_scan/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanResponseBulkObserveResult",
+            "effectiveDescription": "Per-session outcome of a bulk scan trigger.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-session outcome of a bulk scan trigger.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BulkObserveResult"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanResponseBulkObserveResult",
+            "field": "session_id",
+            "effectiveDescription": "The session recording this outcome is for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The session recording this outcome is for.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BulkObserveResult/properties/session_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanResponseBulkObserveResult",
+            "field": "scan_outcome",
+            "effectiveDescription": "'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.\n\n* `started` - Started\n* `already_running` - Already running\n* `already_scanned` - Already scanned\n* `skipped_limit` - Skipped, in-flight limit reached\n* `skipped_quota` - Skipped, the org's credit quota for this period was reached\n* `skipped_scanner_limit` - Skipped, scanner's own credit limit reached\n* `failed` - Failed to start",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.\n\n* `started` - Started\n* `already_running` - Already running\n* `already_scanned` - Already scanned\n* `skipped_limit` - Skipped, in-flight limit reached\n* `skipped_quota` - Skipped, the org's credit quota for this period was reached\n* `skipped_scanner_limit` - Skipped, scanner's own credit limit reached\n* `failed` - Failed to start",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BulkObserveResult/properties/scan_outcome"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanData",
+            "effectiveDescription": "`bulk_observe`'s partial-success shape plus the id to read the results back through.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`bulk_observe`'s partial-success shape plus the id to read the results back through.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/InlineScanResponse"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanData",
+            "field": "started",
+            "effectiveDescription": "How many new scans were started.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many new scans were started.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/InlineScanResponse/properties/started"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanData",
+            "field": "results",
+            "effectiveDescription": "Per-session outcomes, in request order (deduplicated).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-session outcomes, in request order (deduplicated).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/InlineScanResponse/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersInlineScanData",
+            "field": "scan_id",
+            "effectiveDescription": "Read results from `/vision/scanners/{scan_id}/observations/`. Stable for a given prompt and model, so asking the same question again returns the same id. Null when nothing was started and nothing existed to read, which happens when the quota is already used up.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read results from `/vision/scanners/{scan_id}/observations/`. Stable for a given prompt and model, so asking the same question again returns the same id. Null when nothing was started and nothing existed to read, which happens when the quota is already used up.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/InlineScanResponse/properties/scan_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-create",
+            "method": "replayVision.visionScannersCreate"
+        },
+        {
+            "toolName": "vision-scanners-observations-list",
+            "method": "replayVision.visionScannersObservationsList"
+        },
+        {
+            "toolName": "vision-observations-list",
+            "method": "replayVision.visionObservationsList"
+        },
+        {
+            "toolName": "vision-quota-get",
+            "method": "replayVision.visionQuotaGet"
+        }
+    ]
+}

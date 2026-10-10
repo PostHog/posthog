@@ -1,0 +1,370 @@
+{
+    "method": "proxyRecords.proxyDiagnose",
+    "toolName": "proxy-diagnose",
+    "operationId": "proxy_records_diagnose_create",
+    "title": "Diagnose reverse proxy",
+    "category": "Reverse proxy",
+    "description": "Run a deep diagnostic on a reverse proxy that's stuck or erroring. Inspects the customer's CNAME, the certificate provider's hostname state, CAA records walked up the DNS tree (the most common stuck-validation cause), HTTP-01 challenge reachability, a live event probe, and certificate expiry. Returns a structured report with each check's status and concrete remediation steps — including the exact DNS records the customer should add when CAA blocks issuance. Use this when proxy-get returns an erroring or timed_out status, or whenever a user asks why their proxy isn't working.",
+    "requiredScopes": ["organization:write"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/proxy-records/client.ts",
+    "input": {
+        "name": "ProxyRecordsProxyDiagnoseInput",
+        "importPath": "@posthog/sdk/proxy-records",
+        "source": "src/generated/proxy-records/proxy-diagnose.ts",
+        "declaration": "dist/generated/proxy-records/proxy-diagnose.d.ts"
+    },
+    "output": {
+        "name": "ProxyRecordsProxyDiagnoseOutput",
+        "importPath": "@posthog/sdk/proxy-records",
+        "source": "src/generated/proxy-records/proxy-diagnose.ts",
+        "declaration": "dist/generated/proxy-records/proxy-diagnose.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ProxyRecordsProxyDiagnoseResponseShape2",
+            "importPath": "@posthog/sdk/proxy-records",
+            "source": "src/generated/proxy-records/proxy-diagnose.ts",
+            "declaration": "dist/generated/proxy-records/proxy-diagnose.d.ts"
+        },
+        {
+            "name": "ProxyRecordsProxyDiagnoseResponseShape5",
+            "importPath": "@posthog/sdk/proxy-records",
+            "source": "src/generated/proxy-records/proxy-diagnose.ts",
+            "declaration": "dist/generated/proxy-records/proxy-diagnose.d.ts"
+        },
+        {
+            "name": "ProxyRecordsProxyDiagnoseResponseShape4",
+            "importPath": "@posthog/sdk/proxy-records",
+            "source": "src/generated/proxy-records/proxy-diagnose.ts",
+            "declaration": "dist/generated/proxy-records/proxy-diagnose.d.ts"
+        },
+        {
+            "name": "ProxyRecordsProxyDiagnoseResponseShape3",
+            "importPath": "@posthog/sdk/proxy-records",
+            "source": "src/generated/proxy-records/proxy-diagnose.ts",
+            "declaration": "dist/generated/proxy-records/proxy-diagnose.d.ts"
+        },
+        {
+            "name": "ProxyRecordsProxyDiagnoseData",
+            "importPath": "@posthog/sdk/proxy-records",
+            "source": "src/generated/proxy-records/proxy-diagnose.ts",
+            "declaration": "dist/generated/proxy-records/proxy-diagnose.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Run a deep diagnostic on a reverse proxy. Inspects DNS CNAME alignment, the certificate provider's hostname state, CAA records walked up the customer's DNS tree, HTTP-01 challenge reachability, a live event probe, and certificate expiry. Returns a structured report with each check's status and concrete remediation steps (e.g. exact DNS records to add). Use this to debug why a proxy is stuck or erroring.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1proxy_records~1{id}~1diagnose~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Run a deep diagnostic on a reverse proxy that's stuck or erroring. Inspects the customer's CNAME, the certificate provider's hostname state, CAA records walked up the DNS tree (the most common stuck-validation cause), HTTP-01 challenge reachability, a live event probe, and certificate expiry. Returns a structured report with each check's status and concrete remediation steps — including the exact DNS records the customer should add when CAA blocks issuance. Use this when proxy-get returns an erroring or timed_out status, or whenever a user asks why their proxy isn't working.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/proxy-records.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this proxy record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this proxy record.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/proxy_records/{id}/diagnose/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape2",
+            "field": "status",
+            "effectiveDescription": "Overall outcome: healthy if the proxy is serving requests, warn for non-blocking issues, fail otherwise.\n\n* `healthy` - healthy\n* `warn` - warn\n* `fail` - fail",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Overall outcome: healthy if the proxy is serving requests, warn for non-blocking issues, fail otherwise.\n\n* `healthy` - healthy\n* `warn` - warn\n* `fail` - fail",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape2",
+            "field": "primary_issue",
+            "effectiveDescription": "Check id of the most actionable failure, if any. Null when status is healthy.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Check id of the most actionable failure, if any. Null when status is healthy.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape2/properties/primary_issue"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape2",
+            "field": "next_action",
+            "effectiveDescription": "One-sentence next action the customer should take. Null when nothing's wrong.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One-sentence next action the customer should take. Null when nothing's wrong.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape2/properties/next_action"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape3",
+            "field": "id",
+            "effectiveDescription": "Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape3/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape3",
+            "field": "name",
+            "effectiveDescription": "Human-readable check name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable check name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape3/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape3",
+            "field": "status",
+            "effectiveDescription": "passed: ok. warned: degraded but not blocking. failed: blocking. skipped: not run for this state.\n\n* `passed` - passed\n* `warned` - warned\n* `failed` - failed\n* `skipped` - skipped",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "passed: ok. warned: degraded but not blocking. failed: blocking. skipped: not run for this state.\n\n* `passed` - passed\n* `warned` - warned\n* `failed` - failed\n* `skipped` - skipped",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape3/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape3",
+            "field": "detail",
+            "effectiveDescription": "Customer-facing explanation of the check's outcome.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Customer-facing explanation of the check's outcome.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape3/properties/detail"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape3",
+            "field": "remediation",
+            "effectiveDescription": "Concrete remediation steps when the check failed; null when there's nothing actionable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concrete remediation steps when the check failed; null when there's nothing actionable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape3/properties/remediation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape4",
+            "field": "type",
+            "effectiveDescription": "Category of fix. dns: customer must change DNS records. config: customer must adjust their server config (e.g. allow port 80). wait: no action — the system will resolve on its own. retry: hit Retry.\n\n* `dns` - dns\n* `config` - config\n* `wait` - wait\n* `retry` - retry",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Category of fix. dns: customer must change DNS records. config: customer must adjust their server config (e.g. allow port 80). wait: no action — the system will resolve on its own. retry: hit Retry.\n\n* `dns` - dns\n* `config` - config\n* `wait` - wait\n* `retry` - retry",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape4/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape4",
+            "field": "summary",
+            "effectiveDescription": "One-line, action-oriented summary of what to do.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One-line, action-oriented summary of what to do.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape4/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape4",
+            "field": "records",
+            "effectiveDescription": "DNS records the customer should add (empty when remediation is not DNS-based).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "DNS records the customer should add (empty when remediation is not DNS-based).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape4/properties/records"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape5",
+            "field": "name",
+            "effectiveDescription": "DNS record name (the hostname the record is set on).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "DNS record name (the hostname the record is set on).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape5/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape5",
+            "field": "type",
+            "effectiveDescription": "DNS record type, e.g. CNAME, CAA, A.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "DNS record type, e.g. CNAME, CAA, A.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape5/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseResponseShape5",
+            "field": "value",
+            "effectiveDescription": "DNS record value to set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "DNS record value to set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape5/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseData",
+            "field": "ran_at",
+            "effectiveDescription": "When this diagnostic report was generated (UTC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this diagnostic report was generated (UTC).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/ran_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseData",
+            "field": "summary",
+            "effectiveDescription": "Top-level outcome and recommended next action.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top-level outcome and recommended next action.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyDiagnoseData",
+            "field": "checks",
+            "effectiveDescription": "Per-check results in execution order.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-check results in execution order.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/checks"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

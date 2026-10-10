@@ -1,0 +1,110 @@
+{
+    "method": "replayVision.visionObservationsRetry",
+    "toolName": "vision-observations-retry",
+    "operationId": "vision_observations_retry_create",
+    "title": "Retry failed observation",
+    "category": "Replay vision",
+    "description": "Re-run a `failed` or `ineligible` replay vision observation. The observation row is deleted and the scanner scans the same recording again, costing credits like any scan. Returns a `workflow_id`. The replacement has a new id, so find it with `vision-observations-list` for the same `session_id`. Check `error_reason` first: `too_short` or `no_recording` usually comes back ineligible again. A 409 means the previous run is still finishing; retry in a moment.",
+    "requiredScopes": ["replay_scanner:write", "session_recording:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": ["requires_ai_consent: true"],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionObservationsRetryInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-observations-retry.ts",
+        "declaration": "dist/generated/replay-vision/vision-observations-retry.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionObservationsRetryOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-observations-retry.ts",
+        "declaration": "dist/generated/replay-vision/vision-observations-retry.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionObservationsRetryData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-observations-retry.ts",
+            "declaration": "dist/generated/replay-vision/vision-observations-retry.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Delete a failed or ineligible observation and re-run its scanner on the same recording. Returns 202 with the workflow handle.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1observations~1{id}~1retry~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Re-run a `failed` or `ineligible` replay vision observation. The observation row is deleted and the scanner scans the same recording again, costing credits like any scan. Returns a `workflow_id`. The replacement has a new id, so find it with `vision-observations-list` for the same `session_id`. Check `error_reason` first: `too_short` or `no_recording` usually comes back ineligible again. A 409 means the previous run is still finishing; retry in a moment.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionObservationsRetryInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this replay observation.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this replay observation.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/observations/{id}/retry/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionObservationsRetryData",
+            "effectiveDescription": "Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/RetryResponse"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionObservationsRetryData",
+            "field": "workflow_id",
+            "effectiveDescription": "Temporal workflow id for the re-run. The retried observation row is deleted; look up its replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Temporal workflow id for the re-run. The retried observation row is deleted; look up its replacement via GET /vision/scanners/{id}/observations/?session_id=<session_id>.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/RetryResponse/properties/workflow_id"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-observations-list",
+            "method": "replayVision.visionObservationsList"
+        }
+    ]
+}

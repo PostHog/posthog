@@ -1,0 +1,198 @@
+{
+    "method": "productAnalytics.insightsActivityRetrieve",
+    "toolName": "insights-activity-retrieve",
+    "operationId": "insights_activity_retrieve",
+    "title": "Get insight activity log",
+    "category": "Product analytics",
+    "description": "Audit trail for a single insight by numeric `id`. Returns a paginated list of every change made to it (created, edited, deleted, restored), including who made each change and which fields changed. The full `before`/`after` diff blobs are omitted to keep responses agent-friendly — to inspect the current state of the insight after a change, call `insight-get` with the insight's `short_id`. Paginate with `limit` and `page`.",
+    "requiredScopes": ["activity_log:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/product-analytics/client.ts",
+    "input": {
+        "name": "ProductAnalyticsInsightsActivityRetrieveInput",
+        "importPath": "@posthog/sdk/product-analytics",
+        "source": "src/generated/product-analytics/insights-activity-retrieve.ts",
+        "declaration": "dist/generated/product-analytics/insights-activity-retrieve.d.ts"
+    },
+    "output": {
+        "name": "ProductAnalyticsInsightsActivityRetrieveOutput",
+        "importPath": "@posthog/sdk/product-analytics",
+        "source": "src/generated/product-analytics/insights-activity-retrieve.ts",
+        "declaration": "dist/generated/product-analytics/insights-activity-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ProductAnalyticsInsightsActivityRetrieveRequestSchema0",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-activity-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/insights-activity-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsActivityRetrieveRequestSchema1",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-activity-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/insights-activity-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsActivityRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-activity-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/insights-activity-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsActivityRetrieveDataResultsItem",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-activity-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/insights-activity-retrieve.d.ts"
+        },
+        {
+            "name": "ProductAnalyticsInsightsActivityRetrieveData",
+            "importPath": "@posthog/sdk/product-analytics",
+            "source": "src/generated/product-analytics/insights-activity-retrieve.ts",
+            "declaration": "dist/generated/product-analytics/insights-activity-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Audit trail for a single insight — every change made to it, by whom, and when. Use this when you want the change history of a specific insight; use the project-wide activity endpoint for a broader view.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1insights~1{id}~1activity~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Audit trail for a single insight by numeric `id`. Returns a paginated list of every change made to it (created, edited, deleted, restored), including who made each change and which fields changed. The full `before`/`after` diff blobs are omitted to keep responses agent-friendly — to inspect the current state of the insight after a change, call `insight-get` with the insight's `short_id`. Paginate with `limit` and `page`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/product_analytics/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ProductAnalyticsInsightsActivityRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A unique integer value identifying this insight.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A unique integer value identifying this insight.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/{id}/activity/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsActivityRetrieveInput",
+            "field": "limit",
+            "effectiveDescription": "Page size. Defaults to 10.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Page size. Defaults to 10.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/{id}/activity/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsActivityRetrieveInput",
+            "field": "page",
+            "effectiveDescription": "1-indexed page number. Defaults to 1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "1-indexed page number. Defaults to 1.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/insights/{id}/activity/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsActivityRetrieveData",
+            "field": "results[].is_system",
+            "effectiveDescription": "Whether the activity was performed by the system rather than a user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the activity was performed by the system rather than a user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2/properties/is_system"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsActivityRetrieveData",
+            "field": "results[].was_impersonated",
+            "effectiveDescription": "Whether the acting user was being impersonated by PostHog staff.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the acting user was being impersonated by PostHog staff.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2/properties/was_impersonated"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsActivityRetrieveData",
+            "field": "results[].client",
+            "effectiveDescription": "API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/product_analytics.ts",
+                        "pointer": "#/Shape2/properties/client"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProductAnalyticsInsightsActivityRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "insight-get",
+            "method": "productAnalytics.insightGet"
+        }
+    ]
+}

@@ -1,0 +1,215 @@
+{
+    "method": "replayVision.visionScannersScanSessions",
+    "toolName": "vision-scanners-scan-sessions",
+    "operationId": "vision_scanners_bulk_observe_create",
+    "title": "Scan many sessions with scanner",
+    "category": "Replay vision",
+    "description": "Run an existing scanner on up to 200 named sessions now, outside its schedule. Scans start until the in-flight limit or the monthly credit quota is reached; the rest come back as skipped instead of failing the batch. Returns `started` and a per-session `results` list with each `scan_outcome`. Sessions the scanner already observed are no-ops. Results are not inline: read them with `vision-scanners-observations-list`, polling until each leaves `pending`/`running`. For one session use `vision-scanners-scan-session`; for a one-off question without a scanner use `vision-scanners-inline-scan`.",
+    "requiredScopes": ["replay_scanner:write", "session_recording:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": ["requires_ai_consent: true"],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersScanSessionsInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-scan-sessions.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-scan-sessions.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersScanSessionsOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-scan-sessions.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-scan-sessions.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersScanSessionsRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scan-sessions.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scan-sessions.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScanSessionsResponseBulkObserveResultScanOutcome",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scan-sessions.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scan-sessions.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScanSessionsResponseBulkObserveResult",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scan-sessions.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scan-sessions.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScanSessionsData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scan-sessions.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scan-sessions.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Apply this scanner to many sessions on demand. Starts as many as fit under the in-flight\ncaps and monthly credit quota, reporting the rest as skipped rather than failing the batch.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1{id}~1bulk_observe~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Run an existing scanner on up to 200 named sessions now, outside its schedule. Scans start until the in-flight limit or the monthly credit quota is reached; the rest come back as skipped instead of failing the batch. Returns `started` and a per-session `results` list with each `scan_outcome`. Sessions the scanner already observed are no-ops. Results are not inline: read them with `vision-scanners-observations-list`, polling until each leaves `pending`/`running`. For one session use `vision-scanners-scan-session`; for a one-off question without a scanner use `vision-scanners-inline-scan`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionsInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this replay scanner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this replay scanner.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{id}/bulk_observe/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionsInput",
+            "field": "session_ids",
+            "effectiveDescription": "Session recording IDs to scan on demand, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch. Already-running sessions are a no-op.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Session recording IDs to scan on demand, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch. Already-running sessions are a no-op.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{id}/bulk_observe/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionsResponseBulkObserveResult",
+            "effectiveDescription": "Per-session outcome of a bulk scan trigger.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-session outcome of a bulk scan trigger.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BulkObserveResult"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionsResponseBulkObserveResult",
+            "field": "session_id",
+            "effectiveDescription": "The session recording this outcome is for.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The session recording this outcome is for.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BulkObserveResult/properties/session_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionsResponseBulkObserveResult",
+            "field": "scan_outcome",
+            "effectiveDescription": "'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.\n\n* `started` - Started\n* `already_running` - Already running\n* `already_scanned` - Already scanned\n* `skipped_limit` - Skipped, in-flight limit reached\n* `skipped_quota` - Skipped, the org's credit quota for this period was reached\n* `skipped_scanner_limit` - Skipped, scanner's own credit limit reached\n* `failed` - Failed to start",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.\n\n* `started` - Started\n* `already_running` - Already running\n* `already_scanned` - Already scanned\n* `skipped_limit` - Skipped, in-flight limit reached\n* `skipped_quota` - Skipped, the org's credit quota for this period was reached\n* `skipped_scanner_limit` - Skipped, scanner's own credit limit reached\n* `failed` - Failed to start",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BulkObserveResult/properties/scan_outcome"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionsData",
+            "effectiveDescription": "Result of POST /vision/scanners/{id}/bulk_observe/ — partial success by design.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Result of POST /vision/scanners/{id}/bulk_observe/ — partial success by design.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BulkObserveResponse"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionsData",
+            "field": "started",
+            "effectiveDescription": "How many new scans were started.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many new scans were started.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BulkObserveResponse/properties/started"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScanSessionsData",
+            "field": "results",
+            "effectiveDescription": "Per-session outcomes, in request order (deduplicated).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Per-session outcomes, in request order (deduplicated).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/BulkObserveResponse/properties/results"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-observations-list",
+            "method": "replayVision.visionScannersObservationsList"
+        },
+        {
+            "toolName": "vision-scanners-scan-session",
+            "method": "replayVision.visionScannersScanSession"
+        },
+        {
+            "toolName": "vision-scanners-inline-scan",
+            "method": "replayVision.visionScannersInlineScan"
+        }
+    ]
+}

@@ -1,0 +1,90 @@
+{
+    "method": "signals.inboxReportArtefactsDelete",
+    "toolName": "inbox-report-artefacts-delete",
+    "operationId": "signals_report_artefacts_destroy",
+    "title": "Delete an artefact",
+    "category": "Signals",
+    "description": "Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status type (e.g. priority_judgment) reverts the report's canonical status to the previous version. `task_run`, `work_claim`, `work_release`, and `pull_request` artefacts are an append-only work log and cannot be deleted, and neither can the types PostHog's own pipeline writes: `video_segment`, `title_change`, `summary_change`, `code_review`, `check_result`, `implementation_decision`, `implementation_replacement`, and `implementation_handover`. Deleting one of those returns 400 and names the type.",
+    "requiredScopes": ["task:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsInboxReportArtefactsDeleteInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-report-artefacts-delete.ts",
+        "declaration": "dist/generated/signals/inbox-report-artefacts-delete.d.ts"
+    },
+    "output": {
+        "name": "SignalsInboxReportArtefactsDeleteOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-report-artefacts-delete.ts",
+        "declaration": "dist/generated/signals/inbox-report-artefacts-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsInboxReportArtefactsDeleteData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-artefacts-delete.ts",
+            "declaration": "dist/generated/signals/inbox-report-artefacts-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1reports~1{report_id}~1artefacts~1{id}~1/delete"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Delete an artefact by its id when it is no longer correct or relevant. Deleting the latest row of a status type (e.g. priority_judgment) reverts the report's canonical status to the previous version. `task_run`, `work_claim`, `work_release`, and `pull_request` artefacts are an append-only work log and cannot be deleted, and neither can the types PostHog's own pipeline writes: `video_segment`, `title_change`, `summary_change`, `code_review`, `check_result`, `implementation_decision`, `implementation_replacement`, and `implementation_handover`. Deleting one of those returns 400 and names the type.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsInboxReportArtefactsDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this signal report artefact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this signal report artefact.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsDeleteInput",
+            "field": "report_id",
+            "effectiveDescription": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

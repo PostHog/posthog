@@ -1,0 +1,250 @@
+{
+    "method": "replayVision.visionQuotaGet",
+    "toolName": "vision-quota-get",
+    "operationId": "environment_vision_quota_retrieve",
+    "title": "Get replay vision quota",
+    "category": "Replay vision",
+    "description": "Get the organization's Replay vision credit budget (1 credit = $0.01; observations cost credits by model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, `projected_monthly_credits`, and the `period_start`/`period_end` of the current budget window (the org's billing period, or the calendar month when billing hasn't synced). Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session`: over budget, a scanner's scheduled sweeps silently skip their observations until the next period, while `vision-scanners-scan-session` is rejected outright with a 402. Pair with `vision-scanners-estimate` to size a new scanner against the remaining budget.",
+    "requiredScopes": ["replay_scanner:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionQuotaGetInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-quota-get.ts",
+        "declaration": "dist/generated/replay-vision/vision-quota-get.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionQuotaGetOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-quota-get.ts",
+        "declaration": "dist/generated/replay-vision/vision-quota-get.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionQuotaGetData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-quota-get.ts",
+            "declaration": "dist/generated/replay-vision/vision-quota-get.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Get the organization's Replay vision credit budget (1 credit = $0.01; observations cost credits by model). Returns `credit_limit` (null when uncapped), `credits_used` (in-flight + succeeded observations counted against it), `remaining`, `exhausted`, `projected_monthly_credits`, and the `period_start`/`period_end` of the current budget window (the org's billing period, or the calendar month when billing hasn't synced). Check `remaining`/`exhausted` before creating a scanner or calling `vision-scanners-scan-session`: over budget, a scanner's scheduled sweeps silently skip their observations until the next period, while `vision-scanners-scan-session` is rejected outright with a 402. Pair with `vision-scanners-estimate` to size a new scanner against the remaining budget.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "credit_limit",
+            "effectiveDescription": "Credits the organization may spend per billing period (1 credit = $0.01). 0 is a hard block: no observation can start. Null when billing has synced the product with no spend limit: uncapped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Credits the organization may spend per billing period (1 credit = $0.01). 0 is a hard block: no observation can start. Null when billing has synced the product with no spend limit: uncapped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credit_limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "credits_used",
+            "effectiveDescription": "`credits_settled` plus `credits_reserved`: the organization's total draw on `credit_limit` this period, across every project.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`credits_settled` plus `credits_reserved`: the organization's total draw on `credit_limit` this period, across every project.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credits_used"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "credits_settled",
+            "effectiveDescription": "Credits posted to the receipt ledger by succeeded observations and finished prompt-test sessions this period, across every project in the organization. Deleting an observation never refunds these.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Credits posted to the receipt ledger by succeeded observations and finished prompt-test sessions this period, across every project in the organization. Deleting an observation never refunds these.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credits_settled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "credits_reserved",
+            "effectiveDescription": "Credits held by in-flight observations across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Credits held by in-flight observations across every project in the organization. Released without charge when the work fails, settled into `credits_settled` when it succeeds.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credits_reserved"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "remaining",
+            "effectiveDescription": "`credit_limit - credits_used`, floored at 0. Null when uncapped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`credit_limit - credits_used`, floored at 0. Null when uncapped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/remaining"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "exhausted",
+            "effectiveDescription": "True when `credits_used >= credit_limit`; further observations are skipped until next period. Always false when uncapped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when `credits_used >= credit_limit`; further observations are skipped until next period. Always false when uncapped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/exhausted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "period_start",
+            "effectiveDescription": "First moment of the current quota period (UTC).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First moment of the current quota period (UTC).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/period_start"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "period_end",
+            "effectiveDescription": "First moment of the next quota period (UTC); the current period's exclusive upper bound.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First moment of the next quota period (UTC); the current period's exclusive upper bound.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/period_end"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "projected_monthly_credits",
+            "effectiveDescription": "`scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; prefer the two components when pro-rating, since only the scanner half is a monthly rate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`scanners_monthly_credits` plus `backfills_committed_credits`. Kept as the single headline number; prefer the two components when pro-rating, since only the scanner half is a monthly rate.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/projected_monthly_credits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "scanners_monthly_credits",
+            "effectiveDescription": "Credit-weighted sum of enabled scanners' projected observations/month across the organization. A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Credit-weighted sum of enabled scanners' projected observations/month across the organization. A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. A monthly rate: only the part falling in the days left of the period lands this period. Scanners without a computed estimate contribute 0.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/scanners_monthly_credits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "backfills_committed_credits",
+            "effectiveDescription": "Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Committed-but-unspent credits of the organization's active backfills. A one-off charge rather than a rate, so it lands in full regardless of how much of the period is left.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/backfills_committed_credits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionQuotaGetData",
+            "field": "free_monthly_credits",
+            "effectiveDescription": "Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Credits per period included for free. Already counted inside `credit_limit`; only credits beyond this number are billed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/free_monthly_credits"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-scan-session",
+            "method": "replayVision.visionScannersScanSession"
+        },
+        {
+            "toolName": "vision-scanners-estimate",
+            "method": "replayVision.visionScannersEstimate"
+        }
+    ]
+}

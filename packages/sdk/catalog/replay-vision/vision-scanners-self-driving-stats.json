@@ -1,0 +1,277 @@
+{
+    "method": "replayVision.visionScannersSelfDrivingStats",
+    "toolName": "vision-scanners-self-driving-stats",
+    "operationId": "vision_scanners_self_driving_stats_retrieve",
+    "title": "Get scanner's self-driving outcomes",
+    "category": "Replay vision",
+    "description": "What a signal-emitting scanner led to, all time: `signals_emitted` into the Signals inbox, `reports_contributed` (reports that include at least one of its signals), and implementation `prs_opened` and `prs_merged` by self-driving on those reports. All zero for a scanner that does not emit signals.",
+    "requiredScopes": ["replay_scanner:read", "task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersSelfDrivingStatsInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-self-driving-stats.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-self-driving-stats.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersSelfDrivingStatsOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-self-driving-stats.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-self-driving-stats.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersSelfDrivingStatsResponseShape2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-self-driving-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-self-driving-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersSelfDrivingStatsResponseShape3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-self-driving-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-self-driving-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersSelfDrivingStatsData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-self-driving-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-self-driving-stats.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "What self-driving did with this scanner's signals: reports contributed to and PRs opened.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1{id}~1self_driving_stats~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "What a signal-emitting scanner led to, all time: `signals_emitted` into the Signals inbox, `reports_contributed` (reports that include at least one of its signals), and implementation `prs_opened` and `prs_merged` by self-driving on those reports. All zero for a scanner that does not emit signals.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this replay scanner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this replay scanner.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{id}/self_driving_stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsResponseShape2",
+            "field": "id",
+            "effectiveDescription": "Signal report ID, for linking to it in the inbox.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Signal report ID, for linking to it in the inbox.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsResponseShape2",
+            "field": "title",
+            "effectiveDescription": "Report title. Null until the report is summarized.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Report title. Null until the report is summarized.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsResponseShape2",
+            "field": "status",
+            "effectiveDescription": "The report's inbox status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report's inbox status.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsResponseShape3",
+            "field": "url",
+            "effectiveDescription": "URL of the implementation pull request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "URL of the implementation pull request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsResponseShape3",
+            "field": "merged",
+            "effectiveDescription": "Whether the pull request has merged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the pull request has merged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/merged"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsData",
+            "effectiveDescription": "Response of GET /vision/scanners/:id/self_driving_stats/.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Response of GET /vision/scanners/:id/self_driving_stats/.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsData",
+            "field": "signals_emitted",
+            "effectiveDescription": "Signals this scanner has pushed into the Signals inbox, all time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Signals this scanner has pushed into the Signals inbox, all time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/signals_emitted"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsData",
+            "field": "reports_contributed",
+            "effectiveDescription": "Signal reports that include at least one of this scanner's signals. Reports usually aggregate signals from several sources, so this counts contributions, not sole causes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Signal reports that include at least one of this scanner's signals. Reports usually aggregate signals from several sources, so this counts contributions, not sole causes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/reports_contributed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsData",
+            "field": "prs_opened",
+            "effectiveDescription": "Implementation PRs opened by self-driving on those reports.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Implementation PRs opened by self-driving on those reports.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/prs_opened"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsData",
+            "field": "prs_merged",
+            "effectiveDescription": "Of the opened PRs, how many have merged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Of the opened PRs, how many have merged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/prs_merged"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsData",
+            "field": "reports",
+            "effectiveDescription": "The newest reports counted in `reports_contributed`, at most 20.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The newest reports counted in `reports_contributed`, at most 20.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/reports"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersSelfDrivingStatsData",
+            "field": "pull_requests",
+            "effectiveDescription": "The newest PRs counted in `prs_opened`, at most 20.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The newest PRs counted in `prs_opened`, at most 20.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/pull_requests"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

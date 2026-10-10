@@ -1,0 +1,1364 @@
+{
+    "method": "replayVision.visionScannersObservationsStats",
+    "toolName": "vision-scanners-observations-stats",
+    "operationId": "vision_scanners_observations_stats_retrieve",
+    "title": "Get scanner observation stats",
+    "category": "Replay vision",
+    "description": "Aggregate statistics over one scanner's observations. Accepts the same filters as `vision-scanners-observations-list` plus `recent_days` (default 14, clamped 1..365) for the windowed series. Returns `status_counts` (totals and success rate), `coverage` (distinct sessions scanned), `labels` (thumbs up/down rating totals, a per-day accuracy series bucketed by scan day, per-day rating activity, and `version_markers`: each prompt version's first day, prompt text, and rating counts), plus per-type distributions (`monitor` verdict counts, `classifier` tag rankings, `scorer` score summary and histogram). Use it to judge scanner quality and rating coverage.",
+    "requiredScopes": ["replay_scanner:read", "session_recording:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersObservationsStatsInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersObservationsStatsOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema4",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema5",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema6",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema7",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema8",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema9",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema10",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema11",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema12",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsRequestSchema13",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape5",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape4",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape7",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape9",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape8",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape11",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape12",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsResponseShape10",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersObservationsStatsData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-observations-stats.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-observations-stats.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Aggregate counts and per-scanner-type distributions over the filtered observation set. Same filters as the list endpoint apply.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1{scanner_id}~1observations~1stats~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Aggregate statistics over one scanner's observations. Accepts the same filters as `vision-scanners-observations-list` plus `recent_days` (default 14, clamped 1..365) for the windowed series. Returns `status_counts` (totals and success rate), `coverage` (distinct sessions scanned), `labels` (thumbs up/down rating totals, a per-day accuracy series bucketed by scan day, per-day rating activity, and `version_markers`: each prompt version's first day, prompt text, and rating counts), plus per-type distributions (`monitor` verdict counts, `classifier` tag rankings, `scorer` score summary and histogram). Use it to judge scanner quality and rating coverage.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "backfill_id",
+            "effectiveDescription": "Only observations dispatched by this backfill.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only observations dispatched by this backfill.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "date_from",
+            "effectiveDescription": "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "date_to",
+            "effectiveDescription": "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "labeled",
+            "effectiveDescription": "When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "max_score",
+            "effectiveDescription": "Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter scorer observations to those scoring at or below this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "min_score",
+            "effectiveDescription": "Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter scorer observations to those scoring at or above this value. Rows with no numeric score (other scanner types, failed or in-flight runs) are excluded.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "recent_days",
+            "effectiveDescription": "Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "recording_subject",
+            "effectiveDescription": "Filter to observations whose person email contains this value (case-insensitive).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to observations whose person email contains this value (case-insensitive).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "session_id",
+            "effectiveDescription": "Filter to observations of one or more session recordings. Accepts a comma-separated list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter to observations of one or more session recordings. Accepts a comma-separated list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "status",
+            "effectiveDescription": "Filter by observation status. Accepts a comma-separated list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by observation status. Accepts a comma-separated list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "tags",
+            "effectiveDescription": "Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "triggered_by",
+            "effectiveDescription": "Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "variant",
+            "effectiveDescription": "Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Experiment scanners only: filter to observations attributed to any of the given variant keys (comma-separated). `__unattributed__` matches observations with no attributed variant.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsInput",
+            "field": "verdict",
+            "effectiveDescription": "Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/observations/stats/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape2",
+            "field": "total",
+            "effectiveDescription": "Total observations in the filtered set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Total observations in the filtered set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape2",
+            "field": "succeeded",
+            "effectiveDescription": "Observations with `status=succeeded`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations with `status=succeeded`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/succeeded"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape2",
+            "field": "failed",
+            "effectiveDescription": "Observations with `status=failed`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations with `status=failed`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/failed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape2",
+            "field": "ineligible",
+            "effectiveDescription": "Observations with `status=ineligible`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations with `status=ineligible`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/ineligible"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape2",
+            "field": "in_flight",
+            "effectiveDescription": "Observations not yet in a terminal status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations not yet in a terminal status.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/in_flight"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape2",
+            "field": "success_rate",
+            "effectiveDescription": "Percentage of (succeeded + failed) observations that succeeded; ineligible rows are excluded. Null when no observations have completed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Percentage of (succeeded + failed) observations that succeeded; ineligible rows are excluded. Null when no observations have completed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/success_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape3",
+            "field": "recent_sessions",
+            "effectiveDescription": "Distinct sessions observed within the last `recent_days` days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct sessions observed within the last `recent_days` days.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/recent_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape3",
+            "field": "total_sessions",
+            "effectiveDescription": "Distinct sessions observed overall.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct sessions observed overall.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/total_sessions"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape3",
+            "field": "recent_days",
+            "effectiveDescription": "Window size in days used for `recent_sessions`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Window size in days used for `recent_sessions`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/recent_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape4",
+            "field": "up_total",
+            "effectiveDescription": "Observations in the filtered set labeled correct (thumbs up).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations in the filtered set labeled correct (thumbs up).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/up_total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape4",
+            "field": "down_total",
+            "effectiveDescription": "Observations in the filtered set labeled incorrect (thumbs down).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations in the filtered set labeled incorrect (thumbs down).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/down_total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape4",
+            "field": "by_day",
+            "effectiveDescription": "Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned so the series tracks scanner quality over time. Days without labels are omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned so the series tracks scanner quality over time. Days without labels are omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/by_day"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape4",
+            "field": "by_rating_day",
+            "effectiveDescription": "Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/by_rating_day"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape4",
+            "field": "version_markers",
+            "effectiveDescription": "Each scanner version that produced observations (all-time), with its first day, the config it ran with, and rating counts, for chart markers and the config version history.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Each scanner version that produced observations (all-time), with its first day, the config it ran with, and rating counts, for chart markers and the config version history.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape4/properties/version_markers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape5",
+            "field": "date",
+            "effectiveDescription": "Day (UTC) the observed sessions were scanned.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Day (UTC) the observed sessions were scanned.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape5/properties/date"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape5",
+            "field": "up",
+            "effectiveDescription": "Observations scanned this day labeled correct (thumbs up).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations scanned this day labeled correct (thumbs up).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape5/properties/up"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape5",
+            "field": "down",
+            "effectiveDescription": "Observations scanned this day labeled incorrect (thumbs down).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observations scanned this day labeled incorrect (thumbs down).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape5/properties/down"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "date",
+            "effectiveDescription": "First day (UTC) this prompt version produced observations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "First day (UTC) this prompt version produced observations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/date"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "version",
+            "effectiveDescription": "The scanner (prompt) version number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scanner (prompt) version number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "prompt",
+            "effectiveDescription": "The prompt text this version ran with, taken from the observation run snapshots.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The prompt text this version ran with, taken from the observation run snapshots.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "scanner_config",
+            "effectiveDescription": "The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The full type-specific config this version ran with (prompt plus, depending on scanner type, allow_inconclusive, tags, scale, or length), taken from the observation run snapshots.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/scanner_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "scanner_type",
+            "effectiveDescription": "The scanner type this version ran as.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scanner type this version ran as.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/scanner_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "model",
+            "effectiveDescription": "The model this version ran on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The model this version ran on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "provider",
+            "effectiveDescription": "The provider this version ran on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The provider this version ran on.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "emits_signals",
+            "effectiveDescription": "Whether this version emitted signals.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this version emitted signals.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/emits_signals"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "query",
+            "effectiveDescription": "The `RecordingsQuery` recording filters this version ran with.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The `RecordingsQuery` recording filters this version ran with.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "sampling_rate",
+            "effectiveDescription": "The 0..1 downsample this version ran with.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The 0..1 downsample this version ran with.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/sampling_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "sampling_mode",
+            "effectiveDescription": "The session-coverage pre-filter this version ran with.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The session-coverage pre-filter this version ran with.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/sampling_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "up",
+            "effectiveDescription": "Thumbs-up ratings on this version's observations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Thumbs-up ratings on this version's observations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/up"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "down",
+            "effectiveDescription": "Thumbs-down ratings on this version's observations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Thumbs-down ratings on this version's observations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/down"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape6",
+            "field": "total",
+            "effectiveDescription": "Succeeded (ratable) observations this version produced, rated or not.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Succeeded (ratable) observations this version produced, rated or not.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape7",
+            "field": "yes_total",
+            "effectiveDescription": "Succeeded observations whose verdict was `yes`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Succeeded observations whose verdict was `yes`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/yes_total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape7",
+            "field": "no_total",
+            "effectiveDescription": "Succeeded observations whose verdict was `no`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Succeeded observations whose verdict was `no`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/no_total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape7",
+            "field": "inconclusive_total",
+            "effectiveDescription": "Succeeded observations whose verdict was `inconclusive`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Succeeded observations whose verdict was `inconclusive`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/inconclusive_total"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape8",
+            "field": "fixed_ranked",
+            "effectiveDescription": "Top fixed-vocabulary tags by emission count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top fixed-vocabulary tags by emission count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape8/properties/fixed_ranked"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape8",
+            "field": "freeform_ranked",
+            "effectiveDescription": "Top freeform tags by emission count.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Top freeform tags by emission count.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape8/properties/freeform_ranked"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape8",
+            "field": "total_with_tags",
+            "effectiveDescription": "Succeeded observations that emitted at least one tag.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Succeeded observations that emitted at least one tag.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape8/properties/total_with_tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape9",
+            "field": "tag",
+            "effectiveDescription": "The tag value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The tag value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape9/properties/tag"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape9",
+            "field": "count",
+            "effectiveDescription": "Number of succeeded observations carrying this tag.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of succeeded observations carrying this tag.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape9/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape10",
+            "field": "summary",
+            "effectiveDescription": "Score quantile summary; null when no observations have been scored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Score quantile summary; null when no observations have been scored.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape10/properties/summary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape10",
+            "field": "histogram",
+            "effectiveDescription": "Score histogram; null when no observations have been scored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Score histogram; null when no observations have been scored.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape10/properties/histogram"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape11",
+            "field": "min",
+            "effectiveDescription": "Minimum observed score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minimum observed score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape11/properties/min"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape11",
+            "field": "p25",
+            "effectiveDescription": "25th-percentile score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "25th-percentile score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape11/properties/p25"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape11",
+            "field": "median",
+            "effectiveDescription": "Median score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Median score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape11/properties/median"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape11",
+            "field": "mean",
+            "effectiveDescription": "Mean score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Mean score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape11/properties/mean"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape11",
+            "field": "p75",
+            "effectiveDescription": "75th-percentile score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "75th-percentile score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape11/properties/p75"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape11",
+            "field": "max",
+            "effectiveDescription": "Maximum observed score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Maximum observed score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape11/properties/max"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape11",
+            "field": "count",
+            "effectiveDescription": "Number of scored observations summarized.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of scored observations summarized.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape11/properties/count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape12",
+            "field": "labels",
+            "effectiveDescription": "Bucket labels (one per histogram bar) spanning the scanner's configured scale.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Bucket labels (one per histogram bar) spanning the scanner's configured scale.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape12/properties/labels"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsResponseShape12",
+            "field": "counts",
+            "effectiveDescription": "Observation count per bucket; same length as `labels`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Observation count per bucket; same length as `labels`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape12/properties/counts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsData",
+            "field": "status_counts",
+            "effectiveDescription": "Counts of observations by terminal status.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Counts of observations by terminal status.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/status_counts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsData",
+            "field": "coverage",
+            "effectiveDescription": "Session-level scanner coverage.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Session-level scanner coverage.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/coverage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsData",
+            "field": "labels",
+            "effectiveDescription": "Team label (thumbs up/down) aggregates over the filtered set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Team label (thumbs up/down) aggregates over the filtered set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/labels"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsData",
+            "field": "available_tags",
+            "effectiveDescription": "All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/available_tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsData",
+            "field": "monitor",
+            "effectiveDescription": "Monitor-type aggregates; null when the scanner is not a monitor.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Monitor-type aggregates; null when the scanner is not a monitor.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/monitor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsData",
+            "field": "classifier",
+            "effectiveDescription": "Classifier-type aggregates; null when the scanner is not a classifier.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Classifier-type aggregates; null when the scanner is not a classifier.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/classifier"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsData",
+            "field": "scorer",
+            "effectiveDescription": "Scorer-type aggregates; null when the scanner is not a scorer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Scorer-type aggregates; null when the scanner is not a scorer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/scorer"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersObservationsStatsData",
+            "field": "_agentNote",
+            "effectiveDescription": "When `status_counts.succeeded` is above 10 and `labels.up_total` + `labels.down_total` is under 5, this scanner has results almost nobody has rated, so it has little to learn from. Say so, and ask the person to rate a few results. Record their verdicts with `vision-observations-label-create` rather than supplying your own.\n",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "When `status_counts.succeeded` is above 10 and `labels.up_total` + `labels.down_total` is under 5, this scanner has results almost nobody has rated, so it has little to learn from. Say so, and ask the person to rate a few results. Record their verdicts with `vision-observations-label-create` rather than supplying your own.\n",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-observations-list",
+            "method": "replayVision.visionScannersObservationsList"
+        }
+    ]
+}

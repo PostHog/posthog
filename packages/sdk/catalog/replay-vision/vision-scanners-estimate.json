@@ -1,0 +1,550 @@
+{
+    "method": "replayVision.visionScannersEstimate",
+    "toolName": "vision-scanners-estimate",
+    "operationId": "vision_scanners_estimate_create",
+    "title": "Estimate replay vision scanner volume",
+    "category": "Replay vision",
+    "description": "Preview how many observations a proposed scanner would generate, and what they would cost, before saving it. Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed 30-day lookback) plus the proposed `sampling_rate`, `sampling_mode` and `model`, and `scanner_id` when re-estimating an existing scanner so its own projection isn't double-counted. For an experiment scanner, pass the same `experiment_targeting` you will save, so the estimate counts only exposed sessions. Returns `matched_sessions_in_window`, the `window_days` it was measured over, `estimated_observations_per_month`, `credits_per_observation`, `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits` (the org's other enabled scanners' projected spend). Enabled scanners sweep every 5 minutes, so a broad query can exhaust the budget quickly — run this before `vision-scanners-create` and compare the *credit* figures (never raw observation counts) against `remaining` from `vision-quota-get`. These projections are per month while `remaining` covers only the rest of the current period, so prorate them by the days left between `period_start` and `period_end` before comparing.",
+    "requiredScopes": ["replay_scanner:read", "session_recording:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersEstimateInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersEstimateOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema4",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema6",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema8",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema12",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema13",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema10",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema10Variant1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema18",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema17",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema15",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateRequestSchema15Variant1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersEstimateData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-estimate.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-estimate.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1estimate~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Preview how many observations a proposed scanner would generate, and what they would cost, before saving it. Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored — the estimate uses a fixed 30-day lookback) plus the proposed `sampling_rate`, `sampling_mode` and `model`, and `scanner_id` when re-estimating an existing scanner so its own projection isn't double-counted. For an experiment scanner, pass the same `experiment_targeting` you will save, so the estimate counts only exposed sessions. Returns `matched_sessions_in_window`, the `window_days` it was measured over, `estimated_observations_per_month`, `credits_per_observation`, `estimated_credits_per_month`, and `other_enabled_scanners_monthly_credits` (the org's other enabled scanners' projected spend). Enabled scanners sweep every 5 minutes, so a broad query can exhaust the budget quickly — run this before `vision-scanners-create` and compare the *credit* figures (never raw observation counts) against `remaining` from `vision-quota-get`. These projections are per month while `remaining` covers only the rest of the current period, so prorate them by the days left between `period_start` and `period_end` before comparing.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateRequest_Schema0",
+            "effectiveDescription": "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate scans a recent window (`window_days` in the response) and scales it to 30 days. Omit to estimate against all recordings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate scans a recent window (`window_days` in the response) and scales it to 30 days. Omit to estimate against all recordings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateRequest_Schema2",
+            "effectiveDescription": "0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateRequest_Schema4",
+            "effectiveDescription": "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema4"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateRequest_Schema6",
+            "effectiveDescription": "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateRequest_Schema8",
+            "effectiveDescription": "Proposed model; determines `credits_per_observation` in the response.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Proposed model; determines `credits_per_observation` in the response.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateRequest_Schema10",
+            "effectiveDescription": "Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateRequest_Schema12",
+            "effectiveDescription": "The experiment the scanner watches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment the scanner watches.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateRequest_Schema13",
+            "effectiveDescription": "Narrow to sessions of people exposed to this variant. Null means every variant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Narrow to sessions of people exposed to this variant. Null means every variant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateRequest_Schema15",
+            "effectiveDescription": "For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema15"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateInput",
+            "effectiveDescription": "Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateInput",
+            "field": "query",
+            "effectiveDescription": "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate scans a recent window (`window_days` in the response) and scales it to 30 days. Omit to estimate against all recordings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are ignored — the estimate scans a recent window (`window_days` in the response) and scales it to 30 days. Omit to estimate against all recordings.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/estimate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateInput",
+            "field": "sampling_rate",
+            "effectiveDescription": "0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/estimate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateInput",
+            "field": "sampling_mode",
+            "effectiveDescription": "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/estimate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateInput",
+            "field": "scanner_id",
+            "effectiveDescription": "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/estimate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateInput",
+            "field": "model",
+            "effectiveDescription": "Proposed model; determines `credits_per_observation` in the response.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Proposed model; determines `credits_per_observation` in the response.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/estimate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateInput",
+            "field": "experiment_targeting",
+            "effectiveDescription": "Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/estimate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateInput",
+            "field": "experiment",
+            "effectiveDescription": "For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/estimate/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateData",
+            "effectiveDescription": "Forward-looking volume and credit-cost estimate for a proposed scanner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Forward-looking volume and credit-cost estimate for a proposed scanner.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateData",
+            "field": "matched_sessions_in_window",
+            "effectiveDescription": "Distinct sessions matching the query within the scanned window (`window_days`), after the sampling_mode quality filter but before random sampling.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct sessions matching the query within the scanned window (`window_days`), after the sampling_mode quality filter but before random sampling.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/matched_sessions_in_window"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateData",
+            "field": "window_days",
+            "effectiveDescription": "Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's operand rules out sampling); smaller when the team has fewer days of recordings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Days of recordings the estimate scanned before scaling to 30. Up to a week (shorter when the query's operand rules out sampling); smaller when the team has fewer days of recordings.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/window_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateData",
+            "field": "estimated_observations_per_month",
+            "effectiveDescription": "Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, times sampling_rate.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Projected monthly observations: quality-filtered matched sessions scaled from `window_days` to 30 days, times sampling_rate.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/estimated_observations_per_month"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateData",
+            "field": "credits_per_observation",
+            "effectiveDescription": "Credits one observation costs at the proposed `model` (1 credit = $0.01).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Credits one observation costs at the proposed `model` (1 credit = $0.01).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credits_per_observation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateData",
+            "field": "estimated_credits_per_month",
+            "effectiveDescription": "`estimated_observations_per_month` priced at `credits_per_observation`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`estimated_observations_per_month` priced at `credits_per_observation`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/estimated_credits_per_month"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateData",
+            "field": "other_enabled_scanners_monthly_credits",
+            "effectiveDescription": "Credit-weighted projected monthly spend of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Credit-weighted projected monthly spend of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/other_enabled_scanners_monthly_credits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateData",
+            "field": "active_backfill_credits",
+            "effectiveDescription": "Committed-but-unspent credits of the org's active backfills, the same figure the quota snapshot's projection carries. A one-off charge rather than a monthly rate, so the forecast shows it as its own segment instead of adding it to a per-month total.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Committed-but-unspent credits of the org's active backfills, the same figure the quota snapshot's projection carries. A one-off charge rather than a monthly rate, so the forecast shows it as its own segment instead of adding it to a per-month total.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/active_backfill_credits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersEstimateData",
+            "field": "sampling_rate",
+            "effectiveDescription": "Sampling rate applied to the projection. Echoed from the request.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sampling rate applied to the projection. Echoed from the request.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/sampling_rate"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-create",
+            "method": "replayVision.visionScannersCreate"
+        },
+        {
+            "toolName": "vision-quota-get",
+            "method": "replayVision.visionQuotaGet"
+        }
+    ]
+}

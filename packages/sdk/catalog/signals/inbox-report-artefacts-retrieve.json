@@ -1,0 +1,213 @@
+{
+    "method": "signals.inboxReportArtefactsRetrieve",
+    "toolName": "inbox-report-artefacts-retrieve",
+    "operationId": "signals_report_artefacts_retrieve",
+    "title": "Get a single artefact",
+    "category": "Signals",
+    "description": "Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same way as inbox-report-artefacts-list.",
+    "requiredScopes": ["task:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsInboxReportArtefactsRetrieveInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-report-artefacts-retrieve.ts",
+        "declaration": "dist/generated/signals/inbox-report-artefacts-retrieve.d.ts"
+    },
+    "output": {
+        "name": "SignalsInboxReportArtefactsRetrieveOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-report-artefacts-retrieve.ts",
+        "declaration": "dist/generated/signals/inbox-report-artefacts-retrieve.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsInboxReportArtefactsRetrieveResponseShape2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-artefacts-retrieve.ts",
+            "declaration": "dist/generated/signals/inbox-report-artefacts-retrieve.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportArtefactsRetrieveResponseShape3",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-artefacts-retrieve.ts",
+            "declaration": "dist/generated/signals/inbox-report-artefacts-retrieve.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportArtefactsRetrieveData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-report-artefacts-retrieve.ts",
+            "declaration": "dist/generated/signals/inbox-report-artefacts-retrieve.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1reports~1{report_id}~1artefacts~1{id}~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same way as inbox-report-artefacts-list.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsInboxReportArtefactsRetrieveInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this signal report artefact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this signal report artefact.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsRetrieveInput",
+            "field": "report_id",
+            "effectiveDescription": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "UUID of the report whose artefacts you're addressing. This must be a report id (the report's own UUID), not a signal id such as `sig_praise` — a non-report id returns 404.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsRetrieveData",
+            "field": "claim_id",
+            "effectiveDescription": "Work claim that produced this artefact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Work claim that produced this artefact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/claim_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsRetrieveData",
+            "field": "pull_request_id",
+            "effectiveDescription": "Shared PR record linked by this artefact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Shared PR record linked by this artefact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/pull_request_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsRetrieveData",
+            "field": "actor_kind",
+            "effectiveDescription": "Actor kind. Legacy rows without attribution are returned as system.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actor kind. Legacy rows without attribution are returned as system.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/actor_kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsRetrieveData",
+            "field": "actor_agent",
+            "effectiveDescription": "MCP client name when an external agent produced the artefact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP client name when an external agent produced the artefact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/actor_agent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsRetrieveData",
+            "field": "created_by",
+            "effectiveDescription": "Authenticated user principal for user or external agent writes. Null for internal task and system writes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Authenticated user principal for user or external agent writes. Null for internal task and system writes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsRetrieveData",
+            "field": "task_id",
+            "effectiveDescription": "Internal task the artefact is attributed to. Null for user, external agent, and system writes.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Internal task the artefact is attributed to. Null for user, external agent, and system writes.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/task_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportArtefactsRetrieveData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

@@ -1,0 +1,412 @@
+{
+    "method": "replayVision.visionScannersDraft",
+    "toolName": "vision-scanners-draft",
+    "operationId": "vision_scanners_draft_create",
+    "title": "Draft scanner from goal",
+    "category": "Replay vision",
+    "description": "Draft a full scanner configuration from a natural-language `goal` (e.g. \"find where users get stuck during onboarding\"). Nothing is saved. Returns `name`, `description`, `scanner_type`, `scanner_config`, `query` and a `rationale` addressed to the person. When `monthly_credit_budget` is honored the draft also picks `sampling_mode`, `sampling_rate`, `model` and `credit_limit` to fit the budget; otherwise those come back null. Review the draft with the person, then pass it to `vision-scanners-create`. The call is an inline LLM request and can take a while.",
+    "requiredScopes": ["replay_scanner:write", "session_recording:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["requires_ai_consent: true"],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersDraftInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-draft.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-draft.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersDraftOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-draft.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-draft.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersDraftRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-draft.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-draft.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersDraftRequestSchema1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-draft.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-draft.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersDraftResponseShape2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-draft.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-draft.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersDraftData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-draft.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-draft.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Draft a full scanner configuration from a natural-language goal, for the goal-based creation flow.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1draft~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Draft a full scanner configuration from a natural-language `goal` (e.g. \"find where users get stuck during onboarding\"). Nothing is saved. Returns `name`, `description`, `scanner_type`, `scanner_config`, `query` and a `rationale` addressed to the person. When `monthly_credit_budget` is honored the draft also picks `sampling_mode`, `sampling_rate`, `model` and `credit_limit` to fit the budget; otherwise those come back null. Review the draft with the person, then pass it to `vision-scanners-create`. The call is an inline LLM request and can take a while.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersDraftRequest_Schema0",
+            "effectiveDescription": "What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftRequest_Schema1",
+            "effectiveDescription": "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftInput",
+            "effectiveDescription": "Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftInput",
+            "field": "goal",
+            "effectiveDescription": "What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/draft/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftInput",
+            "field": "monthly_credit_budget",
+            "effectiveDescription": "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/draft/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftResponseShape2",
+            "effectiveDescription": "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftResponseShape2",
+            "field": "experiment_id",
+            "effectiveDescription": "The experiment the scanner watches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment the scanner watches.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/experiment_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftResponseShape2",
+            "field": "variant",
+            "effectiveDescription": "Narrow to sessions of people exposed to this variant. Null means every variant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Narrow to sessions of people exposed to this variant. Null means every variant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/variant"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "effectiveDescription": "An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "An AI-drafted scanner configuration, ready to seed the creation wizard. Nothing is persisted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "name",
+            "effectiveDescription": "Drafted scanner name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Drafted scanner name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "description",
+            "effectiveDescription": "Drafted one-sentence description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Drafted one-sentence description.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "scanner_type",
+            "effectiveDescription": "The scanner type the draft picked for the goal.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scanner type the draft picked for the goal.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/scanner_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "scanner_config",
+            "effectiveDescription": "Type-specific config for the drafted `scanner_type`; always includes `prompt`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type-specific config for the drafted `scanner_type`; always includes `prompt`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/scanner_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "rationale",
+            "effectiveDescription": "Why the draft picked this scanner type and configuration, addressed to the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the draft picked this scanner type and configuration, addressed to the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/rationale"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "query",
+            "effectiveDescription": "`RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "sampling_mode",
+            "effectiveDescription": "Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the legacy flow, and null when the costing estimate failed — the wizard keeps its defaults.\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the legacy flow, and null when the costing estimate failed — the wizard keeps its defaults.\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/sampling_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "sampling_rate",
+            "effectiveDescription": "Goal-based flow only: the random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal-based flow only: the random sampling rate solved from `monthly_credit_budget`, 0..1. 1.0 when the budget covers every matching recording. Floored at the minimum rate, so a budget below that floor keeps the minimum. Null whenever `sampling_mode` is.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/sampling_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "model",
+            "effectiveDescription": "Goal-based flow only: the observation model the draft chose for the goal, by how much judgment it needs. Null on the legacy flow, where the wizard keeps its default model.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal-based flow only: the observation model the draft chose for the goal, by how much judgment it needs. Null on the legacy flow, where the wizard keeps its default model.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "credit_limit",
+            "effectiveDescription": "Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credit_limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "experiment_targeting",
+            "effectiveDescription": "Goal-based flow only: the experiment whose participants the draft watches, when the goal named one of the project's launched experiments. Null when it named none. Carried separately from `query`, which never holds an exposure filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal-based flow only: the experiment whose participants the draft watches, when the goal named one of the project's launched experiments. Null when it named none. Carried separately from `query`, which never holds an exposure filter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/experiment_targeting"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersDraftData",
+            "field": "estimated_monthly_observations",
+            "effectiveDescription": "Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/estimated_monthly_observations"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-create",
+            "method": "replayVision.visionScannersCreate"
+        }
+    ]
+}

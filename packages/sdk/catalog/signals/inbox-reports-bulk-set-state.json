@@ -1,0 +1,360 @@
+{
+    "method": "signals.inboxReportsBulkSetState",
+    "toolName": "inbox-reports-bulk-set-state",
+    "operationId": "signals_reports_bulk_state_create",
+    "title": "Dismiss or snooze signal reports in bulk",
+    "category": "Signals",
+    "description": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool, including `wrong_repo`), `dismissal_note`, `corrected_repository` (only with `wrong_repo`), and `snooze_for` apply to every id. Dismissing or resolving closes each report's open implementation PR, if it has one. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
+    "requiredScopes": ["task:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsInboxReportsBulkSetStateInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-reports-bulk-set-state.ts",
+        "declaration": "dist/generated/signals/inbox-reports-bulk-set-state.d.ts"
+    },
+    "output": {
+        "name": "SignalsInboxReportsBulkSetStateOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-reports-bulk-set-state.ts",
+        "declaration": "dist/generated/signals/inbox-reports-bulk-set-state.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsInboxReportsBulkSetStateRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-bulk-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-bulk-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsBulkSetStateRequestSchema1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-bulk-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-bulk-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsBulkSetStateRequestSchema2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-bulk-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-bulk-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsBulkSetStateRequestSchema3",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-bulk-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-bulk-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsBulkSetStateRequestSchema4",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-bulk-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-bulk-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsBulkSetStateInputState",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-bulk-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-bulk-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsBulkSetStateResponseShape2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-bulk-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-bulk-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsBulkSetStateData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-bulk-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-bulk-set-state.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Transition many reports to a new state in one call.\n\nEach id is processed independently: a report whose transition isn't allowed from its\ncurrent status is reported as `skipped` (a 409 on the single-report endpoint) and the\nrest still go through. Returns one result per requested id (in request order, after\nde-duplication) plus per-outcome counts. The whole call is 200 even on partial failure —\ninspect `results` / the counts to see what happened.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1reports~1bulk-state~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Transition many signal reports to the same state in one call — the bulk form of `inbox-reports-set-state`, for clearing, snoozing, or resolving a batch of inbox reports without one request per report. Pass `ids` (1–100 report ids) and a `state` ('resolved' when the requested work is done, 'suppressed' to dismiss, 'potential' to snooze/restore); the optional `dismissal_reason` (same canonical codes as the single-report tool, including `wrong_repo`), `dismissal_note`, `corrected_repository` (only with `wrong_repo`), and `snooze_for` apply to every id. Dismissing or resolving closes each report's open implementation PR, if it has one. Each id is processed independently, so the whole call returns 200 even on partial failure: inspect `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status comes back as `skipped` (the single-report 409) while the rest still go through.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateRequest_Schema0",
+            "effectiveDescription": "* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wrong_repo` - Agent picked the wrong repository\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `fixed_outside_posthog` - Fixed outside PostHog\n* `pr_merged` - PR was merged\n* `other` - Something else…",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wrong_repo` - Agent picked the wrong repository\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `fixed_outside_posthog` - Fixed outside PostHog\n* `pr_merged` - PR was merged\n* `other` - Something else…",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateInput",
+            "field": "state",
+            "effectiveDescription": "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/bulk-state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateInput",
+            "field": "dismissal_reason",
+            "effectiveDescription": "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wrong_repo` - Agent picked the wrong repository\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `fixed_outside_posthog` - Fixed outside PostHog\n* `pr_merged` - PR was merged\n* `other` - Something else…",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wrong_repo` - Agent picked the wrong repository\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `fixed_outside_posthog` - Fixed outside PostHog\n* `pr_merged` - PR was merged\n* `other` - Something else…",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/bulk-state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateInput",
+            "field": "dismissal_note",
+            "effectiveDescription": "Optional free-form note explaining the dismissal. Capped at 4000 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional free-form note explaining the dismissal. Capped at 4000 characters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/bulk-state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateInput",
+            "field": "corrected_repository",
+            "effectiveDescription": "Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with the dismissal and fed into future repository selection for this project. When the repository is connected to the project, it also becomes the report's corrected repo selection, so restoring the report re-researches against it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with the dismissal and fed into future repository selection for this project. When the repository is connected to the project, it also becomes the report's corrected repo selection, so restoring the report re-researches against it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/bulk-state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateInput",
+            "field": "snooze_for",
+            "effectiveDescription": "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/bulk-state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateInput",
+            "field": "ids",
+            "effectiveDescription": "Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note`, `corrected_repository` and `snooze_for` apply to every id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note`, `corrected_repository` and `snooze_for` apply to every id.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/bulk-state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateResponseShape2",
+            "field": "id",
+            "effectiveDescription": "The report id this result refers to.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report id this result refers to.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateResponseShape2",
+            "field": "outcome",
+            "effectiveDescription": "One of: transitioned, skipped, failed, not_found. transitioned: the state change was applied. skipped: the transition was not allowed from the report's current status (a 409 on the single-report endpoint). failed: the request data was invalid for this report. not_found: no report with this id is visible to you.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One of: transitioned, skipped, failed, not_found. transitioned: the state change was applied. skipped: the transition was not allowed from the report's current status (a 409 on the single-report endpoint). failed: the request data was invalid for this report. not_found: no report with this id is visible to you.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/outcome"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateResponseShape2",
+            "field": "status",
+            "effectiveDescription": "The report's status after the transition. Present only when outcome is 'transitioned'.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report's status after the transition. Present only when outcome is 'transitioned'.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateResponseShape2",
+            "field": "detail",
+            "effectiveDescription": "Human-readable explanation for non-transitioned outcomes (skipped / failed / not_found).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable explanation for non-transitioned outcomes (skipped / failed / not_found).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/detail"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateData",
+            "field": "results",
+            "effectiveDescription": "One result per requested id, in request order (after de-duplication).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One result per requested id, in request order (after de-duplication).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/results"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateData",
+            "field": "transitioned_count",
+            "effectiveDescription": "Number of reports the call accepted. A report that already had the requested state counts here too, because a repeat dismiss or resolve still records its feedback.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of reports the call accepted. A report that already had the requested state counts here too, because a repeat dismiss or resolve still records its feedback.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/transitioned_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateData",
+            "field": "skipped_count",
+            "effectiveDescription": "Number of reports whose transition was not allowed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of reports whose transition was not allowed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/skipped_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateData",
+            "field": "failed_count",
+            "effectiveDescription": "Number of reports that failed on invalid request data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of reports that failed on invalid request data.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/failed_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsBulkSetStateData",
+            "field": "not_found_count",
+            "effectiveDescription": "Number of requested ids not visible to the caller.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of requested ids not visible to the caller.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/not_found_count"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "inbox-reports-set-state",
+            "method": "signals.inboxReportsSetState"
+        }
+    ]
+}

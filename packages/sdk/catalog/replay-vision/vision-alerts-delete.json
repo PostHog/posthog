@@ -1,0 +1,70 @@
+{
+    "method": "replayVision.visionAlertsDelete",
+    "toolName": "vision-alerts-delete",
+    "operationId": "vision_alerts_destroy",
+    "title": "Delete replay vision alert",
+    "category": "Replay vision",
+    "description": "Delete a replay vision alert and all of its notification destinations. The scanner and its observations are not affected. To stop notifications for a while instead, set `enabled: false` or `snooze_until` with `vision-alerts-update`.",
+    "requiredScopes": ["vision_alert:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionAlertsDeleteInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-alerts-delete.ts",
+        "declaration": "dist/generated/replay-vision/vision-alerts-delete.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionAlertsDeleteOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-alerts-delete.ts",
+        "declaration": "dist/generated/replay-vision/vision-alerts-delete.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionAlertsDeleteData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-alerts-delete.ts",
+            "declaration": "dist/generated/replay-vision/vision-alerts-delete.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Delete a replay vision alert and all of its notification destinations. The scanner and its observations are not affected. To stop notifications for a while instead, set `enabled: false` or `snooze_until` with `vision-alerts-update`.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionAlertsDeleteInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this vision alert configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this vision alert configuration.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/alerts/{id}/"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-alerts-update",
+            "method": "replayVision.visionAlertsUpdate"
+        }
+    ]
+}

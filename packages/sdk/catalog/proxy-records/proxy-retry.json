@@ -1,0 +1,234 @@
+{
+    "method": "proxyRecords.proxyRetry",
+    "toolName": "proxy-retry",
+    "operationId": "proxy_records_retry_create",
+    "title": "Retry reverse proxy provisioning",
+    "category": "Reverse proxy",
+    "description": "Retry provisioning a reverse proxy that has failed. Only works for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' and restarts the DNS verification and certificate provisioning workflow.",
+    "requiredScopes": ["organization:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/proxy-records/client.ts",
+    "input": {
+        "name": "ProxyRecordsProxyRetryInput",
+        "importPath": "@posthog/sdk/proxy-records",
+        "source": "src/generated/proxy-records/proxy-retry.ts",
+        "declaration": "dist/generated/proxy-records/proxy-retry.d.ts"
+    },
+    "output": {
+        "name": "ProxyRecordsProxyRetryOutput",
+        "importPath": "@posthog/sdk/proxy-records",
+        "source": "src/generated/proxy-records/proxy-retry.ts",
+        "declaration": "dist/generated/proxy-records/proxy-retry.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ProxyRecordsProxyRetryData",
+            "importPath": "@posthog/sdk/proxy-records",
+            "source": "src/generated/proxy-records/proxy-retry.ts",
+            "declaration": "dist/generated/proxy-records/proxy-retry.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Retry provisioning a failed reverse proxy. Only available for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' status and restarts the provisioning workflow.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1organizations~1{organization_id}~1proxy_records~1{id}~1retry~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Retry provisioning a reverse proxy that has failed. Only works for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' and restarts the DNS verification and certificate provisioning workflow.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "services/mcp/definitions/proxy-records.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ProxyRecordsProxyRetryInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this proxy record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this proxy record.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/organizations/{organization_id}/proxy_records/{id}/retry/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyRetryData",
+            "field": "id",
+            "effectiveDescription": "Unique identifier for the proxy record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Unique identifier for the proxy record.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyRetryData",
+            "field": "domain",
+            "effectiveDescription": "The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/domain"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyRetryData",
+            "field": "target_cname",
+            "effectiveDescription": "The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/target_cname"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyRetryData",
+            "field": "root_redirect_url",
+            "effectiveDescription": "HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/root_redirect_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyRetryData",
+            "field": "root_redirect_supported",
+            "effectiveDescription": "Whether this managed proxy supports a redirect from its root URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this managed proxy supports a redirect from its root URL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/root_redirect_supported"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyRetryData",
+            "field": "status",
+            "effectiveDescription": "Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).\n\n* `waiting` - Waiting\n* `issuing` - Issuing\n* `valid` - Valid\n* `warning` - Warning\n* `erroring` - Erroring\n* `deleting` - Deleting\n* `timed_out` - Timed Out",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).\n\n* `waiting` - Waiting\n* `issuing` - Issuing\n* `valid` - Valid\n* `warning` - Warning\n* `erroring` - Erroring\n* `deleting` - Deleting\n* `timed_out` - Timed Out",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyRetryData",
+            "field": "message",
+            "effectiveDescription": "Human-readable status message with details about errors or warnings, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable status message with details about errors or warnings, if any.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyRetryData",
+            "field": "created_at",
+            "effectiveDescription": "When this proxy record was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this proxy record was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyRetryData",
+            "field": "updated_at",
+            "effectiveDescription": "When this proxy record was last updated.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this proxy record was last updated.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ProxyRecordsProxyRetryData",
+            "field": "created_by",
+            "effectiveDescription": "ID of the user who created this proxy record.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the user who created this proxy record.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/proxy-records.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

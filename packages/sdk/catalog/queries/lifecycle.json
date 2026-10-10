@@ -1,0 +1,3749 @@
+{
+    "method": "queries.lifecycle",
+    "toolName": "query-lifecycle",
+    "operationId": "query_create",
+    "title": "Run a lifecycle query",
+    "category": "Query wrappers",
+    "description": "Run a lifecycle query to categorize users into lifecycle stages based on their activity pattern relative to a single event or action. Lifecycle insights break users into four mutually exclusive groups for each time period: new, returning, resurrecting, and dormant. They're useful for understanding the composition of your active users and diagnosing growth or churn patterns.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nExamples of use cases include:\n\n- What is the composition of my active users over time?\n- Are we gaining new users faster than we're losing dormant ones?\n- How many users resurrected (came back after being inactive) last week?\n- Is the returning user base growing or shrinking?\n- How does user engagement change after a product launch?\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Lifecycle guidelines\n\nLifecycle insights analyze a **single event or action** over time. The `series` array must contain exactly one item. If the user mentions multiple events, pick the most relevant one or clarify.\n\n## Lifecycle statuses\n\nEach user is categorized into one of four statuses for each time period:\n\n- **New** – the user was seen for the first time (their person profile was created) during this period.\n- **Returning** – the user was active in the previous period and is active again in the current period.\n- **Resurrecting** – the user was inactive for one or more periods and became active again.\n- **Dormant** – the user was active in the previous period but did not perform the event in the current period. Dormant counts are shown as negative values.\n\n## Anonymous users are excluded\n\nLifecycle only counts users with person profiles. Events with `$process_person_profile: false` are excluded entirely; these come from anonymous users on SDKs configured with `person_profiles: 'identified_only'`, the default in posthog-js. In projects with anonymous traffic, lifecycle totals are therefore expected to be far lower than a trends unique-user count of the same event. To confirm a gap is this expected exclusion rather than a data problem, add a filter to the trends query excluding events where `$process_person_profile` is `false`. If the gap persists after that, investigate further.\n\n## Time interval\n\nSpecify the time interval using the `interval` field. Available intervals are: `hour`, `day`, `week`, `month`. The default is `day`.\n\nUnless the user has specified otherwise, use the following default interval:\n\n- If the time period is less than two days, use the `hour` interval.\n- If the time period is less than a month, use the `day` interval.\n- If the time period is less than three months, use the `week` interval.\n- Otherwise, use the `month` interval.\n\n## Toggled lifecycles\n\nUse `toggledLifecycles` in `lifecycleFilter` to control which lifecycle statuses are displayed. By default, all four statuses are shown. Only set this when the user wants to focus on specific statuses (e.g., only new and dormant users).\n\n## Math aggregation\n\nLifecycle insights do **not** support math aggregation types. Do not set `math` on the series node.\n\n# Examples\n\n## Daily lifecycle of pageviews over the last 30 days\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"$pageview\" }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"interval\": \"day\"\n}\n```\n\n## Weekly lifecycle of sign ups, excluding test accounts\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"user signed up\" }],\n  \"dateRange\": { \"date_from\": \"-90d\" },\n  \"interval\": \"week\",\n  \"filterTestAccounts\": true\n}\n```\n\n## Monthly lifecycle of \"insight created\" showing only new and dormant users\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"insight created\" }],\n  \"dateRange\": { \"date_from\": \"-12m\" },\n  \"interval\": \"month\",\n  \"lifecycleFilter\": {\n    \"toggledLifecycles\": [\"new\", \"dormant\"]\n  },\n  \"filterTestAccounts\": true\n}\n```\n\n## Lifecycle of purchases by mobile users\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"purchase completed\" }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"interval\": \"day\",\n  \"properties\": [{ \"key\": \"$os\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"iOS\", \"Android\"] }]\n}\n```\n\n# Reminders\n\n- Lifecycle insights support only **one** series — do not add multiple events or actions.\n- Lifecycle excludes anonymous users (events with `$process_person_profile: false`), so totals are expected to be lower than unique-user trends of the same event.\n- Do not set `math` on the series node — lifecycle does not support math aggregation.\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
+    "selectionHint": "New, returning, resurrecting, dormant user composition",
+    "requiredScopes": ["query:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [
+        "Omitting filterTestAccounts requires access to project settings. Supply an explicit boolean to avoid that lookup."
+    ],
+    "methodSource": "src/generated/queries/client.ts",
+    "input": {
+        "name": "QueriesLifecycleInput",
+        "importPath": "@posthog/sdk/queries",
+        "source": "src/generated/queries/lifecycle.ts",
+        "declaration": "dist/generated/queries/lifecycle.d.ts"
+    },
+    "output": {
+        "name": "QueriesLifecycleOutput",
+        "importPath": "@posthog/sdk/queries",
+        "source": "src/generated/queries/lifecycle.ts",
+        "declaration": "dist/generated/queries/lifecycle.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "QueriesLifecycleRequestInteger",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantDateRange",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantDurationRange",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantDateRangeFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestIntervalType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestLifecycleToggle",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantLifecycleFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantStringOrBooleanValuePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGenericPropertyFilterType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantNumericValuePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantArrayPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantDateTimePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantSetPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGenericPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGenericPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGenericPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGenericPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGenericPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGenericPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGroupPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGroupPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGroupPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGroupPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGroupPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantGroupPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantCohortPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantCohortPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantElementPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantElementPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantElementPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantElementPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantElementPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantElementPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantFlagPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestPropertyOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestPropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestPropertyFilterValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestEventPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestPersonPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestElementPropertyFilterKey",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestElementPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestFeaturePropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestBehavioralEventSource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantBehavioralPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestTimeUnitType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestInlineBehavioralType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantBehavioralPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantInsightPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantLifecycleEventsNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantLifecycleActionsNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestAssistantLifecycleSeriesNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleRequestRefreshType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseInteger",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantDateRange",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantDurationRange",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantDateRangeFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseIntervalType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseLifecycleToggle",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantLifecycleFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantStringOrBooleanValuePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGenericPropertyFilterType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantNumericValuePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantArrayPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantDateTimePropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantSetPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGenericPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGenericPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGenericPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGenericPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGenericPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGenericPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGroupPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGroupPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGroupPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGroupPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGroupPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantGroupPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantCohortPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantCohortPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantElementPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantElementPropertyFilterVariant1",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantElementPropertyFilterVariant2",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantElementPropertyFilterVariant3",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantElementPropertyFilterVariant4",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantElementPropertyFilterVariant5",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantFlagPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponsePropertyOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponsePropertyFilterBaseValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponsePropertyFilterValue",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseEventPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponsePersonPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseElementPropertyFilterKey",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseElementPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseFeaturePropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseBehavioralEventSource",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantBehavioralPropertyFilterOperator",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseTimeUnitType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseInlineBehavioralType",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantBehavioralPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantInsightPropertyFilter",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantLifecycleEventsNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantLifecycleActionsNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAssistantLifecycleSeriesNode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleQuery",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsBounceRatePageViewMode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsInCohortVia",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsInlineCohortCalculation",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsMaterializationMode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsMaterializedColumnsOptimizationMode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsParserMode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsPersonsArgMaxVersion",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsPersonsJoinMode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsPersonsOnEventsMode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsPropertyGroupsMode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsSessionTableVersion",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFieldsSessionsV2JoinMode",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseFilterLogicalOperatorNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseCustomBotFieldNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseCustomBotMatcherNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseCustomBotConditionNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseCustomBotRuleNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseCustomChannelFieldNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseCustomChannelOperatorNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseCustomChannelConditionNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseCustomChannelRuleNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseDataWarehouseEventsModifierNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseIntegerNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseClickhouseQueryProgressNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseQueryScanFixLocationNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseQueryScanFindingKindNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseQueryScanWarningNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseQueryScanAnalysisNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseQueryScanSummaryNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseQueryStatusNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseResolvedDateRangeResponseNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseQueryTimingNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseDataWarehouseSourceUsageNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseDataWarehouseSyncWarningNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResponseAccessControlFilterWarningNullableFields",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResultResultsItem",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleResult",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleQueryStatus",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleCompletedData",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecyclePendingData",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        },
+        {
+            "name": "QueriesLifecycleFailedData",
+            "importPath": "@posthog/sdk/queries",
+            "source": "src/generated/queries/lifecycle.ts",
+            "declaration": "dist/generated/queries/lifecycle.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "override",
+            "text": "Run a lifecycle query to categorize users into lifecycle stages based on their activity pattern relative to a single event or action. Lifecycle insights break users into four mutually exclusive groups for each time period: new, returning, resurrecting, and dormant. They're useful for understanding the composition of your active users and diagnosing growth or churn patterns.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nExamples of use cases include:\n\n- What is the composition of my active users over time?\n- Are we gaining new users faster than we're losing dormant ones?\n- How many users resurrected (came back after being inactive) last week?\n- Is the returning user base growing or shrinking?\n- How does user engagement change after a product launch?\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Lifecycle guidelines\n\nLifecycle insights analyze a **single event or action** over time. The `series` array must contain exactly one item. If the user mentions multiple events, pick the most relevant one or clarify.\n\n## Lifecycle statuses\n\nEach user is categorized into one of four statuses for each time period:\n\n- **New** – the user was seen for the first time (their person profile was created) during this period.\n- **Returning** – the user was active in the previous period and is active again in the current period.\n- **Resurrecting** – the user was inactive for one or more periods and became active again.\n- **Dormant** – the user was active in the previous period but did not perform the event in the current period. Dormant counts are shown as negative values.\n\n## Anonymous users are excluded\n\nLifecycle only counts users with person profiles. Events with `$process_person_profile: false` are excluded entirely; these come from anonymous users on SDKs configured with `person_profiles: 'identified_only'`, the default in posthog-js. In projects with anonymous traffic, lifecycle totals are therefore expected to be far lower than a trends unique-user count of the same event. To confirm a gap is this expected exclusion rather than a data problem, add a filter to the trends query excluding events where `$process_person_profile` is `false`. If the gap persists after that, investigate further.\n\n## Time interval\n\nSpecify the time interval using the `interval` field. Available intervals are: `hour`, `day`, `week`, `month`. The default is `day`.\n\nUnless the user has specified otherwise, use the following default interval:\n\n- If the time period is less than two days, use the `hour` interval.\n- If the time period is less than a month, use the `day` interval.\n- If the time period is less than three months, use the `week` interval.\n- Otherwise, use the `month` interval.\n\n## Toggled lifecycles\n\nUse `toggledLifecycles` in `lifecycleFilter` to control which lifecycle statuses are displayed. By default, all four statuses are shown. Only set this when the user wants to focus on specific statuses (e.g., only new and dormant users).\n\n## Math aggregation\n\nLifecycle insights do **not** support math aggregation types. Do not set `math` on the series node.\n\n# Examples\n\n## Daily lifecycle of pageviews over the last 30 days\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"$pageview\" }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"interval\": \"day\"\n}\n```\n\n## Weekly lifecycle of sign ups, excluding test accounts\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"user signed up\" }],\n  \"dateRange\": { \"date_from\": \"-90d\" },\n  \"interval\": \"week\",\n  \"filterTestAccounts\": true\n}\n```\n\n## Monthly lifecycle of \"insight created\" showing only new and dormant users\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"insight created\" }],\n  \"dateRange\": { \"date_from\": \"-12m\" },\n  \"interval\": \"month\",\n  \"lifecycleFilter\": {\n    \"toggledLifecycles\": [\"new\", \"dormant\"]\n  },\n  \"filterTestAccounts\": true\n}\n```\n\n## Lifecycle of purchases by mobile users\n\n```json\n{\n  \"kind\": \"LifecycleQuery\",\n  \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"purchase completed\" }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"interval\": \"day\",\n  \"properties\": [{ \"key\": \"$os\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"iOS\", \"Android\"] }]\n}\n```\n\n# Reminders\n\n- Lifecycle insights support only **one** series — do not add multiple events or actions.\n- Lifecycle excludes anonymous users (events with `$process_person_profile: false`), so totals are expected to be lower than unique-user trends of the same event.\n- Do not set `math` on the series node — lifecycle does not support math aggregation.\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.",
+            "source": {
+                "kind": "description_file",
+                "file": "services/mcp/definitions/prompts/query-lifecycle.md"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "QueriesLifecycleRequestAssistantDateRange",
+            "effectiveDescription": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantDateRange",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantDateRange",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantDurationRange",
+            "effectiveDescription": "This filter only works with durations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with durations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantDurationRange",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantLifecycleFilter",
+            "field": "showLegend",
+            "effectiveDescription": "Whether to show the legend describing series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to show the legend describing series.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/showLegend"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantLifecycleFilter",
+            "field": "showValuesOnSeries",
+            "effectiveDescription": "Whether to show a value on each data point.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to show a value on each data point.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/showValuesOnSeries"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantLifecycleFilter",
+            "field": "stacked",
+            "effectiveDescription": "Whether the lifecycle bars should be stacked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the lifecycle bars should be stacked.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/stacked"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantLifecycleFilter",
+            "field": "toggledLifecycles",
+            "effectiveDescription": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/toggledLifecycles"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantCohortPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantCohortPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantCohortPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "The cohort ID to filter by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The cohort ID to filter by.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantCohortPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantHogQLPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantHogQLPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantHogQLPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantHogQLPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantFlagPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "The feature flag key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The feature flag key.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantFlagPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantFlagPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantBehavioralPropertyFilter",
+            "field": "event_filters",
+            "effectiveDescription": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/event_filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantBehavioralPropertyFilter",
+            "field": "explicit_datetime",
+            "effectiveDescription": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/explicit_datetime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantBehavioralPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "Event name, or action id when event_type is 'actions'",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, or action id when event_type is 'actions'",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantBehavioralPropertyFilter",
+            "field": "negation",
+            "effectiveDescription": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/negation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantBehavioralPropertyFilter",
+            "field": "operator_value",
+            "effectiveDescription": "Count threshold for performed_event_multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count threshold for performed_event_multiple",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/operator_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantBehavioralPropertyFilter",
+            "field": "time_value",
+            "effectiveDescription": "Relative time window size, paired with time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative time window size, paired with time_interval",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/time_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantBehavioralPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestPropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestPersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestPersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestElementPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/ElementPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestFeaturePropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event property with \"$feature/\" prepended",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property with \"$feature/\" prepended",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/FeaturePropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestBehavioralEventSource",
+            "effectiveDescription": "Whether a behavioral filter's `key` refers to an event name or an action id",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a behavioral filter's `key` refers to an event name or an action id",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/BehavioralEventSource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestInlineBehavioralType",
+            "effectiveDescription": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/InlineBehavioralType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantLifecycleEventsNode",
+            "field": "event",
+            "effectiveDescription": "The event or `null` for all events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event or `null` for all events.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleEventsNode/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantLifecycleEventsNode",
+            "field": "kind",
+            "effectiveDescription": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleEventsNode/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantLifecycleActionsNode",
+            "field": "kind",
+            "effectiveDescription": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActionsNode/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleRequestAssistantLifecycleActionsNode",
+            "field": "name",
+            "effectiveDescription": "Action name from the plan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action name from the plan.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActionsNode/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleInput",
+            "field": "aggregation_group_type_index",
+            "effectiveDescription": "Groups aggregation",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Groups aggregation",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/aggregation_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleInput",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleInput",
+            "field": "filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users. When omitted, read the project default. Supply an explicit value if the credential cannot read project settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/filterTestAccounts"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Exclude internal and test users. When omitted, read the project default. Supply an explicit value if the credential cannot read project settings.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-query-adapter.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleInput",
+            "field": "interval",
+            "effectiveDescription": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/interval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleInput",
+            "field": "lifecycleFilter",
+            "effectiveDescription": "Properties specific to the lifecycle insight",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties specific to the lifecycle insight",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/lifecycleFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleInput",
+            "field": "properties",
+            "effectiveDescription": "Property filters for all series",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for all series",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleInput",
+            "field": "series",
+            "effectiveDescription": "Event or action to analyze. Lifecycle insights only support a single series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event or action to analyze. Lifecycle insights only support a single series.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/series"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleInput",
+            "field": "refresh",
+            "effectiveDescription": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryRequest/properties/refresh"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantDateRange",
+            "effectiveDescription": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantDateRange",
+            "field": "date_from",
+            "effectiveDescription": "ISO8601 date string.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantDateRange",
+            "field": "date_to",
+            "effectiveDescription": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDateRange/properties/date_to"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantDurationRange",
+            "effectiveDescription": "This filter only works with durations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "This filter only works with durations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantDurationRange",
+            "field": "date_from",
+            "effectiveDescription": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantDurationRange/properties/date_from"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantLifecycleFilter",
+            "field": "showLegend",
+            "effectiveDescription": "Whether to show the legend describing series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to show the legend describing series.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/showLegend"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantLifecycleFilter",
+            "field": "showValuesOnSeries",
+            "effectiveDescription": "Whether to show a value on each data point.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether to show a value on each data point.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/showValuesOnSeries"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantLifecycleFilter",
+            "field": "stacked",
+            "effectiveDescription": "Whether the lifecycle bars should be stacked.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the lifecycle bars should be stacked.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/stacked"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantLifecycleFilter",
+            "field": "toggledLifecycles",
+            "effectiveDescription": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`.\n- `new` - users who performed the event for the first time during the period.\n- `returning` - users who were active in the previous period and are active in the current period.\n- `resurrecting` - users who were inactive for one or more periods and became active again.\n- `dormant` - users who were active in the previous period but are inactive in the current period.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleFilter/properties/toggledLifecycles"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantCohortPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: \"in\"` to include cohort members, or `operator: \"not_in\"` to exclude them. Examples:\n- Include: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"in\" }`\n- Exclude: `{ type: \"cohort\", key: \"id\", value: 42, operator: \"not_in\" }`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantCohortPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantCohortPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "The cohort ID to filter by.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The cohort ID to filter by.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantCohortPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantHogQLPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantHogQLPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantHogQLPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantHogQLPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantFlagPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "The feature flag key.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The feature flag key.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantFlagPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples:\n- Flag enabled: `{ type: \"flag\", key: \"new-onboarding\", operator: \"flag_evaluates_to\", value: true }`\n- Specific variant: `{ type: \"flag\", key: \"checkout-experiment\", operator: \"flag_evaluates_to\", value: \"variant-a\" }`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantFlagPropertyFilter",
+            "field": "value",
+            "effectiveDescription": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantFlagPropertyFilter/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantBehavioralPropertyFilter",
+            "field": "event_filters",
+            "effectiveDescription": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/event_filters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantBehavioralPropertyFilter",
+            "field": "explicit_datetime",
+            "effectiveDescription": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/explicit_datetime"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantBehavioralPropertyFilter",
+            "field": "key",
+            "effectiveDescription": "Event name, or action id when event_type is 'actions'",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event name, or action id when event_type is 'actions'",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantBehavioralPropertyFilter",
+            "field": "negation",
+            "effectiveDescription": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/negation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantBehavioralPropertyFilter",
+            "field": "operator_value",
+            "effectiveDescription": "Count threshold for performed_event_multiple",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Count threshold for performed_event_multiple",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/operator_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantBehavioralPropertyFilter",
+            "field": "time_value",
+            "effectiveDescription": "Relative time window size, paired with time_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Relative time window size, paired with time_interval",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/time_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantBehavioralPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantBehavioralPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseEventPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseEventPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/EventPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponsePropertyOperator",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PropertyOperator"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponsePersonPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponsePersonPropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Person properties",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Person properties",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/PersonPropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseElementPropertyFilter",
+            "effectiveDescription": "Sync with nodejs/src/types.ts",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync with nodejs/src/types.ts",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/ElementPropertyFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseFeaturePropertyFilter",
+            "field": "type",
+            "effectiveDescription": "Event property with \"$feature/\" prepended",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event property with \"$feature/\" prepended",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/FeaturePropertyFilter/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseBehavioralEventSource",
+            "effectiveDescription": "Whether a behavioral filter's `key` refers to an event name or an action id",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a behavioral filter's `key` refers to an event name or an action id",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/BehavioralEventSource"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseInlineBehavioralType",
+            "effectiveDescription": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/InlineBehavioralType"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantLifecycleEventsNode",
+            "field": "event",
+            "effectiveDescription": "The event or `null` for all events.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event or `null` for all events.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleEventsNode/properties/event"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantLifecycleEventsNode",
+            "field": "kind",
+            "effectiveDescription": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleEventsNode/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantLifecycleActionsNode",
+            "field": "kind",
+            "effectiveDescription": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActionsNode/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAssistantLifecycleActionsNode",
+            "field": "name",
+            "effectiveDescription": "Action name from the plan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Action name from the plan.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleActionsNode/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQuery",
+            "field": "aggregation_group_type_index",
+            "effectiveDescription": "Groups aggregation",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Groups aggregation",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/aggregation_group_type_index"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQuery",
+            "field": "dateRange",
+            "effectiveDescription": "Date range for the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Date range for the query",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/dateRange"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQuery",
+            "field": "filterTestAccounts",
+            "effectiveDescription": "Exclude internal and test users. When omitted, read the project default. Supply an explicit value if the credential cannot read project settings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exclude internal and test users by applying the respective filters",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/filterTestAccounts"
+                    }
+                },
+                {
+                    "role": "override",
+                    "text": "Exclude internal and test users. When omitted, read the project default. Supply an explicit value if the credential cannot read project settings.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-query-adapter.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQuery",
+            "field": "interval",
+            "effectiveDescription": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/interval"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQuery",
+            "field": "lifecycleFilter",
+            "effectiveDescription": "Properties specific to the lifecycle insight",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Properties specific to the lifecycle insight",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/lifecycleFilter"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQuery",
+            "field": "properties",
+            "effectiveDescription": "Property filters for all series",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Property filters for all series",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/properties"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQuery",
+            "field": "series",
+            "effectiveDescription": "Event or action to analyze. Lifecycle insights only support a single series.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Event or action to analyze. Lifecycle insights only support a single series.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AssistantLifecycleQuery/properties/series"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "effectiveDescription": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL Query Options are automatically set per team. However, they can be overridden in the query.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "cookielessTrafficIsRegular",
+            "effectiveDescription": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/cookielessTrafficIsRegular"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "forceClickhouseDataSkippingIndexes",
+            "effectiveDescription": "If these are provided, the query will fail if these skip indexes are not used",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If these are provided, the query will fail if these skip indexes are not used",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/forceClickhouseDataSkippingIndexes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "mergeFederatedAggregateJoins",
+            "effectiveDescription": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/mergeFederatedAggregateJoins"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "parserMode",
+            "effectiveDescription": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/parserMode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "personIdPushdown",
+            "effectiveDescription": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/personIdPushdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "sessionIdPushdown",
+            "effectiveDescription": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/sessionIdPushdown"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "sessionPropertyPreAggregation",
+            "effectiveDescription": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/sessionPropertyPreAggregation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "typeAwareCastSimplification",
+            "effectiveDescription": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/typeAwareCastSimplification"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "useNewEventsSchema",
+            "effectiveDescription": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/useNewEventsSchema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "usePreaggregatedTableTransforms",
+            "effectiveDescription": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/usePreaggregatedTableTransforms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseHogQLQueryModifiersNullableFields",
+            "field": "webAnalyticsFirstPageviewFilters",
+            "effectiveDescription": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/HogQLQueryModifiers/properties/webAnalyticsFirstPageviewFilters"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseCustomBotRuleNullableFields",
+            "effectiveDescription": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A bot a project defines itself, on top of PostHog's built-in bot list.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseCustomBotRuleNullableFields",
+            "field": "category",
+            "effectiveDescription": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/category"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseCustomBotRuleNullableFields",
+            "field": "combiner",
+            "effectiveDescription": "Whether every condition must match (AND) or any one of them (OR).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether every condition must match (AND) or any one of them (OR).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/combiner"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseCustomBotRuleNullableFields",
+            "field": "name",
+            "effectiveDescription": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reported by `$virt_bot_name` and `$virt_bot_operator` when the rule matches.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotRule/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseCustomBotConditionNullableFields",
+            "effectiveDescription": "One condition of a project's bot rule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One condition of a project's bot rule.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseCustomBotConditionNullableFields",
+            "field": "key",
+            "effectiveDescription": "The event property this condition reads.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event property this condition reads.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition/properties/key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseCustomBotConditionNullableFields",
+            "field": "pattern",
+            "effectiveDescription": "Matched against the property named by `key`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Matched against the property named by `key`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotCondition/properties/pattern"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseCustomBotFieldNullableFields",
+            "effectiveDescription": "The event properties a project's own bot rule can match on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The event properties a project's own bot rule can match on.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/CustomBotField"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryStatusNullableFields",
+            "field": "cache_key",
+            "effectiveDescription": "Cache key of the run that failed, so clients can ask for its query scan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cache key of the run that failed, so clients can ask for its query scan.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/cache_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryStatusNullableFields",
+            "field": "complete",
+            "effectiveDescription": "Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/complete"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryStatusNullableFields",
+            "field": "end_time",
+            "effectiveDescription": "When did the query execution task finish (whether successfully or not).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When did the query execution task finish (whether successfully or not).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/end_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryStatusNullableFields",
+            "field": "error",
+            "effectiveDescription": "If the query failed, this will be set to true. More information can be found in the error_message field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If the query failed, this will be set to true. More information can be found in the error_message field.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryStatusNullableFields",
+            "field": "error_code",
+            "effectiveDescription": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/error_code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryStatusNullableFields",
+            "field": "pickup_time",
+            "effectiveDescription": "When was the query execution task picked up by a worker.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When was the query execution task picked up by a worker.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/pickup_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryStatusNullableFields",
+            "field": "query_async",
+            "effectiveDescription": "ONLY async queries use QueryStatus.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ONLY async queries use QueryStatus.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/query_async"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryStatusNullableFields",
+            "field": "query_scan",
+            "effectiveDescription": "What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanSummary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryStatusNullableFields",
+            "field": "start_time",
+            "effectiveDescription": "When was query execution task enqueued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When was query execution task enqueued.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/start_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanSummaryNullableFields",
+            "effectiveDescription": "What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanSummary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanSummaryNullableFields",
+            "field": "analysis",
+            "effectiveDescription": "The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The stored analysis, put on the response when it is served. Absent while the analysis runs, and when none was requested.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanSummary/properties/analysis"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanSummaryNullableFields",
+            "field": "analysis_requested",
+            "effectiveDescription": "True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the run asked for an analysis, or found one stored. While `analysis` is absent, poll `GET /query/scan/{cache_key}` for it.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanSummary/properties/analysis_requested"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanSummaryNullableFields",
+            "field": "duration_ms",
+            "effectiveDescription": "ClickHouse time for the last fresh run, summed over its ClickHouse queries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ClickHouse time for the last fresh run, summed over its ClickHouse queries.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanSummary/properties/duration_ms"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanSummaryNullableFields",
+            "field": "killed",
+            "effectiveDescription": "True when ClickHouse stopped the run instead of finishing it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when ClickHouse stopped the run instead of finishing it.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanSummary/properties/killed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanSummaryNullableFields",
+            "field": "rows_read",
+            "effectiveDescription": "Rows ClickHouse read for the last fresh run, all tables included.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Rows ClickHouse read for the last fresh run, all tables included.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanSummary/properties/rows_read"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanAnalysisNullableFields",
+            "effectiveDescription": "The stored analysis of one query, kept for 30 days by cache key and put on every response for that query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The stored analysis of one query, kept for 30 days by cache key and put on every response for that query.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanAnalysis"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanAnalysisNullableFields",
+            "field": "assistant_prompt",
+            "effectiveDescription": "The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The message the Fix with AI button sends to the assistant. Absent when no finding can be fixed in the query.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanAnalysis/properties/assistant_prompt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanAnalysisNullableFields",
+            "field": "findings",
+            "effectiveDescription": "Every finding, fixable or not. Empty when the analysis found none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Every finding, fixable or not. Empty when the analysis found none.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanAnalysis/properties/findings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanAnalysisNullableFields",
+            "field": "project_share",
+            "effectiveDescription": "How much of all the project's events the query read, 0 to 1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How much of all the project's events the query read, 0 to 1.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanAnalysis/properties/project_share"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanAnalysisNullableFields",
+            "field": "range_share",
+            "effectiveDescription": "How much of the project's events in the query's date range the query read, 0 to 1.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How much of the project's events in the query's date range the query read, 0 to 1.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanAnalysis/properties/range_share"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanWarningNullableFields",
+            "effectiveDescription": "One finding of a query's analysis.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One finding of a query's analysis.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanWarning"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanWarningNullableFields",
+            "field": "actionable",
+            "effectiveDescription": "Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and \"Fix with AI\" only when a finding is actionable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and \"Fix with AI\" only when a finding is actionable.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanWarning/properties/actionable"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanWarningNullableFields",
+            "field": "by_design",
+            "effectiveDescription": "True when the query reads this much on purpose, so reading less would change the answer. Absent means no.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the query reads this much on purpose, so reading less would change the answer. Absent means no.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanWarning/properties/by_design"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanWarningNullableFields",
+            "field": "cause",
+            "effectiveDescription": "A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A label for what in the query text kept the read wide, such as `in_or`. Only analytics and the assistant read it, and the labels can change.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanWarning/properties/cause"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanWarningNullableFields",
+            "field": "evidence",
+            "effectiveDescription": "The one fact the finding rests on.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The one fact the finding rests on.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanWarning/properties/evidence"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanWarningNullableFields",
+            "field": "fix",
+            "effectiveDescription": "What \"Fix with AI\" and the assistant are told to do.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What \"Fix with AI\" and the assistant are told to do.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanWarning/properties/fix"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanWarningNullableFields",
+            "field": "fix_location",
+            "effectiveDescription": "Where the change goes. Absent means the query itself.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the change goes. Absent means the query itself.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanWarning/properties/fix_location"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanWarningNullableFields",
+            "field": "message",
+            "effectiveDescription": "Shown to the person: what happened and what to do.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Shown to the person: what happened and what to do.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanWarning/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanFixLocationNullableFields",
+            "effectiveDescription": "Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanFixLocation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryScanFindingKindNullableFields",
+            "effectiveDescription": "`no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanFindingKind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryTimingNullableFields",
+            "field": "k",
+            "effectiveDescription": "Key. Shortened to 'k' to save on data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key. Shortened to 'k' to save on data.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryTiming/properties/k"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseQueryTimingNullableFields",
+            "field": "t",
+            "effectiveDescription": "Time in seconds. Shortened to 't' to save on data.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Time in seconds. Shortened to 't' to save on data.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryTiming/properties/t"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSourceUsageNullableFields",
+            "effectiveDescription": "A connector-synced data warehouse source referenced by a query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A connector-synced data warehouse source referenced by a query.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSourceUsage"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSourceUsageNullableFields",
+            "field": "id",
+            "effectiveDescription": "ExternalDataSource id",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ExternalDataSource id",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSourceUsage/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSourceUsageNullableFields",
+            "field": "source_type",
+            "effectiveDescription": "Connector type of the source (e.g. Stripe, Postgres), if known",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connector type of the source (e.g. Stripe, Postgres), if known",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSourceUsage/properties/source_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSourceUsageNullableFields",
+            "field": "table_name",
+            "effectiveDescription": "Warehouse table name that was referenced",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warehouse table name that was referenced",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSourceUsage/properties/table_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSyncWarningNullableFields",
+            "field": "message",
+            "effectiveDescription": "Human-readable warning shown to the user",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable warning shown to the user",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSyncWarning/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSyncWarningNullableFields",
+            "field": "schema_name",
+            "effectiveDescription": "Name of the ExternalDataSchema responsible for syncing the table",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the ExternalDataSchema responsible for syncing the table",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSyncWarning/properties/schema_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSyncWarningNullableFields",
+            "field": "source_id",
+            "effectiveDescription": "ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the ExternalDataSource, used to link to its management page. Null for self-managed tables.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSyncWarning/properties/source_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSyncWarningNullableFields",
+            "field": "source_type",
+            "effectiveDescription": "Source type, e.g. \"Stripe\", \"Hubspot\"",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Source type, e.g. \"Stripe\", \"Hubspot\"",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSyncWarning/properties/source_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSyncWarningNullableFields",
+            "field": "status",
+            "effectiveDescription": "Sync status that triggered the warning, e.g. \"Failed\", \"Paused\", \"BillingLimitReached\"",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Sync status that triggered the warning, e.g. \"Failed\", \"Paused\", \"BillingLimitReached\"",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSyncWarning/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSyncWarningNullableFields",
+            "field": "table_name",
+            "effectiveDescription": "Name of the warehouse table the warning refers to",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name of the warehouse table the warning refers to",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSyncWarning/properties/table_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseDataWarehouseSyncWarningNullableFields",
+            "field": "type",
+            "effectiveDescription": "Tells warning kinds apart in the shared `warnings` list",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tells warning kinds apart in the shared `warnings` list",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/DataWarehouseSyncWarning/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAccessControlFilterWarningNullableFields",
+            "field": "message",
+            "effectiveDescription": "Human-readable warning shown to the user",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable warning shown to the user",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AccessControlFilterWarning/properties/message"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAccessControlFilterWarningNullableFields",
+            "field": "resources",
+            "effectiveDescription": "Resource types the user has access restrictions on, referenced by the query, e.g. [\"insight\", \"dashboard\"]",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Resource types the user has access restrictions on, referenced by the query, e.g. [\"insight\", \"dashboard\"]",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AccessControlFilterWarning/properties/resources"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResponseAccessControlFilterWarningNullableFields",
+            "field": "type",
+            "effectiveDescription": "Tells warning kinds apart in the shared `warnings` list",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Tells warning kinds apart in the shared `warnings` list",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/AccessControlFilterWarning/properties/type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResult",
+            "field": "error",
+            "effectiveDescription": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/LifecycleQueryResponse/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResult",
+            "field": "hogql",
+            "effectiveDescription": "Generated HogQL query.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Generated HogQL query.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/LifecycleQueryResponse/properties/hogql"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResult",
+            "field": "modifiers",
+            "effectiveDescription": "Modifiers used when performing the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Modifiers used when performing the query",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/LifecycleQueryResponse/properties/modifiers"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResult",
+            "field": "query_status",
+            "effectiveDescription": "Query status indicates whether next to the provided data, a query is still running.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Query status indicates whether next to the provided data, a query is still running.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/LifecycleQueryResponse/properties/query_status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResult",
+            "field": "resolved_compare_date_range",
+            "effectiveDescription": "The resolved previous/comparison period date range, when comparing against another period",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The resolved previous/comparison period date range, when comparing against another period",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/LifecycleQueryResponse/properties/resolved_compare_date_range"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResult",
+            "field": "resolved_date_range",
+            "effectiveDescription": "The date range used for the query",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The date range used for the query",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/LifecycleQueryResponse/properties/resolved_date_range"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResult",
+            "field": "timings",
+            "effectiveDescription": "Measured timings for different parts of the query generation process",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Measured timings for different parts of the query generation process",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/LifecycleQueryResponse/properties/timings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResult",
+            "field": "used_data_warehouse_sources",
+            "effectiveDescription": "Connector-synced data warehouse sources referenced by this query, if any.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/LifecycleQueryResponse/properties/used_data_warehouse_sources"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleResult",
+            "field": "warnings",
+            "effectiveDescription": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/LifecycleQueryResponse/properties/warnings"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQueryStatus",
+            "field": "cache_key",
+            "effectiveDescription": "Cache key of the run that failed, so clients can ask for its query scan.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Cache key of the run that failed, so clients can ask for its query scan.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/cache_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQueryStatus",
+            "field": "complete",
+            "effectiveDescription": "Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/complete"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQueryStatus",
+            "field": "end_time",
+            "effectiveDescription": "When did the query execution task finish (whether successfully or not).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When did the query execution task finish (whether successfully or not).",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/end_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQueryStatus",
+            "field": "error",
+            "effectiveDescription": "If the query failed, this will be set to true. More information can be found in the error_message field.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "If the query failed, this will be set to true. More information can be found in the error_message field.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQueryStatus",
+            "field": "error_code",
+            "effectiveDescription": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable machine-readable code for the error, when known: the DRF exception code, or the ClickHouse error name.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/error_code"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQueryStatus",
+            "field": "pickup_time",
+            "effectiveDescription": "When was the query execution task picked up by a worker.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When was the query execution task picked up by a worker.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/pickup_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQueryStatus",
+            "field": "query_async",
+            "effectiveDescription": "ONLY async queries use QueryStatus.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ONLY async queries use QueryStatus.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/query_async"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQueryStatus",
+            "field": "query_scan",
+            "effectiveDescription": "What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What a query cost and, once analyzed, why. Only on responses to a signed-in user of a team whose flag shows findings.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryScanSummary"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleQueryStatus",
+            "field": "start_time",
+            "effectiveDescription": "When was query execution task enqueued.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When was query execution task enqueued.",
+                    "source": {
+                        "kind": "query_schema",
+                        "file": "frontend/src/queries/schema.json",
+                        "pointer": "#/definitions/QueryStatus/properties/start_time"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleCompletedData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL to open this query in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL to open this query in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecyclePendingData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL to open this query in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL to open this query in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleFailedData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "URL to open this query in the public PostHog UI.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "URL to open this query in the public PostHog UI.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "QueriesLifecycleFailedData",
+            "field": "error",
+            "effectiveDescription": "Failure reported by query execution.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Failure reported by query execution.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "read-data-schema",
+            "method": "dataSchema.readDataSchema"
+        }
+    ]
+}

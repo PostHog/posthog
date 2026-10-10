@@ -1,0 +1,1448 @@
+{
+    "method": "replayVision.visionScannersScoutsCreate",
+    "toolName": "vision-scanners-scouts-create",
+    "operationId": "vision_scanners_scouts_create",
+    "title": "Create scout for scanner",
+    "category": "Replay vision",
+    "description": "Create a Signals scout that watches one scanner on a schedule and files a report each run, such as a daily digest, a trend watch, or a watch for new kinds of issue. The scout is recorded as belonging to the scanner, so its reports show on the scanner and in `vision-scanners-scout-reports-list`. Give it a `display_name` people will read; the server derives its permanent `name` from it. Put the full markdown prompt in `body`. The body should start by reading the scanner with `vision-scanners-get` by its id and read observations with `vision-scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never need a scout edit. `config` sets the schedule (`run_cron_schedule`, e.g. `0 9 * * *`, or `run_interval_minutes`), `enabled`, `emit` (false for a dry run) and `output_destinations`. Each run is a full agent run, so agree the schedule with the person.",
+    "requiredScopes": ["replay_scanner:write", "session_recording:read", "llm_skill:write", "signal_scout:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["requires_ai_consent: true"],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersScoutsCreateInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersScoutsCreateOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema7",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema5",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema8",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema8Variant1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema12",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema10",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema15",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema13",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema18",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema16",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema19",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema21",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema23",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema25",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema27",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema32",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema34",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema33",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema35",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema31",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema31Variant1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema36",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema36Variant1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema29",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema37",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema39",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema41",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateRequestSchema43",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateResponseShape3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateResponseShape5",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateResponseShape4",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateResponseShape7",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateResponseShape8",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateResponseShape6",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateResponseShape9",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersScoutsCreateData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-scouts-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-scouts-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Create a scout that watches this scanner, recorded as belonging to it.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1{scanner_id}~1scouts~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Create a Signals scout that watches one scanner on a schedule and files a report each run, such as a daily digest, a trend watch, or a watch for new kinds of issue. The scout is recorded as belonging to the scanner, so its reports show on the scanner and in `vision-scanners-scout-reports-list`. Give it a `display_name` people will read; the server derives its permanent `name` from it. Put the full markdown prompt in `body`. The body should start by reading the scanner with `vision-scanners-get` by its id and read observations with `vision-scanners-observations-stats` and `vision-scanners-observations-list`, so later scanner edits never need a scout edit. `config` sets the schedule (`run_cron_schedule`, e.g. `0 9 * * *`, or `run_interval_minutes`), `enabled`, `emit` (false for a dry run) and `output_destinations`. Each run is a full agent run, so agree the schedule with the person.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema2",
+            "effectiveDescription": "Schedule, enablement, and delivery options accepted while creating a scout.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Schedule, enablement, and delivery options accepted while creating a scout.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema3",
+            "effectiveDescription": "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema5",
+            "effectiveDescription": "Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema5"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema8",
+            "effectiveDescription": "Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema8"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema10",
+            "effectiveDescription": "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema10"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema13",
+            "effectiveDescription": "GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema13"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema16",
+            "effectiveDescription": "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema19",
+            "effectiveDescription": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema19"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema21",
+            "effectiveDescription": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema21"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema23",
+            "effectiveDescription": "Whether this scout runs on its schedule. Defaults to true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this scout runs on its schedule. Defaults to true.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema23"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema25",
+            "effectiveDescription": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema25"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema27",
+            "effectiveDescription": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema27"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema29",
+            "effectiveDescription": "Destinations that receive each finding or report this scout emits. Empty by default.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Destinations that receive each finding or report this scout emits. Empty by default.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema29"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema29",
+            "field": "slack",
+            "effectiveDescription": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema30/properties/slack"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema29",
+            "field": "webhook",
+            "effectiveDescription": "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema30/properties/webhook"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema37",
+            "effectiveDescription": "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema37"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema39",
+            "effectiveDescription": "Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema39"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateRequest_Schema41",
+            "effectiveDescription": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema41"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateInput",
+            "field": "display_name",
+            "effectiveDescription": "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/scouts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateInput",
+            "field": "name",
+            "effectiveDescription": "Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional skill name for the scout — its permanent identifier, containing only lowercase letters, numbers, and hyphens. Omit it and one is generated from `display_name` (`My APM scout` becomes `my-apm-scout`), with a numeric suffix when that name is taken. Pass it to pick the identifier yourself, or to keep a client written before display names working unchanged. The `signals-scout-` prefix is optional.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/scouts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateInput",
+            "field": "description",
+            "effectiveDescription": "Short description of the signal or behavior this scout investigates.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short description of the signal or behavior this scout investigates.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/scouts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateInput",
+            "field": "body",
+            "effectiveDescription": "Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Complete markdown prompt executed on every scout run. Include any project-specific signal names, thresholds, investigation steps, and report criteria here.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/scouts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateInput",
+            "field": "config",
+            "effectiveDescription": "Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/scouts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateInput",
+            "field": "variant_analysis",
+            "effectiveDescription": "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/{scanner_id}/scouts/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "effectiveDescription": "Read shape for a per-(team, skill) scout config.\n\nOne row per scout skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Read shape for a per-(team, skill) scout config.\n\nOne row per scout skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "skill_name",
+            "effectiveDescription": "The skill this config controls as a scout. Set at creation, not editable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The skill this config controls as a scout. Set at creation, not editable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/skill_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "description",
+            "effectiveDescription": "Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable summary of what this scout investigates, sourced from the scout skill's `description` metadata. Use it for a quick steer on the scout's focus without loading the full skill body. Empty if the skill is not currently present on the team or carries no description.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "display_name",
+            "effectiveDescription": "Name shown in the UI. Does not change the skill name. Leave blank to use the default name.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name shown in the UI. Does not change the skill name. Leave blank to use the default name.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/display_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "scout_origin",
+            "effectiveDescription": "Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Where this scout came from: `canonical` for a scout PostHog ships and maintains (seeded from `products/signals/skills/`), or `custom` for one a team hand-authored on this project. Use it to badge built-in vs custom scouts instead of a hardcoded name list. Defaults to `custom` if the skill is not currently present on the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/scout_origin"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "scout_role",
+            "effectiveDescription": "What this scout is to the harness: `specialist` for one that watches a product surface, or `operational` for one PostHog ships to watch the self-driving system itself. An operational scout is exempt from the inactivity sweep and from the enabled-scout cap, and is not a scout a project should delete. Always `specialist` for a custom scout.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What this scout is to the harness: `specialist` for one that watches a product surface, or `operational` for one PostHog ships to watch the self-driving system itself. An operational scout is exempt from the inactivity sweep and from the enabled-scout cap, and is not a scout a project should delete. Always `specialist` for a custom scout.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/scout_role"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "deprecation",
+            "effectiveDescription": "Set when PostHog is retiring this scout, and null otherwise. Carries the phase, the reason to show, what replaces the scout, and when it stops running. Only a canonical scout the project has not edited is ever marked: a project's own copy keeps running and reads as null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Set when PostHog is retiring this scout, and null otherwise. Carries the phase, the reason to show, what replaces the scout, and when it stops running. Only a canonical scout the project has not edited is ever marked: a project's own copy keeps running and reads as null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/deprecation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "owners",
+            "effectiveDescription": "Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Who answers for this scout, seed-creator first. Ownership is recorded on the scout's skill rather than on this config, so editing the skill or toggling the scout leaves it unchanged. Reports the scout files suggest these people as reviewers. Prefer this over `created_by`-style fields, which only say who last flipped a switch. Empty when nobody owns the scout, when the owners are no longer members with access to the project, or when the caller is a scout sandbox token: owners are member PII, and a scout reads them through the skill API instead.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/owners"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "enabled",
+            "effectiveDescription": "Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this scout runs on its schedule. Disabled scouts are skipped by the coordinator. Derived from `status`: true for `active` and `pending_pause`, false for the paused statuses.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "status",
+            "effectiveDescription": "Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.\n\n* `active` - Active\n* `pending_pause` - Pending pause\n* `paused_by_system` - Paused by system\n* `paused_by_user` - Paused by user",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Lifecycle status. `active`: runs on its schedule. `pending_pause`: still running, but flagged by the system to pause soon unless something changes (any config edit clears it). `paused_by_system`: paused automatically, see `pause_reason`; set `enabled=true` to resume. `paused_by_user`: switched off by a person and never resumed automatically.\n\n* `active` - Active\n* `pending_pause` - Pending pause\n* `paused_by_system` - Paused by system\n* `paused_by_user` - Paused by user",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/status"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "pause_reason",
+            "effectiveDescription": "Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` (PostHog retired the scout), or `background_removed` (the background lane stopped managing the scout). Null unless `status` is `pending_pause` or `paused_by_system`.\n\n* `no_output` - No output\n* `ignored` - Ignored\n* `repeated_failures` - Repeated failures\n* `retired` - Retired\n* `background_removed` - Background removed",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` (PostHog retired the scout), or `background_removed` (the background lane stopped managing the scout). Null unless `status` is `pending_pause` or `paused_by_system`.\n\n* `no_output` - No output\n* `ignored` - Ignored\n* `repeated_failures` - Repeated failures\n* `retired` - Retired\n* `background_removed` - Background removed",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/pause_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "managed_by",
+            "effectiveDescription": "Who controls this scout now. `team`: a person set it up or has changed it. `background`: PostHog runs it in the background and no person has edited it yet. Any edit through this API changes `background` to `team`.\n\n* `team` - Team\n* `background` - Background",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Who controls this scout now. `team`: a person set it up or has changed it. `background`: PostHog runs it in the background and no person has edited it yet. Any edit through this API changes `background` to `team`.\n\n* `team` - Team\n* `background` - Background",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/managed_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "emit",
+            "effectiveDescription": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/emit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "run_interval_minutes",
+            "effectiveDescription": "Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/run_interval_minutes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "run_cron_schedule",
+            "effectiveDescription": "Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional five-field cron expression evaluated in the project timezone, e.g. '30 9 * * *'. Takes precedence over `run_interval_minutes` when set. Null means the rolling interval schedule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/run_cron_schedule"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "output_destinations",
+            "effectiveDescription": "Destinations that receive each finding or report this scout emits. Empty when none is configured.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Destinations that receive each finding or report this scout emits. Empty when none is configured.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/output_destinations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "structured_output_schema",
+            "effectiveDescription": "Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/structured_output_schema"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "network_access",
+            "effectiveDescription": "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `full` lets the scout reach any site, for skills that read external sources such as documentation or papers.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the scout's sandbox can reach over the network while it runs. `trusted` (the default) restricts runs to the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). `full` lets the scout reach any site, for skills that read external sources such as documentation or papers.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/network_access"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "model",
+            "effectiveDescription": "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "mcp_gateway_server_ids",
+            "effectiveDescription": "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/mcp_gateway_server_ids"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "repositories",
+            "effectiveDescription": "GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub repositories this scout clones into its sandbox, each in `organization/repo` format. Set them for a scout that reads code, so it can search the tree and run the project's own tests instead of reading files one API call at a time. Empty (the default) leaves the sandbox without a checkout. The scout's GitHub access stays read-only either way, so a repository listed here is never writable from a run. At most 10, each reachable through the project's GitHub connection. Applies from the scout's next run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/repositories"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "write_scopes",
+            "effectiveDescription": "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/write_scopes"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "allowed_mcp_tools",
+            "effectiveDescription": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/allowed_mcp_tools"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "tool_preset",
+            "effectiveDescription": "Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/tool_preset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "last_run_at",
+            "effectiveDescription": "When the coordinator last dispatched this scout. Null if it has never run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the coordinator last dispatched this scout. Null if it has never run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/last_run_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "consecutive_failure_count",
+            "effectiveDescription": "How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/consecutive_failure_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "status_changed_at",
+            "effectiveDescription": "When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone engages with the scout's reports — opening one counts; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When `status` last changed. For `pending_pause` this is when the warning was issued (an `ignored` warning pauses about a week later unless someone engages with the scout's reports — opening one counts; a `no_output` warning only flags the scout); for the paused statuses it is when the scout was paused. Null if the status never changed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/status_changed_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "status_changed_by",
+            "effectiveDescription": "Who last moved `status`, when a person did it through this API. Null for a system transition such as an automatic pause, for a row whose status never changed, and for a caller that may not read member identities. Pair it with `status` to say who turned a scout off, instead of only when it went off.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Who last moved `status`, when a person did it through this API. Null for a system transition such as an automatic pause, for a row whose status never changed, and for a caller that may not read member identities. Pair it with `status` to say who turned a scout off, instead of only when it went off.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/status_changed_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "auto_pause_exempt",
+            "effectiveDescription": "Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this scout is exempt from the inactivity sweep, meaning both the `ignored` pause and the `no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet. Only ever set explicitly: re-enabling a swept scout instead grants a fresh grace window before the sweep may judge it again.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/auto_pause_exempt"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "tags",
+            "effectiveDescription": "Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "source_product",
+            "effectiveDescription": "The product that stood this scout up for one of its own objects. Null when a person created it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The product that stood this scout up for one of its own objects. Null when a person created it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/source_product"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "source_id",
+            "effectiveDescription": "Id of the owning object in `source_product`, e.g. a Replay Vision scanner id.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the owning object in `source_product`, e.g. a Replay Vision scanner id.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/source_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape2",
+            "field": "updated_at",
+            "effectiveDescription": "When this config last changed: an edit through this API, or a status change the system made such as an automatic pause. A scheduled run does not bump it — the coordinator stamps `last_run_at` with a direct write — so this reads as when the scout was last tuned rather than when it last ran.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When this config last changed: an edit through this API, or a status change the system made such as an automatic pause. A scheduled run does not bump it — the coordinator stamps `last_run_at` with a direct write — so this reads as when the scout was last tuned rather than when it last ran.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/updated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape3",
+            "effectiveDescription": "What PostHog has said about retiring this scout, for the chip and the banner to render.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What PostHog has said about retiring this scout, for the chip and the banner to render.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape3",
+            "field": "phase",
+            "effectiveDescription": "How far the retirement has got: `announced` while the scout still runs, `retired` once its sunset has passed. A retired scout is paused and does not run again.\n\n* `announced` - announced\n* `retired` - retired",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How far the retirement has got: `announced` while the scout still runs, `retired` once its sunset has passed. A retired scout is paused and does not run again.\n\n* `announced` - announced\n* `retired` - retired",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/phase"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape3",
+            "field": "reason",
+            "effectiveDescription": "Why PostHog is retiring the scout, written to be shown to a person as-is.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why PostHog is retiring the scout, written to be shown to a person as-is.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape3",
+            "field": "superseded_by",
+            "effectiveDescription": "Skill name of the scout that takes over, or blank when nothing replaces it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Skill name of the scout that takes over, or blank when nothing replaces it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/superseded_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape3",
+            "field": "sunset_at",
+            "effectiveDescription": "When the scout stops running. Null means the next fleet reconcile retires it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the scout stops running. Null means the next fleet reconcile retires it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape3/properties/sunset_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape6",
+            "field": "slack",
+            "effectiveDescription": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/slack"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape6",
+            "field": "webhook",
+            "effectiveDescription": "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape6/properties/webhook"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape7",
+            "field": "integration_id",
+            "effectiveDescription": "ID of the Slack integration whose bot posts this scout's findings and reports.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "ID of the Slack integration whose bot posts this scout's findings and reports.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/integration_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape7",
+            "field": "channel",
+            "effectiveDescription": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/channel"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape7",
+            "field": "users",
+            "effectiveDescription": "Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/users"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape7",
+            "field": "thread_reports",
+            "effectiveDescription": "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape7/properties/thread_reports"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateResponseShape8",
+            "field": "hog_function_id",
+            "effectiveDescription": "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape8/properties/hog_function_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateData",
+            "effectiveDescription": "The scout that now watches this scanner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scout that now watches this scanner.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateData",
+            "field": "created",
+            "effectiveDescription": "False when a scout of this name already existed and the supplied config was applied to it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "False when a scout of this name already existed and the supplied config was applied to it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/created"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersScoutsCreateData",
+            "field": "config",
+            "effectiveDescription": "The scout's config, including the source recorded for it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The scout's config, including the source recorded for it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/config"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-scout-reports-list",
+            "method": "replayVision.visionScannersScoutReportsList"
+        },
+        {
+            "toolName": "vision-scanners-get",
+            "method": "replayVision.visionScannersGet"
+        },
+        {
+            "toolName": "vision-scanners-observations-stats",
+            "method": "replayVision.visionScannersObservationsStats"
+        },
+        {
+            "toolName": "vision-scanners-observations-list",
+            "method": "replayVision.visionScannersObservationsList"
+        }
+    ]
+}

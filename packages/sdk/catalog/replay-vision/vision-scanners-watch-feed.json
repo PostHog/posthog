@@ -1,0 +1,259 @@
+{
+    "method": "replayVision.visionScannersWatchFeed",
+    "toolName": "vision-scanners-watch-feed",
+    "operationId": "vision_scanners_watch_feed_retrieve",
+    "title": "Get ranked recordings to watch",
+    "category": "Replay vision",
+    "description": "Rank succeeded replay vision observations in a window by how worth watching their recordings are, across every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days. Narrow with `scanner_ids`, `scanner_type`, scanner `tags`, or a `search` over the scan's own words. `limit` is at most 50. Use it to answer \"which recordings should I watch this week?\".",
+    "requiredScopes": ["replay_scanner:read", "session_recording:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersWatchFeedInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-watch-feed.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-watch-feed.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersWatchFeedOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-watch-feed.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-watch-feed.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersWatchFeedRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-watch-feed.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-watch-feed.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersWatchFeedRequestSchema1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-watch-feed.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-watch-feed.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersWatchFeedRequestSchema2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-watch-feed.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-watch-feed.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersWatchFeedRequestSchema3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-watch-feed.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-watch-feed.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersWatchFeedRequestSchema4",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-watch-feed.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-watch-feed.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersWatchFeedRequestSchema5",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-watch-feed.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-watch-feed.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersWatchFeedRequestSchema6",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-watch-feed.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-watch-feed.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersWatchFeedData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-watch-feed.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-watch-feed.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1watch_feed~1/get"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Rank succeeded replay vision observations in a window by how worth watching their recordings are, across every scanner you can read. Each item pairs the `observation` (with its `session_id`) and the `reason` it made the feed. `date_from` defaults to `-7d` (ISO 8601 or relative); the window spans at most 90 days. Narrow with `scanner_ids`, `scanner_type`, scanner `tags`, or a `search` over the scan's own words. `limit` is at most 50. Use it to answer \"which recordings should I watch this week?\".",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersWatchFeedInput",
+            "field": "date_from",
+            "effectiveDescription": "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/watch_feed/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersWatchFeedInput",
+            "field": "date_to",
+            "effectiveDescription": "Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Only observations created at or before this time. Same formats as `date_from`; omit it to query through the current time.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/watch_feed/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersWatchFeedInput",
+            "field": "limit",
+            "effectiveDescription": "Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/watch_feed/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersWatchFeedInput",
+            "field": "scanner_ids",
+            "effectiveDescription": "Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/watch_feed/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersWatchFeedInput",
+            "field": "scanner_type",
+            "effectiveDescription": "Restrict the feed to observations from scanners of this type.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Restrict the feed to observations from scanners of this type.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/watch_feed/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersWatchFeedInput",
+            "field": "search",
+            "effectiveDescription": "Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/watch_feed/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersWatchFeedInput",
+            "field": "tags",
+            "effectiveDescription": "Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/watch_feed/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersWatchFeedData",
+            "field": "ranker",
+            "effectiveDescription": "Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.\n\n* `weighted-score` - weighted-score\n* `jev` - jev",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.\n\n* `weighted-score` - weighted-score\n* `jev` - jev",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/ranker"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersWatchFeedData",
+            "field": "ranker_variant",
+            "effectiveDescription": "The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/ranker_variant"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersWatchFeedData",
+            "field": "_agentNote",
+            "effectiveDescription": "Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.\n",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Point the person at one or two recordings with a one-line reason each, rather than listing the whole feed.\n",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": []
+}

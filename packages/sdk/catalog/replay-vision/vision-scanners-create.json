@@ -1,0 +1,1307 @@
+{
+    "method": "replayVision.visionScannersCreate",
+    "toolName": "vision-scanners-create",
+    "operationId": "vision_scanners_create",
+    "title": "Create replay vision scanner",
+    "category": "Replay vision",
+    "description": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, embedded for search) — and fill `scanner_config` to match: all types need a `prompt`; monitors optionally set `allow_inconclusive`; classifiers also need `tags` (and optionally `multi_label`, `allow_freeform_tags`); scorers also need `scale`; summarizers optionally set `length`. Unknown `scanner_config` keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_mode` is a quality pre-filter over matched sessions (`focused` / `balanced` / `comprehensive`, default `comprehensive`) and `sampling_rate` is a 0..1 random downsample applied after it (default 1.0). `model` chooses the LLM and sets the credit price of every observation. Names must be unique within the team. Before creating a broad scanner (a permissive `query`, loose `sampling_mode`, and/or high `sampling_rate`), first call `vision-scanners-estimate` to project its monthly credit spend and `vision-quota-get` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's other scanners. The scanner stops scanning once the credits left cannot cover another observation, and resumes when the period resets. To get notified about what the scanner finds, add a scout digest or an alert from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, set `experiment_targeting` to `{\"experiment_id\": <id>, \"variant\": null}` (or one variant key) and leave exposure out of `query`: the API derives the person-scoped exposure filter server-side, and rejects an `experiment_exposure` filter set directly in `query`. Pass the same `experiment_targeting` to `vision-scanners-estimate`, so the estimate counts only exposed sessions. Create with `enabled: false`, so you can preview the prompt on real sessions first. The `scanning-experiments-with-replay-vision` skill carries the full flow (status guards, prompt templates, sizing). It is a built-in PostHog skill, not a team skill in the skills store, so do not fetch it with `skill-get`. Load it with `learn posthog:scanning-experiments-with-replay-vision` when the `learn` command is available, or read it from your installed PostHog skills (`.agents/skills/`). If you have neither, the facts above are sufficient to continue.",
+    "requiredScopes": ["replay_scanner:write", "session_recording:read"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": false,
+        "idempotent": false
+    },
+    "availability": ["requires_ai_consent: true"],
+    "methodSource": "src/generated/replay-vision/client.ts",
+    "input": {
+        "name": "ReplayVisionVisionScannersCreateInput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-create.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+    },
+    "output": {
+        "name": "ReplayVisionVisionScannersCreateOutput",
+        "importPath": "@posthog/sdk/replay-vision",
+        "source": "src/generated/replay-vision/vision-scanners-create.ts",
+        "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema0",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema5",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema6",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema7",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema9",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema11",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema12",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema14",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema16",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema18",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema20",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema22",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema23",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema25",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema29",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema30",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema27",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateRequestSchema27Variant1",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateResponseShape2",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateResponseShape4",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateResponseShape3",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        },
+        {
+            "name": "ReplayVisionVisionScannersCreateData",
+            "importPath": "@posthog/sdk/replay-vision",
+            "source": "src/generated/replay-vision/vision-scanners-create.ts",
+            "declaration": "dist/generated/replay-vision/vision-scanners-create.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "CRUD for Replay Vision scanners.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1vision~1scanners~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Create a replay vision scanner. Pick a `scanner_type` — `monitor` (open-ended observations), `classifier` (assign a tag from a fixed label set), `scorer` (numeric rubric), or `summarizer` (free-text summary, embedded for search) — and fill `scanner_config` to match: all types need a `prompt`; monitors optionally set `allow_inconclusive`; classifiers also need `tags` (and optionally `multi_label`, `allow_freeform_tags`); scorers also need `scale`; summarizers optionally set `length`. Unknown `scanner_config` keys are rejected. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from` and `date_to` are ignored (the schedule controls time). `sampling_mode` is a quality pre-filter over matched sessions (`focused` / `balanced` / `comprehensive`, default `comprehensive`) and `sampling_rate` is a 0..1 random downsample applied after it (default 1.0). `model` chooses the LLM and sets the credit price of every observation. Names must be unique within the team. Before creating a broad scanner (a permissive `query`, loose `sampling_mode`, and/or high `sampling_rate`), first call `vision-scanners-estimate` to project its monthly credit spend and `vision-quota-get` to check the org's remaining budget — an enabled scanner sweeps matching recordings every 5 minutes, and creation itself does not check quota, so a too-broad scanner can exhaust the budget on its first sweeps. Set `credit_limit` to cap what this one scanner can spend per billing period, so it cannot starve the org's other scanners. The scanner stops scanning once the credits left cannot cover another observation, and resumes when the period resets. To get notified about what the scanner finds, add a scout digest or an alert from the scanner's Scouts and Alerts tabs. For a scanner scoped to one experiment's exposed sessions, set `experiment_targeting` to `{\"experiment_id\": <id>, \"variant\": null}` (or one variant key) and leave exposure out of `query`: the API derives the person-scoped exposure filter server-side, and rejects an `experiment_exposure` filter set directly in `query`. Pass the same `experiment_targeting` to `vision-scanners-estimate`, so the estimate counts only exposed sessions. Create with `enabled: false`, so you can preview the prompt on real sessions first. The `scanning-experiments-with-replay-vision` skill carries the full flow (status guards, prompt templates, sizing). It is a built-in PostHog skill, not a team skill in the skills store, so do not fetch it with `skill-get`. Load it with `learn posthog:scanning-experiments-with-replay-vision` when the `learn` command is available, or read it from your installed PostHog skills (`.agents/skills/`). If you have neither, the facts above are sufficient to continue.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/replay_vision/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema0",
+            "effectiveDescription": "Human-readable scanner name. Unique within the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable scanner name. Unique within the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema1",
+            "effectiveDescription": "Free-form description shown in the scanner management UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form description shown in the scanner management UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema1"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema3",
+            "effectiveDescription": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema6",
+            "effectiveDescription": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema6"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema7",
+            "effectiveDescription": "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema7"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema9",
+            "effectiveDescription": "How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n* `ai` - AI draft\n* `template` - Template\n* `scratch` - From scratch",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n* `ai` - AI draft\n* `template` - Template\n* `scratch` - From scratch",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema9"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema11",
+            "effectiveDescription": "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema12",
+            "effectiveDescription": "Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema14",
+            "effectiveDescription": "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema14"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema16",
+            "effectiveDescription": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema16"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema18",
+            "effectiveDescription": "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema18"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema20",
+            "effectiveDescription": "LLM provider. v1 is Google-only.\n\n* `google` - Google",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "LLM provider. v1 is Google-only.\n\n* `google` - Google",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema20"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema22",
+            "effectiveDescription": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema22"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema23",
+            "effectiveDescription": "When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema23"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema25",
+            "effectiveDescription": "When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema25"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema27",
+            "effectiveDescription": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema27"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema29",
+            "effectiveDescription": "The experiment the scanner watches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment the scanner watches.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema29"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateRequest_Schema30",
+            "effectiveDescription": "Narrow to sessions of people exposed to this variant. Null means every variant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Narrow to sessions of people exposed to this variant. Null means every variant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/$defs/__schema30"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "effectiveDescription": "A Replay Vision scanner: its type, targeting query, and AI configuration.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A Replay Vision scanner: its type, targeting query, and AI configuration.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "name",
+            "effectiveDescription": "Human-readable scanner name. Unique within the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable scanner name. Unique within the team.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "description",
+            "effectiveDescription": "Free-form description shown in the scanner management UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form description shown in the scanner management UI.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "tags",
+            "effectiveDescription": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "scanner_type",
+            "effectiveDescription": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "goal",
+            "effectiveDescription": "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "creation_method",
+            "effectiveDescription": "How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n* `ai` - AI draft\n* `template` - Template\n* `scratch` - From scratch",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n* `ai` - AI draft\n* `template` - Template\n* `scratch` - From scratch",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "scanner_config",
+            "effectiveDescription": "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "query",
+            "effectiveDescription": "Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "sampling_rate",
+            "effectiveDescription": "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "sampling_mode",
+            "effectiveDescription": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "credit_limit",
+            "effectiveDescription": "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "provider",
+            "effectiveDescription": "LLM provider. v1 is Google-only.\n\n* `google` - Google",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "LLM provider. v1 is Google-only.\n\n* `google` - Google",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "model",
+            "effectiveDescription": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "enabled",
+            "effectiveDescription": "When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "emits_signals",
+            "effectiveDescription": "When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateInput",
+            "field": "experiment_targeting",
+            "effectiveDescription": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/vision/scanners/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateResponseShape2",
+            "effectiveDescription": "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment a scanner watches. Scans derive their person-scoped exposure filter from\nthis blob at query time, so it is the only place an experiment can enter a scanner's\ntargeting — which is what lets the write-side access check and read-side redaction cover it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateResponseShape2",
+            "field": "experiment_id",
+            "effectiveDescription": "The experiment the scanner watches.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment the scanner watches.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/experiment_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateResponseShape2",
+            "field": "variant",
+            "effectiveDescription": "Narrow to sessions of people exposed to this variant. Null means every variant.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Narrow to sessions of people exposed to this variant. Null means every variant.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape2/properties/variant"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "name",
+            "effectiveDescription": "Human-readable scanner name. Unique within the team.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Human-readable scanner name. Unique within the team.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "description",
+            "effectiveDescription": "Free-form description shown in the scanner management UI.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form description shown in the scanner management UI.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/description"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "tags",
+            "effectiveDescription": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Organizational tags for this scanner. Distinct from a classifier's categories in scanner_config. Tags cannot contain commas.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/tags"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "scanner_type",
+            "effectiveDescription": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the scanner does: monitor, classifier, scorer, or summarizer.\n\n* `monitor` - Monitor\n* `classifier` - Classifier\n* `scorer` - Scorer\n* `summarizer` - Summarizer\n* `experiment` - Experiment",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/scanner_type"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "goal",
+            "effectiveDescription": "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The goal an AI draft was built from, in the creator's own words, so the scanner keeps what it was meant to find. Set on create only and ignored on update.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/goal"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "creation_method",
+            "effectiveDescription": "How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n* `ai` - AI draft\n* `template` - Template\n* `scratch` - From scratch",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the creator built this scanner: from an AI draft, from a template, or from scratch. Reported to product analytics at creation and not stored on the scanner. Independent of any experiment the creator is in, since a person offered the AI flow can still fill the form by hand. Only the app can answer this, so a request from anywhere else reports the calling surface instead of whatever it sends here. Ignored on update.\n\n* `ai` - AI draft\n* `template` - Template\n* `scratch` - From scratch",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/creation_method"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "scanner_config",
+            "effectiveDescription": "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Type-specific configuration. All scanner types require `prompt`; monitors add optional `allow_inconclusive`, classifiers add `tags`, scorers add `scale`, summarizers add optional `length`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/scanner_config"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "prompt_question",
+            "effectiveDescription": "The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The current prompt condensed by AI into the one question the scanner answers about a session. Falls back to the prompt's first line when no question matches the current prompt.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/prompt_question"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "query",
+            "effectiveDescription": "Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "sampling_rate",
+            "effectiveDescription": "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/sampling_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "sampling_mode",
+            "effectiveDescription": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/sampling_mode"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "credit_limit",
+            "effectiveDescription": "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credit_limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "provider",
+            "effectiveDescription": "LLM provider. v1 is Google-only.\n\n* `google` - Google",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "LLM provider. v1 is Google-only.\n\n* `google` - Google",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/provider"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "model",
+            "effectiveDescription": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Concrete model to use for this scanner.\n\n* `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite\n* `gemini-3-flash-preview` - Gemini 3 Flash\n* `gemini-3.8-flash` - Gemini 3.8 Flash",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/model"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "enabled",
+            "effectiveDescription": "When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/enabled"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "emits_signals",
+            "effectiveDescription": "When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/emits_signals"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "experiment_targeting",
+            "effectiveDescription": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/experiment_targeting"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "scanner_version",
+            "effectiveDescription": "Increments on every config-changing save. Observations snapshot this value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Increments on every config-changing save. Observations snapshot this value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/scanner_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "estimated_monthly_observations",
+            "effectiveDescription": "Latest projected observations/month for this scanner. Null until first computed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest projected observations/month for this scanner. Null until first computed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/estimated_monthly_observations"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "estimated_at",
+            "effectiveDescription": "When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed after a config change or has never run, so the stored number may be stale.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When `estimated_monthly_observations` was last computed. Null means the estimate is being recomputed after a config change or has never run, so the stored number may be stale.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/estimated_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "credits_per_observation",
+            "effectiveDescription": "Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credits_per_observation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "estimated_monthly_credits",
+            "effectiveDescription": "`estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one is set. Null until the estimate is first computed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`estimated_monthly_observations` priced at `credits_per_observation`, capped at `credit_limit` when one is set. Null until the estimate is first computed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/estimated_monthly_credits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "credits_this_month",
+            "effectiveDescription": "Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credits_this_month"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "observations_this_month",
+            "effectiveDescription": "Succeeded observations this scanner produced in the current billing period.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Succeeded observations this scanner produced in the current billing period.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/observations_this_month"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "credits_used_against_limit",
+            "effectiveDescription": "Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/credits_used_against_limit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "limit_reached",
+            "effectiveDescription": "Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this scanner has stopped because of its own credit limit. True when `credit_limit` is set and the budget left cannot cover one more observation, which is the same test the scanner's enforcement gates apply. Always false when no limit is set.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/limit_reached"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "sweep_throttle_factor",
+            "effectiveDescription": "How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/sweep_throttle_factor"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "last_swept_at",
+            "effectiveDescription": "Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/last_swept_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "created_by",
+            "effectiveDescription": "User who created the scanner.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "User who created the scanner.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/created_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "user_access_level",
+            "effectiveDescription": "The effective access level the user has for this object",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The effective access level the user has for this object",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/replay_vision.ts",
+                        "pointer": "#/Shape1/properties/user_access_level"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReplayVisionVisionScannersCreateData",
+            "field": "_agentNote",
+            "effectiveDescription": "A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person that rating its results thumbs up or down, ideally with a short note, teaches the scanner, and that `_posthogUrl` opens the scanner where they do it. There is nothing to rate yet, so this is a closing sentence for them, not a step for you.\n",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "A new scanner runs the prompt as written, and the first sweep is where its weaknesses show. Tell the person that rating its results thumbs up or down, ideally with a short note, teaches the scanner, and that `_posthogUrl` opens the scanner where they do it. There is nothing to rate yet, so this is a closing sentence for them, not a step for you.\n",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "vision-scanners-estimate",
+            "method": "replayVision.visionScannersEstimate"
+        },
+        {
+            "toolName": "vision-quota-get",
+            "method": "replayVision.visionQuotaGet"
+        },
+        {
+            "toolName": "skill-get",
+            "method": "skills.skillGet"
+        }
+    ]
+}

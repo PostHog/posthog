@@ -1,0 +1,1705 @@
+{
+    "method": "signals.inboxReportsSetState",
+    "toolName": "inbox-reports-set-state",
+    "operationId": "signals_reports_state_create",
+    "title": "Dismiss or snooze a signal report",
+    "category": "Signals",
+    "description": "Transition a single signal report to a new state. Use 'resolved' when the work this report asked for has been done (e.g. you fixed the issue it describes), 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the pipeline for later review. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report whose previous status was ready, pending_input, failed, or resolved. Repeat resolution succeeds. Other statuses return 409. Fixed reasons require state='suppressed' or state='resolved', not 'potential'. Dismissing or resolving closes the report's open implementation PR, if it has one; a resolved report never reopens, and a recurrence starts a fresh report linked to it. Optionally include a `dismissal_reason` — a canonical code from the inbox UI (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`, `analysis_wrong`, `wrong_repo`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string. With state='resolved' use `fixed_outside_posthog` when the fix landed without a pull request, `pr_merged` when a pull request with the fix was merged but did not resolve the report on its own, or `already_fixed` when it was fixed before the report was filed; the other codes describe a dismissal. Use `wrong_repo` when the agent picked the wrong repository for this report, and pass `corrected_repository` (an 'owner/repo' string, only allowed with `wrong_repo`) to name the one it should have used — the correction is recorded and fed into future repository selection for this project. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not allowed from the report's current status. To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per report.",
+    "requiredScopes": ["task:write"],
+    "annotations": {
+        "readOnly": false,
+        "destructive": true,
+        "idempotent": false
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsInboxReportsSetStateInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-reports-set-state.ts",
+        "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+    },
+    "output": {
+        "name": "SignalsInboxReportsSetStateOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/inbox-reports-set-state.ts",
+        "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsInboxReportsSetStateRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateRequestSchema1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateRequestSchema2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateRequestSchema3",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateInputState",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape2",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape3",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape4",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape7",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape6",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape5",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape8",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape9",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape11",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape12",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateResponseShape10",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        },
+        {
+            "name": "SignalsInboxReportsSetStateData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/inbox-reports-set-state.ts",
+            "declaration": "dist/generated/signals/inbox-reports-set-state.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Transition a report to a new state. The model validates allowed transitions, except that a\nverdict the report already holds (dismissing a suppressed report, resolving a resolved one)\nis a 200 that records the dismissal feedback without touching the status.\n\nThe request body is validated by SignalReportStateRequestSerializer — only the\nfields it declares (state, dismissal_reason, dismissal_note, corrected_repository,\nsnooze_for) are read, and only snooze_for is ever forwarded to transition_to. Any\nother key is ignored, so internal transition_to kwargs (reset_weight, error, ...)\ncan't be injected.\n\nBody: {\n    \"state\": \"suppressed\" | \"potential\" | \"resolved\",\n    # Optional dismissal feedback (honored when state == \"suppressed\", \"potential\", or \"resolved\"):\n    \"dismissal_reason\": \"<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>\",\n    \"dismissal_note\": \"free-form text\",\n    # Optional, only allowed with dismissal_reason == \"wrong_repo\":\n    \"corrected_repository\": \"owner/repo the report should have targeted\",\n    # Optional, only honored for state == \"potential\":\n    \"snooze_for\": <number of additional signals before re-promotion>,\n}",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1reports~1{id}~1state~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Transition a single signal report to a new state. Use 'resolved' when the work this report asked for has been done (e.g. you fixed the issue it describes), 'suppressed' to dismiss the report from the inbox (the user has reviewed it and decided no action is needed), or 'potential' to snooze/restore it back into the pipeline for later review. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report whose previous status was ready, pending_input, failed, or resolved. Repeat resolution succeeds. Other statuses return 409. Fixed reasons require state='suppressed' or state='resolved', not 'potential'. Dismissing or resolving closes the report's open implementation PR, if it has one; a resolved report never reopens, and a recurrence starts a fresh report linked to it. Optionally include a `dismissal_reason` — a canonical code from the inbox UI (`fixed_outside_posthog`, `pr_merged`, `already_fixed`, `report_unclear`, `analysis_wrong`, `wrong_repo`, `wontfix_intentional`, `wontfix_irrelevant`, `other`), so it renders as a labelled chip rather than a raw string. With state='resolved' use `fixed_outside_posthog` when the fix landed without a pull request, `pr_merged` when a pull request with the fix was merged but did not resolve the report on its own, or `already_fixed` when it was fixed before the report was filed; the other codes describe a dismissal. Use `wrong_repo` when the agent picked the wrong repository for this report, and pass `corrected_repository` (an 'owner/repo' string, only allowed with `wrong_repo`) to name the one it should have used — the correction is recorded and fed into future repository selection for this project. Use `other` plus a `dismissal_note` (free-form text, up to 4000 chars) for anything that doesn't fit a code. Both are persisted as a DISMISSAL artefact on the report so the rationale survives later transitions. Returns 409 if the transition is not allowed from the report's current status. To transition several reports at once, use `inbox-reports-bulk-set-state` instead of calling this per report.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsInboxReportsSetStateRequest_Schema0",
+            "effectiveDescription": "* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wrong_repo` - Agent picked the wrong repository\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `fixed_outside_posthog` - Fixed outside PostHog\n* `pr_merged` - PR was merged\n* `other` - Something else…",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wrong_repo` - Agent picked the wrong repository\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `fixed_outside_posthog` - Fixed outside PostHog\n* `pr_merged` - PR was merged\n* `other` - Something else…",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema0"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this signal report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this signal report.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{id}/state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateInput",
+            "field": "state",
+            "effectiveDescription": "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n* `suppressed` - suppressed\n* `potential` - potential\n* `resolved` - resolved",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{id}/state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateInput",
+            "field": "dismissal_reason",
+            "effectiveDescription": "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wrong_repo` - Agent picked the wrong repository\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `fixed_outside_posthog` - Fixed outside PostHog\n* `pr_merged` - PR was merged\n* `other` - Something else…",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wrong_repo` - Agent picked the wrong repository\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `fixed_outside_posthog` - Fixed outside PostHog\n* `pr_merged` - PR was merged\n* `other` - Something else…",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{id}/state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateInput",
+            "field": "dismissal_note",
+            "effectiveDescription": "Optional free-form note explaining the dismissal. Capped at 4000 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional free-form note explaining the dismissal. Capped at 4000 characters.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{id}/state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateInput",
+            "field": "corrected_repository",
+            "effectiveDescription": "Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with the dismissal and fed into future repository selection for this project. When the repository is connected to the project, it also becomes the report's corrected repo selection, so restoring the report re-researches against it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional, only allowed with dismissal_reason='wrong_repo'. The repository this report should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with the dismissal and fed into future repository selection for this project. When the repository is connected to the project, it also becomes the report's corrected repo selection, so restoring the report re-researches against it.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{id}/state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateInput",
+            "field": "snooze_for",
+            "effectiveDescription": "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/reports/{id}/state/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape2",
+            "effectiveDescription": "One chart attached to a report — rendered in the inbox and referenceable from the summary.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One chart attached to a report — rendered in the inbox and referenceable from the summary.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape2",
+            "field": "chart_id",
+            "effectiveDescription": "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable slug for this chart within the report (lowercase letters, numbers, underscores, hyphens; must start with a letter or number). Reference it from `summary` as a markdown link with a `chart:` target — `[Daily signups](chart:signups-drop)` — to place the chart at that point in the body. A chart you don't reference still renders, below the summary.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/chart_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape2",
+            "field": "title",
+            "effectiveDescription": "Short heading shown above the chart.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short heading shown above the chart.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape2",
+            "field": "query",
+            "effectiveDescription": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The query node to render. `kind` must be `InsightVizNode` (an ad-hoc product analytics chart), `DataVisualizationNode` (a SQL series — a `HogQLQuery` source plus a `display`), or `SavedInsightNode` (an existing insight by `shortId`). Pin the window to absolute dates where the node supports it, so the reader sees the data you wrote about rather than whatever a relative range resolves to when they open the report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape2",
+            "field": "caption",
+            "effectiveDescription": "Optional one-line note on what to look at in the chart.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional one-line note on what to look at in the chart.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/caption"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape2",
+            "field": "size",
+            "effectiveDescription": "How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n* `small` - small\n* `medium` - medium\n* `large` - large",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How much height the chart gets: `small` for a single number or a short series, `medium` for an ordinary graph, `large` when there are rows or a grid to read (retention, paths, a wide breakdown). Leave it out unless the default looks wrong — the inbox sizes a chart from its query, and two charts referenced from the same paragraph sit side by side.\n\n* `small` - small\n* `medium` - medium\n* `large` - large",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape2/properties/size"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "effectiveDescription": "One impact measurement shown on a report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One impact measurement shown on a report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "metric_id",
+            "effectiveDescription": "Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/metric_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "title",
+            "effectiveDescription": "Short human-readable label for the measurement.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Short human-readable label for the measurement.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/title"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "kind",
+            "effectiveDescription": "What the value measures, independent of how it is formatted or drawn.\n\n* `affected_users` - affected_users\n* `affected_sessions` - affected_sessions\n* `occurrences` - occurrences\n* `conversion_rate` - conversion_rate\n* `error_rate` - error_rate\n* `duration` - duration\n* `revenue` - revenue\n* `custom` - custom",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "What the value measures, independent of how it is formatted or drawn.\n\n* `affected_users` - affected_users\n* `affected_sessions` - affected_sessions\n* `occurrences` - occurrences\n* `conversion_rate` - conversion_rate\n* `error_rate` - error_rate\n* `duration` - duration\n* `revenue` - revenue\n* `custom` - custom",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "role",
+            "effectiveDescription": "`primary` for the report's key observation, otherwise `supporting`.\n\n* `primary` - primary\n* `supporting` - supporting",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`primary` for the report's key observation, otherwise `supporting`.\n\n* `primary` - primary\n* `supporting` - supporting",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/role"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "value",
+            "effectiveDescription": "Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "value_at",
+            "effectiveDescription": "When the visible snapshot value was measured; null when value is null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the visible snapshot value was measured; null when value is null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/value_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "series",
+            "effectiveDescription": "Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/series"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "value_format",
+            "effectiveDescription": "How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.\n\n* `number` - number\n* `count` - count\n* `percentage` - percentage\n* `percentage_scaled` - percentage_scaled\n* `duration` - duration\n* `currency` - currency",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.\n\n* `number` - number\n* `count` - count\n* `percentage` - percentage\n* `percentage_scaled` - percentage_scaled\n* `duration` - duration\n* `currency` - currency",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/value_format"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "unit",
+            "effectiveDescription": "Optional short suffix or currency code, such as `users`, `ms`, or `USD`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional short suffix or currency code, such as `users`, `ms`, or `USD`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/unit"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "query",
+            "effectiveDescription": "Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/query"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "caption",
+            "effectiveDescription": "Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/caption"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "goal_value",
+            "effectiveDescription": "Proposed threshold after release. Informational only; does not schedule a check.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Proposed threshold after release. Informational only; does not schedule a check.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/goal_value"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "goal_direction",
+            "effectiveDescription": "Whether success means at most or at least goal_value.\n\n* `at_most` - at_most\n* `at_least` - at_least",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether success means at most or at least goal_value.\n\n* `at_most` - at_most\n* `at_least` - at_least",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/goal_direction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "goal_grain",
+            "effectiveDescription": "Whether the goal compares with the whole query window or each chart bucket.\n\n* `whole_window` - whole_window\n* `per_interval` - per_interval",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the goal compares with the whole query window or each chart bucket.\n\n* `whole_window` - whole_window\n* `per_interval` - per_interval",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/goal_grain"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "decision_window_days",
+            "effectiveDescription": "Suggested days after release before assessing impact, not a monitoring schedule.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Suggested days after release before assessing impact, not a monitoring schedule.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/decision_window_days"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape3",
+            "field": "minimum_data_points",
+            "effectiveDescription": "Optional number of qualifying observations before assessing impact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional number of qualifying observations before assessing impact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape3/properties/minimum_data_points"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape4",
+            "field": "product",
+            "effectiveDescription": "The product the team does not use and could turn on to give reports like this one better evidence.\n\n* `logs` - Logs\n* `session_replay` - Session replay\n* `error_tracking` - Error tracking\n* `llm_analytics` - AI observability",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The product the team does not use and could turn on to give reports like this one better evidence.\n\n* `logs` - Logs\n* `session_replay` - Session replay\n* `error_tracking` - Error tracking\n* `llm_analytics` - AI observability",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/product"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape4",
+            "field": "reason",
+            "effectiveDescription": "One sentence on what the product would have shown for this report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "One sentence on what the product would have shown for this report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape4/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape5",
+            "field": "id",
+            "effectiveDescription": "PR selection ID. Task-output links use a deterministic ID until attached as an artefact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "PR selection ID. Task-output links use a deterministic ID until attached as an artefact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape5",
+            "field": "url",
+            "effectiveDescription": "GitHub pull request URL.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "GitHub pull request URL.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape5",
+            "field": "state",
+            "effectiveDescription": "Latest known GitHub state.\n\n* `unknown` - Unknown\n* `draft` - Draft\n* `open` - Open\n* `closed` - Closed\n* `merged` - Merged",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest known GitHub state.\n\n* `unknown` - Unknown\n* `draft` - Draft\n* `open` - Open\n* `closed` - Closed\n* `merged` - Merged",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape5",
+            "field": "merged",
+            "effectiveDescription": "Whether this PR merged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether this PR merged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/merged"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape5",
+            "field": "review_decision",
+            "effectiveDescription": "Current GitHub code review decision: approved, changes_requested, or review_required. Null when GitHub does not provide a review decision.\n\n* `approved` - Approved\n* `changes_requested` - Changes requested\n* `review_required` - Review required",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current GitHub code review decision: approved, changes_requested, or review_required. Null when GitHub does not provide a review decision.\n\n* `approved` - Approved\n* `changes_requested` - Changes requested\n* `review_required` - Review required",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/review_decision"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape5",
+            "field": "merged_at",
+            "effectiveDescription": "When GitHub reports that this pull request merged. Null when it has not merged or the time is unavailable.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When GitHub reports that this pull request merged. Null when it has not merged or the time is unavailable.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/merged_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape5",
+            "field": "attached_by",
+            "effectiveDescription": "Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Who first attached this PR to the report, not necessarily its GitHub author. Task-output links identify the originating task.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/attached_by"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape5",
+            "field": "claim_id",
+            "effectiveDescription": "Originating work claim. Null for legacy links without a recorded claim.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Originating work claim. Null for legacy links without a recorded claim.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/claim_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape5",
+            "field": "attached_at",
+            "effectiveDescription": "When the first PR link was recorded. For backfilled links this is the import time; null for an unmigrated link.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the first PR link was recorded. For backfilled links this is the import time; null for an unmigrated link.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape5/properties/attached_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape6",
+            "field": "kind",
+            "effectiveDescription": "Kind of actor who attached the PR. Null when legacy attribution is unknown.\n\n* `user` - User\n* `task` - Task\n* `agent` - Agent\n* `system` - System",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Kind of actor who attached the PR. Null when legacy attribution is unknown.\n\n* `user` - User\n* `task` - Task\n* `agent` - Agent\n* `system` - System",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/kind"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape6",
+            "field": "user",
+            "effectiveDescription": "Authenticated principal who attached the PR, when recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Authenticated principal who attached the PR, when recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/user"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape6",
+            "field": "agent",
+            "effectiveDescription": "External agent client name, when recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "External agent client name, when recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/agent"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape6",
+            "field": "task_id",
+            "effectiveDescription": "Internal task that attached the PR, when recorded.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Internal task that attached the PR, when recorded.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape6/properties/task_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape8",
+            "field": "claim_id",
+            "effectiveDescription": "Identifier for the active work attempt.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Identifier for the active work attempt.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape8/properties/claim_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape9",
+            "field": "reason",
+            "effectiveDescription": "Why the user refunded this PR (feeds the refund review).\n\n* `pr_incorrect` - PR incorrect\n* `pr_not_useful` - PR not useful\n* `duplicate` - Duplicate\n* `other` - Other",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the user refunded this PR (feeds the refund review).\n\n* `pr_incorrect` - PR incorrect\n* `pr_not_useful` - PR not useful\n* `duplicate` - Duplicate\n* `other` - Other",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape9",
+            "field": "note",
+            "effectiveDescription": "Optional free-form note captured with the refund.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional free-form note captured with the refund.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/note"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape9",
+            "field": "billing_path",
+            "effectiveDescription": "How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).\n\n* `excluded` - Excluded\n* `credited` - Credited",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the refund was executed, frozen at refund time: 'excluded' (same UTC day as the billable PR run — the report never reaches billing) or 'credited' (billing issues a Stripe customer-balance credit).\n\n* `excluded` - Excluded\n* `credited` - Credited",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/billing_path"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape9",
+            "field": "credits",
+            "effectiveDescription": "Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/credits"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape9",
+            "field": "pr_url",
+            "effectiveDescription": "The refunded implementation PR's GitHub URL, snapshotted at refund time.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The refunded implementation PR's GitHub URL, snapshotted at refund time.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/pr_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape9",
+            "field": "pr_run_created_at",
+            "effectiveDescription": "When the first billable PR run was created — the charge this reverses.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the first billable PR run was created — the charge this reverses.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/pr_run_created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape9",
+            "field": "credit_amount_usd",
+            "effectiveDescription": "USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "USD amount the billing service credited (credited path only). Null until the sync completes; '0.00' is a legitimate outcome (e.g. the PR was inside the free tier).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/credit_amount_usd"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape9",
+            "field": "billing_synced",
+            "effectiveDescription": "Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the billing service has acknowledged this refund. Always relevant for the credited path (the Stripe credit is issued asynchronously); excluded-path refunds need no billing sync and report false.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/billing_synced"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape9",
+            "field": "created_at",
+            "effectiveDescription": "When the refund was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the refund was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape9/properties/created_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape10",
+            "field": "served_key",
+            "effectiveDescription": "Key of the served model in the scoring pass, as `<model_name>@<model_version>`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Key of the served model in the scoring pass, as `<model_name>@<model_version>`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/served_key"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape10",
+            "field": "model_name",
+            "effectiveDescription": "Feature family of the served model.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Feature family of the served model.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/model_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape10",
+            "field": "model_version",
+            "effectiveDescription": "Training partition of the served model, as `YYYY-MM-DD`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Training partition of the served model, as `YYYY-MM-DD`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/model_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape10",
+            "field": "manifest_version",
+            "effectiveDescription": "Version of the serving manifest that chose the model.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Version of the serving manifest that chose the model.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/manifest_version"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape10",
+            "field": "scored_at",
+            "effectiveDescription": "When the scoring sweep scored the report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "When the scoring sweep scored the report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/scored_at"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape10",
+            "field": "scores",
+            "effectiveDescription": "Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/scores"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape10",
+            "field": "lifts",
+            "effectiveDescription": "Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/lifts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape10",
+            "field": "readable_heads",
+            "effectiveDescription": "Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/readable_heads"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape10",
+            "field": "stale",
+            "effectiveDescription": "True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when the report's title or summary was edited after the text this score read. The score describes the old text: the inbox hides its lift and the model sort treats the report as unscored.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape10/properties/stale"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape11",
+            "effectiveDescription": "Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape11"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateResponseShape12",
+            "effectiveDescription": "Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape12"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "summary_lead",
+            "effectiveDescription": "The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/summary_lead"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "collapsed_note_count",
+            "effectiveDescription": "How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/collapsed_note_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "charts",
+            "effectiveDescription": "Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Charts the report shows, in the order they were written. The summary places one with a `[label](chart:<chart_id>)` link; the rest render below it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/charts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "metrics",
+            "effectiveDescription": "Typed impact measurements in display order. At most one is primary. Live metric values and history come from their query; value/value_at are the latest saved fallback snapshots.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Typed impact measurements in display order. At most one is primary. Live metric values and history come from their query; value/value_at are the latest saved fallback snapshots.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/metrics"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "suggested_prompts",
+            "effectiveDescription": "Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Follow-up prompts the report's author suggests sending about it (questions to ask, or next-step actions to request), in the order they were written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/suggested_prompts"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "source_suggestion",
+            "effectiveDescription": "A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A product the team does not use that would have given this report better evidence, from the latest source suggestion artefact. Null when there is none, or when the team now uses the product. Always null in list responses, because its in-use check can query ClickHouse.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/source_suggestion"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "priority",
+            "effectiveDescription": "P0–P4 from the latest priority judgment artefact (when present).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "P0–P4 from the latest priority judgment artefact (when present).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/priority"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "actionability",
+            "effectiveDescription": "Actionability choice from the latest actionability judgment artefact (when present).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Actionability choice from the latest actionability judgment artefact (when present).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/actionability"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "already_addressed",
+            "effectiveDescription": "Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task) — from the actionability judgment artefact.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/already_addressed"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "dismissal_reason",
+            "effectiveDescription": "Reason code from the latest dismissal artefact, set when the report was suppressed (when present).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Reason code from the latest dismissal artefact, set when the report was suppressed (when present).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/dismissal_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "dismissal_note",
+            "effectiveDescription": "Free-form note captured alongside the dismissal reason (when present).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Free-form note captured alongside the dismissal reason (when present).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/dismissal_note"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "suppression_source",
+            "effectiveDescription": "Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or agent dismissed it, it was merged into another report, or its pull request closed without merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. `system`: suppressed by the pipeline for another reason. Every value except `dismissed` is a verdict nobody has reviewed, listed by the `held_back` inbox view.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or agent dismissed it, it was merged into another report, or its pull request closed without merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. `system`: suppressed by the pipeline for another reason. Every value except `dismissed` is a verdict nobody has reviewed, listed by the `held_back` inbox view.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/suppression_source"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "suppression_explanation",
+            "effectiveDescription": "The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. Null otherwise, or when the judge gave none.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. Null otherwise, or when the judge gave none.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/suppression_explanation"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "repo_slug",
+            "effectiveDescription": "`organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "`organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/repo_slug"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "source_products",
+            "effectiveDescription": "Distinct source products contributing signals to this report (from ClickHouse).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Distinct source products contributing signals to this report (from ClickHouse).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/source_products"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "scout_name",
+            "effectiveDescription": "skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/scout_name"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "implementation_pr_url",
+            "effectiveDescription": "Pull request attached to this report's claim, if available.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Pull request attached to this report's claim, if available.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/implementation_pr_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "pull_requests",
+            "effectiveDescription": "All distinct PRs linked to this report across work attempts.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "All distinct PRs linked to this report across work attempts.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/pull_requests"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "implementation_pr_state",
+            "effectiveDescription": "Latest known pull request state: unknown, draft, open, closed, or merged.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Latest known pull request state: unknown, draft, open, closed, or merged.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/implementation_pr_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "implementation_pr_merged",
+            "effectiveDescription": "Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether that implementation PR is merged, per the GitHub webhook. False when there is no PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been resolved directly, without a merged PR.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/implementation_pr_merged"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "tracker_issue_url",
+            "effectiveDescription": "Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Link to the issue self-driving opened in the team's tracker for this report's pull request. Null when the team tracks no issues, or the issue could not be opened.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/tracker_issue_url"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "tracker_issue_reference",
+            "effectiveDescription": "How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How that tracker issue reads in its provider, for example '#12' or 'ENG-123'. Null when there is no tracker issue.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/tracker_issue_reference"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "tracker_issue_error",
+            "effectiveDescription": "Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the tracker issue could not be opened, for a team that wants one. Null when the issue exists or the team tracks no issues.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/tracker_issue_error"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "work_state",
+            "effectiveDescription": "Derived remediation state: unclaimed, working, in_review, or done.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Derived remediation state: unclaimed, working, in_review, or done.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/work_state"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "assignee",
+            "effectiveDescription": "Current user, internal task, or external agent claim owner. Null when unclaimed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Current user, internal task, or external agent claim owner. Null when unclaimed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/assignee"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "refund",
+            "effectiveDescription": "The report's PR refund, when one exists. One refund per report, ever.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The report's PR refund, when one exists. One refund per report, ever.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/refund"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "refund_ineligibility_reason",
+            "effectiveDescription": "Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why refunding this report's PR would be rejected right now, or null when a refund would be accepted (see the field's schema for the reason values).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/refund_ineligibility_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "billing_exempt_reason",
+            "effectiveDescription": "Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.\n\n* `posthog_health_check` - PostHog health check\n* `posthog_onboarding` - PostHog onboarding\n* `posthog_system` - PostHog system",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Non-null when this report is system-marked never-billable (PostHog-system origin, e.g. a health-check scout finding) — its implementation PRs are free and cannot be refunded because nothing was charged.\n\n* `posthog_health_check` - PostHog health check\n* `posthog_onboarding` - PostHog onboarding\n* `posthog_system` - PostHog system",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/billing_exempt_reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "channel_id",
+            "effectiveDescription": "The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/channel_id"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "ranking",
+            "effectiveDescription": "The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/ranking"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsInboxReportsSetStateData",
+            "field": "_posthogUrl",
+            "effectiveDescription": "Canonical PostHog URL returned by the MCP handler.",
+            "layers": [
+                {
+                    "role": "generated",
+                    "text": "Canonical PostHog URL returned by the MCP handler.",
+                    "source": {
+                        "kind": "adapter",
+                        "file": "services/mcp/scripts/lib/sdk-schema.mjs"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "inbox-reports-bulk-set-state",
+            "method": "signals.inboxReportsBulkSetState"
+        }
+    ]
+}
