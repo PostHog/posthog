@@ -37,10 +37,7 @@ import {
     TimeUnitType,
 } from '~/types'
 
-import {
-    cohortAudienceProperties,
-    messageAudienceUrl,
-} from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { cohortAudienceProperties } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
 /**
@@ -724,8 +721,4 @@ export function cohortBroadcastDisabledReason(cohort: CohortType): string | null
         return "Broadcasts can't send to cohorts with event conditions. Use a static or property-based cohort."
     }
     return null
-}
-
-export function urlForCohortBroadcast(cohort: { id: number; name?: string }): string {
-    return messageAudienceUrl({ properties: cohortAudienceProperties(cohort), source: 'cohort' }, 'broadcast')
 }

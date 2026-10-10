@@ -8,7 +8,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -40,6 +39,7 @@ import type {
 } from 'products/workflows/frontend/generated/api.schemas'
 
 import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { UNVERIFIED_SENDER_MESSAGE, broadcastLimitMessage } from '../Channels/emailSendingMessages'
 import { EMAIL_PREFILL_PARAM, messageDraftEmail, parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
 import {
     DEFAULT_STATE,
@@ -1605,9 +1605,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.setStep('recipients')
                     actions.showSavedDraftUrl()
                     lemonToast.error(
-                        `This project can send a broadcast to up to ${humanFriendlyNumber(
-                            blastRadius.limit
-                        )} people right now. Add filters to narrow the audience, then launch again.`,
+                        `${broadcastLimitMessage(blastRadius.limit)} Add filters to narrow the audience, then launch again.`,
                         {
                             button: {
                                 label: 'See sending limits',
@@ -1995,7 +1993,7 @@ export function getSenderLaunchError(
             integrations.find((integration) => integration.kind === 'email' && integration.id === id)?.config
                 ?.verified === true
     )
-    return allVerified ? null : "Verify the sender's domain before sending"
+    return allVerified ? null : UNVERIFIED_SENDER_MESSAGE
 }
 
 export function getSenderIds(from: BroadcastEmailValue['from'] | undefined): number[] {

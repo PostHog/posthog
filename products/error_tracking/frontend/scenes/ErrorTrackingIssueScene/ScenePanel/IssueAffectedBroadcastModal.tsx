@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -13,7 +13,8 @@ import {
 
 export function IssueAffectedBroadcastModal(props: IssueAffectedBroadcastLogicProps): JSX.Element {
     const logic = issueAffectedBroadcastLogic(props)
-    const { isModalOpen, affectedCount, affectedCountLoading, countFailed, audienceCohortLoading } = useValues(logic)
+    const { isModalOpen, affectedCount, affectedCountLoading, countFailed, audienceCohortLoading, sendWarnings } =
+        useValues(logic)
     const { closeModal, createAudience } = useActions(logic)
 
     const lookback = `the last ${AFFECTED_LOOKBACK_DAYS} days`
@@ -51,6 +52,11 @@ export function IssueAffectedBroadcastModal(props: IssueAffectedBroadcastLogicPr
             }
         >
             <div className="flex flex-col gap-2">
+                {sendWarnings.map((warning) => (
+                    <LemonBanner key={warning} type="warning" data-attr="issue-affected-broadcast-warning">
+                        {warning}
+                    </LemonBanner>
+                ))}
                 {affectedCountLoading ? (
                     <div className="flex items-center gap-2">
                         <Spinner />
