@@ -135,7 +135,7 @@ and `reviewer/progress.py::resolution_states` derives the run's state from artef
 resolving (delivered verdicts — `reply_posted` — counted against the queue, fresh activity), completed (a closing run note, author `RESOLUTION_RUN_NOTE_AUTHOR`), or died-partway (no note, stale).
 The PR-comment counters likewise count only threads whose GitHub writes landed (`delivered_outcomes`); judged-but-undelivered threads join the closing tally's "couldn't handle" count instead.
 The reviews API exposes it as the row's `resolution` field ("Resolving comments · 6/10" / "Resolution didn't finish · stopped at 6/10" in the scene),
-the PR status comment carries a marker-delimited resolution section (`update_resolution_status_comment` — spliced into the review's comment, created on demand for standalone runs, failure-edited on the final attempt),
+the PR status comment carries a "Resolve comments" row in its step table (`update_resolution_status_comment` — spliced into the review's comment, created on demand for standalone runs, failure-edited on the final attempt),
 with a patched workflow-level backstop (`fail_resolution_activity`, fired from `ResolvePRWorkflow`'s except) covering the deaths the activity handler can't see — prepare failures, timeouts, cancellation, worker death — by idling the report and writing the failed section from the persisted work-list,
 and each queued thread's opening comment gets a best-effort 👀 reaction (queue marker; never removed).
 The API's **busy-guard** (`temporal/client.py::workflow_running`, fail-open describe on the deterministic IDs) refuses a review request while the PR's `resolve-pr` runs and a standalone resolution while its review queue runs.
@@ -455,7 +455,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
     marker scans (`_review_already_posted` here, `_find_marker_comment` on the status comment) trust the marker
     only in **app-bot** comments/reviews — on a public repo anyone can paste it, and a spoofed match would
     suppress the publish or clobber a stranger's comment. On the publish path a live **status comment**
-    (`reviewer/status_comment.py`) is posted at kickoff, edited with stage progress, and rewritten with the
+    (`reviewer/status_comment.py`) is posted at kickoff as one table with a row per step of the turn's review design,
+    edited as the steps fill in, and rewritten with the
     outcome: the full found counts, what was published, and — when the urgency threshold held findings back —
     whose threshold it was (the author's / the requester's / the default, from `resolved_from`) plus a
     "View them in PostHog" deep link to the exact report (`/project/<team>/code-review?review=<report id>`,
