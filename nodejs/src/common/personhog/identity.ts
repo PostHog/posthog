@@ -186,10 +186,6 @@ export class PersonhogIdentityOperations {
         }))
     }
 
-    /**
-     * Person ids only, from the distinct id table. The person may be deleted
-     * or merged away, so callers must confirm it through the leader.
-     */
     async getPersonIdsByDistinctIds(
         keys: DistinctIdKey[],
         callerTag?: string

@@ -101,7 +101,6 @@ describe('PersonhogPersonsStore', () => {
             getDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             getOrCreatePersonByDistinctId: jest.fn().mockResolvedValue({ person, created: true }),
         } as unknown as jest.Mocked<PersonHogPersonWriteRepository>
-        // Identity answers an ids-only resolve with the id of the person a full resolve returns.
         repository.resolvePersonIdsByDistinctIds = jest.fn((keys, callerTag) =>
             repository.resolvePersonsByDistinctIds(keys, callerTag).then((results) =>
                 results.map(({ teamId, distinctId, person }) => ({
