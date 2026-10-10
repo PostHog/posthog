@@ -68,6 +68,11 @@ When in doubt, classify as ACTIONABLE.
 Respond with exactly one word: ACTIONABLE or NOT_ACTIONABLE"""
 
 
+DIRECT_SOURCE_SYSTEM_ONE_PROMPT = bundled_prompt(
+    "signals-actionability-direct", DIRECT_SOURCE_ACTIONABILITY_PROMPT, ACTIONABILITY_SYSTEM_ONE_QUESTION, 0.5
+)
+
+
 async def steering_filters_signal(
     *,
     team: Team,
@@ -92,14 +97,7 @@ async def steering_filters_signal(
     if not steering.text:
         return False
 
-    system_one_prompt = current_prompt(
-        bundled_prompt(
-            "signals-actionability-direct",
-            DIRECT_SOURCE_ACTIONABILITY_PROMPT,
-            ACTIONABILITY_SYSTEM_ONE_QUESTION,
-            0.5,
-        )
-    )
+    system_one_prompt = current_prompt(DIRECT_SOURCE_SYSTEM_ONE_PROMPT)
 
     output = SignalEmitterOutput(
         source_product=source_product,
@@ -120,12 +118,13 @@ async def steering_filters_signal(
                     client,
                     team.id,
                     output,
-                    apply_steering(system_one_prompt.policy, steering),
+                    apply_steering(DIRECT_SOURCE_SYSTEM_ONE_PROMPT.policy, steering),
                     gateway_mode=resolve_ai_gateway_config() is not None,
                     # Steering rules reference facts the description does not always carry (a host, a
                     # check kind), so the steered gate sees all of `extra`, as in the batch pipeline.
                     include_record_metadata=True,
                     system_one_prompt=system_one_prompt,
+                    steering=steering,
                 ),
                 timeout=GATE_TIMEOUT_SECONDS,
             )

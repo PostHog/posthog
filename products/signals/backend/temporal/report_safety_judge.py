@@ -18,7 +18,7 @@ from products.ml_inference.backend.facade.contracts import JsonValue
 from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
-from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
+from products.signals.backend.system_one_prompts import REPORT_STATE_MAX_BYTES, bundled_prompt, current_prompt
 from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
 from products.signals.backend.temporal.types import SignalData, render_signals_to_text
 
@@ -26,7 +26,7 @@ logger = structlog.get_logger(__name__)
 
 _SIGNAL_DATA_TAG = re.compile(r"<(/?)signal_data\b", re.IGNORECASE)
 # A UTF-8 byte can become one token, so this leaves room under the deployed model's 8,192-token cap for framing.
-JEV_REPORT_STATE_MAX_BYTES = 6 * 1024
+JEV_REPORT_STATE_MAX_BYTES = REPORT_STATE_MAX_BYTES
 JEV_REPORT_TIMEOUT_SECONDS = 240.0
 
 
@@ -169,7 +169,7 @@ async def judge_report_safety(
         async def sonnet_verdict(trace_id: str | None) -> SafetyJudgeResponse:
             return await call_llm(
                 team_id=team_id,
-                system_prompt=system_one_prompt.policy,
+                system_prompt=REPORT_SAFETY_SYSTEM_ONE_PROMPT.policy,
                 user_prompt=user_prompt,
                 validate=validate,
                 thinking=True,
@@ -184,9 +184,8 @@ async def judge_report_safety(
                         "signals_decision_id": trace_id,
                         "source_id": report_id,
                         "source_product": "report",
-                        "$ai_prompt_name": system_one_prompt.name,
-                        "$ai_prompt_version": str(system_one_prompt.version) if system_one_prompt.version else None,
-                        "system_one_prompt_source": system_one_prompt.source,
+                        "$ai_prompt_name": REPORT_SAFETY_SYSTEM_ONE_PROMPT.name,
+                        "system_one_prompt_source": "bundled",
                     }.items()
                     if value is not None
                 },
@@ -200,6 +199,7 @@ async def judge_report_safety(
             source_product="report",
             state=state,
             prompt=system_one_prompt,
+            build_state=lambda selected: {"policy": selected.policy, "report": user_prompt},
             traditional=sonnet_verdict,
             verdict=lambda result: result.choice,
             system_one_result=_system_one_judgment,

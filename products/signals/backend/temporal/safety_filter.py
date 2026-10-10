@@ -195,7 +195,12 @@ async def safety_filter(
     system_one_prompt = current_prompt(SIGNAL_SAFETY_SYSTEM_ONE_PROMPT)
     if team_id is not None:
         mode = await model_mode(team_id)
-        cache_key = _safe_verdict_cache_key(team_id, mode, signal_prompt, system_one_prompt)
+        # Shadow comparisons need a fresh assignment; cached Sonnet verdicts would bypass the trial.
+        cache_key = (
+            None
+            if mode == "system-one-shadow"
+            else _safe_verdict_cache_key(team_id, mode, signal_prompt, system_one_prompt)
+        )
     else:
         mode = None
         cache_key = None
@@ -216,7 +221,7 @@ async def safety_filter(
         try:
             return await call_llm(
                 team_id=team_id,
-                system_prompt=system_one_prompt.policy,
+                system_prompt=SIGNAL_SAFETY_SYSTEM_ONE_PROMPT.policy,
                 user_prompt=signal_prompt,
                 validate=validate,
                 stage="safety_filter",
@@ -230,9 +235,8 @@ async def safety_filter(
                         "signals_decision_id": trace_id,
                         "source_id": source_id,
                         "source_product": source_product,
-                        "$ai_prompt_name": system_one_prompt.name,
-                        "$ai_prompt_version": str(system_one_prompt.version) if system_one_prompt.version else None,
-                        "system_one_prompt_source": system_one_prompt.source,
+                        "$ai_prompt_name": SIGNAL_SAFETY_SYSTEM_ONE_PROMPT.name,
+                        "system_one_prompt_source": "bundled",
                     }.items()
                     if value is not None
                 },
@@ -258,6 +262,7 @@ async def safety_filter(
         source_product=source_product,
         state={"policy": system_one_prompt.policy, "signal": signal_prompt},
         prompt=system_one_prompt,
+        build_state=lambda selected: {"policy": selected.policy, "signal": signal_prompt},
         traditional=sonnet_verdict,
         verdict=lambda result: result.safe,
         system_one_result=lambda safe, category: SafetyFilterJudgeResponse(

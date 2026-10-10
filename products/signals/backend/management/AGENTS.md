@@ -238,6 +238,10 @@ Idempotent. A reactivated check no longer matches.
 
 ## Tips
 
+- `uv run manage.py export_signals_decision_prompts --include-wording-experiments` exports bundled
+  decision settings and question variants without publishing. `--verify-managed` checks that the
+  activation label matches those settings. See `../../ARCHITECTURE.md` for credentials and rollout.
+
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`
 - `emit_signals_from_fixture` and `emit_signals_from_llm` apply the team's `SignalSourceConfig.config` steering keys (`steering`, `default_not_actionable`) like production does — clear them on the source's config row for an unsteered baseline
 - Read each command's source for all available flags — they are in this directory
