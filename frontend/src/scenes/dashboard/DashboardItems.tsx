@@ -277,6 +277,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             }),
         [tiles, layouts, activeBreakpoint, dashboard?.customization?.group_titles, gridCompactor, widgetTilesShown]
     )
+    const hasTileDecorations = Object.keys(groupTitlesByTileId).length > 0 || !!tiles?.some((tile) => tile.badge)
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
     const showEditingControls = isEditablePlacement || layoutEditMode
@@ -488,7 +489,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 </LemonBanner>
             )}
             {mounted && (
-                <div className="relative">
+                <div className={clsx('relative', hasTileDecorations && 'mt-10')}>
                     {layoutEditMode && !isMobileView && (
                         <GridBackground
                             width={gridWidth}

@@ -11,17 +11,21 @@
     }
 }
 
+$tile-transition:
+    transform 220ms ease-out,
+    width 220ms ease-out,
+    height 220ms ease-out,
+    border-color 100ms ease;
+
 .react-grid-layout {
+    --dashboard-hog-slide-duration: 200ms; // Also drives the hog's slide in DashboardTileDecorations.scss
+
     position: relative;
     transition: height 100ms ease;
 
     /* Preserve the tile border transition while spacing changes animate. */
     &.dashboard-view-mode .react-grid-item {
-        transition:
-            transform 220ms ease-out,
-            width 220ms ease-out,
-            height 220ms ease-out,
-            border-color 100ms ease;
+        transition: $tile-transition;
 
         /* Skip rendering for off-screen tiles during resize/reflow */
         content-visibility: auto;
@@ -33,9 +37,24 @@
         }
 
         /* Tile decorations draw outside the tile box, so the same paint clip would cut them off */
-        &:has(> .DashboardTileDecorations__group-title, > .DashboardTileDecorations__crown),
-        &:hover:has(> .DashboardTileDecorations__hog) {
+        &:has(> .DashboardTileDecorations__group-title, > .DashboardTileDecorations__crown) {
             content-visibility: visible;
+        }
+
+        /* The hog only shows while hovered. On leave, hold the lift for the hog's slide down (browsers without discrete content-visibility transitions hide it at once) */
+        &:where(:has(> .DashboardTileDecorations__hog)) {
+            transition:
+                $tile-transition,
+                content-visibility 0s linear var(--dashboard-hog-slide-duration) allow-discrete;
+
+            @media (prefers-reduced-motion: reduce) {
+                transition: $tile-transition;
+            }
+
+            &:hover {
+                content-visibility: visible;
+                transition-delay: 0s;
+            }
         }
     }
 

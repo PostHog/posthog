@@ -43,7 +43,7 @@
     pointer-events: none;
 
     img {
-        transition: transform 200ms ease-out;
+        transition: transform var(--dashboard-hog-slide-duration) ease-out;
         transform: translateY(100%);
 
         @media (prefers-reduced-motion: reduce) {

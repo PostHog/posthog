@@ -94,7 +94,7 @@ export const WinnerWithGroupTitle: Story = {
 }
 
 export const CheekyHogOnHover: Story = {
-    decorators: [dashboardMocks(buildDashboard({ 4: { badge: 'cheeky-hog' } }))],
+    decorators: [dashboardMocks(buildDashboard({ 2: { badge: 'cheeky-hog' } }))],
     parameters: {
         testOptions: { waitForSelector: '.DashboardTileDecorations__hog' },
     },
@@ -102,7 +102,7 @@ export const CheekyHogOnHover: Story = {
         // A play function cannot move the real pointer, so no browser :hover applies. This copies the hover rule's effect.
         const hoverStyle = document.createElement('style')
         hoverStyle.textContent = `
-            .react-grid-layout.dashboard-view-mode .react-grid-item:has(> .DashboardTileDecorations__hog) { content-visibility: visible; }
+            .react-grid-layout.dashboard-view-mode .react-grid-item:has(> .DashboardTileDecorations__hog) { content-visibility: visible; transition: none; }
             .react-grid-item .DashboardTileDecorations__hog img { transform: translateY(0); }
         `
         document.head.append(hoverStyle)
