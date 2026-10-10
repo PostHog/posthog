@@ -14559,13 +14559,21 @@ snapshots:
     scenes-code-review--flag-disabled-for-staff--light:
         hash: v1.k794b7964.a71251e301794f51a0a9140ab1442fada37b1cc0fb54095a5eb19499e0cb1b34.3GhhJCqNfLkY2WdBTTn0LHJifxiCqyEJ7viaHaoCoGA
     scenes-code-review--narrow--dark:
-        hash: v1.k794b7964.f41e442041cfbc73be732a84d6e2084588c1feb432feb29f241ce8fe95e61fb3.oA5ZbVIlc4hgY5lbsFa5YIlslR7ZX5DFESr3UPaPKe0
+        hash: v1.k794b7964.5c511c2c23d0f62b5341d355884ec1dd55d78daba0d5a57b288ea800ab7259af.dFLrjO1GHVsOIab7mzozoXFiBQyPne7TNYZ5xodTG4A
     scenes-code-review--narrow--light:
-        hash: v1.k794b7964.91f0cae5764c91e6cdedcce4a07b79733f7a838485a72ab62c37cb4030cdcc0d.-fxrrp8Nk5gjXCEVSe0l19hr70rF3Ppkk-8zb3P8X18
+        hash: v1.k794b7964.3f623416d580dbc799c05c0c71cb56a4d12db877c984c482a447fe91fd8c66f0.f4ZkK14Qjd5x3d7u7lstnxUc0z04MadleQL2KpFhNG4
     scenes-code-review--narrow-settings--dark:
         hash: v1.k794b7964.30e27208a1f2cd718962075ca898f14bd761e441ce9036b5ce1399fe2cdbe8e9.Per5PlPRaSDZNkhiLwOJcA_mfCNaA3JGY5USALMsd10
     scenes-code-review--narrow-settings--light:
         hash: v1.k794b7964.b5b6931c1780d1f0208323cc930d8983e95cb1a63cdeaf9efb9206d3298e6c98.d9mwbeuHYVDPANqB6KZ_ds9NM0ApXckCMMR0iepHugs
+    scenes-code-review--review-drawer-deep--dark:
+        hash: v1.k794b7964.3d0c356cbfdec3793670287abc63521fce410b72c34ec987d6b0465e40f795a6.dNKe3NSj7mZL96kEZTR2n1v2DKjve6eJ2YDxeQKLiQk
+    scenes-code-review--review-drawer-deep--light:
+        hash: v1.k794b7964.b71bb2476197904ac98be6a048ab93ea1d42ba372eead2feae34a453cfae6c78.jY5EuW83OorvyQdp7-sbU_fq_YH_j8sXZMWDq8wERBM
+    scenes-code-review--review-drawer-standard--dark:
+        hash: v1.k794b7964.15d432a648fa4f9c3014fb9eb2575a3fabef538e54a6b1c68ee365c3575c1903.KeVrff6VhdQx8AdPek8I7jfXGtRk5MCEybrtb_ZoCoA
+    scenes-code-review--review-drawer-standard--light:
+        hash: v1.k794b7964.b53341de7580b5171efd0dfee295ee2f4ef30dd69a057b3ef14e25b0d31709b3.g6L5bNqhOk1MwKDUX-iRS4LFjAKSrpZ6Znmuhv55FhY
     scenes-code-review--saved-inbox-opt-ins--dark:
         hash: v1.k794b7964.ad93f63add9cc729094908a1c95fd2d5a16cdc3cf60491d478103e0f8ef29e68.XWH14JWiIxuAv5FK2GruOU2sleoiBQ2AX9vCrVT3lk8
     scenes-code-review--saved-inbox-opt-ins--light:
