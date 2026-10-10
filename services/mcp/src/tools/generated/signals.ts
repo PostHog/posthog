@@ -447,6 +447,8 @@ const inboxReportsList = (): ToolBase<
                     'already_addressed',
                     'dismissal_reason',
                     'dismissal_note',
+                    'suppression_source',
+                    'suppression_explanation',
                     'signal_count',
                     'total_weight',
                     'source_products',

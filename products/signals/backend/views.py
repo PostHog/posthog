@@ -1111,7 +1111,17 @@ class SignalReportViewSet(
         "oldest": "created_at,status,-updated_at",
     }
     _INBOX_VIEWS = frozenset(
-        {"actionable", "needs_input", "needs_decision", "monitoring", "resolved", "dismissed", "not_actionable", "all"}
+        {
+            "actionable",
+            "needs_input",
+            "needs_decision",
+            "monitoring",
+            "resolved",
+            "dismissed",
+            "held_back",
+            "not_actionable",
+            "all",
+        }
     )
     _SIGNAL_REPORT_ORDERING_FIELDS: dict[str, str] = {
         "status": "pipeline_status_rank",
@@ -1366,7 +1376,7 @@ class SignalReportViewSet(
         if (
             self.action in self._SUPPRESSED_VISIBLE_ACTIONS
             or self._include_all_statuses_requested()
-            or self.request.query_params.get("view") in {"dismissed", "all"}
+            or self.request.query_params.get("view") in {"dismissed", "held_back", "all"}
         ):
             return self._FILTERABLE_STATUSES
         return self._DEFAULT_STATUSES
@@ -1693,8 +1703,17 @@ class SignalReportViewSet(
             return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
         if inbox_view == "resolved":
             return queryset.filter(status=SignalReport.Status.RESOLVED)
-        if inbox_view == "dismissed":
-            return queryset.filter(status=SignalReport.Status.SUPPRESSED)
+        if inbox_view in {"dismissed", "held_back"}:
+            # Every path that suppresses a report on someone's behalf writes a dismissal artefact: a
+            # person or agent dismissing it, a merge, a closed pull request. A suppressed report with
+            # none was held back by a judge, and nobody has looked at it yet.
+            has_dismissal = Exists(
+                SignalReportArtefact.objects.filter(
+                    report_id=OuterRef("id"), type=SignalReportArtefact.ArtefactType.DISMISSAL
+                )
+            )
+            queryset = queryset.filter(status=SignalReport.Status.SUPPRESSED)
+            return queryset.filter(has_dismissal if inbox_view == "dismissed" else ~has_dismissal)
         if inbox_view == "not_actionable":
             return queryset.filter(latest_actionability=ActionabilityChoice.NOT_ACTIONABLE.value)
         return queryset
@@ -1851,6 +1870,13 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.REPO_SELECTION
                 ).order_by("-created_at")[:1],
                 to_attr="prefetched_repo_selection_artefacts",
+            ),
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT
+                ).order_by("-created_at")[:1],
+                to_attr="prefetched_safety_artefacts",
             ),
         )
 
@@ -2272,8 +2298,12 @@ class SignalReportViewSet(
                 required=False,
                 description=(
                     "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, "
-                    "not_actionable, or all. Each view applies the corresponding status, actionability, and "
-                    "implementation-PR filters. needs_decision also includes failed reports without a judgment."
+                    "held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and "
+                    "implementation-PR filters. needs_decision also includes failed reports without a judgment. "
+                    "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
+                    "dismissed, merged, or whose pull request closed without merging; held_back holds the ones the "
+                    "safety or actionability judge suppressed before anyone saw them. Each row's suppression_source "
+                    "says which."
                 ),
             ),
             OpenApiParameter(

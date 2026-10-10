@@ -81,7 +81,7 @@ export function ReportDetailBadges({
         <>
             <SignalReportPriorityBadge priority={report.priority} explanation={priorityExplanation} />
             {!isStatusRedundantWithActionability(report.status, report.actionability) && (
-                <SignalReportStatusBadge status={report.status} />
+                <SignalReportStatusBadge status={report.status} suppressionSource={report.suppression_source} />
             )}
             <SignalReportActionabilityBadge
                 actionability={report.actionability}
