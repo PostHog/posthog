@@ -217,9 +217,9 @@ snapshots:
     charts-sankeychart--left-aligned-with-values--light:
         hash: v1.k794b7964.71b32f628496dd8801855184c3ea3d3f0b47312041f148137107b7a48632b21d.3AfY_JFLCbBv12AAbc_xFpoqjxTK4XIZoKQJD1nc-Gw
     charts-sankeychart--narrow--dark:
-        hash: v1.k794b7964.c0a92bc5346237079d7aa76591ef95866a0027554600de68d00488ec576ab34e.rae6pJ76-lo4OAFw2I21f4RwAfpkvPMce_DdY9MKzwQ
+        hash: v1.k794b7964.b2f0193be7c51e6f55e7971cd382edaa2aa2791e504e030a0158279767764f03.A48fC6kABWYb5bH8hKPUi-5GYX2I8zYoeyKzNS__FXE
     charts-sankeychart--narrow--light:
-        hash: v1.k794b7964.1f36bc77ab15bef2f717ba801cb66cb03cfe83d0deedffc0e69b0448302bb56c.1uAAAcF-jsEeS7JkUg0VbDHHQ1YZAdpwXiMG_8X9TRM
+        hash: v1.k794b7964.7b456eb24ee839014b47a23a7fc05b317e93e5d13d8fc2f88bbb61f47a94fb5e.w53BwKHfejMxdOlnCqXv_NxY4KDAzPjKliLhvMQ4LEc
     charts-sankeychart--tool-call-journeys--dark:
         hash: v1.k794b7964.e50f64b0a2556e240047944407ec800fb78ffc2ad3eca93219f235d64883327d.9_vvmCGYMQ1aMSvgEOizcAf1tRGe7r0-FwNnrD3cHMo
     charts-sankeychart--tool-call-journeys--light:
@@ -6306,6 +6306,12 @@ snapshots:
         hash: v1.k794b7964.f6b81da6dbf0a63ddb55f3fc72b96ac5f72716698f914d73edb124e8ea17b0d1.2FXYB8hKUiO_FXveQuHw5J4O8WTK5bzOeiwCE9MUT4Q
     mcp-apps-lifecycle--stacked--light:
         hash: v1.k794b7964.e1057e251338bfbf9c5d6931d0f1a826064ab0c29843b716cf517ed7e8ff7d4e.y37bYZBa7mXiNTF6Xi_o7FtpVTdWgQa-xkc2koc_YRE
+    mcp-apps-paths--empty--light:
+        hash: v1.k794b7964.77b9d91893c5eb208216101495bb726906a1ebd04d17d5dbe24d24f0f23db822.DiRsE3sG-mQA5IpcZUhKFbZbDZ7xlblqQ5AQWlcm1VA
+    mcp-apps-paths--single-transition--light:
+        hash: v1.k794b7964.1c39a0bd2e56c6ad3c840cb2f2c7ac82b7fede3695fb7e9c699cf2b8b5af46c1.C8mutFhNrCTIQqpcRgICk-DmD4T4ldKtT70DJJ6iGkI
+    mcp-apps-paths--store-journeys--light:
+        hash: v1.k794b7964.d1a80e7a42dbfba333e75311b06e72992c611130708899769647558c2f661887.2p7Ut-EFMO8QR2OcwN_evJC-e-NBfFbaU7PzlBOr-SE
     mcp-apps-query-results--single-number--light:
         hash: v1.k794b7964.b53e77f7c428fe5d86903e3bee082eb7c752f67fb3225c043229e4b713debe69.hhBuSmExHBpDioDG9Ij-4qfvVhG77IC5FNYierdlZq8
     mcp-apps-query-results--table--light:
@@ -12432,6 +12438,10 @@ snapshots:
         hash: v1.k794b7964.9549b853f80d754b9d6ccf17ab144d24218143200c90df7af687e184e7de5329.Er1_HM8avmrqmulj2hCLnkp98-HeuRvF5ed3j-_jS2A
     scenes-app-mcp-analytics--intent-clustering--light:
         hash: v1.k794b7964.82fd6a9108a34ff8808b23b9c1e9255dcbe4f38562bb9e99333877dd303c08b2.qjDLxTHFZT3vcTHmPeG35-orU88GSS277RR2DdXxBdw
+    scenes-app-mcp-analytics--intent-clustering-journey--dark:
+        hash: v1.k794b7964.dca69b2edf84d19bb67ce3e2cc1a216fe6a63e9a1a36d8edb233b1f8ca60fd47.DJ-_pBzuUihpltpNAimi3dx_FewI6FzyLNKdoMZAMH4
+    scenes-app-mcp-analytics--intent-clustering-journey--light:
+        hash: v1.k794b7964.ac0eec4da423308decb9fbbd3f220e099b0a0a54dec45784b68c3bea89e7ec4d.vT3XHi6hXU4CIW6_dGDW6ShwhxyN5i1G-w00_qLnx3k
     scenes-app-mcp-analytics--sessions--dark:
         hash: v1.k794b7964.b9da0424c439b93ca4cfee035f623db248bf270c2f35d67fb149913d51357021.MHRBg5VvUtimcxoRkdmXRQmmxfzUts7dkMN-IIoczzI
     scenes-app-mcp-analytics--sessions--light:
