@@ -14,6 +14,29 @@ const LOGFIRE_STRIP_KEYS = [
     'gen_ai.usage.details.output_tokens',
 ]
 
+const TOOL_ARGUMENT_KEYS = ['gen_ai.tool.call.arguments', 'tool_arguments']
+const TOOL_RESULT_KEYS = ['gen_ai.tool.call.result', 'tool_response']
+
+function readToolState(props: NonNullable<PluginEvent['properties']>, keys: string[]): unknown {
+    for (const key of keys) {
+        const value = props[key]
+        if (value === undefined) {
+            continue
+        }
+        if (typeof value !== 'string') {
+            return typeof value === 'object' && value !== null ? value : String(value)
+        }
+        try {
+            const parsed = parseJSON(value)
+            // Conversation normalization accepts containers and strings, but drops scalar primitives.
+            return typeof parsed === 'object' && parsed !== null ? parsed : value
+        } catch {
+            return value
+        }
+    }
+    return undefined
+}
+
 function process(event: PluginEvent, next: () => void): void {
     if (!event.properties) {
         return next()
@@ -92,27 +115,13 @@ function process(event: PluginEvent, next: () => void): void {
     }
 
     if (event.event === '$ai_span') {
-        if (props['tool_arguments'] !== undefined) {
-            let toolArgs = props['tool_arguments']
-            if (typeof toolArgs === 'string') {
-                try {
-                    toolArgs = parseJSON(toolArgs)
-                } catch {
-                    // Keep original string
-                }
-            }
+        const toolArgs = readToolState(props, TOOL_ARGUMENT_KEYS)
+        if (toolArgs !== undefined) {
             props['$ai_input_state'] = toolArgs
         }
 
-        if (props['tool_response'] !== undefined) {
-            let toolResponse = props['tool_response']
-            if (typeof toolResponse === 'string') {
-                try {
-                    toolResponse = parseJSON(toolResponse)
-                } catch {
-                    // Keep original string
-                }
-            }
+        const toolResponse = readToolState(props, TOOL_RESULT_KEYS)
+        if (toolResponse !== undefined) {
             props['$ai_output_state'] = toolResponse
         }
 
@@ -120,8 +129,9 @@ function process(event: PluginEvent, next: () => void): void {
             props['$ai_span_name'] = props['gen_ai.tool.name']
         }
 
-        delete props['tool_arguments']
-        delete props['tool_response']
+        for (const key of [...TOOL_ARGUMENT_KEYS, ...TOOL_RESULT_KEYS]) {
+            delete props[key]
+        }
         delete props['gen_ai.tool.name']
         delete props['gen_ai.tool.call.id']
     }
