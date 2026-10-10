@@ -92,11 +92,7 @@ export interface PathsSankeyGraph<Edge extends PathsEdge> {
 export interface PathsSankeyGraphOptions {
     /** Short labels for page URLs. Off for a host that draws its own labels. */
     labelUrls?: boolean
-    /** Pin each node to its step's column when the result has at most this many steps, so a path
-     *  that ends early or an edge whose earlier steps were cut still sits under the right step. A
-     *  pinned layout keeps a column for every step up to the highest, so set this to the columns
-     *  the caller can show. Past it the layout places nodes by depth, which skips empty steps.
-     *  Omit to never pin. */
+    /** Pin each node to its step's column when the result has at most this many steps. Omit to never pin. */
     pinStepsUpTo?: number
     nodeColor?: (key: string) => string | undefined
     linkColor?: string

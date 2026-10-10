@@ -13,12 +13,7 @@ export interface SankeyNodeInput<Meta = unknown> {
     color?: string
     /** Consumer data handed back through tooltips and click handlers. */
     meta?: Meta
-    /** Pin the node to this zero-based column. Use it when the data carries its own stage (the
-     *  step in a paths result), so a flow that ends early or starts late still sits under the right
-     *  `columnLabels` header. Nodes without a pin follow `nodeAlign` and ignore their neighbours' pins, so
-     *  pin every node or none. Pins must be monotonic with
-     *  the graph's edges — a link whose target column is at or before its source's draws backwards.
-     *  A pin that is not a whole number from 0 to `MAX_SANKEY_COLUMN` throws. */
+    /** Pin the node to this zero-based column. See `column` in docs/chart-types.md for the rules. */
     column?: number
 }
 

@@ -70,11 +70,8 @@ export interface SankeyLayout<N extends SankeyExtraProperties, L extends SankeyE
     nodeAlign(): (node: SankeyNode<N, L>, n: number) => number
     nodeAlign(nodeAlign: (node: SankeyNode<N, L>, n: number) => number): this
 
-    /** Pins a node to a column regardless of its depth in the graph; return `undefined` to fall
-     *  back to `nodeAlign` for that node. The column count grows to fit the highest pin, and a fractional
-     *  pin rounds down. The caller owns monotonicity: a pin at or before a source feeding it draws that
-     *  link backwards, with no error. An unpinned node is placed by depth and ignores its neighbours'
-     *  pins, so pin every node or none. */
+    /** Pins a node to a column whatever its depth; `undefined` falls back to `nodeAlign`. A fractional
+     *  pin rounds down. */
     nodeColumn(): ((node: SankeyNode<N, L>) => number | undefined) | null
     nodeColumn(nodeColumn: ((node: SankeyNode<N, L>) => number | undefined) | null): this
 

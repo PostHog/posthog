@@ -13,9 +13,7 @@ export const MAX_EDGES = 60
 
 const MAX_STEPS_IN_FRAME = 5
 
-// The chart draws transitions up to this step only. That bounds the scroll width, and it keeps
-// every node pinned under its step header: unpinned, the layout places nodes by graph depth, so a
-// late transition whose earlier steps are missing would sit in an early column.
+// The chart draws transitions up to this step only, which bounds the scroll width and keeps every node pinned.
 export const MAX_DRAWN_STEPS = 25
 
 const NODE_PADDING = 6
