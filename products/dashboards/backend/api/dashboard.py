@@ -2121,7 +2121,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 raise serializers.ValidationError("Variables must be a dictionary")
             instance.variables = request_variables
 
-        self._validate_display_only_tiles(instance, initial_data.get("tiles", []))
+        self._validate_tiles_before_saving(instance, initial_data.get("tiles", []))
 
         instance = super().update(instance, validated_data)
 
@@ -2258,7 +2258,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         return group_key or None
 
     @staticmethod
-    def _validate_display_only_tiles(instance: Dashboard, tiles: list[dict]) -> None:
+    def _validate_tiles_before_saving(instance: Dashboard, tiles: list[dict]) -> None:
+        for tile in tiles:
+            DashboardSerializer._validated_tile_marking(tile)
+
         display_only_tiles = [
             tile
             for tile in tiles
@@ -2268,9 +2271,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             and not tile.get("widget")
             and any(field in tile for field in DashboardSerializer.TILE_DISPLAY_FIELDS)
         ]
-        for tile in display_only_tiles:
-            DashboardSerializer._validated_tile_marking(tile)
-
         tile_ids = {tile["id"] for tile in display_only_tiles}
         if not tile_ids:
             return
