@@ -11,7 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class MailerLiteEndpointConfig:
     name: str
     path: str

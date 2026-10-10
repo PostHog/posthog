@@ -47,7 +47,7 @@ MAILERLITE_BASE_URL = "https://connect.mailerlite.com/api"
 WEBHOOK_NAME = "PostHog Data warehouse"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MailerLiteResumeConfig:
     # Absolute next-page URL returned by the API (carries the cursor / page number and limit).
     next_url: str | None = None
