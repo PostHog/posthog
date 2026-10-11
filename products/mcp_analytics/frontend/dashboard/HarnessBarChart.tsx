@@ -86,14 +86,14 @@ export function HarnessBarChart({
                     loading={loading}
                     isEmpty={rows.length === 0}
                     skeleton={
-                        <div className="h-80 space-y-6 py-3">
+                        <div className="h-48 space-y-4 py-2">
                             {Array.from({ length: 6 }).map((_, index) => (
                                 <LemonSkeleton key={index} className="h-4 w-full" />
                             ))}
                         </div>
                     }
                     empty={
-                        <div className="flex h-80 items-center justify-center text-xs text-secondary">
+                        <div className="flex h-48 items-center justify-center text-xs text-secondary">
                             No harness data yet.
                         </div>
                     }
@@ -119,13 +119,7 @@ export function HarnessBarChart({
                             </Tooltip>
                         )}
                     </div>
-                    <ShareBarChart
-                        rows={chartRows}
-                        totalCalls={totalCalls}
-                        theme={theme}
-                        tooltip={renderTooltip}
-                        label="Calls by harness"
-                    />
+                    <ShareBarChart rows={chartRows} totalCalls={totalCalls} theme={theme} tooltip={renderTooltip} />
                 </CardState>
             </div>
             <LemonModal title="All harnesses" isOpen={expanded} onClose={() => setExpanded(false)} width={640}>
