@@ -2311,7 +2311,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Authenticate members through your identity provider using Security Assertion Markup Language (SAML).',
                 docsUrl: 'https://posthog.com/docs/data/sso#setting-up-saml',
                 component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Saml} />,
-                flag: 'SSO_SETTINGS_REDESIGN',
                 keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
             },
             {
@@ -2319,7 +2318,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'OIDC single sign-on',
                 description: 'Authenticate members through your identity provider with OpenID Connect (OIDC).',
                 component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Oidc} />,
-                flag: 'SSO_SETTINGS_REDESIGN',
                 keywords: ['sso', 'oidc', 'openid connect', 'single sign-on', 'identity provider'],
             },
             {
@@ -2329,7 +2327,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Provision and deprovision organization members through your identity provider using System for Cross-domain Identity Management (SCIM).',
                 docsUrl: 'https://posthog.com/docs/data/sso#setting-up-scim',
                 component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Scim} />,
-                flag: 'SSO_SETTINGS_REDESIGN',
                 keywords: ['scim', 'provisioning', 'identity provider'],
             },
             {
@@ -2338,7 +2335,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Automate API and MCP access to PostHog with Cross App Access (XAA).',
                 docsUrl: 'https://posthog.com/docs/settings/id-jag',
                 component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Xaa} />,
-                flag: ['SSO_SETTINGS_REDESIGN', 'XAA_AUTHENTICATION'],
+                flag: 'XAA_AUTHENTICATION',
                 keywords: ['xaa', 'id-jag', 'identity provider', 'token exchange'],
             },
         ],

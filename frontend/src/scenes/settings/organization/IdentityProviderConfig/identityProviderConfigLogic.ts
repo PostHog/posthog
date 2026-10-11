@@ -208,7 +208,7 @@ export interface identityProviderConfigLogicValues {
     isDeleteModalOpen: boolean
     isIdentityProviderConfigFormSubmitting: boolean
     isIdentityProviderConfigFormValid: boolean
-    isRedesignEnabled: boolean
+    isConfigScopeEnabled: boolean
     organizationDomains: OrganizationDomainApi[] | null
     organizationDomainsLoadFailed: boolean
     organizationDomainsLoading: boolean
@@ -346,7 +346,7 @@ export interface identityProviderConfigLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         configId: (configId: string) => string
         configScope: (configScope: ConfigScopeEnumApi | null) => ConfigScopeEnumApi | null
-        isRedesignEnabled: (featureFlags: FeatureFlagsSet, arg: any) => boolean
+        isConfigScopeEnabled: (featureFlags: FeatureFlagsSet, arg: any) => boolean
         isConfigScopeValid: (identityProviderConfig: IdentityProviderConfigApi | null, arg: any) => boolean
         hasSamlDomainScopeConflict: (
             identityProviderConfig: IdentityProviderConfigApi | null,
@@ -572,11 +572,10 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
             (_, props) => [props.configScope],
             (configScope: ConfigScopeEnumApi | null): ConfigScopeEnumApi | null => configScope,
         ],
-        isRedesignEnabled: [
+        isConfigScopeEnabled: [
             (selectors) => [selectors.featureFlags, (_, props) => props.configScope],
             (featureFlags: FeatureFlagsSet, configScope: ConfigScopeEnumApi | null): boolean =>
-                !!featureFlags[FEATURE_FLAGS.SSO_SETTINGS_REDESIGN] &&
-                (configScope !== ConfigScopeEnumApi.Xaa || !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION]),
+                configScope !== ConfigScopeEnumApi.Xaa || !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION],
         ],
         isConfigScopeValid: [
             (selectors) => [selectors.identityProviderConfig, (_, props) => props.configScope],
@@ -628,7 +627,7 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
     }),
     listeners(({ actions, props, values }) => ({
         setFeatureFlags: () => {
-            if (!values.isRedesignEnabled) {
+            if (!values.isConfigScopeEnabled) {
                 router.actions.replace(urls.settings('organization-authentication'))
             }
         },
@@ -692,7 +691,7 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
         },
     })),
     afterMount(({ actions, values }) => {
-        if (values.receivedFeatureFlags && !values.isRedesignEnabled) {
+        if (values.receivedFeatureFlags && !values.isConfigScopeEnabled) {
             router.actions.replace(urls.settings('organization-authentication'))
             return
         }
