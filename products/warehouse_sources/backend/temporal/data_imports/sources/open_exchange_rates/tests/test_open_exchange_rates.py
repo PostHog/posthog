@@ -85,20 +85,36 @@ class TestRequest:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("unauthorized", 401, False)])
+    @parameterized.expand(
+        [
+            ("valid", 200, (True, None)),
+            ("unauthorized", 401, (False, open_exchange_rates.INVALID_APP_ID_ERROR)),
+            ("suspended", 403, (False, open_exchange_rates.RESTRICTED_ACCOUNT_ERROR)),
+            ("over_use", 429, (False, open_exchange_rates.RESTRICTED_ACCOUNT_ERROR)),
+            ("upstream_outage", 503, (False, open_exchange_rates.VALIDATION_UNAVAILABLE_ERROR)),
+        ]
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates.make_tracked_session"
     )
-    def test_status_mapping(self, _name: str, status: int, expected: bool, mock_session: mock.MagicMock) -> None:
+    def test_status_mapping(
+        self, _name: str, status: int, expected: tuple[bool, str | None], mock_session: mock.MagicMock
+    ) -> None:
         mock_session.return_value.get.return_value = _FakeResponse(status_code=status)
-        assert validate_credentials("key") is expected
+        assert validate_credentials("key") == expected
 
     @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates.capture_exception"
+    )
+    @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates.make_tracked_session"
     )
-    def test_exception_returns_false(self, mock_session: mock.MagicMock) -> None:
+    def test_network_error_does_not_blame_the_app_id(
+        self, mock_session: mock.MagicMock, mock_capture: mock.MagicMock
+    ) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("key") is False
+        assert validate_credentials("key") == (False, open_exchange_rates.VALIDATION_UNAVAILABLE_ERROR)
+        mock_capture.assert_called_once()
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates.make_tracked_session"
