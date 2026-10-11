@@ -3,7 +3,7 @@ import type { ToolCatalog, ToolSearchResult } from '../discovery-types.js'
 export const catalog: ToolCatalog = {
     schemaVersion: 1,
     packageVersion: '0.1.0',
-    sourceRevision: 'cf4ea6ae619625ab3a134e8ea16aac2ad94677f054a17ff1b1e4b15362a67f01',
+    sourceRevision: 'b0913c63f742672617c64174e2215d9a26af37428a41eacd4a9146f73c6a0e9a',
     schemaHash: 'be5cc5708ae0a3d1d986a38b81e2bb668ca9eee2905182ed5abb1400d2e7faa4',
     tools: [
         {
