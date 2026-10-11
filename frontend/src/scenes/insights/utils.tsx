@@ -913,12 +913,16 @@ export const getOverrideWarningPropsForButton = (
     const variableOverridesExist = isObject(variablesOverride) && !isEmptyObject(variablesOverride)
 
     const overrideType =
-        filterOverridesExist && variableOverridesExist ? 'overrides' : filterOverridesExist ? 'filters' : 'variables'
+        filterOverridesExist && variableOverridesExist
+            ? 'filters and variables'
+            : filterOverridesExist
+              ? 'filters'
+              : 'variables'
 
     return filterOverridesExist || variableOverridesExist
         ? {
               icon: <IconWarning />,
-              tooltip: `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`,
+              tooltip: `This insight uses dashboard ${overrideType}. The editor opens the saved insight without them.`,
           }
         : {}
 }
