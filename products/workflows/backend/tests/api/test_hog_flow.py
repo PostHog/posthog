@@ -5267,6 +5267,27 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("broadcast", "broadcasts"),
+            ("workflow", None),
+        ]
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.report_user_action")
+    def test_created_usage_event_carries_origin_product(self, _name, origin_product, mock_report):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        )
+        if origin_product:
+            hog_flow["origin_product"] = origin_product
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        created_events = [c for c in mock_report.call_args_list if c.args[1] == "hog_flow_created"]
+        assert len(created_events) == 1
+        assert created_events[0].args[2]["origin_product"] == origin_product
+
+    @parameterized.expand(
+        [
             ("draft",),
             ("active",),
         ]
