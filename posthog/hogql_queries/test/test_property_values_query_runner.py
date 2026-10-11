@@ -26,6 +26,7 @@ from posthog.hogql_queries.property_values_query_runner import (
     PropertyValuesQueryRunner,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models.person.util import create_person
 
 
 class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -174,6 +175,30 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         by_name = {r.name: r.count for r in results}
         assert by_name["US"] == 2
         assert by_name["UK"] == 1
+
+    @parameterized.expand(
+        [
+            ("no_filter", None, {"FR"}),
+            ("matching_filter", "Ger", set()),
+        ]
+    )
+    def test_person_property_values_only_suggest_latest_version(self, _name, search_value, expected_names):
+        changed = _create_person(distinct_ids=["changed"], team=self.team, properties={"country": "Germany"})
+        deleted = _create_person(distinct_ids=["deleted"], team=self.team, properties={"country": "Germany"})
+        flush_persons_and_events()
+        create_person(team_id=self.team.pk, uuid=str(changed.uuid), version=1, properties={"country": "FR"})
+        create_person(
+            team_id=self.team.pk,
+            uuid=str(deleted.uuid),
+            version=1,
+            properties={"country": "Germany"},
+            is_deleted=True,
+        )
+
+        results = self._run(
+            PropertyValuesQuery(property_type=PropertyType.PERSON, property_key="country", search_value=search_value)
+        )
+        assert {r.name for r in results} == expected_names
 
     @parameterized.expand(
         [

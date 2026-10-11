@@ -2,17 +2,22 @@
 # name: TestPropertyValuesQueryRunner.test_person_property_values_basic
   '''
   SELECT value AS value,
-         minus(uniq(id), uniqIf(id, notEquals(is_deleted, 0))) AS c
+         count() AS c
   FROM
-    (SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'country'), ''), 'null'), '^"|"$', '')) AS value,
-            person.is_deleted AS is_deleted,
-            person.id AS id
+    (SELECT argMax(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'country'), ''), 'null'), '^"|"$', '')), person.version) AS value
      FROM person
-     WHERE and(equals(person.team_id, 99999), isNotNull(value), ifNull(notEquals(value, ''), 1))
-     ORDER BY person.id DESC
-     LIMIT 100000)
+     WHERE and(equals(person.team_id, 99999), in(person.id,
+                                                   (SELECT id AS id
+                                                    FROM
+                                                      (SELECT person.id AS id, toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'country'), ''), 'null'), '^"|"$', '')) AS value
+                                                       FROM person
+                                                       WHERE and(equals(person.team_id, 99999), isNotNull(value), ifNull(notEquals(value, ''), 1))
+                                                       ORDER BY person.id DESC
+                                                       LIMIT 100000))))
+     GROUP BY person.id
+     HAVING equals(argMax(person.is_deleted, person.version), 0))
+  WHERE and(isNotNull(value), ifNull(notEquals(value, ''), 1))
   GROUP BY value
-  HAVING greater(c, 0)
   ORDER BY c DESC
   LIMIT 20 SETTINGS readonly=2,
                     max_execution_time=60,
