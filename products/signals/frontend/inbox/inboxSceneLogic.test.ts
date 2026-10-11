@@ -400,6 +400,47 @@ describe('inboxSceneLogic routing', () => {
         expect(openMethod).toBe(expected)
     })
 
+    // A link PostHog wrote names its surface in `link_source`. The product filter keeps `source`. A tab that already saw the list can still
+    // open one, and the param leaves the address bar so a copied URL does not pass it on.
+    it.each([
+        { name: 'no param', source: undefined, visitedList: false, method: 'deeplink', linkSource: null },
+        { name: 'a known source', source: 'slack', visitedList: false, method: 'deeplink', linkSource: 'slack' },
+        {
+            name: 'an unknown source',
+            source: 'carrier-pigeon',
+            visitedList: false,
+            method: 'deeplink',
+            linkSource: 'other',
+        },
+        { name: 'a source after the list', source: 'mcp', visitedList: true, method: 'deeplink', linkSource: 'mcp' },
+        { name: 'no param after the list', source: undefined, visitedList: true, method: 'click', linkSource: null },
+    ])(
+        'a report link with $name opens as $method with link source $linkSource',
+        async ({ source, visitedList, method, linkSource }) => {
+            mountWithRedesign(true)
+            if (visitedList) {
+                router.actions.push(urls.inbox('reports'))
+            }
+            const url = combineUrl(
+                urls.inboxReport('reports', 'r1'),
+                source ? { link_source: source, source: 'github' } : { source: 'github' }
+            ).url
+
+            let payload: { openMethod?: string; linkSource?: string | null } = {}
+            await expectLogic(logic, () => router.actions.push(url)).toDispatchActions([
+                (action: any) => {
+                    if (action.type !== logic.actionTypes.setSelectedReportId) {
+                        return false
+                    }
+                    payload = action.payload
+                    return true
+                },
+            ])
+            expect(payload).toMatchObject({ openMethod: method, linkSource })
+            expect(router.values.searchParams).toEqual({ source: 'github' })
+        }
+    )
+
     // A rank read at open time is null on a cold load, and joins to no impression row. The event is
     // then captured after the wait, so it also has to carry the moment the report opened: a scroll
     // or an action taken during the wait would otherwise read earlier than the open.
@@ -421,7 +462,7 @@ describe('inboxSceneLogic routing', () => {
         listLogic.mount()
         listLogic.actions.loadReports()
 
-        logic.actions.setSelectedReportId('r1')
+        logic.actions.setSelectedReportId('r1', 'deeplink', 'slack')
         const beforeOpen = Date.now()
         logic.actions.loadSelectedReportSuccess(report)
         const afterOpen = Date.now()
@@ -429,7 +470,12 @@ describe('inboxSceneLogic routing', () => {
 
         await waitForOpenRankRetry()
 
-        expect(openedEvents(captureSpy)[0]).toMatchObject({ rank: 1, list_size: 1 })
+        expect(openedEvents(captureSpy)[0]).toMatchObject({
+            rank: 1,
+            list_size: 1,
+            open_method: 'deeplink',
+            link_source: 'slack',
+        })
         const stampedAt = (openedCalls(captureSpy)[0][2] as CaptureOptions | undefined)?.timestamp?.getTime()
         expect(stampedAt).toBeGreaterThanOrEqual(beforeOpen)
         expect(stampedAt).toBeLessThanOrEqual(afterOpen)
