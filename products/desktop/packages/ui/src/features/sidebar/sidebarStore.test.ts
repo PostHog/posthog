@@ -1,12 +1,24 @@
 import {
   DEFAULT_CHANNEL_ITEM_FILTERS,
   DESKTOP_SOURCE,
+  MOBILE_SOURCE,
   WEB_SOURCE,
 } from "@posthog/core/canvas/channelItems";
 import { describe, expect, it } from "vitest";
-import { useSidebarStore } from "./sidebarStore";
+import {
+  DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS,
+  useSidebarStore,
+} from "./sidebarStore";
 
 describe("sidebarStore", () => {
+  it("defaults Work to first-party sources", () => {
+    expect(DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS.sources).toEqual([
+      DESKTOP_SOURCE,
+      MOBILE_SOURCE,
+      WEB_SOURCE,
+    ]);
+  });
+
   it("rehydration sanitizes list item metadata fields", async () => {
     localStorage.setItem(
       "sidebar-storage",
@@ -32,7 +44,7 @@ describe("sidebarStore", () => {
       label: "the old default",
       version: 0,
       source: "any",
-      expected: [DESKTOP_SOURCE],
+      expected: [DESKTOP_SOURCE, MOBILE_SOURCE, WEB_SOURCE],
     },
     {
       label: "an old explicit source",
@@ -90,6 +102,7 @@ describe("sidebarStore", () => {
 
     expect(useSidebarStore.getState().channelItemFilters.sources).toEqual([
       DESKTOP_SOURCE,
+      MOBILE_SOURCE,
       WEB_SOURCE,
       "slack",
     ]);

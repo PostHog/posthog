@@ -12,6 +12,7 @@ import {
   groupChannelItems,
   hasActiveChannelItemFilters,
   MOBILE_SOURCE,
+  migrateLegacySources,
   sortChannelItems,
   WEB_SOURCE,
 } from "./channelItems";
@@ -469,6 +470,14 @@ describe("hasActiveChannelItemFilters", () => {
         sources: [DESKTOP_SOURCE, "slack"],
       }),
     ).toBe(active);
+  });
+});
+
+describe("migrateLegacySources", () => {
+  it("preserves the old manual source across first-party clients", () => {
+    expect(
+      migrateLegacySources(["user_created", "posthog_ai", "slack"]),
+    ).toEqual([DESKTOP_SOURCE, MOBILE_SOURCE, WEB_SOURCE, "slack"]);
   });
 });
 

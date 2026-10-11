@@ -245,6 +245,11 @@ export const ANY_SOURCE: SourceFilter = [];
 export const DESKTOP_SOURCE = "posthog_desktop";
 export const MOBILE_SOURCE = "posthog_mobile";
 export const WEB_SOURCE = "posthog_web";
+export const FIRST_PARTY_CLIENT_SOURCES = [
+  DESKTOP_SOURCE,
+  MOBILE_SOURCE,
+  WEB_SOURCE,
+] as const;
 
 export interface ChannelItemFilters {
   kind: KindFilter;
@@ -322,10 +327,10 @@ export function migrateSourceFilter({
 export function migrateLegacySources(sources: SourceFilter): string[] {
   return Array.from(
     new Set(
-      sources.map((source) => {
-        if (source === "user_created") return DESKTOP_SOURCE;
-        if (source === "posthog_ai") return WEB_SOURCE;
-        return source;
+      sources.flatMap((source) => {
+        if (source === "user_created") return FIRST_PARTY_CLIENT_SOURCES;
+        if (source === "posthog_ai") return [WEB_SOURCE];
+        return [source];
       }),
     ),
   );

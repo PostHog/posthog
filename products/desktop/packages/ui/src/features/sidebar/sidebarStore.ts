@@ -5,7 +5,7 @@ import {
   DEFAULT_CHANNEL_ITEM_FILTERS,
   DEFAULT_CHANNEL_ITEM_GROUPING,
   DEFAULT_CHANNEL_ITEM_SORT,
-  DESKTOP_SOURCE,
+  FIRST_PARTY_CLIENT_SOURCES,
   migrateLegacySources,
   migrateSourceFilter,
 } from "@posthog/core/canvas/channelItems";
@@ -81,7 +81,7 @@ type PersistedSidebarStoreState = Omit<
 
 export const DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
   ...DEFAULT_CHANNEL_ITEM_FILTERS,
-  sources: [DESKTOP_SOURCE],
+  sources: FIRST_PARTY_CLIENT_SOURCES,
 };
 
 export const useSidebarStore = create<SidebarStore>()(
@@ -196,7 +196,7 @@ export const useSidebarStore = create<SidebarStore>()(
           ...state,
           channelItemFilters:
             version === 0 && !sources?.length
-              ? { ...filters, sources: [DESKTOP_SOURCE] }
+              ? { ...filters, sources: FIRST_PARTY_CLIENT_SOURCES }
               : { ...filters, sources },
         } as unknown as PersistedSidebarStoreState;
       },
