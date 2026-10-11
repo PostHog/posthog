@@ -462,6 +462,20 @@ def _sample_divisor(total: int, sample_limit: int) -> int:
     return ceil(total / sample_limit)
 
 
+def limit_patterns(results: dict, limit: int | None) -> dict:
+    """Keep the `limit` highest-volume groups of a patterns response and report the rest as omitted."""
+    patterns = results["patterns"]
+    if limit is None or len(patterns) <= limit:
+        return {**results, "omitted_pattern_count": 0}
+    limited = {**results, "patterns": patterns[:limit], "omitted_pattern_count": len(patterns) - limit}
+    # The coverage counts describe the returned groups, so the dropped groups move to the remainder.
+    if results.get("represented_count") is not None:
+        represented = sum(pattern["count"] for pattern in limited["patterns"])
+        limited["represented_count"] = represented
+        limited["remainder_count"] = max(0, results["total_count"] - represented)
+    return limited
+
+
 def _serialize(pattern: MinedPattern, *, total_count: int, scanned_count: int) -> dict:
     # Extrapolate sample counts to the full window so consumers don't have to; when the
     # window wasn't sampled the estimates are the exact counts.
