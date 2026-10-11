@@ -24,6 +24,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore, TrialReport
 from products.signals.backend.serializers import ReportMetricListSerializer, ReportMetricSerializer
+from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 
 if TYPE_CHECKING:
     from products.signals.backend.views import SignalReportViewSet
@@ -77,19 +78,40 @@ class TrialInboxReads:
             )
             document["source_products"] = cast(list[JsonValue], sorted(source_products))
             document["scout_name"] = self.store.run.skill_name
-        for artefact in reversed(report.artefacts):
-            if artefact["type"] != "suggested_reviewers":
-                continue
-            entries = artefact["content"]
-            if isinstance(entries, list):
-                user = cast(User, self.view.request.user)
-                login = self._github_login
-                document["is_suggested_reviewer"] = any(
-                    isinstance(entry, dict)
-                    and (entry.get("user_uuid") == str(user.uuid) or (login and entry.get("github_login") == login))
-                    for entry in entries
+        user = cast(User, self.view.request.user)
+        reviewers = next(
+            (
+                artefact["content"]
+                for artefact in reversed(report.artefacts)
+                if artefact["type"] == "suggested_reviewers"
+            ),
+            None,
+        )
+        if isinstance(reviewers, list):
+            login = self._github_login
+            document["is_suggested_reviewer"] = any(
+                isinstance(entry, dict)
+                and (entry.get("user_uuid") == str(user.uuid) or (login and entry.get("github_login") == login))
+                for entry in reviewers
+            )
+        elif (
+            reviewers is None
+            and report.source_report_id is not None
+            and any(artefact["type"] == "actionability_judgment" for artefact in report.artefacts)
+        ):
+            # The live flag is forced false for a ready, not actionable report, so a private
+            # actionability change needs the shared reviewer membership again.
+            login = self._github_login
+            document["is_suggested_reviewer"] = (
+                report_ids_naming_reviewers(
+                    team_id=self.store.run.team_id,
+                    user_uuids=[str(user.uuid)],
+                    github_logins=[login] if login else [],
+                    logins_match_unidentified_only=False,
                 )
-            break
+                .filter(report_id=report.source_report_id)
+                .exists()
+            )
         if document.get("status") == "failed" or (
             document.get("status") == "ready" and document.get("actionability") == "not_actionable"
         ):

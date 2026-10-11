@@ -541,6 +541,48 @@ class TestScoutTrialReportCapture(APIBaseTest):
             assert document["suppression_source"] == expected_source
             assert document["suppression_explanation"] == expected_explanation
 
+    @parameterized.expand(
+        [
+            ("made_actionable", "immediately_actionable", True, True),
+            ("not_named", "immediately_actionable", False, False),
+            ("still_not_actionable", "not_actionable", True, False),
+        ]
+    )
+    def test_inbox_reviewer_flag_follows_private_actionability(
+        self, _name: str, choice: str, named: bool, expected: bool
+    ) -> None:
+        original = SignalReport.objects.create(team=self.team, title="Ready report", status=SignalReport.Status.READY)
+        reviewer = str(self.user.uuid) if named else str(uuid4())
+        for kind, content in (
+            (
+                "actionability_judgment",
+                {"actionability": "not_actionable", "explanation": "The fixture is noise.", "already_addressed": False},
+            ),
+            ("suggested_reviewers", [{"user_uuid": reviewer, "github_login": None}]),
+        ):
+            SignalReportArtefact.objects.create(team=self.team, report=original, type=kind, content=json.dumps(content))
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(original.id),
+            actionability=choice,
+            actionability_explanation="The fixture needs a code change.",
+            already_addressed=False,
+        )
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            detail = self.client.get(f"{base}{original.id}/")
+            listing = self.client.get(base)
+
+        assert detail.status_code == listing.status_code == 200
+        for document in [detail.json(), listing.json()["results"][0]]:
+            assert document["actionability"] == choice
+            assert document["is_suggested_reviewer"] is expected
+
     def test_private_evidence_cap_includes_new_production_evidence(self) -> None:
         original = SignalReport.objects.create(team=self.team, title="Source report", signal_count=1)
         evidence = [ReportEvidence(description="Private observation", source_id="private-observation")]
