@@ -615,7 +615,7 @@ class HogQLQueryExecutor:
                 if len(select.select) == len(self.print_columns):
                     formats[index] = "mcp_harness"
                 else:
-                    column_name = alias or ".".join(expression.chain)
+                    column_name = alias or str(expression.chain[-1])
                     column_position = column_positions.get(column_name)
                     if column_position is not None:
                         formats[column_position] = "mcp_harness"

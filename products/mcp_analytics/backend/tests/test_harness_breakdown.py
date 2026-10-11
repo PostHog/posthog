@@ -107,15 +107,23 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
 
         self.assertEqual(response.results, [(None,)])
 
-    def test_virtual_harness_property_keeps_format_after_wildcard(self) -> None:
+    @parameterized.expand(
+        [
+            ("aliased", " AS harness", "harness"),
+            ("unaliased", "", "$virt_mcp_harness"),
+        ]
+    )
+    def test_virtual_harness_property_keeps_format_after_wildcard(
+        self, _name: str, alias: str, column_name: str
+    ) -> None:
         self._emit(properties={"$mcp_client_name": "codex-mcp-client"})
 
         response = execute_hogql_query(
-            "SELECT *, properties.$virt_mcp_harness AS harness FROM events WHERE event = '$mcp_tool_call' LIMIT 1",
+            f"SELECT *, properties.$virt_mcp_harness{alias} FROM events WHERE event = '$mcp_tool_call' LIMIT 1",
             team=self.team,
         )
 
-        self.assertEqual(response.columns[-1], "harness")
+        self.assertEqual(response.columns[-1], column_name)
         self.assertEqual(response.column_formats[-1], "mcp_harness")
 
     def test_tool_name_scopes_to_effective_tool_and_new_sdk(self) -> None:
