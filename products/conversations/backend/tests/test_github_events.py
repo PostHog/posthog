@@ -12,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models.integration import Integration
+from posthog.models.team import Team
 
 from products.conversations.backend.facade import api as conversations_facade
 
@@ -138,3 +139,31 @@ class TestConversationsGitHubDeliveries(BaseTest):
         conversations_facade.accept_github_event(_delivery(_issue_event(installation_id=installation_id)))
 
         mock_task.delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("monitored_by_the_second_team_only", "org/other", ["second"]),
+            ("monitored_by_both_teams", "org/repo", ["first", "second"]),
+            ("monitored_by_no_team", "org/unknown", []),
+        ]
+    )
+    @patch(f"{GITHUB_EVENTS_MODULE}.process_github_event")
+    def test_a_shared_installation_routes_to_every_team_that_monitors_the_repo(
+        self, _name: str, repo: str, expected: list[str], mock_task
+    ):
+        mock_task.delay = MagicMock()
+        second_team = Team.objects.create(organization=self.organization, name="Second project")
+        second_integration = Integration.objects.create(
+            team=second_team, kind="github", integration_id="12345", config={"account": {"name": "org"}}
+        )
+        second_team.conversations_settings = {
+            "github_enabled": True,
+            "github_integration_id": second_integration.id,
+            "github_repos": ["org/repo", "org/other"],
+        }
+        second_team.save()
+        team_ids = {"first": self.team.id, "second": second_team.id}
+
+        conversations_facade.accept_github_event(_delivery(_issue_event(repo=repo)))
+
+        assert [c[1]["team_id"] for c in mock_task.delay.call_args_list] == [team_ids[name] for name in expected]
