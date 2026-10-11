@@ -40,6 +40,7 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
 _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.LOGS: "Log",
     SourceKind.INSIGHT: "Insight",
+    SourceKind.BILLING: "Billing",
 }
 
 # What a held row says, when cooldown or mute kept its announcement and only its incident moved.
