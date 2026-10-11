@@ -1,0 +1,173 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Workflow idea record",
+    "description": "One workflow or broadcast this project does not have yet and arguably should, recorded so the idea can be judged before anyone builds a review surface for it. Subject is `idea:<slug>`.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "idea_schema_version",
+        "idea_kind",
+        "idea_title",
+        "value_tier",
+        "audience",
+        "trigger_kind",
+        "trigger_name",
+        "goal_event",
+        "message_outline",
+        "subject_line",
+        "channel",
+        "delay_hours",
+        "message_count",
+        "reach_people",
+        "audience_people",
+        "reachable_people",
+        "estimated_monthly_sends",
+        "window_days",
+        "existing_coverage",
+        "confidence"
+    ],
+    "properties": {
+        "idea_schema_version": {
+            "const": "2",
+            "description": "Definition version. Charts filter on it, so bump it when a field's meaning changes."
+        },
+        "idea_kind": {
+            "enum": ["workflow", "broadcast"],
+            "description": "A workflow fires per person on a trigger. A broadcast goes to an audience once."
+        },
+        "idea_title": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "What a person would name this workflow in the list.",
+            "minLength": 1
+        },
+        "value_tier": {
+            "enum": ["revenue", "activation", "retention", "engagement"],
+            "description": "How close the goal event is to money. `revenue`: the goal is a payment, purchase, subscription or recovered payment. `activation`: the goal is the first use that predicts paying. `retention`: the goal is a returning or reactivated user. `engagement`: anything else. Ideas rank by this tier first."
+        },
+        "audience": {
+            "type": "string",
+            "maxLength": 400,
+            "description": "Who it reaches, in terms this project can filter on: an event, a property, a cohort, a group. Not a persona.",
+            "minLength": 1
+        },
+        "trigger_kind": {
+            "enum": ["event", "schedule", "batch"],
+            "description": "What starts it. `event` fires per person, `schedule` on a cadence, `batch` over an audience once."
+        },
+        "trigger_name": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "The project's own event or action name, copied exactly, or the cadence for a schedule. For an event trigger it is the moment the send is timed from, so it must be an event the project already records.",
+            "minLength": 1
+        },
+        "trigger_verified_count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Times this event fired in the project over the window, read from the project before naming it. Required for an event trigger: an event you cannot count does not exist here, and the idea is not recordable."
+        },
+        "goal_event": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "The project's own event that shows the message worked, copied exactly: the purchase, the subscription, the first successful use. The workflow exits a person who reaches it, and the outcome is measured on it.",
+            "minLength": 1
+        },
+        "goal_verified_count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Times the goal event fired over the window. Required with a goal event, for the same reason as `trigger_verified_count`."
+        },
+        "baseline_conversion_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Share of `reach_people` who reached the goal event at any point after the trigger within `window_days`, with no message. It includes people who convert after `delay_hours`, so it is the rate a workflow has to beat."
+        },
+        "message_outline": {
+            "type": "string",
+            "maxLength": 1200,
+            "description": "What the message says and what it asks the reader to do. Concrete enough to judge, not a finished draft.",
+            "minLength": 1
+        },
+        "subject_line": {
+            "type": "string",
+            "maxLength": 120,
+            "description": "The subject line or push title of the first message, written for this project's product and in its users' language.",
+            "minLength": 1
+        },
+        "channel": {
+            "enum": ["email", "push", "sms"],
+            "description": "The channel the message goes out on. Only a channel this project can reach its people on: email needs an email address on the person."
+        },
+        "delay_hours": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 720,
+            "description": "Hours between the trigger and the first message. Long enough for most people who will reach the goal unprompted to do so, read from how long it takes them."
+        },
+        "message_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Messages per person in the sequence, each skipped once the person reaches the goal event."
+        },
+        "reach_people": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Distinct people who hit the trigger over the window."
+        },
+        "audience_people": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Of `reach_people`, those who did not reach the goal event within the delay: the people the first message would actually go to."
+        },
+        "reachable_people": {
+            "type": "integer",
+            "minimum": 50,
+            "description": "Of `audience_people`, those the channel can reach (an email address on the person, for email). Under 50 the idea costs more to review than it can return, so it is not recordable."
+        },
+        "estimated_monthly_sends": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "`reachable_people` scaled to 30 days, times `message_count`. An upper bound: later messages go only to people still short of the goal."
+        },
+        "window_days": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Days the reach was measured over."
+        },
+        "existing_coverage": {
+            "enum": ["none", "partial", "unknown"],
+            "description": "Whether a live workflow already messages this audience at this moment. `partial` means one exists but misses the moment or the audience."
+        },
+        "covered_by": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "When coverage is `partial`: the id of the live workflow that covers it, or the event that shows another messaging tool already sends it."
+        },
+        "confidence": {
+            "enum": ["low", "medium", "high"],
+            "description": "How sure the scout is that this is worth building, given value tier, reachable audience, coverage and how cleanly the trigger and goal read."
+        },
+        "why_now": {
+            "type": "string",
+            "maxLength": 600,
+            "description": "What in the data makes this worth doing now rather than any other week. Every number here matches a field above."
+        }
+    },
+    "allOf": [
+        {
+            "if": {
+                "properties": {
+                    "trigger_kind": {
+                        "const": "event"
+                    }
+                },
+                "required": ["trigger_kind"]
+            },
+            "then": {
+                "required": ["trigger_verified_count", "goal_verified_count", "baseline_conversion_rate"]
+            }
+        }
+    ]
+}
