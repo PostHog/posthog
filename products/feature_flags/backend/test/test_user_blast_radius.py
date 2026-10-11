@@ -4,10 +4,15 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.errors import InternalCHQueryError, wrap_clickhouse_query_error
+from posthog.errors import CLICKHOUSE_ERROR_CODE_LOOKUP, InternalCHQueryError, wrap_clickhouse_query_error
 from posthog.models.property import PropertyValidationError
 
-from products.feature_flags.backend.user_blast_radius import unevaluable_filters_as_validation_errors
+from products.feature_flags.backend.user_blast_radius import (
+    UNEVALUABLE_FILTERS_MESSAGE,
+    unevaluable_filters_as_validation_errors,
+)
+
+PARSE_NAN_TO_FLOAT = "Cannot parse NaN: converting 'None' to Float64"
 
 
 class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
@@ -20,32 +25,34 @@ class TestUnevaluableFiltersAsValidationErrors(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("cannot_parse_text", 6, PARSE_NAN_TO_FLOAT, CLICKHOUSE_ERROR_CODE_LOOKUP[6].user_safe),
+            ("cannot_parse_number", 72, PARSE_NAN_TO_FLOAT, CLICKHOUSE_ERROR_CODE_LOOKUP[72].user_safe),
             (
-                "cannot_parse_text",
-                6,
-                "Cannot parse a value as the requested type. Check your input formats and type conversions.",
+                "no_supertype",
+                386,
+                "There is no supertype for types String, UInt8 because some of them are String",
+                UNEVALUABLE_FILTERS_MESSAGE,
             ),
             (
-                "cannot_parse_number",
-                72,
-                "Cannot parse a number. Check for non-numeric values in your type conversions.",
+                "illegal_type_of_argument",
+                43,
+                "Illegal type String of argument of function equals",
+                UNEVALUABLE_FILTERS_MESSAGE,
             ),
+            ("curated_copy", 70, "CANNOT_CONVERT_TYPE", CLICKHOUSE_ERROR_CODE_LOOKUP[70].user_safe),
         ]
     )
-    def test_clickhouse_value_parse_failure_surfaces_as_a_caller_error(
-        self, _name: str, code: int, expected_message: str
-    ) -> None:
-        raw = "DB::Exception: Cannot parse NaN: converting 'None' to Float64. Stack trace:\n0. DB::Exception::Exception"
-        err = wrap_clickhouse_query_error(ServerException(raw, code=code))
+    def test_clickhouse_failure_surfaces_as_a_caller_error(self, _name, code, raw, expected):
+        # The 400 carries only copy that PostHog wrote, because the ClickHouse message names
+        # engine types and generated SQL instead of the filter to correct. A code whose
+        # ErrorCodeMeta names a user-facing string keeps that string; the rest fall back to the
+        # generic line.
+        err = wrap_clickhouse_query_error(ServerException(f"DB::Exception: {raw}", code=code))
         with self.assertRaises(ValidationError) as ctx, unevaluable_filters_as_validation_errors():
             raise err
-        message = str(ctx.exception)
-        assert isinstance(ctx.exception.detail, dict)
-        self.assertEqual(ctx.exception.detail["filters"], expected_message)
-        self.assertNotIn("NaN", message)
-        self.assertNotIn("None", message)
-        self.assertNotIn("Stack trace", message)
-        self.assertNotIn("DB::Exception", message)
+        detail = ctx.exception.detail
+        assert isinstance(detail, dict)
+        self.assertEqual(detail["filters"], expected)
 
     def test_other_internal_clickhouse_errors_stay_server_faults(self):
         # Only the deterministic cannot-parse-value codes are the caller's input; anything else
