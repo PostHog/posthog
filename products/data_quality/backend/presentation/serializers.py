@@ -74,7 +74,7 @@ class DataQualitySubjectsQuerySerializer(serializers.Serializer):
     """Filters and paging for the subject catalog. Without any of them it returns every subject."""
 
     subject_type = serializers.ChoiceField(
-        choices=[(t.value, t.value) for t in SubjectType],
+        choices=SubjectType.choices,
         required=False,
         help_text="Return only subjects of this kind: 'table', 'view', 'metric', or 'posthog_table'.",
     )
