@@ -54511,9 +54511,32 @@ export namespace Schemas {
       readonly suggestions_enabled: boolean | null;
     }
 
+    /**
+     * * `running` - Running
+     * * `paused_by_user` - Paused By User
+     * * `paused_by_system` - Paused By System
+     * * `not_running` - Not Running
+     */
+    export type SuggestionsScoutStatusEnum = typeof SuggestionsScoutStatusEnum[keyof typeof SuggestionsScoutStatusEnum];
+
+
+    export const SuggestionsScoutStatusEnum = {
+      Running: 'running',
+      PausedByUser: 'paused_by_user',
+      PausedBySystem: 'paused_by_system',
+      NotRunning: 'not_running',
+    } as const;
+
     export interface HogFlowOptimization {
       /** Whether PostHog may suggest changes to this workflow. */
       enabled: boolean;
+      /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+       *
+       * * `running` - Running
+       * * `paused_by_user` - Paused By User
+       * * `paused_by_system` - Paused By System
+       * * `not_running` - Not Running */
+      readonly scout_status: SuggestionsScoutStatusEnum;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
