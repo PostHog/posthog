@@ -8,6 +8,7 @@ from posthog.dags import (
     personhog_shadow_drift,
     personhog_shadow_lane,
 )
+from posthog.dags.eventproperty_cleanup.ops import eventproperty_cleanup_job
 
 from . import loggers, resources
 
@@ -18,6 +19,7 @@ defs = dagster.Definitions(
     jobs=[
         detach_distinct_id.detach_distinct_id_job,
         distinct_id_usage.distinct_id_usage_monitoring,
+        eventproperty_cleanup_job,
         person_property_reconciliation.person_property_reconciliation_job,
         personhog_shadow_drift.personhog_shadow_lane_stop_and_compare_job,
         personhog_shadow_lane.personhog_shadow_lane_start_job,
