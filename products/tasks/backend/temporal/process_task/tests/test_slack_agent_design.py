@@ -1,4 +1,4 @@
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
@@ -23,6 +23,14 @@ from products.tasks.backend.temporal.process_task.activities.slack_agent_design 
 from products.tasks.backend.temporal.process_task.utils import record_message_actor
 
 PROJECT_URL = "https://us.posthog.com/project/7"
+
+
+def _priced_run_state(cents: int) -> dict[str, Any]:
+    """Run state as the gateway accounting leaves it once every request is priced."""
+    return {
+        "unprocessed_request_ids": [],
+        "token_cost": {"claude-opus-5": {"anthropic": {"cost_microusd": cents * 10_000, "request_ids": ["req-1"]}}},
+    }
 
 
 class TestStreamedAnswerCodeElements(SimpleTestCase):
@@ -138,6 +146,57 @@ class TestSlackAgentDesignStream(TestCase):
 
         assert "Signups grew." in client.chat_postMessage.call_args.kwargs["text"]
         mock_deliver.assert_called_once_with(self.task_run)
+
+    def _close_the_reply(self, mock_stop) -> tuple[SlackThreadHandler, Any]:
+        stop_slack_agent_design_stream(
+            StopSlackAgentDesignStreamInput(
+                slack_thread_context={"integration_id": self.integration.id, "channel": "C1", "thread_ts": "1.0"},
+                ts="2.0",
+                final_markdown="Done.",
+                plan_title="Done in 1m 12s",
+                run_id=str(self.task_run.id),
+            )
+        )
+        return mock_stop.call_args.args[0], mock_stop.call_args.kwargs["settle_spend"]
+
+    @parameterized.expand(
+        [
+            # The thread's first reply would otherwise say the same number twice.
+            ("first_turn", [], None),
+            ("later_turn", [53], 95),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", autospec=True)
+    def test_a_closing_reply_reports_what_the_turn_cost(
+        self, _name: str, earlier_turns: list[int], expected_thread: int | None, mock_stop
+    ) -> None:
+        TaskRun.objects.filter(id=self.task_run.id).update(
+            environment=TaskRun.Environment.CLOUD, state=_priced_run_state(42)
+        )
+        for cents in earlier_turns:
+            TaskRun.objects.create(
+                task=self.task_run.task,
+                team=self.team,
+                environment=TaskRun.Environment.CLOUD,
+                state=_priced_run_state(cents),
+            )
+
+        handler, settle_spend = self._close_the_reply(mock_stop)
+
+        assert settle_spend() == "Done in 1m 12s · $0.42"
+        assert handler.run_footer.thread_spend_cents == expected_thread
+
+    @override_settings(SANDBOX_AI_GATEWAY_URL=None)
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.stop_status_stream", autospec=True)
+    def test_a_turn_the_gateway_has_not_finished_pricing_reports_no_figure(self, mock_stop) -> None:
+        # The sum of what is priced so far would read as the whole bill, and nothing comes
+        # back to correct this reply once the rest settles.
+        state = _priced_run_state(42) | {"unprocessed_request_ids": ["req-9"]}
+        TaskRun.objects.filter(id=self.task_run.id).update(environment=TaskRun.Environment.CLOUD, state=state)
+
+        _handler, settle_spend = self._close_the_reply(mock_stop)
+
+        assert settle_spend() is None
 
     @parameterized.expand(
         [
