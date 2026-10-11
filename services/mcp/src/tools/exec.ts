@@ -23,7 +23,13 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
 import { type ExecLearnCatalog, QUALIFIED_IDENTIFIER, tokenizeLearnInput } from './exec-learn'
-import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
+import {
+    FIELD_INLINE_CHAR_LIMIT,
+    TOKEN_CHAR_LIMIT,
+    listAvailablePaths,
+    resolveSchemaPath,
+    summarizeSchema,
+} from './schema-utils'
 import { type BuiltInSkillHint, formatSkillLookupMiss, type SkillLookupMissKind } from './skills/notFound'
 import { isRegexPattern, searchToolsRanked, searchToolsRegex } from './tool-search'
 import { getToolDefinitions, type FlagGatedTool, type ScopeGatedTool } from './toolDefinitions'
@@ -1932,7 +1938,7 @@ export function createExecTool(
                         field: fieldPath,
                         schema: resolved,
                     })
-                    if (serialized.length <= TOKEN_CHAR_LIMIT) {
+                    if (serialized.length <= FIELD_INLINE_CHAR_LIMIT) {
                         return serialized
                     }
 
@@ -1940,10 +1946,12 @@ export function createExecTool(
                     // summary's complex sub-fields carry the drill-down `hint`,
                     // so the response shape stays the same as the inline case
                     // (`{ field, schema }`) — no separate top-level note.
-                    return JSON.stringify({
+                    const summarized = JSON.stringify({
                         field: fieldPath,
                         schema: summarizeSchema(resolved as Record<string, unknown>, schemaToolName, fieldPath),
                     })
+                    // A summary of a flat union with long descriptions can be larger than the raw field.
+                    return summarized.length < serialized.length ? summarized : serialized
                 }
 
                 case 'call': {
