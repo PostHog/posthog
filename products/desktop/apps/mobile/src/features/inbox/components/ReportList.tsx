@@ -32,6 +32,7 @@ export function ReportList({
     hasNextPage,
     isFetchingNextPage,
     fetchNextPage,
+    isReviewerScoped,
   } = useInboxReports();
   const themeColors = useThemeColors();
 
@@ -111,7 +112,9 @@ export function ReportList({
             Nothing to review
           </Text>
           <Text className="mt-1 text-center text-[13px] text-gray-11">
-            Reports show up here as your agents find things worth acting on.
+            {isReviewerScoped
+              ? "No reports match your reviewer filter. Clear it at the top to see reports for the whole project."
+              : "Reports show up here as your agents find things worth acting on."}
           </Text>
         </View>
       ) : (

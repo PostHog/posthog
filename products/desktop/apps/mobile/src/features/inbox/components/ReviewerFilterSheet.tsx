@@ -12,7 +12,10 @@ import { useUserQuery } from "@/features/auth";
 import { useScreenInsets } from "@/hooks/useScreenInsets";
 import { useThemeColors } from "@/lib/theme";
 import { useAvailableSuggestedReviewers } from "../hooks/useInboxReports";
-import { useInboxFilterStore } from "../stores/inboxFilterStore";
+import {
+  resolveSuggestedReviewerFilter,
+  useInboxFilterStore,
+} from "../stores/inboxFilterStore";
 import { ReviewerOptionRow } from "./ReviewerOptionRow";
 
 interface ReviewerFilterSheetProps {
@@ -29,9 +32,12 @@ export function ReviewerFilterSheet({
   const { data: currentUser } = useUserQuery();
   const { data: available, isLoading } = useAvailableSuggestedReviewers();
 
-  const suggestedReviewerFilter = useInboxFilterStore(
+  const storedReviewerFilter = useInboxFilterStore(
     (s) => s.suggestedReviewerFilter,
   );
+  const suggestedReviewerFilter =
+    resolveSuggestedReviewerFilter(storedReviewerFilter, currentUser?.uuid) ??
+    [];
   const toggleSuggestedReviewer = useInboxFilterStore(
     (s) => s.toggleSuggestedReviewer,
   );
@@ -99,7 +105,9 @@ export function ReviewerFilterSheet({
                   <ReviewerOptionRow
                     reviewer={reviewer}
                     selected={suggestedReviewerFilter.includes(reviewer.uuid)}
-                    onPress={() => toggleSuggestedReviewer(reviewer.uuid)}
+                    onPress={() =>
+                      toggleSuggestedReviewer(reviewer.uuid, currentUser?.uuid)
+                    }
                   />
                   {showDivider && (
                     <View className="mx-2 my-1 border-gray-6 border-t" />

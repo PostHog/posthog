@@ -31,9 +31,12 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { useAuthStore } from "@/features/auth";
+import { useAuthStore, useUserQuery } from "@/features/auth";
 import { getPostHogApiClient } from "@/lib/posthogApiClient";
-import { useInboxFilterStore } from "../stores/inboxFilterStore";
+import {
+  resolveSuggestedReviewerFilter,
+  useInboxFilterStore,
+} from "../stores/inboxFilterStore";
 
 export const inboxKeys = {
   all: ["inbox", "signal-reports"] as const,
@@ -71,6 +74,12 @@ export function useInboxReports(options?: { enabled?: boolean }) {
     (s) => s.suggestedReviewerFilter,
   );
   const priorityFilter = useInboxFilterStore((s) => s.priorityFilter);
+  const userQuery = useUserQuery();
+  const reviewerFilter = resolveSuggestedReviewerFilter(
+    suggestedReviewerFilter,
+    userQuery.data?.uuid,
+  );
+  const waitingForUser = reviewerFilter === null;
 
   const params: SignalReportsQueryParams = {
     status: buildStatusFilterParam(statusFilter),
@@ -81,8 +90,8 @@ export function useInboxReports(options?: { enabled?: boolean }) {
         ? sourceProductFilter.join(",")
         : undefined,
     suggested_reviewers:
-      suggestedReviewerFilter.length > 0
-        ? buildSuggestedReviewerFilterParam(suggestedReviewerFilter)
+      reviewerFilter && reviewerFilter.length > 0
+        ? buildSuggestedReviewerFilterParam(reviewerFilter)
         : undefined,
     priority: buildPriorityFilterParam(priorityFilter),
   };
@@ -95,7 +104,13 @@ export function useInboxReports(options?: { enabled?: boolean }) {
         limit: REPORTS_PAGE_SIZE,
         offset: pageParam,
       }),
-    enabled: !!projectId && !!oauthAccessToken && (options?.enabled ?? true),
+    // The default scope needs the current user's uuid, so hold the query until
+    // it resolves rather than fetching the whole project first.
+    enabled:
+      !!projectId &&
+      !!oauthAccessToken &&
+      !waitingForUser &&
+      (options?.enabled ?? true),
     refetchInterval: INBOX_REFETCH_INTERVAL_MS,
     initialPageParam: 0,
     getNextPageParam: getReportsNextPageParam,
@@ -109,9 +124,13 @@ export function useInboxReports(options?: { enabled?: boolean }) {
   return {
     reports,
     totalCount: query.data?.pages[0]?.count ?? 0,
-    isLoading: query.isLoading,
+    isLoading: query.isLoading || (waitingForUser && userQuery.isLoading),
     isFetching: query.isFetching,
-    error: query.error?.message ?? null,
+    error:
+      query.error?.message ??
+      (waitingForUser ? userQuery.error?.message : undefined) ??
+      null,
+    isReviewerScoped: !!reviewerFilter && reviewerFilter.length > 0,
     refetch: query.refetch,
     hasNextPage: query.hasNextPage,
     isFetchingNextPage: query.isFetchingNextPage,
