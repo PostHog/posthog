@@ -4,8 +4,6 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
-
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
@@ -411,10 +409,9 @@ class TestTrackReviewCompleted(BaseTest):
         # the report's first turn. The started event is the third event of a turn: a dashboard
         # compares it against completed to see a lift, so it must carry the same labels.
         signal_report_id = str(uuid.uuid4())
-        with override_settings(REVIEWHOG_TEAM_IDS=[self.team.id]):
-            report_id = self._review_report(
-                signal_report_id=signal_report_id, trigger_source=TRIGGER_INBOX, signal_priority=ReportPriority.P3
-            )
+        report_id = self._review_report(
+            signal_report_id=signal_report_id, trigger_source=TRIGGER_INBOX, signal_priority=ReportPriority.P3
+        )
 
         with patch("products.review_hog.backend.temporal.activities.posthoganalytics.capture") as capture:
             _track_review_completed(self._tracking_input(report_id, turn_trigger_source=TRIGGER_LABEL))

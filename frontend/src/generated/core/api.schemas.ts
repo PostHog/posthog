@@ -1735,6 +1735,11 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     workflow_task_team_rate_limit_per_day?: number | null
+    /**
+     * ID of the verified email integration that new broadcasts and workflow email steps use as their sender. Null means no default. Set automatically when the project's first email sender is verified, and cleared when that integration is deleted.
+     * @nullable
+     */
+    default_email_integration_id?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {

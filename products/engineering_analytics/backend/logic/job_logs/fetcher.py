@@ -7,6 +7,7 @@ the Temporal retry honors the reset.
 """
 
 import json
+import time
 import datetime as dt
 import contextlib
 from typing import Any
@@ -14,6 +15,7 @@ from typing import Any
 import requests
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.models.integration.github import _is_safe_github_repo_path
 
@@ -49,15 +51,48 @@ class _HeadAndTail:
                 self._truncated = True
                 del self._tail[: -self._half]  # keep only the most recent `half` bytes
 
+    @property
+    def truncated(self) -> bool:
+        return self._truncated
+
     def text(self) -> str:
         middle = b"\n... [log truncated] ...\n" if self._truncated else b""
         return (bytes(self._head) + middle + bytes(self._tail)).decode("utf-8", errors="replace")
+
+
+@frozen
+class FetchedJobLog:
+    text: str
+    # True when ``text`` is not the whole log, because the log passed the kept size or the download stopped early.
+    truncated: bool
 
 
 def fetch_job_log(
     repo: str, job_id: int, access_token: str, *, timeout: int = 60, max_bytes: int = _MAX_LOG_BYTES
 ) -> str | None:
     """Return the job's log text (capped at ``max_bytes``), or None if GitHub purged it (404)."""
+    fetched = fetch_bounded_job_log(repo, job_id, access_token, timeout=timeout, max_bytes=max_bytes)
+    return fetched.text if fetched is not None else None
+
+
+def fetch_bounded_job_log(
+    repo: str,
+    job_id: int,
+    access_token: str,
+    *,
+    timeout: int = 60,
+    max_bytes: int = _MAX_LOG_BYTES,
+    max_read_bytes: int | None = None,
+    deadline_seconds: float | None = None,
+) -> FetchedJobLog | None:
+    """The job's log, or None if GitHub purged it (404). The text keeps at most ``max_bytes``.
+
+    ``timeout`` bounds each read of the response and not the whole download, so a log that arrives
+    slowly can hold the caller without end. ``max_read_bytes`` and ``deadline_seconds`` bound the whole
+    download. When either stops it, the response is closed and the log read so far is returned as
+    truncated. The deadline is checked between chunks, so the download can pass it by one ``timeout``.
+    """
+    deadline = time.monotonic() + deadline_seconds if deadline_seconds is not None else None
     if not _is_safe_github_repo_path(repo):
         # repo is team-writable source config; reject anything but plain owner/repo so a crafted
         # value can't steer this authenticated request to a different GitHub endpoint.
@@ -81,9 +116,17 @@ def fetch_job_log(
             return None
         response.raise_for_status()
         log = _HeadAndTail(max_bytes)
+        read_bytes = 0
+        stopped_early = False
         for chunk in response.iter_content(chunk_size=65536):
             log.extend(chunk)
-        return log.text()
+            read_bytes += len(chunk)
+            if (max_read_bytes is not None and read_bytes > max_read_bytes) or (
+                deadline is not None and time.monotonic() >= deadline
+            ):
+                stopped_early = True
+                break
+        return FetchedJobLog(text=log.text(), truncated=log.truncated or stopped_early)
 
 
 def _depot_line_text(line: dict[str, Any]) -> str:

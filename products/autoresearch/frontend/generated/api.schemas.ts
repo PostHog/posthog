@@ -91,6 +91,37 @@ export interface AutoresearchRealizedAucPointApi {
     readonly realized_auc: number
 }
 
+export interface AutoresearchPredictionCoverageApi {
+    /** People in the inference population at the run's cutoff. */
+    readonly population: number
+    /** People with a champion score inside the lookback window before the cutoff. Shadow scores do not count. */
+    readonly with_score: number
+    /** People with no champion score inside the lookback window. A rolling run scores these people first. */
+    readonly never_scored: number
+    /**
+     * Mean age in days of the newest score per person. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_avg: number | null
+    /**
+     * Median age in days of the newest score per person. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_p50: number | null
+    /**
+     * 90th percentile age in days of the newest score per person. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_p90: number | null
+    /**
+     * Oldest score age in days. Null when nobody has a score.
+     * @nullable
+     */
+    readonly age_days_max: number | null
+    /** How many days before the cutoff the measure reads scores. Older scores count as never scored. */
+    readonly lookback_days: number
+}
+
 export interface AutoresearchLiveTrainingRunApi {
     /** Unique UUID of the live training run. */
     readonly id: string
@@ -240,6 +271,8 @@ export interface AutoresearchPipelineApi {
      * @nullable
      */
     readonly people_scored: number | null
+    /** Score coverage and score age from the newest live champion run that measured them. Null before the first such run. */
+    readonly coverage: AutoresearchPredictionCoverageApi | null
     /** Training runs started for this pipeline. */
     readonly training_run_count: number
     /** Experiments (iterations) recorded across every training run. */
@@ -562,6 +595,8 @@ export interface AutoresearchRunApi {
     rows_scored?: number | null
     /** Run metrics: score distribution summary, validation AUC, etc. An inference run records 'rows_eligible', the users in the inference population. When it is larger than rows_scored, the run scored a rolling part of the population: users never scored first, then users whose last score was oldest. */
     metrics: AutoresearchRunApiMetrics
+    /** Score coverage and score age at the cutoff of a live champion run. Null for backfill, shadow, validation and older runs. */
+    readonly coverage: AutoresearchPredictionCoverageApi | null
     /** Error message if the run failed. */
     error?: string
     /**
@@ -1441,7 +1476,7 @@ export interface ConfusionByCutoffApi {
     top_10: ConfusionCountsApi
     /** Counts when the top 20% of users by score are flagged. */
     top_20: ConfusionCountsApi
-    /** Counts when users with a score of 0.6 or higher (the Likely segment) are flagged. */
+    /** Counts when users in the Likely segment, with a score of likely_threshold or higher, are flagged. */
     likely: ConfusionCountsApi
 }
 
@@ -1523,6 +1558,11 @@ export interface OnlinePerformanceRowApi {
     /** Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. Null for dates validated before this metric existed. */
     confusion: ConfusionByCutoffApi | null
     /**
+     * The Likely cut point the 'likely' confusion counts used for this date, from the base rate of the dates checked before it. Null when confusion is null.
+     * @nullable
+     */
+    likely_threshold: number | null
+    /**
      * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
      * @nullable
      */
@@ -1539,9 +1579,39 @@ export interface OnlinePerformanceRowApi {
     validated_at: string | null
 }
 
+export interface PredictionSegmentThresholdsApi {
+    /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null. */
+    likely_threshold: number
+    /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null. */
+    possible_threshold: number
+    /** How many times the base rate a score must reach to be in the Likely segment. */
+    likely_lift: number
+    /**
+     * Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.
+     * @nullable
+     */
+    base_rate: number | null
+    /** Number of checked prediction dates the base rate pools. */
+    base_rate_dates: number
+    /**
+     * The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.
+     * @nullable
+     */
+    champion_mean_p_y: number | null
+    /**
+     * The real rate of the target event over the same dates as champion_mean_p_y.
+     * @nullable
+     */
+    champion_base_rate: number | null
+    /** True when champion_mean_p_y is far above or below champion_base_rate. The scores are then not probabilities (for example after class weighting in train.py), so a score of likely_lift times the base rate does not mean the user is that many times as likely to convert. */
+    scores_miscalibrated: boolean
+}
+
 export interface OnlinePerformanceApi {
     /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
     rows: OnlinePerformanceRowApi[]
+    /** The current cut points between the Likely, Possible and Unlikely segments, set by lift over the realized base rate. They do not depend on limit. */
+    segment_thresholds: PredictionSegmentThresholdsApi
 }
 
 export interface StartTrainingRequestApi {

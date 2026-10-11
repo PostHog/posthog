@@ -68,6 +68,11 @@ The dashboard "enqueues precompute" as a side effect; it never waits on it.
 
 ## Marketing search performance
 
+Search metrics and PostHog landing-page conversions load in separate requests.
+The table shows search metrics while conversion columns load, and a conversion error leaves those metrics visible with its own query ID and retry action.
+Both requests use the same normalized landing URLs and filters.
+The conversion request still uses the search query runner, so it repeats the source aggregation before calculating attribution.
+
 `MarketingAnalyticsSearchQuery` reads synced ad-platform tables through HogQL and the query result cache, independently of the web-event serving tiers above.
 Google Ads requires the `keyword` and `keyword_stats` tables for keywords, and `landing_page_stats` for landing pages; Bing Ads supports keywords through `keyword_performance_report`.
 Google Search Console uses `search_analytics_by_query` or `search_analytics_by_page` for aggregate views, with `search_analytics_by_query_page` as a fallback and for exact query-to-page and page-to-query details.

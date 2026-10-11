@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -58,6 +59,9 @@ TIME_IN_STATUS_BATCH_SIZE = 100
 # an import worker open with no bound. The client raises a timeout as retryable, so a stall
 # costs a few bounded attempts instead.
 REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
+
+# Every app.clickup.com URL starts with the workspace ID, so people paste the whole URL into the field.
+_WORKSPACE_URL_RE = re.compile(r"^(?:https?://)?app\.clickup\.com/(\d+)(?:[/?#]|$)", re.IGNORECASE)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -527,6 +531,12 @@ def _list_children_rows(
                     yield [{**row, "_list_id": str(list_id)} for row in rows]
 
 
+def normalize_workspace_id(workspace_id: str) -> str:
+    workspace_id = workspace_id.strip()
+    match = _WORKSPACE_URL_RE.match(workspace_id)
+    return match.group(1) if match else workspace_id
+
+
 def clickup_source(
     api_key: str,
     workspace_id: str,
@@ -538,6 +548,7 @@ def clickup_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = CLICKUP_ENDPOINTS[endpoint]
+    workspace_id = normalize_workspace_id(workspace_id)
 
     items: Any
     if config.kind == "tasks":
@@ -618,10 +629,12 @@ def clickup_source(
 
 def validate_credentials(api_key: str, workspace_id: str | None) -> tuple[bool, str | None]:
     """Confirm the token is genuine and (when provided) can see the configured workspace."""
+    if workspace_id:
+        workspace_id = normalize_workspace_id(workspace_id)
     if workspace_id and not workspace_id.isdigit():
         return False, (
             "Your workspace ID is the number right after app.clickup.com/ in your ClickUp URL. "
-            "Enter only that number, not the full URL."
+            "Paste that URL or enter just the number."
         )
 
     try:

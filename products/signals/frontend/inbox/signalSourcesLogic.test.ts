@@ -2,6 +2,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -208,6 +210,67 @@ describe('signalSourcesLogic', () => {
 
         expect(createSourceConfig).toHaveBeenCalledTimes(1)
         expect(logic.values.isGithubIssuesToggling).toBe(false)
+    })
+
+    // Before the list loads, an existing row looks new. Creating it again fails on the unique
+    // constraint, so the toggle has to refuse and let go of its spinner instead.
+    it.each([
+        {
+            name: 'Support',
+            toggle: (mountedLogic: typeof logic) => mountedLogic.actions.toggleConversations(),
+            isToggling: (mountedLogic: typeof logic) => mountedLogic.values.isConversationsToggling,
+        },
+        {
+            name: 'Error tracking',
+            toggle: (mountedLogic: typeof logic) => mountedLogic.actions.toggleErrorTracking(),
+            isToggling: (mountedLogic: typeof logic) => mountedLogic.values.isErrorTrackingToggling,
+        },
+        {
+            name: 'an Error tracking signal type',
+            toggle: (mountedLogic: typeof logic) =>
+                mountedLogic.actions.toggleErrorTrackingType(SignalSourceType.IssueSpiking),
+            isToggling: () => false,
+        },
+    ])('creates no row for $name while the source list has not loaded', async ({ toggle, isToggling }) => {
+        const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig)
+        expect(logic.values.sourceConfigs).toBeNull()
+
+        toggle(logic)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createSourceConfig).not.toHaveBeenCalled()
+        expect(isToggling(logic)).toBe(false)
+        createSourceConfig.mockRestore()
+    })
+
+    it('reports a failed toggle when another source is toggled while it saves', async () => {
+        let rejectUpdate!: (error: unknown) => void
+        const updatePromise = new Promise<never>((_, reject) => {
+            rejectUpdate = reject
+        })
+        const updateSourceConfig = jest.spyOn(api.signalSourceConfigs, 'update').mockReturnValue(updatePromise)
+        const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig)
+        const toastError = jest.spyOn(lemonToast, 'error')
+        logic.actions.loadSourceConfigsSuccess([
+            {
+                ...githubIssuesConfig,
+                id: 'config-conversations',
+                source_product: SignalSourceProduct.Conversations,
+                source_type: SignalSourceType.Ticket,
+                enabled: false,
+            },
+        ])
+
+        logic.actions.toggleConversations()
+        logic.actions.toggleEvalReports()
+        rejectUpdate({ detail: 'Support is not set up for this project.' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastError).toHaveBeenCalledWith('Support is not set up for this project.')
+        expect(logic.values.isConversationsToggling).toBe(false)
+        updateSourceConfig.mockRestore()
+        createSourceConfig.mockRestore()
+        toastError.mockRestore()
     })
 
     it('uses only eval reports for the AI observability signal source', async () => {

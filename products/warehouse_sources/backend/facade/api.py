@@ -18,11 +18,12 @@ exception is ``soft_delete_tables``: consumers may not iterate the model to call
 ``soft_delete()`` themselves, so the facade does it for them.
 """
 
+from collections import defaultdict
 from collections.abc import Collection
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 
 # Source-agnostic storage contract for user-uploaded files — shared with the upload endpoint.
 from products.warehouse_sources.backend.file_uploads import (
@@ -64,6 +65,7 @@ from products.warehouse_sources.backend.models.util import (
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
+from products.warehouse_sources.backend.source_status import effective_source_status
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 from . import contracts
@@ -91,7 +93,9 @@ __all__ = [
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
+    "get_sync_alert_context",
     # framework-free helper transforms
+    "effective_source_status",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_columns_to_dwh_columns",
     "trino_columns_to_dwh_columns",
@@ -270,7 +274,9 @@ def list_sources(
 
 
 def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]:
-    """Live sources with the timestamp of their newest completed run and their newest schema error.
+    """Live sources with their effective status, newest completed run and newest schema error.
+
+    The status rolls up the source's active schemas the same way the source list does.
 
     One correlated probe per source for each of the two lookups, so the cost tracks the number
     of sources rather than the length of the team's job history.
@@ -289,9 +295,26 @@ def list_source_health(team_id: int) -> list[contracts.ExternalDataSourceHealth]
             latest_error=latest_error,
         )
         .order_by("source_type", "id")
-        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
+        .values("id", "source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
     )
-    return [contracts.ExternalDataSourceHealth(**row) for row in rows]
+    active_schemas_by_source: defaultdict[UUID, list[_ExternalDataSchema]] = defaultdict(list)
+    for schema in (
+        _ExternalDataSchema.objects.filter(team_id=team_id, deleted=False, source__deleted=False)
+        .filter(Q(should_sync=True) | Q(latest_error__isnull=False))
+        .only("source_id", "status", "should_sync")
+    ):
+        active_schemas_by_source[schema.source_id].append(schema)
+    return [
+        contracts.ExternalDataSourceHealth(
+            source_type=row["source_type"],
+            status=effective_source_status(active_schemas_by_source[row["id"]], fallback=row["status"]),
+            prefix=row["prefix"],
+            created_at=row["created_at"],
+            last_run_at=row["last_run_at"],
+            latest_error=row["latest_error"],
+        )
+        for row in rows
+    ]
 
 
 def _revenue_source_queryset(
@@ -612,3 +635,18 @@ def list_column_statistics(team_id: int) -> list[contracts.ColumnStatistics]:
         )
         for table_id, column_name, null_fraction, min_value, max_value in qs
     ]
+
+
+def get_sync_alert_context(
+    team_id: int, schema_id: str, job_id: str | None = None, *, include_error: bool = False
+) -> contracts.SyncAlertContext | None:
+    """The facts a sync alert event reports, or None when the schema no longer exists.
+
+    `include_error` adds the schema's error with the source's stored credentials masked. It is
+    opt-in because the masking decrypts the source's inputs, which most alerts have no use for.
+    """
+    from products.warehouse_sources.backend.sync_alert_context import (  # noqa: PLC0415 -- the redaction helpers sit under presentation, which the facade must not import at module level
+        build_sync_alert_context,
+    )
+
+    return build_sync_alert_context(team_id, schema_id, job_id, include_error=include_error)

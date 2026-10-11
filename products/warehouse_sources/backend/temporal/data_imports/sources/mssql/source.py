@@ -58,6 +58,8 @@ _CONNECTION_TIMED_OUT_ERROR = (
     "publicly, use the SSH tunnel option."
 )
 
+_GENERIC_CONNECTION_ERROR = "Could not connect to MS SQL. Please check all connection details are valid."
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
@@ -68,6 +70,11 @@ MSSQLErrors = {
     # message echoes the server name and client IP, so match the stable, distinctive phrase instead.
     "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
     "connection timed out": _CONNECTION_TIMED_OUT_ERROR,
+    # DB-Lib error 20002, the generic connect-time failure `get_non_retryable_errors` below also
+    # matches (and leaves unmapped there since the cause varies). Map it here too so a credential
+    # check that hits it returns the same generic guidance as an unmatched error already gets,
+    # instead of falling through to `capture_exception` as a bug.
+    "Adaptive Server connection failed": _GENERIC_CONNECTION_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()
@@ -372,7 +379,7 @@ class MSSQLSource(
                     return False, value
 
             capture_exception(e)
-            return False, "Could not connect to MS SQL. Please check all connection details are valid."
+            return False, _GENERIC_CONNECTION_ERROR
         except BaseSSHTunnelForwarderError as e:
             return (
                 False,
@@ -381,6 +388,6 @@ class MSSQLSource(
             )
         except Exception as e:
             capture_exception(e)
-            return False, "Could not connect to MS SQL. Please check all connection details are valid."
+            return False, _GENERIC_CONNECTION_ERROR
 
         return True, None

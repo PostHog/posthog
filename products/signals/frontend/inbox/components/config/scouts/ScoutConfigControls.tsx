@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
@@ -16,6 +16,7 @@ import type {
 import { SignalScoutConfigNetworkAccessEnumApi } from 'products/signals/frontend/generated/api.schemas'
 import { MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
+import type { ScoutSurface } from '../../../inboxAnalytics'
 import {
     dailyCronToTime,
     dayTimeToWeeklyCron,
@@ -34,6 +35,7 @@ import {
     weeklyCronToDayTime,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
+import { ScoutPrecheckSection } from './ScoutPrecheckSection'
 import { ScoutRepositoriesPicker } from './ScoutRepositoriesPicker'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutStructuredOutputSection } from './ScoutStructuredOutputSection'
@@ -71,8 +73,9 @@ interface ScoutConfigFormProps extends ScoutConfigControlsProps {
     deleting?: boolean
     /** True while this scout's config update request is in flight. */
     updating?: boolean
-    /** Called when a staged edit (the record schema) gains or loses unsaved changes. */
+    /** Called when a staged edit (the pre-check query or the record schema) gains or loses unsaved changes. */
     onUnsavedChange?: (unsaved: boolean) => void
+    surface?: ScoutSurface
 }
 
 /** Enable/disable toggle for a scout. Lives on the row, not in the settings form. */
@@ -104,6 +107,7 @@ export function ScoutConfigForm({
     deleting,
     updating = false,
     onUnsavedChange,
+    surface = 'scout_detail',
 }: ScoutConfigFormProps): JSX.Element {
     const { timezone: projectTimezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -116,6 +120,12 @@ export function ScoutConfigForm({
     // config stays the truth for them, including when a failed write rolls it back.
     const [customModePicked, setCustomModePicked] = useState(false)
     const scheduleMode = customModePicked ? SCOUT_CUSTOM_CRON_SCHEDULE_MODE : savedScheduleMode
+    // Two sections stage edits, and either one alone must keep the host modal guarded.
+    const [precheckUnsaved, setPrecheckUnsaved] = useState(false)
+    const [schemaUnsaved, setSchemaUnsaved] = useState(false)
+    useEffect(() => {
+        onUnsavedChange?.(precheckUnsaved || schemaUnsaved)
+    }, [precheckUnsaved, schemaUnsaved, onUnsavedChange])
     const controlsDisabledReason = updating
         ? 'Saving scout settings'
         : config.enabled
@@ -310,6 +320,25 @@ export function ScoutConfigForm({
                     aria-label={`${config.skill_name} opt out of auto-pause`}
                 />
             </div>
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Only the owner can pause or delete</span>
+                    <span className="text-[11.5px] text-muted">
+                        Turn this on for a scout people rely on. Anyone with scout access can still change its other
+                        settings, but only the person it runs as, or a project admin, can pause it, put it in dry run,
+                        or delete it.
+                    </span>
+                </div>
+                <LemonSwitch
+                    size="small"
+                    checked={config.lifecycle_locked}
+                    // Editable while the scout is disabled, because the lock decides who may resume
+                    // a paused scout.
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
+                    onChange={(checked) => onUpdate(config.id, { lifecycle_locked: checked })}
+                    aria-label={`${config.skill_name} only the owner can pause or delete`}
+                />
+            </div>
             <div className="flex flex-col gap-1">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Tags</span>
@@ -338,13 +367,21 @@ export function ScoutConfigForm({
                 disabledReason={updating ? 'Saving scout settings' : undefined}
             />
             {/* Keyed by scout because the scout page keeps this form mounted when the URL moves to another
-                scout, and an unsaved schema draft must not become the next scout's save. */}
+                scout, and an unsaved draft must not become the next scout's save. */}
+            <ScoutPrecheckSection
+                key={`precheck-${config.id}`}
+                config={config}
+                onUpdate={onUpdate}
+                updating={updating}
+                surface={surface}
+                onUnsavedChange={setPrecheckUnsaved}
+            />
             <ScoutStructuredOutputSection
                 key={config.id}
                 config={config}
                 onUpdate={onUpdate}
                 updating={updating}
-                onUnsavedChange={onUnsavedChange}
+                onUnsavedChange={setSchemaUnsaved}
             />
             <ScoutWriteAccessSection config={config} onUpdate={onUpdate} updating={updating} />
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after

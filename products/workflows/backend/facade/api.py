@@ -24,6 +24,10 @@ from products.workflows.backend.facade.contracts import (
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.batch_jobs import create_batch_job
+from products.workflows.backend.services.default_email_sender import (
+    clear_default_email_sender,
+    set_default_email_sender_if_unset,
+)
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
     get_email_sending_state,
@@ -48,6 +52,7 @@ __all__ = [
     "WorkflowArchived",
     "WorkflowNotFound",
     "MIN_EMAIL_SENDING_TIER",
+    "clear_default_email_sender",
     "compute_next_occurrences",
     "create_batch_job",
     "ensure_workflows_config",
@@ -56,6 +61,7 @@ __all__ = [
     "get_email_sending_tier_limits",
     "get_hog_flows_referencing_template_input_keys",
     "max_email_sending_tier",
+    "set_default_email_sender_if_unset",
     "set_email_sending_tier",
     "suspend_email_sending",
     "unsuspend_email_sending",
