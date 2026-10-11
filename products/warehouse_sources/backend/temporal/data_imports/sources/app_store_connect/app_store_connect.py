@@ -1432,7 +1432,7 @@ def _resolve_snapshot_plan(
                 key=lambda instance: instance[1],
             ),
         )
-    if resolved_report_ids and not generating:
+    if resolved_report_ids and not generating and len(snapshot_requests) == 1:
         # Fulfilled once, but the instances aged out before they were downloaded — and no other
         # snapshot request is mid-generation, so re-requesting won't pile requests up while a
         # replacement is already on its way.
