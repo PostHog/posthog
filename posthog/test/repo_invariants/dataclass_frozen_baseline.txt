@@ -781,8 +781,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailjet/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailosaur/mailosaur.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mailosaur/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mailtrap/mailtrap.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mailtrap/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/marketo/marketo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/marketstack/marketstack.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/marketstack/settings.py
