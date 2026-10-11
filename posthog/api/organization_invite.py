@@ -197,6 +197,14 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         email = EmailNormalizer.normalize(email)
         reject_plus_addressed_email(email)
         validate_invite_target_email_domain(self.context["get_organization"](), email)
+        # Validation runs for every bulk row before any row saves, so one existing member
+        # rejects the batch without a partial set of sent invites.
+        if OrganizationMembership.objects.filter(
+            organization_id=self.context["organization_id"], user__email__iexact=email
+        ).exists():
+            raise exceptions.ValidationError(
+                "A user with this email address already belongs to the organization.", code="existing_member"
+            )
         return email
 
     def validate_first_name(self, value: str) -> str:
@@ -273,22 +281,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                 # User is not an org admin/owner
                 pass
 
-            from products.access_control.backend.models.access_control import AccessControl
-
-            # Check if the team has an access control row that applies to the entire resource
-            team_access_controls = AccessControl.objects.filter(
-                team_id=item["id"],
-                resource="project",
-                resource_id=str(item["id"]),
-                organization_member=None,
-                role=None,
-            )
-
-            # If no access controls exist, continue (team can be accessed by anyone in the organization)
-            if not team_access_controls.exists():
-                continue
-
-            # Team is restricted, check if user has sufficient access
             user_access_control = UserAccessControl(user=self.context["request"].user, team=team)
             access_level = user_access_control.access_level_for_object(team)
             if access_level == "none":
@@ -307,12 +299,6 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         return private_project_access
 
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> OrganizationInvite:
-        if OrganizationMembership.objects.filter(
-            organization_id=self.context["organization_id"],
-            user__email__iexact=validated_data["target_email"],
-        ).exists():
-            raise exceptions.ValidationError("A user with this email address already belongs to the organization.")
-
         combine_pending_invites = validated_data.pop("combine_pending_invites", False)
         send_email = validated_data.pop("send_email", True)
 

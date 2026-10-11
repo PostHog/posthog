@@ -25,6 +25,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
+import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import {
     DataVisualizationNode,
     FunnelsQuery,
@@ -678,7 +679,29 @@ describe('insightDataLogic', () => {
             sceneLogic.mount()
             sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
             const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
-                values: { insightLogicRef: { logic: { key: Insight42 } } },
+                values: { insightId: Insight42, dashboardId: null },
+            } as any)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.persistDisplayOptions(updatedQuery)
+                }).toFinishAllListeners()
+
+                expect(patchSpy).not.toHaveBeenCalled()
+            } finally {
+                findMountedSpy.mockRestore()
+                sceneLogic.unmount()
+            }
+        })
+
+        it('skips the PATCH even when insightSceneLogic has not yet rebuilt its insightLogicRef for this insight', async () => {
+            // insightLogicRef can lag insightId/dashboardId right after the scene mounts, because a
+            // separate listener rebuilds it asynchronously. This mocks that lag: the guard must not
+            // rely on insightLogicRef being present or already correct.
+            sceneLogic.mount()
+            sceneLogic.actions.setScene(Scene.Insight, undefined, {} as any)
+            const findMountedSpy = jest.spyOn(insightSceneLogic, 'findMounted').mockReturnValue({
+                values: { insightId: Insight42, dashboardId: null, insightLogicRef: null },
             } as any)
 
             try {
@@ -1028,19 +1051,35 @@ describe('insightDataLogic', () => {
             ])
         })
 
-        it('does not overwrite an insight that changed away from SQL', async () => {
-            savedQuery = { kind: NodeKind.EventsQuery }
+        it.each([NodeKind.EventsQuery, NodeKind.BIVisualizationNode])(
+            'does not overwrite an insight that changed to %s',
+            async (kind) => {
+                const biQuery: BIVisualizationNode = {
+                    ...latestQuery,
+                    kind: NodeKind.BIVisualizationNode,
+                    config: {
+                        chartType: ChartDisplayType.ActionsTable,
+                        source: null,
+                        rows: [],
+                        columns: [],
+                        values: [],
+                        filters: [],
+                        limit: 100,
+                    },
+                }
+                savedQuery = kind === NodeKind.EventsQuery ? { kind } : biQuery
 
-            await expectLogic(logic, () => {
-                logic.actions.persistSqlVisualization({
-                    type: 'chart-type',
-                    display: ChartDisplayType.ActionsLineGraph,
-                })
-            }).toFinishAllListeners()
+                await expectLogic(logic, () => {
+                    logic.actions.persistSqlVisualization({
+                        type: 'chart-type',
+                        display: ChartDisplayType.ActionsLineGraph,
+                    })
+                }).toFinishAllListeners()
 
-            expect(patchBodies).toHaveLength(0)
-            expect(logic.values.savingSqlVisualization).toBeNull()
-        })
+                expect(patchBodies).toHaveLength(0)
+                expect(logic.values.savingSqlVisualization).toBeNull()
+            }
+        )
 
         it('persists only the last display edit against the latest clean SQL query', async () => {
             savedQuery = {

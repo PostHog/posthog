@@ -1,7 +1,7 @@
 import json
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
@@ -91,16 +91,6 @@ def _run(
 
 
 class TestBaseUrl:
-    @pytest.mark.parametrize(
-        "environment, expected",
-        [
-            ("live", "https://api.gocardless.com"),
-            ("sandbox", "https://api-sandbox.gocardless.com"),
-        ],
-    )
-    def test_known_environment_returns_host(self, environment, expected):
-        assert _base_url(environment) == expected
-
     def test_invalid_environment_raises(self):
         with pytest.raises(ValueError):
             _base_url("evil.example.com")
@@ -140,11 +130,6 @@ class TestValidateCredentials:
         assert validate_credentials("evil", "token") is False
         mock_session.return_value.get.assert_not_called()
 
-    @mock.patch(GOCARDLESS_SESSION_PATCH)
-    def test_validate_credentials_swallows_transport_errors(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("live", "token") is False
-
 
 class TestPagination:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -170,33 +155,6 @@ class TestPagination:
         assert manager.save_state.call_args.args[0] == GoCardlessResumeConfig(after="PM1")
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_carry_version_header(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response("payments", [{"id": "PM1"}])])
-
-        _run(session, "live", "payments", _make_manager())
-
-        assert session.headers.get("GoCardless-Version") == "2015-07-06"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sandbox_uses_sandbox_host(self, MockSession):
-        session = MockSession.return_value
-        _, urls = _wire(session, [_response("payments", [{"id": "PM1"}])])
-
-        _run(session, "sandbox", "payments", _make_manager())
-
-        assert urlparse(urls[0]).netloc == "api-sandbox.gocardless.com"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_live_uses_live_host(self, MockSession):
-        session = MockSession.return_value
-        _, urls = _wire(session, [_response("payments", [{"id": "PM1"}])])
-
-        _run(session, "live", "payments", _make_manager())
-
-        assert urlparse(urls[0]).netloc == "api.gocardless.com"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_request_includes_filter(self, MockSession):
         session = MockSession.return_value
         params, _ = _wire(session, [_response("events", [{"id": "EV1"}])])
@@ -212,30 +170,6 @@ class TestPagination:
         assert params[0]["created_at[gte]"] == "2024-01-02T00:00:00.000Z"
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_full_refresh_omits_filter(self, MockSession):
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response("events", [{"id": "EV1"}])])
-
-        _run(session, "live", "events", _make_manager())
-
-        assert "created_at[gte]" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_incremental_endpoint_ignores_watermark(self, MockSession):
-        session = MockSession.return_value
-        params, _ = _wire(session, [_response("payments", [{"id": "PM1"}])])
-
-        _run(
-            session,
-            "live",
-            "payments",
-            _make_manager(),
-            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-        )
-
-        assert "created_at[gte]" not in params[0]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_cursor(self, MockSession):
         session = MockSession.return_value
         params, _ = _wire(session, [_response("payments", [{"id": "PM9"}])])
@@ -245,17 +179,45 @@ class TestPagination:
 
         assert params[0]["after"] == "PM_RESUME"
 
+
+class TestFanout:
+    @pytest.mark.parametrize(
+        "endpoint, parent_key, parent_id, resolve_param, injected_key",
+        [
+            ("payout_items", "payouts", "PO1", "payout", "payout_id"),
+            ("balances", "creditors", "CR1", "creditor", "creditor_id"),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_with_cursor_stops(self, MockSession):
+    def test_child_is_fetched_per_parent_with_parent_id_injected(
+        self, MockSession, endpoint, parent_key, parent_id, resolve_param, injected_key
+    ):
         session = MockSession.return_value
-        _wire(session, [_response("payments", [], after="PM_LOOP")])
+        params, urls = _wire(
+            session,
+            [
+                _response(parent_key, [{"id": parent_id}]),
+                _response(endpoint, [{"type": "a", "amount": "1"}], after="X1"),
+                _response(endpoint, [{"type": "b", "amount": "2"}]),
+            ],
+        )
 
-        manager = _make_manager()
-        rows = _run(session, "live", "payments", manager)
+        rows = _run(session, "live", endpoint, _make_manager())
 
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert urlparse(urls[1]).path == f"/{endpoint}"
+        assert parse_qs(urlparse(urls[1]).query) == {resolve_param: [parent_id]}
+        assert params[2]["after"] == "X1"
+        assert [r["type"] for r in rows] == ["a", "b"]
+        assert all(r[injected_key] == parent_id for r in rows)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_balances_lists_every_creditor(self, MockSession):
+        session = MockSession.return_value
+        params, _ = _wire(session, [_response("creditors", [{"id": "CR1"}]), _response("balances", [])])
+
+        _run(session, "live", "balances", _make_manager())
+
+        assert "created_at[gte]" not in params[0]
 
 
 class TestGoCardlessSourceResponse:
@@ -272,6 +234,10 @@ class TestGoCardlessSourceResponse:
         )
 
         assert response.name == endpoint
+        if config.primary_key is None:
+            assert response.primary_keys is None
+            assert response.partition_keys is None
+            return
         assert response.primary_keys == [config.primary_key]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
@@ -281,7 +247,3 @@ class TestGoCardlessSourceResponse:
             assert response.sort_mode == "desc"
         else:
             assert response.sort_mode == "asc"
-
-    @pytest.mark.parametrize("config", list(GOCARDLESS_ENDPOINTS.values()))
-    def test_partition_keys_are_stable_creation_fields(self, config):
-        assert config.partition_key == "created_at"

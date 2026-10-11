@@ -10,20 +10,24 @@ from django.conf import settings
 from django.contrib.auth import login
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
-from django.db.models.signals import post_delete, post_save
-from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.text import slugify
 
 import structlog
 from rest_framework import exceptions
+from two_factor.utils import default_device
 
+from posthog.api.signup import SIGNUP_BLOCKED_DETAIL, signup_refused
+from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.two_factor_session import has_passkeys
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.product_intent import ProductIntent
 from posthog.models.team import Team
@@ -33,6 +37,7 @@ from posthog.utils import absolute_uri
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
 
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.types import VercelClaims, VercelUserClaims
@@ -54,11 +59,16 @@ class VercelSSOError(Exception):
 
 
 class RequiresExistingUserLogin(Exception):
-    def __init__(self, email: str, vercel_user_id: str, installation_id: str):
+    def __init__(self, email: str, vercel_user_id: str, installation_id: str, prefill_email: bool = True):
         self.email = email
         self.vercel_user_id = vercel_user_id
         self.installation_id = installation_id
+        self.prefill_email = prefill_email
         super().__init__(f"User {email} must login first")
+
+
+class SSOLoginRefused(Exception):
+    pass
 
 
 @dataclass
@@ -890,9 +900,33 @@ class VercelIntegration:
         return claims
 
     @staticmethod
+    def _claims_prove_email(claims: VercelUserClaims, email: str) -> bool:
+        return claims.user_email_verified is True and (claims.user_email or "").lower() == email.lower()
+
+    @staticmethod
+    def _sso_login_block_reason(
+        user: User, claims: VercelUserClaims, installation: OrganizationIntegration
+    ) -> str | None:
+        if not user.is_active:
+            return "inactive_user"
+        if claims.user_email_verified is not True:
+            return "email_unverified"
+        if not VercelIntegration._claims_prove_email(claims, user.email):
+            return "email_mismatch"
+        if default_device(user) or (user.passkeys_enabled_for_2fa and has_passkeys(user)):
+            return "two_factor_required"
+        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
+            return "sso_enforced"
+        if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(user.email, installation.organization):
+            return "domain_blocked"
+        return None
+
+    @staticmethod
     def _authenticate_and_login_user(request, claims: VercelUserClaims, resource_id: str | None) -> User:
         user = VercelIntegration._find_sso_user(claims)
-        if user.is_email_verified is not True and claims.user_email and claims.user_email.lower() == user.email.lower():
+        if account_refused(request, user, call_site="vercel_sso", impersonated=False):
+            raise SSOLoginRefused()
+        if user.is_email_verified is not True and VercelIntegration._claims_prove_email(claims, user.email):
             # Vercel verified the mailbox before issuing the claim, so this login proves it.
             user.is_email_verified = True
             user.save(update_fields=["is_email_verified"])
@@ -918,27 +952,37 @@ class VercelIntegration:
             if not claims.user_email:
                 raise exceptions.AuthenticationFailed("Vercel SSO claims missing user email")
 
-            if request.user.email.lower() != claims.user_email.lower():
-                logger.warning(
-                    "Email mismatch in Vercel SSO",
-                    expected_email=claims.user_email,
-                    logged_in_email=request.user.email,
-                    integration="vercel",
-                )
-                VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
-                error_params = {
-                    "expected_email": claims.user_email,
-                    "current_email": request.user.email,
-                    "code": params.code,
-                    "state": params.state,
-                }
-                return f"/integrations/vercel/link-error?{urlencode(error_params)}"
-
             with transaction.atomic():
                 installation = OrganizationIntegration.objects.select_for_update().get(
                     kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
                     integration_id=claims.installation_id,
                 )
+                mapped_user_pk = VercelIntegration._get_user_mapping(installation, claims.user_id)
+                if mapped_user_pk is not None and not User.objects.filter(pk=mapped_user_pk).exists():
+                    mapped_user_pk = None
+                if mapped_user_pk is None:
+                    can_link = VercelIntegration._claims_prove_email(claims, request.user.email)
+                else:
+                    can_link = (
+                        mapped_user_pk == request.user.pk
+                        and request.user.organization_memberships.filter(
+                            organization=installation.organization, level__gte=OrganizationMembership.Level.MEMBER
+                        ).exists()
+                    )
+
+                if not can_link:
+                    logger.warning(
+                        "Email mismatch in Vercel SSO",
+                        expected_email=claims.user_email,
+                        logged_in_email=request.user.email,
+                        integration="vercel",
+                    )
+                    VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
+                    error_params = {"current_email": request.user.email, "code": params.code, "state": params.state}
+                    # With a mapping, the linked account is the mapped one, whose email the token never proved, so name none.
+                    if mapped_user_pk is None:
+                        error_params["expected_email"] = claims.user_email
+                    return f"/integrations/vercel/link-error?{urlencode(error_params)}"
 
                 intended_level = VercelIntegration._determine_membership_level(request.user.email, installation)
                 created = VercelIntegration._add_user_to_organization(
@@ -973,6 +1017,7 @@ class VercelIntegration:
             return redirect_url
         except Exception as e:
             logger.exception("Vercel SSO completion failed", error=str(e), integration="vercel")
+            capture_exception(e)
             raise exceptions.AuthenticationFailed("SSO completion failed")
 
     @staticmethod
@@ -1053,8 +1098,12 @@ class VercelIntegration:
                 VercelIntegration.set_cached_claims(params.code, claims, timeout=300)
 
             continuation_url = f"/login/vercel/continue?{urlencode(params.to_dict_no_nulls())}"
-            message = f"Please log in with {e.email} to link your Vercel account"
-            login_url = f"/login?email={quote(e.email)}&message={quote(message)}&next={quote(continuation_url)}"
+            if e.prefill_email:
+                message = f"Please log in with {e.email} to link your Vercel account"
+                login_url = f"/login?email={quote(e.email)}&message={quote(message)}&next={quote(continuation_url)}"
+            else:
+                message = "Please log in to PostHog to link your Vercel account"
+                login_url = f"/login?message={quote(message)}&next={quote(continuation_url)}"
 
             logger.info(
                 "Vercel SSO requires existing user login",
@@ -1064,6 +1113,8 @@ class VercelIntegration:
                 integration="vercel",
             )
             return login_url
+        except SSOLoginRefused:
+            return ACCOUNT_BLOCKED_LOGIN_URL
         except Exception as e:
             logger.exception("Vercel SSO authentication failed", error=str(e), integration="vercel")
             capture_exception(e)
@@ -1105,6 +1156,9 @@ class VercelIntegration:
         elif email:
             first_name = email.split("@")[0]
 
+        if signup_refused(email, call_site="vercel_provisioning"):
+            raise exceptions.PermissionDenied(SIGNUP_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
+
         user = User.objects.create_user(
             email=email,
             password=None,
@@ -1118,48 +1172,72 @@ class VercelIntegration:
         return user
 
     @staticmethod
+    @transaction.atomic
     def _find_sso_user(claims: VercelUserClaims) -> User:
         if not claims.user_email:
             raise ValueError("Email is required for user creation")
 
-        installation = VercelIntegration._get_installation(claims.installation_id)
+        installation = OrganizationIntegration.objects.select_for_update().get(
+            kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+            integration_id=claims.installation_id,
+        )
 
         # Try to find already mapped user
         user_pk = VercelIntegration._get_user_mapping(installation, claims.user_id)
         if user_pk:
-            user = User.objects.filter(pk=user_pk, is_active=True).first()
+            user = User.objects.filter(pk=user_pk).first()
             if user:
                 # Validate that the user still has access to the organization associated with the installation
-                if not user.organization_memberships.filter(
-                    organization=installation.organization, level__gte=OrganizationMembership.Level.MEMBER
-                ).exists():
-                    # User no longer has access to this organization, remove stale mapping
-                    user_mappings = installation.config.get("user_mappings", {})
-                    if claims.user_id in user_mappings:
-                        del user_mappings[claims.user_id]
-                        installation.save(update_fields=["config"])
+                if (
+                    user.is_active
+                    and not user.organization_memberships.filter(
+                        organization=installation.organization, level__gte=OrganizationMembership.Level.MEMBER
+                    ).exists()
+                ):
                     raise exceptions.PermissionDenied("User no longer has access to this organization")
-                return user
+                reason = VercelIntegration._sso_login_block_reason(user, claims, installation)
+                if reason is None:
+                    return user
+                logger.info(
+                    "Vercel SSO mapping needs a PostHog login",
+                    reason=reason,
+                    email_verified=claims.user_email_verified,
+                    installation_id=claims.installation_id,
+                    integration="vercel",
+                )
+                # Falling through would create a second account for this person, so a mismatch goes to a PostHog login.
+                # The token has not proven it owns the mapped account's email, so the login page must not show it.
+                raise RequiresExistingUserLogin(
+                    email=claims.user_email,
+                    vercel_user_id=claims.user_id,
+                    installation_id=claims.installation_id,
+                    prefill_email=False,
+                )
             # User was deleted, remove stale mapping
             user_mappings = installation.config.get("user_mappings", {})
             if claims.user_id in user_mappings:
                 del user_mappings[claims.user_id]
                 installation.save(update_fields=["config"])
 
-        existing_user = User.objects.filter(email=claims.user_email).first()
+        existing_user = EmailLookupHandler.get_user_by_email(claims.user_email, is_active=None)
         if existing_user:
-            raise RequiresExistingUserLogin(
-                email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
+            if VercelIntegration._sso_login_block_reason(existing_user, claims, installation) is not None:
+                raise RequiresExistingUserLogin(
+                    email=claims.user_email, vercel_user_id=claims.user_id, installation_id=claims.installation_id
+                )
+            user = existing_user
+            intended_level = VercelIntegration._determine_membership_level(user.email, installation)
+            VercelIntegration._add_user_to_organization(user, installation.organization, intended_level)
+            user.current_organization = installation.organization
+            user.save(update_fields=["current_organization"])
+        else:
+            intended_level = VercelIntegration._determine_membership_level(claims.user_email, installation)
+            user = VercelIntegration._create_user_for_email(
+                email=claims.user_email,
+                name=claims.user_name,
+                organization=installation.organization,
+                level=intended_level,
             )
-
-        intended_level = VercelIntegration._determine_membership_level(claims.user_email, installation)
-
-        user = VercelIntegration._create_user_for_email(
-            email=claims.user_email,
-            name=claims.user_name,
-            organization=installation.organization,
-            level=intended_level,
-        )
 
         VercelIntegration._set_user_mapping(installation, claims.user_id, user.pk)
         return user
@@ -1346,63 +1424,3 @@ def _safe_vercel_sync(
             integration="vercel",
         )
         capture_exception(e)
-
-
-@receiver(post_save, sender=FeatureFlag)
-def sync_feature_flag_experimentation_item(sender, instance: FeatureFlag, created, **kwargs):
-    if instance.deleted:
-        _safe_vercel_sync(
-            "delete feature flag from Vercel",
-            instance.pk,
-            instance.team,
-            lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
-            is_delete=True,
-        )
-    else:
-        _safe_vercel_sync(
-            "sync feature flag to Vercel",
-            instance.pk,
-            instance.team,
-            lambda: VercelIntegration.sync_feature_flag_to_vercel(instance, created),
-        )
-
-
-@receiver(post_delete, sender=FeatureFlag)
-def delete_resource_experimentation_item(sender, instance: FeatureFlag, **kwargs):
-    _safe_vercel_sync(
-        "delete feature flag from Vercel",
-        instance.pk,
-        instance.team,
-        lambda: VercelIntegration.delete_feature_flag_from_vercel(instance),
-        is_delete=True,
-    )
-
-
-@receiver(post_save, sender=Experiment)
-def sync_experiment_experimentation_item(sender, instance: Experiment, created, **kwargs):
-    if instance.deleted:
-        _safe_vercel_sync(
-            "delete experiment from Vercel",
-            instance.pk,
-            instance.team,
-            lambda: VercelIntegration.delete_experiment_from_vercel(instance),
-            is_delete=True,
-        )
-    else:
-        _safe_vercel_sync(
-            "sync experiment to Vercel",
-            instance.pk,
-            instance.team,
-            lambda: VercelIntegration.sync_experiment_to_vercel(instance, created),
-        )
-
-
-@receiver(post_delete, sender=Experiment)
-def delete_experiment_experimentation_item(sender, instance: Experiment, **kwargs):
-    _safe_vercel_sync(
-        "delete experiment from Vercel",
-        instance.pk,
-        instance.team,
-        lambda: VercelIntegration.delete_experiment_from_vercel(instance),
-        is_delete=True,
-    )

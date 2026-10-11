@@ -18,19 +18,25 @@ then delegates to the read layer: source selection and access control live in th
 not in the query builders below it.
 """
 
-from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
+    AttentionPullRequestList,
+    AuthorFrictionDetail,
+    AuthorFrictionList,
     BranchPRMatch,
     BrokenTestsResult,
     CICardSummary,
+    CIDataFreshness,
+    CIEngine,
     CIFailureLogs,
     CISignalsConfig,
     CITestRunner,
+    CITimingContext,
+    CITimingKind,
     CurrentBranchHealth,
     DeliveryComparison,
     DeliverySummary,
@@ -38,11 +44,12 @@ from products.engineering_analytics.backend.facade.contracts import (
     FlakyTestList,
     GitHubSource,
     GitHubTeamRoster,
+    JobLogInsights,
     MasterFailureGroup,
     MergedPullRequest,
-    PathOwnership,
     PRCostSummary,
     PRLifecycle,
+    PullRequestFrictionDetail,
     PullRequestList,
     PullRequestTimelines,
     QuarantineFile,
@@ -64,6 +71,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -136,12 +144,13 @@ def get_workflow_run(
     *,
     team: Team,
     run_id: int,
+    ci_engine: CIEngine | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> WorkflowRunDetail | None:
     return logic.build_workflow_run(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id, ci_engine=ci_engine
     )
 
 
@@ -281,6 +290,50 @@ def list_author_workflow_costs(
     )
 
 
+def get_author_friction(
+    *,
+    team: Team,
+    github_team: str | None = None,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AuthorFrictionList:
+    """Every author's friction over the last 30 days, most first. ``github_team`` lists only its members,
+    with their repository-wide scores and ranks."""
+    return logic.build_author_friction(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        github_team=github_team.strip() if github_team and github_team.strip() else None,
+    )
+
+
+def get_author_friction_detail(
+    *,
+    team: Team,
+    author: str,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AuthorFrictionDetail:
+    """One author's friction next to their teams, and the pull requests that added the most of it."""
+    return logic.build_author_friction_detail(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), author=author
+    )
+
+
+def get_pull_request_friction(
+    *,
+    team: Team,
+    pr_number: int,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> PullRequestFrictionDetail:
+    """One merged pull request's friction as a multiple of the typical pull request, with the counts behind it."""
+    return logic.build_pull_request_friction(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), repo=repo, number=pr_number
+    )
+
+
 def get_delivery_summary(
     *,
     team: Team,
@@ -360,6 +413,7 @@ def list_workflow_jobs(
     *,
     team: Team,
     run_id: int,
+    ci_engine: CIEngine | None = None,
     run_attempt: int | None = None,
     source_id: str | None = None,
     repo: str | None = None,
@@ -368,7 +422,61 @@ def list_workflow_jobs(
     return logic.build_workflow_jobs(
         curated=_authorized_source(team, source_id, user_access_control, repo=repo),
         run_id=run_id,
+        ci_engine=ci_engine,
         run_attempt=run_attempt,
+    )
+
+
+def get_job_log_insights(
+    *,
+    team: Team,
+    repo: str,
+    run_id: int,
+    job_id: int,
+    ci_engine: CIEngine | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> JobLogInsights:
+    return logic.build_job_log_insights(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        run_id=run_id,
+        job_id=job_id,
+        ci_engine=ci_engine,
+    )
+
+
+def get_ci_data_freshness(
+    *,
+    team: Team,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CIDataFreshness:
+    return logic.build_ci_data_freshness(curated=_authorized_source(team, source_id, user_access_control, repo=repo))
+
+
+def get_ci_timing_context(
+    *,
+    team: Team,
+    repo: str,
+    ci_engine: CIEngine,
+    run_id: int,
+    run_attempt: int,
+    kind: CITimingKind,
+    job_ids: "Sequence[int]" = (),
+    step_number: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CITimingContext:
+    return logic.build_ci_timing_context(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        repo=repo,
+        ci_engine=ci_engine,
+        run_id=run_id,
+        run_attempt=run_attempt,
+        kind=kind,
+        job_ids=job_ids,
+        step_number=step_number,
     )
 
 
@@ -386,13 +494,35 @@ def list_pull_requests(
     *,
     team: Team,
     date_from: str | None = None,
+    date_to: str | None = None,
     author: str | None = None,
+    state: str | None = None,
+    limit: int | None = None,
+    offset: int | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PullRequestList:
     return logic.build_pull_request_list(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo), date_from=date_from, author=author
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo),
+        date_from=date_from,
+        date_to=date_to,
+        author=author,
+        state=state,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def list_attention_pull_requests(
+    *,
+    team: Team,
+    source_id: str | None = None,
+    repo: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> AttentionPullRequestList:
+    return logic.build_attention_pull_requests(
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo)
     )
 
 
@@ -664,12 +794,13 @@ def get_run_failure_logs(
     *,
     team: Team,
     run_id: int,
+    ci_engine: CIEngine | None = None,
     source_id: str | None = None,
     repo: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> RunFailureLogs:
     return logic.build_run_failure_logs(
-        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id
+        curated=_authorized_source(team, source_id, user_access_control, repo=repo), run_id=run_id, ci_engine=ci_engine
     )
 
 
@@ -703,9 +834,3 @@ def get_github_team_roster(*, team: Team, user_access_control: "UserAccessContro
     insists on. An unsynced snapshot comes back as ``synced=False``, never an error.
     """
     return logic.build_github_team_roster(team=team, user_access_control=user_access_control)
-
-
-def resolve_path_owners(repository: str, paths: Sequence[str]) -> PathOwnership:
-    """Name the team that owns each repository path, from the ownership files on the repository's
-    default branch. It takes no team, because nothing PostHog stores feeds the answer."""
-    return logic.resolve_path_owners(repository, paths)

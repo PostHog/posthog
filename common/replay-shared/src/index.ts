@@ -54,7 +54,9 @@ export { CanvasReplayerPlugin } from './canvas/canvas-plugin'
 export {
     AudioMuteReplayerPlugin,
     CorsPlugin,
+    createCorsPlugin,
     COMMON_REPLAYER_CONFIG,
+    speedDependentStyleRules,
     HLSPlayerPlugin,
     createHLSPlayerPlugin,
     WindowTitlePlugin,

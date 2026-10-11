@@ -63,11 +63,13 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_batch_resolve = 'cdp-cyclotron-worker-batch-resolve',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     cdp_rerun_worker = 'cdp-rerun-worker',
+    cdp_dlq_replay = 'cdp-dlq-replay',
     recording_api = 'recording-api',
     ingestion_v2_combined = 'ingestion-v2-combined',
     ingestion_traces = 'ingestion-traces',
     cdp_hogflow_scheduler = 'cdp-hogflow-scheduler',
     ingestion_api = 'ingestion-api',
+    push_api = 'push-api',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -138,6 +140,8 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_PING_IDLE_CONNECTION: boolean
     PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
     PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
+    PERSONHOG_INITIAL_STREAM_WINDOW_BYTES: number
+    PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES: number
 
     // Usage ingestion gRPC. One team list per deployment, because each reporting site is its
     // own service: '' reports nothing, '*' every team, '1,2' those teams. No percentage: it
@@ -166,7 +170,6 @@ export type CommonConfig = BaseServerConfig & {
     CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: number
-    CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_REBALANCE_TIMEOUT_MS: number
     CONSUMER_AUTO_CREATE_TOPICS: boolean
     /**
@@ -227,6 +230,17 @@ export type CommonConfig = BaseServerConfig & {
     // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
     // everyone else's requests, '*' for all.
     EXTERNAL_REQUEST_PROXY_TEAMS: string
+    // Resolve third-party hostnames as absolute names (with a trailing dot) on the direct route. The resolver then
+    // skips the cluster search domains, so a hostname that does not exist costs one query instead of one per search
+    // domain. A customer-supplied hostname never names a cluster service, so the search domains never help it.
+    EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: boolean
+    // A process-local cache of hostnames that returned ENOTFOUND on the direct route. 'off' disables it. 'shadow'
+    // still runs every lookup and only counts the lookups the cache would have skipped. 'enforce' fails those lookups
+    // at once with the same ResolutionError. Only ENOTFOUND is cached: a timeout or SERVFAIL can be the resolver's
+    // fault, and caching it would fail healthy destinations while the resolver is under load.
+    EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: string
+    EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS: number
+    EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES: number
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -267,6 +281,10 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_CONNECTIONS'
     | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
     | 'EXTERNAL_REQUEST_PROXY_TEAMS'
+    | 'EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP'
+    | 'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE'
+    | 'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS'
+    | 'EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES'
 >
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
@@ -280,6 +298,14 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
         EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
         EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
         EXTERNAL_REQUEST_PROXY_TEAMS: process.env.EXTERNAL_REQUEST_PROXY_TEAMS ?? '',
+        EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: process.env.EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP === 'true',
+        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: process.env.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE ?? 'off',
+        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS: Number(
+            process.env.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS ?? 10_000
+        ),
+        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES: Number(
+            process.env.EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES ?? 10_000
+        ),
     }
 }
 
@@ -355,6 +381,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         PERSONHOG_PING_IDLE_CONNECTION: true,
         PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: 15 * 60 * 1000,
         PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: 5_000,
+        PERSONHOG_INITIAL_STREAM_WINDOW_BYTES: 0,
+        PERSONHOG_INITIAL_CONNECTION_WINDOW_BYTES: 0,
 
         // Usage ingestion gRPC
         USAGE_INGESTION_ADDR: isDevEnv() ? 'localhost:7143' : '',
@@ -383,7 +411,6 @@ export function getDefaultCommonConfig(): CommonConfig {
         CONSUMER_LOOP_BASED_HEALTH_CHECK: false,
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_BACKGROUND_TASK_TIMEOUT_MS: 60_000,
-        CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_REBALANCE_TIMEOUT_MS: 20_000,
         CONSUMER_AUTO_CREATE_TOPICS: true,
         CONSUMER_USE_V2: false,
@@ -436,6 +463,10 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_CONNECTIONS: 500,
         EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
         EXTERNAL_REQUEST_PROXY_TEAMS: '',
+        EXTERNAL_REQUEST_DNS_ABSOLUTE_LOOKUP: false,
+        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MODE: 'off',
+        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_TTL_MS: 10_000,
+        EXTERNAL_REQUEST_DNS_NEGATIVE_CACHE_MAX_ENTRIES: 10_000,
 
         // PostHog analytics
         POSTHOG_API_KEY: '',

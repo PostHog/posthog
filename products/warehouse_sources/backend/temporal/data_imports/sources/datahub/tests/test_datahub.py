@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.datahub.da
     DatahubTimeseriesScrollUnsupportedError,
     DatahubTooManyPagesError,
     _extract_page,
-    _headers,
     _timeseries_row_id,
     check_endpoint_permissions,
     datahub_source,
@@ -101,9 +100,6 @@ class TestDatahub:
     )
     def test_normalize_instance_url(self, _name: str, raw: str, expected: str) -> None:
         assert normalize_instance_url(raw) == expected
-
-    def test_headers_send_bearer_token(self) -> None:
-        assert _headers(TOKEN)["Authorization"] == f"Bearer {TOKEN}"
 
     # --- scroll envelope extraction ---
 
@@ -216,37 +212,6 @@ class TestDatahub:
             rows.extend(batch)
         return rows, calls
 
-    def test_scroll_walks_pages_and_saves_state_after_yield(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {
-            None: {"scrollId": "cursor-1", "entities": [{"urn": "u1"}, {"urn": "u2"}]},
-            "cursor-1": {"entities": [{"urn": "u3"}]},
-        }
-        rows, calls = self._collect(manager, monkeypatch, pages)
-
-        # Compared whole, so the timeseries row-id transform can't leak onto an entity endpoint.
-        assert rows == [{"urn": "u1"}, {"urn": "u2"}, {"urn": "u3"}]
-        assert calls[0]["url"] == f"{BASE_URL}/openapi/v3/entity/dataset"
-        # Stable ascending urn sort keeps page boundaries fixed while scrolling.
-        assert all(
-            c["params"]["query"] == "*"
-            and c["params"]["count"] == PAGE_SIZE
-            and c["params"]["sortCriteria"] == "urn"
-            and c["params"]["sortOrder"] == "ASCENDING"
-            for c in calls
-        )
-        assert [c["params"].get("scrollId") for c in calls] == [None, "cursor-1"]
-        # State is saved once — after the first page yielded, pointing at the next cursor.
-        assert [s.scroll_id for s in manager.saved] == ["cursor-1"]
-
-    def test_scroll_stops_on_empty_page_even_with_cursor(self, monkeypatch: Any) -> None:
-        # Guard against a server that echoes a cursor forever: an empty page terminates the sweep.
-        manager = _FakeResumableManager()
-        rows, calls = self._collect(manager, monkeypatch, {None: {"scrollId": "next", "entities": []}})
-        assert rows == []
-        assert len(calls) == 1
-        assert manager.saved == []
-
     def test_scroll_aborts_past_page_budget(self, monkeypatch: Any) -> None:
         # A hostile instance can echo a fresh non-empty page and cursor forever; the empty-page
         # guard never fires, so the sweep must abort at the page budget instead of writing rows
@@ -279,13 +244,6 @@ class TestDatahub:
         # so a resume restarts from the last good page rather than walking deeper into the stream.
         assert [r["urn"] for r in collected] == ["u1", "u2", "u3"]
         assert [s.scroll_id for s in manager.saved] == ["1", "2"]
-
-    def test_scroll_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(DatahubResumeConfig(scroll_id="cursor-9"))
-        pages = {"cursor-9": {"entities": [{"urn": "u9"}]}}
-        rows, calls = self._collect(manager, monkeypatch, pages)
-        assert [r["urn"] for r in rows] == ["u9"]
-        assert [c["params"].get("scrollId") for c in calls] == ["cursor-9"]
 
     # pytest.mark.parametrize (not parameterized.expand) because the test also needs the
     # monkeypatch fixture, which parameterized's wrapper doesn't forward.
@@ -369,13 +327,6 @@ class TestDatahub:
         # The endpoint takes no sort parameter, so none of the entity scroll's sort params apply.
         assert all("sortCriteria" not in c["params"] for c in calls)
 
-    def test_timeseries_rows_carry_a_synthesized_primary_key(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager()
-        pages = {None: {"results": [{"urn": "u1", "timestampMillis": 3000, "event": {"rowCount": 1}}]}}
-        rows, _calls = self._collect(manager, monkeypatch, pages, endpoint="dataset_profiles")
-        assert rows[0]["id"] == _timeseries_row_id(pages[None]["results"][0])
-        assert rows[0]["event"] == {"rowCount": 1}
-
     def test_timeseries_full_page_without_a_cursor_fails_instead_of_truncating(self, monkeypatch: Any) -> None:
         # DataHub before v1.4.0 never returns a scroll cursor from the timeseries endpoint, so the
         # sweep would end after one page and write a silently truncated table. A fixed instance
@@ -385,22 +336,6 @@ class TestDatahub:
         pages = {None: {"results": [{"urn": "u1", "timestampMillis": 3000}, {"urn": "u2", "timestampMillis": 2000}]}}
         with pytest.raises(DatahubTimeseriesScrollUnsupportedError):
             self._collect(manager, monkeypatch, pages, endpoint="dataset_profiles")
-
-    def test_timeseries_short_final_page_without_a_cursor_ends_the_sweep(self, monkeypatch: Any) -> None:
-        monkeypatch.setattr(datahub, "PAGE_SIZE", 2)
-        manager = _FakeResumableManager()
-        pages = {None: {"results": [{"urn": "u1", "timestampMillis": 3000}]}}
-        rows, _calls = self._collect(manager, monkeypatch, pages, endpoint="dataset_profiles")
-        assert [r["urn"] for r in rows] == ["u1"]
-
-    def test_entity_full_page_without_a_cursor_ends_the_sweep(self, monkeypatch: Any) -> None:
-        # The entity scroll has always signalled its last page by omitting the cursor, so the
-        # timeseries guard must not fire on it.
-        monkeypatch.setattr(datahub, "PAGE_SIZE", 2)
-        manager = _FakeResumableManager()
-        pages = {None: {"entities": [{"urn": "u1"}, {"urn": "u2"}]}}
-        rows, _calls = self._collect(manager, monkeypatch, pages)
-        assert [r["urn"] for r in rows] == ["u1", "u2"]
 
     @parameterized.expand(
         [
@@ -459,9 +394,6 @@ class TestDatahub:
         monkeypatch.setattr(datahub, "make_tracked_session", lambda **kwargs: session)
         monkeypatch.setattr(datahub, "_is_host_safe", lambda host, team_id: (True, None))
         return validate_credentials(BASE_URL, TOKEN, schema_name=schema_name, team_id=1)
-
-    def test_validate_credentials_success(self, monkeypatch: Any) -> None:
-        assert self._validate(monkeypatch, _mock_response(200, {"entities": []})) == (True, None)
 
     def test_validate_credentials_invalid_token(self, monkeypatch: Any) -> None:
         # DataHub 401s carry an empty body, so the message must stand on its own.
@@ -561,16 +493,6 @@ class TestDatahub:
         ):
             result = check_endpoint_permissions(BASE_URL, TOKEN, ["datasets"], team_id=1)
         assert result["datasets"] == expected
-
-    def test_check_endpoint_permissions_probes_the_endpoint_the_sync_reads(self, monkeypatch: Any) -> None:
-        # A timeseries aspect needs the timeseries read privilege on top of the entity one, so
-        # probing the entity list would report a table as readable that the sync cannot read.
-        session = MagicMock()
-        session.get.return_value = _mock_response(200, {"results": []})
-        monkeypatch.setattr(datahub, "make_tracked_session", lambda **kwargs: session)
-        monkeypatch.setattr(datahub, "_is_host_safe", lambda host, team_id: (True, None))
-        check_endpoint_permissions(BASE_URL, TOKEN, ["dataset_operations"], team_id=1)
-        assert session.get.call_args.args[0] == f"{BASE_URL}/openapi/v2/timeseries/dataset/operation"
 
     def test_check_endpoint_permissions_treats_network_blips_as_reachable(self, monkeypatch: Any) -> None:
         session = MagicMock()

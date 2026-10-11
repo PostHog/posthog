@@ -6,6 +6,8 @@ import { urls } from 'scenes/urls'
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
 
+import type { TracingSceneTab } from './frontend/tracingSceneLogic'
+
 export const manifest: ProductManifest = {
     name: 'Tracing',
     scenes: {
@@ -28,14 +30,32 @@ export const manifest: ProductManifest = {
             description: 'Latency distribution and sample traces for a single operation.',
             iconType: 'tracing',
         },
+        TracingRetentionNew: {
+            name: 'New retention rule',
+            import: () => import('./frontend/scenes/TracingRetentionNewScene/TracingRetentionNewScene'),
+            projectBased: true,
+            layout: 'app-container',
+            activityScope: 'Tracing',
+            iconType: 'tracing',
+        },
+        TracingRetentionDetail: {
+            name: 'Retention rule',
+            import: () => import('./frontend/scenes/TracingRetentionDetailScene/TracingRetentionDetailScene'),
+            projectBased: true,
+            layout: 'app-container',
+            activityScope: 'Tracing',
+            iconType: 'tracing',
+        },
     },
     routes: {
         '/tracing': ['Tracing', 'tracing'],
         '/tracing/operation': ['TracingOperation', 'tracingOperation'],
+        '/tracing/retention-rules/new': ['TracingRetentionNew', 'tracingRetentionNew'],
+        '/tracing/retention-rules/:id': ['TracingRetentionDetail', 'tracingRetentionDetail'],
     },
     redirects: {},
     urls: {
-        tracing: (): string => '/tracing',
+        tracing: (tab?: TracingSceneTab): string => (tab ? `/tracing?tab=${tab}` : '/tracing'),
         // Query params rather than path segments: span names ("GET /api/stats") contain slashes
         // and arbitrary characters that break path routing.
         tracingOperation: (
@@ -48,6 +68,8 @@ export const manifest: ProductManifest = {
                 name: spanName,
                 ...(dateRange ? { dateRange: JSON.stringify(dateRange) } : {}),
             }).url,
+        tracingRetentionNew: (): string => '/tracing/retention-rules/new',
+        tracingRetentionDetail: (id: string): string => `/tracing/retention-rules/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -55,13 +77,15 @@ export const manifest: ProductManifest = {
         {
             path: 'Tracing',
             intents: [ProductKey.TRACING],
-            category: ProductItemCategory.APP_MONITORING,
+            category: ProductItemCategory.MONITORING,
             iconType: 'tracing',
             iconColor: [
                 'var(--color-product-tracing-light)',
                 'var(--color-product-tracing-dark)',
             ] as FileSystemIconColor,
             href: urls.tracing(),
+            searchKeywords: ['apm', 'spans', 'latency'],
+            searchTabs: [{ name: 'SQL', href: urls.tracing('sql'), flag: FEATURE_FLAGS.TRACING_SCENE_TABS }],
             flag: FEATURE_FLAGS.TRACING,
             sceneKey: 'Tracing',
         },

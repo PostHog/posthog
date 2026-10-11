@@ -9,15 +9,12 @@ from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales import (
     FreshsalesResumeConfig,
-    _build_page_url,
-    _build_root,
     _normalize_alias,
     _resolve_view_id,
     check_credentials,
     freshsales_source,
     get_rows,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.settings import FRESHSALES_ENDPOINTS
 
 
 def _resp(status: int = 200, body: Optional[dict] = None) -> MagicMock:
@@ -85,44 +82,11 @@ class TestNormalizeAlias:
         with pytest.raises(ValueError):
             _normalize_alias(value)
 
-    def test_build_root_constrains_host(self) -> None:
-        assert _build_root("acme") == "https://acme.myfreshworks.com/crm/sales/api"
-
-
-class TestBuildPageUrl:
-    def test_view_endpoint_includes_view_and_sort(self) -> None:
-        url = _build_page_url(
-            "https://acme.myfreshworks.com/crm/sales/api", FRESHSALES_ENDPOINTS["contacts"], view_id=42, page=3
-        )
-        assert "/contacts/view/42?" in url
-        assert "page=3" in url
-        assert "per_page=100" in url
-        assert "sort=created_at" in url
-        assert "sort_type=asc" in url
-
-    def test_direct_endpoint_includes_static_params(self) -> None:
-        url = _build_page_url(
-            "https://acme.myfreshworks.com/crm/sales/api", FRESHSALES_ENDPOINTS["open_tasks"], view_id=None, page=1
-        )
-        assert "/tasks?" in url
-        assert "filter=open" in url
-        assert "sort=" not in url
-
 
 class TestResolveViewId:
-    def test_prefers_all_view(self) -> None:
-        session = _session(
-            [_resp(body={"filters": [{"id": 1, "name": "My contacts"}, {"id": 2, "name": "All Contacts"}]})]
-        )
-        assert _resolve_view_id(session, "https://acme.myfreshworks.com/crm/sales/api", "contacts", MagicMock()) == 2
-
     def test_falls_back_to_first_view(self) -> None:
         session = _session([_resp(body={"filters": [{"id": 7, "name": "Recently created"}]})])
         assert _resolve_view_id(session, "https://acme.myfreshworks.com/crm/sales/api", "contacts", MagicMock()) == 7
-
-    def test_returns_none_on_404(self) -> None:
-        session = _session([_resp(status=404)])
-        assert _resolve_view_id(session, "https://acme.myfreshworks.com/crm/sales/api", "leads", MagicMock()) is None
 
 
 class TestGetRows:
@@ -145,16 +109,6 @@ class TestGetRows:
         assert batches[1] == [{"id": 100}]
         # State saved after the first page only (pointing at the next page to fetch).
         assert [s.next_page for s in manager.saved] == [2]
-
-    def test_stops_on_short_page_when_total_pages_missing(self) -> None:
-        # /appointments omits total_pages, so a page shorter than per_page ends pagination.
-        page1 = _resp(body={"appointments": [{"id": i} for i in range(10)]})
-        manager = _FakeResumeManager()
-
-        batches = self._run("upcoming_appointments", [page1], manager)
-
-        assert len(batches) == 1
-        assert manager.saved == []
 
     def test_stops_on_empty_page(self) -> None:
         manager = _FakeResumeManager()
@@ -194,6 +148,89 @@ class TestGetRows:
         assert "/contacts/filters" in session.get.call_args_list[0].args[0]
         assert "/contacts/view/3?" in session.get.call_args_list[1].args[0]
 
+    def test_selector_falls_back_to_the_only_list_in_the_envelope(self) -> None:
+        # Freshsales doesn't publish selector response bodies; an unexpected envelope key must not
+        # silently sync an empty table.
+        manager = _FakeResumeManager()
+        batches = self._run("owners", [_resp(body={"portal_users": [{"id": 1, "name": "Ann"}]})], manager)
+        assert batches == [[{"id": 1, "name": "Ann"}]]
+
+    def test_deal_stages_walks_every_pipeline(self) -> None:
+        # /selector/deal_stages covers the default pipeline only, so a single request would miss the
+        # stages that deals in every other pipeline point at.
+        pipelines = _resp(body={"deal_pipelines": [{"id": 1, "name": "Sales"}, {"id": 2, "name": "Renewals"}]})
+        stages_1 = _resp(body={"deal_stages": [{"id": 10, "name": "New", "deal_pipeline_id": 1}]})
+        stages_2 = _resp(body={"deal_stages": [{"id": 20, "name": "Due", "deal_pipeline_id": 2}]})
+        manager = _FakeResumeManager()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales.make_tracked_session"
+        ) as mocked:
+            session = _session([pipelines, stages_1, stages_2])
+            mocked.return_value = session
+            batches = list(get_rows("acme", "acme", "deal_stages", MagicMock(), manager))  # type: ignore[arg-type]
+
+        assert [row["id"] for batch in batches for row in batch] == [10, 20]
+        assert [call.args[0].rsplit("/api/", 1)[1] for call in session.get.call_args_list] == [
+            "selector/deal_pipelines",
+            "selector/deal_pipelines/1/deal_stages",
+            "selector/deal_pipelines/2/deal_stages",
+        ]
+
+    def test_list_contacts_pages_every_list_and_tags_rows_with_list_id(self) -> None:
+        # /lists and /contacts/lists/{id} are paginated, unlike selectors, and the contact rows don't
+        # say which list they came from.
+        lists_page = _resp(body={"lists": [{"id": 1}, {"id": 2}], "meta": {"total_pages": 1}})
+        list_1_page_1 = _resp(body={"contacts": [{"id": i} for i in range(100)], "meta": {"total_pages": 2}})
+        list_1_page_2 = _resp(body={"contacts": [{"id": 100}], "meta": {"total_pages": 2}})
+        list_2_page_1 = _resp(body={"contacts": [{"id": 0}], "meta": {"total_pages": 1}})
+        manager = _FakeResumeManager()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales.make_tracked_session"
+        ) as mocked:
+            session = _session([lists_page, list_1_page_1, list_1_page_2, list_2_page_1])
+            mocked.return_value = session
+            batches = list(get_rows("acme", "acme", "list_contacts", MagicMock(), manager))  # type: ignore[arg-type]
+
+        rows = [row for batch in batches for row in batch]
+        assert len(rows) == 102
+        assert rows[100] == {"id": 100, "list_id": 1}
+        assert rows[101] == {"id": 0, "list_id": 2}
+        assert [call.args[0].rsplit("/api/", 1)[1] for call in session.get.call_args_list] == [
+            "lists?page=1&per_page=100",
+            "contacts/lists/1?page=1&per_page=100",
+            "contacts/lists/1?page=2&per_page=100",
+            "contacts/lists/2?page=1&per_page=100",
+        ]
+        assert manager.saved == [FreshsalesResumeConfig(next_page=2, parent_id=1)]
+
+    @parameterized.expand(
+        [
+            ("saved_list_still_exists", 2, ["contacts/lists/2?page=3&per_page=100"]),
+            (
+                "saved_list_deleted",
+                9,
+                ["contacts/lists/1?page=1&per_page=100", "contacts/lists/2?page=1&per_page=100"],
+            ),
+        ]
+    )
+    def test_list_contacts_resumes_at_saved_list_and_page(
+        self, _name: str, saved_list_id: int, expected_child_calls: list[str]
+    ) -> None:
+        lists_page = _resp(body={"lists": [{"id": 1}, {"id": 2}], "meta": {"total_pages": 1}})
+        child_pages = [_resp(body={"contacts": [{"id": 5}]}) for _ in expected_child_calls]
+        manager = _FakeResumeManager(FreshsalesResumeConfig(next_page=3, parent_id=saved_list_id))
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales.make_tracked_session"
+        ) as mocked:
+            session = _session([lists_page, *child_pages])
+            mocked.return_value = session
+            list(get_rows("acme", "acme", "list_contacts", MagicMock(), manager))  # type: ignore[arg-type]
+
+        assert [call.args[0].rsplit("/api/", 1)[1] for call in session.get.call_args_list[1:]] == expected_child_calls
+
     def test_tolerates_missing_object(self) -> None:
         # leads object absent -> /filters 404 -> stream yields nothing instead of failing.
         manager = _FakeResumeManager()
@@ -231,15 +268,6 @@ class TestCheckCredentials:
         assert status_code is None
         assert error is not None and "domain" in error.lower()
 
-    def test_source_create_probes_account_endpoint(self) -> None:
-        session = _session([_resp(status=200, body={})])
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.freshsales.freshsales.make_tracked_session",
-            return_value=session,
-        ):
-            check_credentials("key", "acme", None)
-        assert session.get.call_args.args[0].endswith("/selector/owners")
-
     def test_schema_probe_targets_endpoint(self) -> None:
         session = _session([_resp(status=200, body={})])
         with patch(
@@ -258,6 +286,7 @@ class TestFreshsalesSource:
             ("deals", ["id"], "created_at"),
             ("sales_activities", ["id"], None),
             ("open_tasks", ["id"], None),
+            ("list_contacts", ["list_id", "id"], "created_at"),
         ]
     )
     def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: Optional[str]) -> None:

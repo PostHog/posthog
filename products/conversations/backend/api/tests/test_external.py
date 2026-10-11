@@ -15,6 +15,7 @@ from rest_framework.test import APIClient
 
 from posthog.models import ActivityLog, Comment, Team
 from posthog.models.utils import generate_random_token_secret
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.conversations.backend.api.ticket_actions import _truncate_bytes
 from products.conversations.backend.models import Ticket
@@ -43,7 +44,67 @@ class TestExternalTicketAPI(BaseTest):
     def _auth_headers(self, token=None):
         return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.secret_api_token}"}
 
+    def _create_psak_token(self, scopes, team=None, label="external-ticket"):
+        _, token = create_project_secret_api_key(team or self.team, label=label, scopes=scopes)
+        return token
+
     # -- Authentication ---------------------------------------------------
+
+    def test_get_accepts_project_secret_api_key_with_support_ticket_read_scope(self):
+        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["support_ticket:read"])))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], str(self.ticket.id))
+
+    def test_get_rejects_project_secret_api_key_without_support_ticket_scope(self):
+        response = self.client.get(self.url, **self._auth_headers(self._create_psak_token(["endpoint:read"])))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_patch_rejects_project_secret_api_key(self):
+        response = self.client.patch(
+            self.url,
+            {"status": "resolved"},
+            content_type="application/json",
+            **self._auth_headers(self._create_psak_token(["support_ticket:read"])),
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.NEW)
+
+    @parameterized.expand([("primary", "secret_api_token"), ("backup", "secret_api_token_backup")])
+    def test_patch_accepts_legacy_token_that_has_a_migrated_psak_row(self, _name, token_field):
+        # The #63111 backfill gives the legacy token a PSAK row with the same hash. The
+        # legacy string (primary or rotated-out backup) must keep the legacy path
+        # (PATCH allowed), not resolve as a PSAK.
+        token = generate_random_token_secret()
+        setattr(self.team, token_field, token)
+        self.team.save(update_fields=[token_field])
+        create_project_secret_api_key(self.team, label="Migrated legacy secret API key", value=token)
+        response = self.client.patch(
+            self.url, {"status": "resolved"}, content_type="application/json", **self._auth_headers(token)
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.RESOLVED)
+
+    @parameterized.expand(
+        [
+            ("conversations_disabled", {"team": {"conversations_enabled": False}}),
+            ("organization_deactivated", {"organization": {"is_active": False}}),
+            ("organization_active_null", {"organization": {"is_active": None}}),
+            ("organization_pending_deletion", {"organization": {"is_pending_deletion": True}}),
+        ]
+    )
+    def test_psak_is_invisible_when_the_team_or_organization_is_blocked(self, _name, changes):
+        token = self._create_psak_token(["support_ticket:read"])
+        for field, value in changes.get("team", {}).items():
+            setattr(self.team, field, value)
+            self.team.save(update_fields=[field])
+        for field, value in changes.get("organization", {}).items():
+            setattr(self.organization, field, value)
+            self.organization.save(update_fields=[field])
+
+        response = self.client.get(self.url, **self._auth_headers(token))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_get_requires_auth(self):
         response = self.client.get(self.url)

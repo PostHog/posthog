@@ -2,6 +2,7 @@ import json
 import uuid
 from types import SimpleNamespace
 
+import time_machine
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
 from django.utils import timezone
@@ -45,9 +46,15 @@ from products.ai_observability.backend.models.trace_reviews import TraceReview, 
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.annotations.backend.models.annotation import Annotation
 from products.autoresearch.backend.facade import testing as autoresearch_testing
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.enums import (
+    BatchExportBackfillStatus,
+    BatchExportDestinationType,
+    BatchExportRunStatus,
+)
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 from products.business_knowledge.backend.models.constants import SourceStatus, SourceType
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.facade import testing as canvas_testing
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort
@@ -88,8 +95,13 @@ from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
+from products.messaging.backend.facade.testing import (
+    create_message_category_for_test,
+    create_recipient_preference_for_test,
+)
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.tasks.backend.models import Channel, SandboxEnvironment, Task, TaskRun
 from products.warehouse_sources.backend.facade.models import (
@@ -99,7 +111,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
@@ -206,11 +218,10 @@ class TestSystemTablesTeamScoping(BaseTest):
         }
 
 
-def _create_batch_export(team: Team, label: str):
-    from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
-
-    destination = BatchExportDestination.objects.create(type="S3", config={})
-    return BatchExport.objects.create(team=team, name=f"export_{label}", destination=destination, interval="hour")
+def _create_batch_export(team: Team, label: str) -> uuid.UUID:
+    return batch_exports_testing.create_batch_export(
+        team.pk, name=f"export_{label}", destination_type=BatchExportDestinationType.AWS_S3, destination_config={}
+    )
 
 
 def _create_data_deletion_request(team: Team, label: str) -> DataDeletionRequest:
@@ -223,44 +234,41 @@ def _create_data_deletion_request(team: Team, label: str) -> DataDeletionRequest
     )
 
 
-def _create_batch_export_backfill(team: Team, label: str):
-    from products.batch_exports.backend.models.batch_export import (
-        BatchExport,
-        BatchExportBackfill,
-        BatchExportDestination,
+def _create_batch_export_backfill(team: Team, label: str) -> uuid.UUID:
+    batch_export_id = batch_exports_testing.create_batch_export(
+        team.pk,
+        name=f"export_for_backfill_{label}",
+        destination_type=BatchExportDestinationType.AWS_S3,
+        destination_config={},
+    )
+    return batch_exports_testing.create_backfill(
+        batch_export_id, team_id=team.pk, status=BatchExportBackfillStatus.RUNNING
     )
 
-    destination = BatchExportDestination.objects.create(type="S3", config={})
-    batch_export = BatchExport.objects.create(
-        team=team, name=f"export_for_backfill_{label}", destination=destination, interval="hour"
+
+def _create_batch_export_run(team: Team, label: str) -> uuid.UUID:
+    batch_export_id = batch_exports_testing.create_batch_export(
+        team.pk,
+        name=f"export_for_run_{label}",
+        destination_type=BatchExportDestinationType.AWS_S3,
+        destination_config={},
     )
-    return BatchExportBackfill.objects.create(team=team, batch_export=batch_export, status="Running")
-
-
-def _create_batch_export_run(team: Team, label: str):
-    from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
-
-    destination = BatchExportDestination.objects.create(type="S3", config={})
-    batch_export = BatchExport.objects.create(
-        team=team, name=f"export_for_run_{label}", destination=destination, interval="hour"
+    return batch_exports_testing.create_batch_export_run(
+        batch_export_id=batch_export_id, status=BatchExportRunStatus.RUNNING, data_interval_end=timezone.now()
     )
-    return BatchExportRun.objects.create(batch_export=batch_export, status="Running", data_interval_end=timezone.now())
 
 
-def _create_batch_export_on_demand(team: Team, label: str):
-    from products.batch_exports.backend.models.batch_export import BatchExportDestination, BatchExportOnDemand
-
-    destination = BatchExportDestination.objects.create(type="S3", config={})
-    with team_scope(team.pk):
-        return BatchExportOnDemand.objects.create(team=team, destination=destination)
+def _create_batch_export_on_demand(team: Team, label: str) -> uuid.UUID:
+    return batch_exports_testing.create_batch_export_on_demand(
+        team.pk, destination_type=BatchExportDestinationType.AWS_S3, destination_config={}
+    )
 
 
-def _create_batch_export_run_on_demand(team: Team, label: str):
-    from products.batch_exports.backend.models.batch_export import BatchExportRun
-
-    on_demand = _create_batch_export_on_demand(team, label)
-    return BatchExportRun.objects.create(
-        batch_export_on_demand=on_demand, status="Running", data_interval_end=timezone.now()
+def _create_batch_export_run_on_demand(team: Team, label: str) -> uuid.UUID:
+    return batch_exports_testing.create_batch_export_run(
+        on_demand_id=_create_batch_export_on_demand(team, label),
+        status=BatchExportRunStatus.RUNNING,
+        data_interval_end=timezone.now(),
     )
 
 
@@ -345,6 +353,21 @@ def _create_annotation(team: Team, label: str) -> Annotation:
 def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:
     # autoresearch is sealed: the row is planted through its facade, so only the id comes back.
     return SimpleNamespace(pk=autoresearch_testing.create_pipeline(team_id=team.pk, name=f"pipeline_{label}"))
+
+
+def _create_autoresearch_training_run(team: Team, label: str) -> SimpleNamespace:
+    pipeline = _create_autoresearch_pipeline(team, label)
+    return SimpleNamespace(pk=autoresearch_testing.create_training_run(pipeline_id=pipeline.pk))
+
+
+def _create_autoresearch_iteration(team: Team, label: str) -> SimpleNamespace:
+    training_run = _create_autoresearch_training_run(team, label)
+    return SimpleNamespace(pk=autoresearch_testing.create_iteration(training_run_id=training_run.pk))
+
+
+def _create_autoresearch_model(team: Team, label: str) -> SimpleNamespace:
+    pipeline = _create_autoresearch_pipeline(team, label)
+    return SimpleNamespace(pk=autoresearch_testing.create_model(pipeline_id=pipeline.pk))
 
 
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
@@ -525,21 +548,17 @@ def _create_error_tracking_symbol_set(team: Team, label: str) -> uuid.UUID:
     return create_symbol_set(team_id=team.pk, ref=f"symbol_set_{label}", storage_ptr=f"symbolsets/{label}")
 
 
-def _create_hog_flow(team: Team, label: str) -> HogFlow:
-    return HogFlow.objects.create(team=team, name=f"flow_{label}")
+def _create_hog_flow(team: Team, label: str) -> str:
+    return create_workflow_for_test(team_id=team.id, name=f"flow_{label}").id
 
 
-def _create_message_category(team: Team, label: str):
-    from products.messaging.backend.models.message_category import MessageCategory
-
-    return MessageCategory.objects.create(team=team, key=f"category_{label}", name=f"Category {label}")
+def _create_message_category(team: Team, label: str) -> uuid.UUID:
+    return create_message_category_for_test(team_id=team.pk, key=f"category_{label}", name=f"Category {label}")
 
 
-def _create_message_recipient_preference(team: Team, label: str):
-    from products.messaging.backend.models.message_preferences import MessageRecipientPreference
-
-    return MessageRecipientPreference.objects.create(
-        team=team, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
+def _create_message_recipient_preference(team: Team, label: str) -> uuid.UUID:
+    return create_recipient_preference_for_test(
+        team_id=team.pk, identifier=f"{label}@example.com", preferences={"$all": "OPTED_OUT"}
     )
 
 
@@ -620,6 +639,16 @@ def _create_logs_alert(team: Team, label: str) -> LogsAlertConfiguration:
         team=team,
         name=f"logs_alert_{label}",
         threshold_count=10,
+    )
+
+
+def _create_replay_scanner(team: Team, label: str) -> ReplayScanner:
+    return ReplayScanner.objects.create(
+        team=team,
+        name=f"replay_scanner_{label}",
+        scanner_type=ScannerType.MONITOR,
+        scanner_config={"prompt": "p"},
+        model=ScannerModel.GEMINI_3_8_FLASH,
     )
 
 
@@ -824,10 +853,10 @@ def _create_task(team: Team, label: str) -> Task:
     )
 
 
-def _create_canvas(team: Team, label: str) -> Canvas:
+def _create_canvas(team: Team, label: str) -> uuid.UUID:
     with team_scope(team.pk):
         channel = _create_public_task_channel(team, f"canvas_{label}")
-        return Canvas.objects.create(team=team, channel=channel, name=f"canvas_{label}")
+    return canvas_testing.create_canvas(team_id=team.pk, channel_id=channel.id, name=f"canvas_{label}")
 
 
 def _create_task_run(team: Team, label: str) -> TaskRun:
@@ -922,7 +951,10 @@ SYSTEM_TABLE_FACTORIES = [
     ("actions", _create_action),
     ("alerts", _create_alert),
     ("annotations", _create_annotation),
+    ("autoresearch_iterations", _create_autoresearch_iteration),
+    ("autoresearch_models", _create_autoresearch_model),
     ("autoresearch_pipelines", _create_autoresearch_pipeline),
+    ("autoresearch_training_runs", _create_autoresearch_training_run),
     ("batch_export_backfills", _create_batch_export_backfill),
     ("batch_export_on_demands", _create_batch_export_on_demand),
     ("batch_export_runs", _create_batch_export_run),
@@ -986,6 +1018,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("integrations", _create_integration),
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
+    ("replay_scanners", _create_replay_scanner),
     ("logs_views", _create_logs_view),
     ("message_categories", _create_message_category),
     ("message_recipient_preferences", _create_message_recipient_preference),
@@ -1169,6 +1202,26 @@ class TestSystemTablesCanvasDeletedExclusion(BaseTest):
         assert f"equals(system__canvases.team_id, {self.team.pk})" in query
 
 
+class TestSystemTablesJoinOnHiddenBackedFields(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_joined_tables_filtered_on_deleted_are_not_ambiguous(self):
+        tile = _create_dashboard_tile(self.team, "join")
+
+        response = execute_hogql_query(
+            "SELECT i.id, d.id FROM system.insights i "
+            "JOIN system.dashboard_tiles dt ON dt.insight_id = i.id "
+            "JOIN system.dashboards d ON d.id = dt.dashboard_id "
+            "WHERE i.deleted = 0 AND dt.deleted = 0 AND d.deleted = 0",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert [(str(row[0]), str(row[1])) for row in response.results] == [
+            (str(tile.insight_id), str(tile.dashboard_id))
+        ]
+
+
 class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
     """End-to-end check that soft-deleted canvases are never returned via HogQL."""
 
@@ -1177,14 +1230,38 @@ class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
     def test_deleted_canvases_excluded(self):
         with team_scope(self.team.pk):
             channel = Channel.objects.create(team=self.team, name="canvas-exclusion-channel")
-            live_canvas = Canvas.objects.create(team=self.team, channel=channel, name="live")
-            deleted_canvas = Canvas.objects.create(team=self.team, channel=channel, name="deleted", deleted=True)
+        live_canvas_id = canvas_testing.create_canvas(team_id=self.team.pk, channel_id=channel.id, name="live")
+        deleted_canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.pk, channel_id=channel.id, name="deleted", deleted=True
+        )
 
         response = execute_hogql_query("SELECT id FROM system.canvases", team=self.team, user=self.user)
         ids = {str(row[0]) for row in response.results}
 
-        assert str(live_canvas.pk) in ids
-        assert str(deleted_canvas.pk) not in ids
+        assert str(live_canvas_id) in ids
+        assert str(deleted_canvas_id) not in ids
+
+
+class TestSystemTablesReplayScannersInlineExclusion(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_inline_scanners_excluded(self):
+        configured = _create_replay_scanner(self.team, "configured")
+        inline = ReplayScanner.objects.create(
+            team=self.team,
+            name="inline",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+            origin=ScannerOrigin.INLINE,
+            inline_key="inline-key",
+        )
+
+        response = execute_hogql_query("SELECT id FROM system.replay_scanners", team=self.team, user=self.user)
+        ids = {str(row[0]) for row in response.results}
+
+        assert str(configured.pk) in ids
+        assert str(inline.pk) not in ids
 
 
 class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):
@@ -1198,7 +1275,7 @@ class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):
         # ClickHouse coerced every row's item_id to UUID and the whole table failed to read.
         with team_scope(self.team.pk):
             channel = Channel.objects.create(team=self.team, name="activity-log-canvas-channel")
-            Canvas.objects.create(team=self.team, channel=channel, name="live")
+        canvas_testing.create_canvas(team_id=self.team.pk, channel_id=channel.id, name="live")
         ActivityLog.objects.create(
             team_id=self.team.pk,
             organization_id=self.organization.id,
@@ -1275,9 +1352,11 @@ class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
                 created_by=self.user,
             )
             deleted_channel = Channel.objects.create(team=self.team, name="deleted-space", deleted=True)
-            public_canvas = Canvas.objects.create(team=self.team, channel=public_channel, name="public")
-            Canvas.objects.create(team=self.team, channel=private_channel, name="private")
-            Canvas.objects.create(team=self.team, channel=deleted_channel, name="deleted")
+        public_canvas_id = canvas_testing.create_canvas(
+            team_id=self.team.pk, channel_id=public_channel.id, name="public"
+        )
+        canvas_testing.create_canvas(team_id=self.team.pk, channel_id=private_channel.id, name="private")
+        canvas_testing.create_canvas(team_id=self.team.pk, channel_id=deleted_channel.id, name="deleted")
 
         public_task = Task.objects.create(
             team=self.team,
@@ -1321,7 +1400,7 @@ class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
 
         assert {str(row[0]) for row in task_response.results} == {str(public_task.id)}
         assert {str(row[0]) for row in run_response.results} == {str(public_run.id)}
-        assert {str(row[0]) for row in canvas_response.results} == {str(public_canvas.id)}
+        assert {str(row[0]) for row in canvas_response.results} == {str(public_canvas_id)}
 
 
 class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
@@ -1387,6 +1466,20 @@ class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):
         )
 
         assert response.results == [("organization_organization",)]
+
+    @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
+    def test_deleted_ticket_is_excluded(self):
+        live = _create_support_ticket(self.team, "live")
+        deleted = _create_support_ticket(self.team, "deleted")
+        Ticket.all_objects.filter(id=deleted.id).update(deleted_at=timezone.now())
+
+        response = execute_hogql_query(
+            "SELECT id FROM system.support_tickets",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert [str(row[0]) for row in response.results] == [str(live.id)]
 
     def test_tags_lazy_join_returns_tag_names_array(self):
         ticket = _create_support_ticket(self.team, "tagged")

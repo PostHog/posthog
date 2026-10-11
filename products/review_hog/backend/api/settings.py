@@ -1,6 +1,7 @@
 import logging
+from typing import cast
 
-from django.conf import settings
+from django.db import transaction
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
@@ -10,19 +11,80 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.models.user import User
+from posthog.permissions import PostHogFeatureFlagPermission
 
-from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.models import ReviewProjectSettings, ReviewUserSettings
+from products.review_hog.backend.preferences import (
+    PREFERENCE_KEYS,
+    DefaultReviewMode,
+    PreferenceSource,
+    ReviewPreferences,
+    UrgencyThreshold,
+)
 from products.review_hog.backend.reviewer.lazy_seed import seed_canonicals_tolerantly, sync_canonical_authoring
 from products.stamphog.backend.facade.api import has_reviewable_repo_config
 
 logger = logging.getLogger(__name__)
 
 
-class ReviewUserSettingsSerializer(serializers.ModelSerializer):
+def _source_field(key: str) -> serializers.ChoiceField:
+    return serializers.ChoiceField(
+        choices=PreferenceSource.choices,
+        help_text=f"Where the effective {key} comes from: 'user' (the user set it), 'project' (the project "
+        "default), or 'default' (the built-in default).",
+    )
+
+
+class ReviewPreferenceSourcesSerializer(serializers.Serializer):
+    default_review_mode = _source_field("default_review_mode")
+    resolve_comments = _source_field("resolve_comments")
+    urgency_threshold = _source_field("urgency_threshold")
+    celebrate_clean_reviews = _source_field("celebrate_clean_reviews")
+    review_inbox_prs = _source_field("review_inbox_prs")
+    stamphog_review_inbox_prs = _source_field("stamphog_review_inbox_prs")
+
+
+class ReviewProjectDefaultsSerializer(serializers.Serializer):
+    urgency_threshold = serializers.ChoiceField(
+        choices=UrgencyThreshold.choices,
+        help_text="The project's default for the minimum priority a Deep review publishes.",
+    )
+    celebrate_clean_reviews = serializers.BooleanField(
+        help_text="The project's default for the image in a Deep review that finds nothing to raise.",
+    )
+
+
+class ReviewUserSettingsSerializer(serializers.Serializer):
+    default_review_mode = serializers.ChoiceField(
+        required=False,
+        choices=DefaultReviewMode.choices,
+        help_text="Automatic reviews of the user's own pull requests in every repository this project reviews: "
+        "'follow' (default) uses each repository's rule, 'flash' gives automatic Standard reviews everywhere, and 'off' "
+        "turns automatic reviews off everywhere. A choice for one repository wins over this default.",
+    )
+    resolve_comments = serializers.BooleanField(
+        required=False,
+        help_text="After a Deep review of the user's pull requests is published, run the resolution stage: "
+        "triage the unresolved review threads, implement the worth-and-safe fixes on the PR branch, and "
+        "reply on every thread. Off by default. Personal only: no project default applies.",
+    )
+    urgency_threshold = serializers.ChoiceField(
+        required=False,
+        choices=UrgencyThreshold.choices,
+        help_text="Minimum priority a validated Deep review finding needs to be published: 'consider' "
+        "publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only "
+        "blocking issues. Without the user's own value the project default applies.",
+    )
+    celebrate_clean_reviews = serializers.BooleanField(
+        required=False,
+        help_text="Show a fun image in the review comment when a Deep review of the user's pull requests "
+        "finds nothing to raise. Without the user's own value the project default applies.",
+    )
     review_inbox_prs = serializers.BooleanField(
         required=False,
-        help_text="Automatically review pull requests opened by self-driving implementations from the "
-        "user's Inbox: ReviewHog reviews each one and posts its findings to the pull request.",
+        help_text="Review the pull requests the agent opens for Inbox reports assigned to the user: "
+        "ReviewHog reviews each one and posts its findings to the pull request. Off by default.",
     )
     stamphog_review_inbox_prs = serializers.BooleanField(
         required=False,
@@ -31,40 +93,15 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
         "doesn't. Only takes effect when the project has a synced, enabled Stamphog repository "
         "(see stamphog_connected).",
     )
-    review_labeled_prs = serializers.BooleanField(
-        required=False,
-        help_text="Review the user's pull requests when the trigger label is added on GitHub. "
-        "On by default; turning it off makes the label trigger skip PRs this user authored.",
+    sources = ReviewPreferenceSourcesSerializer(
+        read_only=True,
+        help_text="Where each effective value comes from. A value equal to the inherited one is never "
+        "stored, so writing the project default or the built-in default makes the source follow it again.",
     )
-    resolve_comments = serializers.BooleanField(
-        required=False,
-        help_text="After a review of the user's pull requests is published, run the resolution stage: "
-        "triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR "
-        "branch, and reply on every thread. On by default; turning it off makes reviews stop at "
-        "publishing.",
-    )
-    review_authored_prs = serializers.BooleanField(
-        required=False,
-        help_text="Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. "
-        "Off by default. Flash reviews post findings without resolving comments.",
-    )
-    flash_reasoning_effort = serializers.ChoiceField(
-        required=False,
-        choices=ReviewUserSettings.FlashReasoningEffort.choices,
-        help_text="Reasoning effort for this user's automatic and manually requested Flash reviews: "
-        "'medium' (default) or 'xhigh'. Applies to both review and validation. "
-        "Saved independently of the automatic-review toggle.",
-    )
-    urgency_threshold = serializers.ChoiceField(
-        required=False,
-        choices=ReviewUserSettings.UrgencyThreshold.choices,
-        help_text="Minimum priority a validated finding needs to be published: 'consider' (default) "
-        "publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only "
-        "blocking issues.",
-    )
-    can_trigger_reviews = serializers.SerializerMethodField(
-        help_text="Whether reviews can be started from this project's Code review page (the UI trigger "
-        "is limited to the designated ReviewHog teams while the product is in alpha).",
+    project_defaults = ReviewProjectDefaultsSerializer(
+        read_only=True,
+        source="project",
+        help_text="The project defaults the Deep review preferences fall back to.",
     )
     stamphog_connected = serializers.SerializerMethodField(
         help_text="Whether this project has at least one synced, enabled Stamphog repository. When "
@@ -72,68 +109,65 @@ class ReviewUserSettingsSerializer(serializers.ModelSerializer):
         "disabled with a pointer to connect the Stamphog GitHub App.",
     )
 
-    class Meta:
-        model = ReviewUserSettings
-        fields = [
-            "review_inbox_prs",
-            "stamphog_review_inbox_prs",
-            "review_labeled_prs",
-            "resolve_comments",
-            "review_authored_prs",
-            "flash_reasoning_effort",
-            "urgency_threshold",
-            "can_trigger_reviews",
-            "stamphog_connected",
-        ]
+    def _team_id(self) -> int:
+        return self.context["team_id"]
 
     @extend_schema_field(serializers.BooleanField())
-    def get_can_trigger_reviews(self, instance: ReviewUserSettings) -> bool:
-        return instance.team_id in settings.REVIEWHOG_TEAM_IDS
-
-    @extend_schema_field(serializers.BooleanField())
-    def get_stamphog_connected(self, instance: ReviewUserSettings) -> bool:
+    def get_stamphog_connected(self, instance: ReviewPreferences) -> bool:
         # This reads the stamphog product DB, which can fail fast on its own circuit breaker. An
         # informational UI flag must not fail the settings endpoint, so fall back to False.
         try:
-            return has_reviewable_repo_config(instance.team_id)
+            return has_reviewable_repo_config(self._team_id())
         except Exception:
             logger.exception("review_hog_stamphog_connected_check_failed")
             return False
 
 
 class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    """The requesting user's ReviewHog settings for a project (one row, created on first read).
+    """The requesting user's ReviewHog preferences for a project.
 
     Sibling of the perspective/validator/blind-spots config viewsets: skills control *how* a review
-    runs, this controls *what gets reviewed* (trigger opt-outs) and *how strict publishing is*
-    (urgency threshold). Per-user like the skill configs — the workflow reads the PR author's row.
-    Deliberately not staff-gated (the alpha gate is UI visibility only): every row is self-scoped.
+    runs, these preferences control *what gets reviewed* and *how strict publishing is*. Only the
+    values the user changed are stored; the response gives the effective values and their source.
+    Every row is self-scoped, and the review-hog feature flag controls project access.
     """
 
     scope_object = "INTERNAL"
+    permission_classes = [PostHogFeatureFlagPermission]
+    posthog_feature_flag = "review-hog"
     # Unscoped only to satisfy the router/introspection; every real query goes through `for_team`.
     queryset = ReviewUserSettings.objects.unscoped()
     serializer_class = ReviewUserSettingsSerializer
 
-    def _get_or_create(self, request: Request) -> ReviewUserSettings:
+    def _user_id(self) -> int:
+        return cast(User, self.request.user).id
+
+    def _save_changes(self, team_id: int, changes: dict) -> ReviewPreferences:
         # Resolve a raw environment URL id to its root team once: `for_team` canonicalizes its filter
         # but not the create kwargs, and mismatched ids mean a never-matching get plus 500s on re-read.
-        team_id = resolve_effective_team_id(self.team_id)
-        instance, _created = ReviewUserSettings.objects.for_team(team_id, canonical=True).get_or_create(
-            team_id=team_id, user_id=request.user.id
-        )
-        return instance
+        rows = ReviewUserSettings.objects.for_team(team_id, canonical=True)
+        with transaction.atomic():
+            row, _created = rows.get_or_create(team_id=team_id, user_id=self._user_id())
+            # The lock keeps two concurrent edits of different keys from losing one of them.
+            row = rows.select_for_update().get(id=row.id)
+            current = ReviewPreferences.resolve(row.preferences, ReviewProjectSettings.load(team_id).defaults)
+            row.preferences = current.with_changes(changes)
+            row.save(update_fields=["preferences", "updated_at"])
+        return ReviewUserSettings.load_preferences(team_id, self._user_id())
+
+    def _response(self, team_id: int, preferences: ReviewPreferences) -> Response:
+        return Response(ReviewUserSettingsSerializer(preferences, context={"team_id": team_id}).data)
 
     @extend_schema(
         methods=["GET"],
         responses={
             200: OpenApiResponse(
-                response=ReviewUserSettingsSerializer, description="The requesting user's ReviewHog settings."
+                response=ReviewUserSettingsSerializer, description="The requesting user's ReviewHog preferences."
             ),
         },
         summary="Get the user's ReviewHog settings",
-        description="Fetch the requesting user's ReviewHog settings for this project, creating the row "
-        "with defaults on first read.",
+        description="Fetch the requesting user's effective ReviewHog preferences for this project, and where "
+        "each value comes from.",
     )
     @extend_schema(
         methods=["PATCH"],
@@ -143,21 +177,23 @@ class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             400: OpenApiResponse(description="Invalid field value (e.g. unknown urgency threshold)."),
         },
         summary="Update the user's ReviewHog settings",
-        description="Partially update the requesting user's ReviewHog settings for this project. Only the "
-        "provided fields change.",
+        description="Partially update the requesting user's ReviewHog preferences for this project. Only the "
+        "provided fields change. A value equal to the inherited one clears the user's own value.",
     )
     # Not named `settings` — that would shadow DRF's `APIView.settings` (its APISettings object).
     @action(detail=False, methods=["GET", "PATCH"], url_path="settings", url_name="settings")
     def user_settings(self, request: Request, **kwargs) -> Response:
-        instance = self._get_or_create(request)
+        team_id = resolve_effective_team_id(self.team_id)
         if request.method == "PATCH":
-            serializer = ReviewUserSettingsSerializer(instance, data=request.data, partial=True)
+            serializer = ReviewUserSettingsSerializer(data=request.data, partial=True, context={"team_id": team_id})
             serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return Response(serializer.data)
+            changes = {
+                key: serializer.validated_data[key] for key in PREFERENCE_KEYS if key in serializer.validated_data
+            }
+            return self._response(team_id, self._save_changes(team_id, changes))
         # Seed the authoring companion before any review has run: the "Create your own …" tasks
         # `skill-get` it over MCP, and this settings GET is the Code review tab's always-called
-        # endpoint. `instance.team_id` is already the effective (root) team — the same team the
-        # review runs under, so the skill lands where the sandbox agent's `skill-get` will look.
-        seed_canonicals_tolerantly(instance.team_id, sync_canonical_authoring)
-        return Response(ReviewUserSettingsSerializer(instance).data)
+        # endpoint. `team_id` is already the effective (root) team, the same team the review runs
+        # under, so the skill lands where the sandbox agent's `skill-get` will look.
+        seed_canonicals_tolerantly(team_id, sync_canonical_authoring)
+        return self._response(team_id, ReviewUserSettings.load_preferences(team_id, self._user_id()))

@@ -242,11 +242,23 @@ export const AutoresearchTrainingRunsArtifactsUploadCreateBody = /* @__PURE__ */
  * Finalize a training run. The backend selects the kept iteration with the highest holdout score, decides champion vs challenger via the promotion ladder, and persists the model. best_iteration_id is advisory: it breaks a tie at the top score and is otherwise logged and ignored. Agents cannot set the champion directly, because promotion is server-side.
  * @summary Complete a training run
  */
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemNameMax = 200
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemImportanceMin = 0
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesMax = 30
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneMethodMax = 500
+
+export const autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneNoteMax = 500
+
 export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextDefault = ``
 export const autoresearchTrainingRunsCompleteCreateBodyRecommendedNextMax = 2000
 
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationDefault = ``
 export const autoresearchTrainingRunsCompleteCreateBodyDistillationMax = 2000
+
+export const autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault = ``
 
 export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
     .object({
@@ -257,7 +269,49 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
                 'Advisory nomination. The server promotes the kept iteration with the highest holdout_score; this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored.'
             ),
         model_explanation: zod
-            .looseObject({})
+            .object({
+                top_features: zod
+                    .array(
+                        zod.object({
+                            name: zod
+                                .string()
+                                .max(
+                                    autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemNameMax
+                                )
+                                .describe('Feature column name, as returned by the feature SQL.'),
+                            importance: zod
+                                .number()
+                                .min(
+                                    autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesItemImportanceMin
+                                )
+                                .describe(
+                                    'Non-negative importance, for example the mean holdout AUC drop when the feature is shuffled.'
+                                ),
+                            direction: zod
+                                .enum(['positive', 'negative'])
+                                .describe('\* `positive` - Positive\n\* `negative` - Negative')
+                                .describe(
+                                    "'positive' if a higher value raises the predicted probability, 'negative' if it lowers it.\n\n\* `positive` - Positive\n\* `negative` - Negative"
+                                ),
+                        })
+                    )
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneTopFeaturesMax)
+                    .optional()
+                    .describe('At most 30 features, strongest first.'),
+                method: zod
+                    .string()
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneMethodMax)
+                    .optional()
+                    .describe(
+                        "Short description of how the importances were computed, e.g. 'permutation importance on holdout'."
+                    ),
+                note: zod
+                    .string()
+                    .max(autoresearchTrainingRunsCompleteCreateBodyModelExplanationOneNoteMax)
+                    .optional()
+                    .describe('Optional caveat shown under the chart.'),
+            })
+            .describe('Global feature importances for the model card.')
             .optional()
             .describe('Global feature importance \/ directionality bundle for the champion model card.'),
         recommended_next: zod
@@ -273,6 +327,12 @@ export const AutoresearchTrainingRunsCompleteCreateBody = /* @__PURE__ */ zod
             .default(autoresearchTrainingRunsCompleteCreateBodyDistillationDefault)
             .describe(
                 'A 1–2 sentence distillation of what this run learned — the winning signal, the key transform, the dead-ends. Stored in the run summary as the cheapest thing the next run reads. Max 2000 characters.'
+            ),
+        report_notebook_short_id: zod
+            .string()
+            .default(autoresearchTrainingRunsCompleteCreateBodyReportNotebookShortIdDefault)
+            .describe(
+                'Short id of the report notebook you built for this run. Stored in the run summary only if the notebook exists in this project; an unknown id is dropped and does not fail the completion.'
             ),
     })
     .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
@@ -608,6 +668,21 @@ export const AutoresearchPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed). A pipeline's first run has no champion until it completes and promotion runs; on a retrain the existing champion stays live and keeps scoring until a new one is promoted.
+ * @summary Start a training run
+ */
+export const autoresearchTrainCreateBodyIterationBudgetMax = 500
+
+export const AutoresearchTrainCreateBody = /* @__PURE__ */ zod.object({
+    iteration_budget: zod
+        .number()
+        .min(1)
+        .max(autoresearchTrainCreateBodyIterationBudgetMax)
+        .optional()
+        .describe('Override the pipeline iteration budget for this training run.'),
+})
+
+/**
  * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
  * @summary Resolve a template
  */
@@ -626,7 +701,7 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
             '\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
         )
         .describe(
-            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
+            'Template to resolve. The templates endpoint lists each one with its description. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
         ),
     target_event: zod
         .string()
@@ -643,7 +718,7 @@ export const AutoresearchResolveTemplateCreateBody = /* @__PURE__ */ zod.object(
 })
 
 /**
- * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'population_too_large' and 'horizon_exceeds_lookback' mean a training run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
+ * Validate a proposed pipeline's target event and population before creating it. Returns volume estimates, base rate, and any warnings. Creation does not enforce the result: 'horizon_exceeds_lookback' and an 'error' 'population_too_large' mean a run would fail, and the other 'error' codes mean the data is too thin for a reliable model. Call this before autoresearch-create.
  * @summary Validate a pipeline definition
  */
 export const autoresearchValidateCreateBodyTargetEventDefault = ``

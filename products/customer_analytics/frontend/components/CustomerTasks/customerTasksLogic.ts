@@ -47,17 +47,22 @@ import type {
     PatchedCustomerTaskUpdateApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { getTileRecord, getTileString, type AccountViewTileLogicProps } from '../Accounts/accountViewTileConfig'
 import {
     CUSTOMER_TASK_FILTER_URL_KEYS,
+    CUSTOMER_TASK_ORDERINGS,
     CUSTOMER_TASK_URL_KEYS,
+    customerTaskAssigneeMode,
     customerTaskSearchParams,
     CustomerTaskEvents,
+    isRoleAssigneeFilter,
     customerTasksQuery,
     DEFAULT_CUSTOMER_TASK_ORDERING,
     defaultCustomerTaskFilters,
     hasCustomerTaskFilters,
     parseCustomerTaskSearchParams,
     type CustomerTaskAccountFilter,
+    type CustomerTaskAssigneeFilter,
     type CustomerTaskFilters,
     type CustomerTaskOrdering,
     type CustomerTasksContext,
@@ -70,7 +75,7 @@ const ACCOUNT_PAGE_SIZE = 20
 const INBOX_PAGE_SIZE = 50
 const ACCOUNT_OPTIONS_LIMIT = 50
 
-export interface CustomerTasksLogicProps {
+export interface CustomerTasksLogicProps extends AccountViewTileLogicProps {
     context: CustomerTasksContext
     accountId?: string
     canViewAll?: boolean
@@ -110,6 +115,7 @@ export interface customerTasksLogicActions {
     createTask: (task: CustomerTaskCreateApi) => { task: CustomerTaskCreateApi }
     loadAccountOptions: (payload: { query: string }) => { query: string }
     loadTaskPage: () => { value: true }
+    loadTaskPageFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
     mutationFinished: (key: string) => { key: string }
     mutationStarted: (key: string) => { key: string }
     openCreateModal: () => void
@@ -119,6 +125,7 @@ export interface customerTasksLogicActions {
     archiveTask: (taskId: string) => { taskId: string }
     setAccountFilter: (account: CustomerTaskAccountFilter | null) => { account: CustomerTaskAccountFilter | null }
     setAccountFilterOpen: (open: boolean) => { open: boolean }
+    setAssignee: (assignee: CustomerTaskAssigneeFilter) => { assignee: CustomerTaskAssigneeFilter }
     setFilters: (filters: Partial<CustomerTaskFilters>) => { filters: Partial<CustomerTaskFilters> }
     setFiltersFromUrl: (state: CustomerTaskUrlState) => { state: CustomerTaskUrlState }
     setAccountFilterName: (name: string) => { name: string }
@@ -143,6 +150,21 @@ export type customerTasksLogicType = MakeLogicType<
     CustomerTasksLogicProps
 >
 
+function getInitialFilters(props: CustomerTasksLogicProps): CustomerTaskFilters {
+    const defaults = defaultCustomerTaskFilters(props.context)
+    const saved = props.context === 'account' ? getTileRecord(props.initialConfig, 'filters') : null
+    return saved ? ({ ...defaults, ...saved, account: null } as CustomerTaskFilters) : defaults
+}
+
+function getInitialOrdering(props: CustomerTasksLogicProps): CustomerTaskOrdering {
+    const ordering = getTileString(props.initialConfig, 'ordering')
+    return CUSTOMER_TASK_ORDERINGS.find((candidate) => candidate === ordering) ?? DEFAULT_CUSTOMER_TASK_ORDERING
+}
+
+function taskConfig(values: customerTasksLogicValues): Record<string, unknown> {
+    return { filters: { ...values.filters, account: null }, ordering: values.ordering }
+}
+
 function taskUrlState(values: customerTasksLogicValues): CustomerTaskUrlState {
     return { filters: values.filters, ordering: values.ordering, page: values.page }
 }
@@ -163,13 +185,22 @@ function taskWriteFailureMessage(error: unknown, fallback: string): string {
 
 export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<customerTasksLogicType>([
     props({} as CustomerTasksLogicProps),
-    key((p) => 'customer-tasks-' + p.context + '-' + (p.accountId ?? p.persistPrefix ?? 'all')),
+    key(
+        (p) =>
+            'customer-tasks-' +
+            p.context +
+            '-' +
+            (p.accountId ?? p.persistPrefix ?? 'all') +
+            '-' +
+            (p.instanceId ?? 'default')
+    ),
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerTasks', 'customerTasksLogic']),
     connect(() => ({ values: [teamLogic, ['currentTeamId', 'timezone'], userLogic, ['user']] })),
     actions({
         openTaskFromUrl: (taskId: string) => ({ taskId }),
         loadTaskPage: true,
         loadAccountOptions: (payload: { query: string }) => payload,
+        setAssignee: (assignee: CustomerTaskAssigneeFilter) => ({ assignee }),
         setFilters: (filters: Partial<CustomerTaskFilters>) => ({ filters }),
         setFiltersFromUrl: (state: CustomerTaskUrlState) => ({ state }),
         setAccountFilterName: (name: string) => ({ name }),
@@ -205,21 +236,27 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     if (values.currentTeamId === null) {
                         return null
                     }
-                    const result = await customerTasksList(
-                        String(values.currentTeamId),
-                        customerTasksQuery(
-                            values.filters,
-                            props.context,
-                            props.accountId,
-                            values.page,
-                            values.pageSize,
-                            values.timezone,
-                            props.canViewAll,
-                            values.ordering
+                    try {
+                        const result = await customerTasksList(
+                            String(values.currentTeamId),
+                            customerTasksQuery(
+                                values.filters,
+                                props.context,
+                                props.accountId,
+                                values.page,
+                                values.pageSize,
+                                values.timezone,
+                                props.canViewAll,
+                                values.ordering
+                            )
                         )
-                    )
-                    breakpoint()
-                    return result
+                        breakpoint()
+                        return result
+                    } catch (error) {
+                        // A superseded request must not reach loadTaskPageFailure, which would act on newer filters.
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],
@@ -246,7 +283,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             props.context === 'inbox' && props.persistPrefix ? { persist: true, prefix: props.persistPrefix } : {}
         return {
             filters: [
-                defaultCustomerTaskFilters(props.context),
+                getInitialFilters(props),
                 persist,
                 {
                     setFilters: (s: CustomerTaskFilters, a: { filters: Partial<CustomerTaskFilters> }) => ({
@@ -265,7 +302,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 },
             ],
             ordering: [
-                DEFAULT_CUSTOMER_TASK_ORDERING,
+                getInitialOrdering(props),
                 {
                     setTaskOrdering: (_, { ordering }) => ordering,
                     setFiltersFromUrl: (_: CustomerTaskOrdering, a: { state: CustomerTaskUrlState }) =>
@@ -409,7 +446,22 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 )
             }
         },
-        setFilters: () => actions.loadTaskPage(),
+        setAssignee: ({ assignee }) => {
+            posthog.capture(CustomerTaskEvents.AssigneeFilterChanged, { mode: customerTaskAssigneeMode(assignee) })
+            actions.setFilters({ assignee })
+        },
+        setFilters: () => {
+            props.onConfigChange?.(taskConfig(values))
+            actions.loadTaskPage()
+        },
+        loadTaskPageFailure: ({ errorObject }) => {
+            // A role deleted after someone saved or shared the filter makes every request fail,
+            // so fall back to the default view instead of an error that never clears.
+            const body = errorObject instanceof ApiError ? (errorObject.data as Record<string, unknown> | null) : null
+            if (body?.assigned_to && isRoleAssigneeFilter(values.filters.assignee)) {
+                actions.setFilters({ assignee: defaultCustomerTaskFilters(props.context).assignee })
+            }
+        },
         setFiltersFromUrl: async () => {
             actions.loadTaskPage()
             const account = values.filters.account
@@ -425,17 +477,27 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                 // The account filter still applies; the control falls back to its generic label.
             }
         },
-        setSearch: () => actions.loadTaskPage(),
+        setSearch: async (_, breakpoint) => {
+            await breakpoint(300)
+            props.onConfigChange?.(taskConfig(values))
+            actions.loadTaskPage()
+        },
         setAccountFilter: () => actions.loadTaskPage(),
         setPage: () => actions.loadTaskPage(),
-        setTaskOrdering: () => actions.loadTaskPage(),
+        setTaskOrdering: () => {
+            props.onConfigChange?.(taskConfig(values))
+            actions.loadTaskPage()
+        },
         setTaskSorting: ({ sorting }) => {
             const ordering = customerTaskSortingToOrdering(sorting)
             if (ordering) {
                 actions.setTaskOrdering(ordering)
             }
         },
-        resetFilters: () => actions.loadTaskPage(),
+        resetFilters: () => {
+            props.onConfigChange?.(taskConfig(values))
+            actions.loadTaskPage()
+        },
         openCreateModal: () => {
             if (props.context === 'inbox' && values.filters.assignee === 'me' && values.user) {
                 actions.setDraftAssignedTo({

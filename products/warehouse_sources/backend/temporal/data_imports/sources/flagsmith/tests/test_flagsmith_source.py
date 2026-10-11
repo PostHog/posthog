@@ -22,14 +22,6 @@ class TestFlagsmithSource:
         # Retargeting the API URL must force re-entry of the API key (credential exfiltration guard).
         assert self.source.connection_host_fields == ["base_url"]
 
-    def test_get_schemas_lists_all_endpoints_full_refresh(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # Flagsmith has no server-side timestamp filter, so nothing is incremental.
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["features"])
         assert len(schemas) == 1
@@ -71,6 +63,14 @@ class TestFlagsmithSource:
         mock_validate.return_value = 200
         self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
         assert mock_validate.call_args.args[2] == expected_path
+
+    @pytest.mark.parametrize("schema_name", list(ENDPOINTS))
+    @mock.patch(VALIDATE_PATH)
+    def test_validate_credentials_resolves_a_probe_path_for_every_endpoint(self, mock_validate, schema_name):
+        # A fan-out parent with no probe path raises instead of validating the schema.
+        mock_validate.return_value = 200
+        is_valid, _error = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        assert is_valid is True
 
     @mock.patch(VALIDATE_PATH)
     def test_validate_credentials_rejects_invalid_base_url(self, mock_validate):

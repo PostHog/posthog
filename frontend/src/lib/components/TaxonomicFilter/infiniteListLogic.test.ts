@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { getContext } from 'kea'
 import { expectLogic, partial } from 'kea-test-utils'
@@ -9,11 +9,11 @@ import {
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { Mocks } from '~/mocks/utils'
@@ -38,6 +38,10 @@ window.POSTHOG_APP_CONTEXT = {
 const setTabHidden = (hidden: boolean): void => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
     document.dispatchEvent(new Event('visibilitychange'))
+}
+
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
 }
 
 describe('infiniteListLogic', () => {
@@ -886,11 +890,14 @@ describe('infiniteListLogic', () => {
             }
         })
 
-        it('clears the error state when a retry succeeds', async () => {
+        it.each([null, 'page_opened'])('clears the error state on retry after selecting %p', async (selectedEvent) => {
             let attempts = 0
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': () => {
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        if (!new URL(request.url).searchParams.get('search')) {
+                            return [200, { results: [{ name: 'page_opened', id: 'uuid-2' }], count: 1 }]
+                        }
                         attempts += 1
                         return attempts === 1
                             ? [500, { detail: 'server error' }]
@@ -904,23 +911,41 @@ describe('infiniteListLogic', () => {
                 listGroupType: TaxonomicFilterGroupType.Events,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
                 showNumericalPropsOnly: false,
+                allowNonCapturedEvents: true,
+                groupType: TaxonomicFilterGroupType.Events,
+                value: selectedEvent,
             })
             retryingLogic.mount()
+            if (selectedEvent) {
+                await expectLogic(retryingLogic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+                expect(retryingLogic.values.results).toEqual(
+                    expect.arrayContaining([expect.objectContaining({ name: selectedEvent })])
+                )
+            }
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.setSearchQuery('user_signed_up')
             })
                 .toDispatchActions(['loadRemoteItemsFailure'])
                 .toFinishAllListeners()
-                .toMatchValues({ showErrorState: true })
+                .toMatchValues({
+                    showErrorState: true,
+                    showEmptyState: false,
+                    showNonCapturedEventOption: false,
+                    results: [],
+                    value: selectedEvent,
+                })
 
             await expectLogic(retryingLogic, () => {
                 retryingLogic.actions.retryRemoteItems()
+                expect(retryingLogic.values.results).toEqual([])
+                expect(retryingLogic.values.showNonCapturedEventOption).toBe(false)
             })
                 .toDispatchActions(['retryRemoteItems', 'loadRemoteItems', 'loadRemoteItemsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
                     showErrorState: false,
                     showEmptyState: false,
+                    value: selectedEvent,
                 })
             expect(retryingLogic.values.totalResultCount).toBeGreaterThan(0)
         })
@@ -1137,15 +1162,11 @@ describe('infiniteListLogic', () => {
     describe('events a picker excludes', () => {
         const HIDDEN_EVENT = '$feature_flag_called'
 
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
         // The Pinned and Recent tabs filter against the caller's record rather than the Events
         // group's own list, so the hidden names have to reach that record for a pin saved before
         // the event was hidden to drop.
         it('folds the hidden names into the record the Recent and Pinned tabs read', () => {
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+            setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
             const listLogic = infiniteListLogic({
                 taxonomicFilterLogicKey: 'hidden-events',
                 listGroupType: TaxonomicFilterGroupType.Events,
@@ -1190,14 +1211,10 @@ describe('infiniteListLogic', () => {
     // that allows uncaptured events must not offer any of those forms as "not seen yet" — that would
     // commit a name no event carries and hide the explanation of the event's absence.
     describe('the "not seen yet" option and hidden events', () => {
-        afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-        })
-
         it.each([['$feature_flag_called'], ['$FEATURE_FLAG_CALLED'], ['Feature flag called']])(
             'does not offer the option when searching %p',
             async (query) => {
-                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true })
+                setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
                 const listLogic = infiniteListLogic({
                     taxonomicFilterLogicKey: `hidden-not-seen-${query}`,
                     listGroupType: TaxonomicFilterGroupType.Events,
@@ -1372,6 +1389,38 @@ describe('infiniteListLogic', () => {
                 showNumericalPropsOnly: false,
             })
             logic.mount()
+        })
+
+        it('shows a scoped search failure even when the full count succeeds', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/property_definitions': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (url.searchParams.get('search') === 'device') {
+                            return url.searchParams.has('filter_by_event_names')
+                                ? [500, { detail: 'server error' }]
+                                : [200, { results: [{ name: '$device_type' }], count: 9 }]
+                        }
+                        return [200, { results: [{ name: '$browser' }], count: 1 }]
+                    },
+                },
+            })
+            await expectLogic(logic).toDispatchActions(['loadRemoteItemsSuccess']).toFinishAllListeners()
+            silenceKeaLoadersErrors()
+            try {
+                await expectLogic(logic, () => logic.actions.setSearchQuery('device'))
+                    .toDispatchActions(['loadRemoteItemsFailure'])
+                    .toFinishAllListeners()
+                    .toMatchValues({
+                        expandedCount: 9,
+                        isExpandable: false,
+                        results: [],
+                        showErrorState: true,
+                        showEmptyState: false,
+                    })
+            } finally {
+                resumeKeaLoadersErrors()
+            }
         })
 
         it.each([200, 500])('reveals scoped results before the full count returns %s', async (status) => {

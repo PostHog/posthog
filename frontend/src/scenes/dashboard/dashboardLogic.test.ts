@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
@@ -12,6 +13,7 @@ import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
+import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
@@ -327,6 +329,13 @@ describe('dashboardLogic', () => {
     })
 
     describe('malformed dashboard id', () => {
+        it('mounts and reports not found when id props are omitted during a scene transition', async () => {
+            const invalidLogic = dashboardLogic.build()
+            invalidLogic.mount()
+
+            await expectLogic(invalidLogic).toMatchValues({ error404: true, hasInvalidDashboardId: true })
+        })
+
         it.each([
             ['NaN', NaN],
             ['undefined', undefined as unknown as number],
@@ -1067,6 +1076,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setInterval('week')
                 logic.actions.setFilterTestAccounts(true)
+                logic.actions.setMetricFilters([{ key: 'service.name', op: 'eq', value: 'checkout' }])
             }).toFinishAllListeners()
 
             expect(logic.values.dashboardSettingsDraft?.filters).toEqual(
@@ -1076,6 +1086,7 @@ describe('dashboardLogic', () => {
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
                     interval: 'week',
                     filterTestAccounts: true,
+                    metricFilters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
                 })
             )
             expect(logic.values.urlFilters).toEqual(
@@ -1085,6 +1096,7 @@ describe('dashboardLogic', () => {
                     breakdown_filter: { breakdown: '$browser', breakdown_type: 'event' },
                     interval: 'week',
                     filterTestAccounts: true,
+                    metricFilters: [{ key: 'service.name', op: 'eq', value: 'checkout' }],
                 })
             )
 
@@ -2165,6 +2177,28 @@ describe('dashboardLogic', () => {
         })
     })
 
+    it('captures a dashboard view after the logic unmounts during the debounce', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.useFakeTimers()
+        try {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            logic.actions.reportDashboardViewedEvent(dashboards[5], null)
+            expect(capture.mock.calls.filter(([event]) => event === 'viewed dashboard')).toHaveLength(0)
+            logic.unmount()
+            expect(logic.isMounted()).toBe(false)
+            await jest.advanceTimersByTimeAsync(499)
+            expect(capture.mock.calls.filter(([event]) => event === 'viewed dashboard')).toHaveLength(0)
+            await jest.advanceTimersByTimeAsync(1)
+            expect(capture.mock.calls.filter(([event]) => event === 'viewed dashboard')).toEqual([
+                ['viewed dashboard', expect.objectContaining({ dashboard_id: 5, source: 'web' })],
+            ])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
+    })
+
     describe('moving between dashboards', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 9 })
@@ -2277,6 +2311,62 @@ describe('dashboardLogic', () => {
         })
 
         it.each([
+            {
+                trigger: 'a request succeeds again',
+                recover: () => apiStatusLogic.actions.setInternetConnectionIssue(false),
+            },
+            {
+                trigger: 'the browser goes back online',
+                recover: () => window.dispatchEvent(new Event('online')),
+            },
+        ])('keeps the error state during a retry and retries when $trigger', async ({ recover }) => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.dashboardFailedToLoad).toBe(true)
+
+            await expectLogic(logic, recover)
+                .toDispatchActions(['retryDashboardLoad', 'loadDashboard'])
+                .toMatchValues({ dashboardFailedToLoad: true, dashboardLoading: true })
+                .toDispatchActions(['loadDashboardFailure'])
+                .toMatchValues({ dashboardFailedToLoad: true, dashboardLoading: false })
+
+            await expectLogic(logic, () => {
+                apiStatusLogic.actions.setInternetConnectionIssue(true)
+            }).toNotHaveDispatchedActions(['retryDashboardLoad'])
+        })
+
+        it.each(
+            ['request', 'online'].flatMap((trigger) => [true, false].map((initialLoad) => ({ trigger, initialLoad })))
+        )(
+            'retries once when $trigger signals recovery during a failed load (initial=$initialLoad)',
+            async ({ trigger, initialLoad }) => {
+                if (!initialLoad) {
+                    await expectLogic(logic).toFinishAllListeners()
+                }
+                apiStatusLogic.actions.setInternetConnectionIssue(true)
+
+                await expectLogic(logic, () => {
+                    if (!initialLoad) {
+                        logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
+                    }
+                    if (trigger === 'online') {
+                        window.dispatchEvent(new Event('online'))
+                        apiStatusLogic.actions.setInternetConnectionIssue(true)
+                    } else {
+                        apiStatusLogic.actions.setInternetConnectionIssue(false)
+                    }
+                })
+                    .toDispatchActions([
+                        'loadDashboardFailure',
+                        'retryDashboardLoad',
+                        'loadDashboard',
+                        'loadDashboardFailure',
+                    ])
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['retryDashboardLoad'])
+            }
+        )
+
+        it.each([
             { id: 14, accessDenied: false },
             { id: 15, accessDenied: true },
             { id: 16, accessDenied: false },
@@ -2372,7 +2462,7 @@ describe('dashboardLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' })
+                logic.actions.tileStreamingFailure({ message: 'Query failed with code 404 upstream' }, true)
             }).toFinishAllListeners()
             expect(logic.values.error404).toBe(false)
             expect(logic.values.dashboardFailedToLoad).toBe(false)
@@ -2516,6 +2606,111 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardFailedToLoad).toBe(false)
             expect(logic.values.dashboard).not.toBeNull()
         })
+
+        it.each(['request', 'online'].flatMap((trigger) => [false, true].map((metadata) => ({ trigger, metadata }))))(
+            'keeps an auto-retrying stream on $trigger recovery but replaces an ended one (metadata=$metadata)',
+            async ({ trigger, metadata }) => {
+                const globals = globalThis as { EventSource?: unknown }
+                const originalEventSource = globals.EventSource
+                globals.EventSource = class {}
+                try {
+                    await expectLogic(logic).toFinishAllListeners()
+                    logic.actions.dashboardNotFound()
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSE_DASHBOARDS], {
+                        [FEATURE_FLAGS.SSE_DASHBOARDS]: true,
+                    })
+                    const disposeStream = jest.fn()
+                    const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(disposeStream)
+                    await expectLogic(logic, () => {
+                        logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+                    }).toFinishAllListeners()
+                    const recover = (): void => {
+                        if (trigger === 'online') {
+                            window.dispatchEvent(new Event('online'))
+                        } else {
+                            apiStatusLogic.actions.setInternetConnectionIssue(false)
+                        }
+                    }
+                    if (metadata) {
+                        streamTilesSpy.mock.calls[0][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
+                        streamTilesSpy.mock.calls[0][2]({ type: 'tile', tile: TEXT_TILE })
+                        streamTilesSpy.mock.calls[0][2]({ type: 'tile', tile: { ...TEXT_TILE, id: 99 } })
+                    }
+                    const onError = streamTilesSpy.mock.calls[0][4]
+                    await expectLogic(logic, () =>
+                        onError(new TypeError('Failed to fetch'), true)
+                    ).toFinishAllListeners()
+                    expect(logic.values.dashboardFailedToLoad).toBe(!metadata)
+
+                    await expectLogic(logic, recover).toFinishAllListeners()
+                    expect(streamTilesSpy).toHaveBeenCalledTimes(1)
+                    expect(disposeStream).not.toHaveBeenCalled()
+
+                    await expectLogic(logic, () =>
+                        onError(new SyntaxError('Unreadable dashboard message'))
+                    ).toFinishAllListeners()
+                    expect(logic.values.dashboardFailedToLoad).toBe(true)
+                    await expectLogic(logic, recover).toFinishAllListeners()
+                    expect(streamTilesSpy).toHaveBeenCalledTimes(2)
+                    expect(disposeStream).toHaveBeenCalledTimes(1)
+                    if (metadata) {
+                        expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 99])
+                    }
+
+                    await expectLogic(logic, () => {
+                        streamTilesSpy.mock.calls[1][2]({ type: 'metadata', dashboard: dashboardResult(5, []) })
+                        streamTilesSpy.mock.calls[1][2]({ type: 'tile', tile: TEXT_TILE })
+                    }).toFinishAllListeners()
+                    if (metadata) {
+                        expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 99])
+                        expect(logic.values.dashboardFailedToLoad).toBe(true)
+                    }
+
+                    await expectLogic(logic, () => {
+                        streamTilesSpy.mock.calls[1][2]({ type: 'tile', tile: { ...TEXT_TILE, id: 6 } })
+                        streamTilesSpy.mock.calls[1][3]()
+                    }).toFinishAllListeners()
+                    expect(logic.values.dashboard?.id).toBe(5)
+                    expect(logic.values.tiles?.map((tile) => tile.id)).toEqual([TEXT_TILE.id, 6])
+                    expect(logic.values.dashboardFailedToLoad).toBe(false)
+                } finally {
+                    globals.EventSource = originalEventSource
+                }
+            }
+        )
+
+        it('keeps the stream that recovered while a connection retry waited', async () => {
+            const globals = globalThis as { EventSource?: unknown }
+            const originalEventSource = globals.EventSource
+            globals.EventSource = class {}
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.dashboardNotFound()
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SSE_DASHBOARDS], {
+                    [FEATURE_FLAGS.SSE_DASHBOARDS]: true,
+                })
+                logic.actions.tileStreamingFailure({ message: 'network dropped mid-connect' })
+                expect(logic.values.dashboardFailedToLoad).toBe(true)
+                const streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(jest.fn())
+
+                await expectLogic(logic, () => {
+                    apiStatusLogic.actions.setInternetConnectionIssue(false)
+                    logic.actions.loadDashboardMetadataSuccess(dashboardResult(5, []))
+                })
+                    .toDispatchActions([
+                        'retryDashboardLoad',
+                        'loadDashboardStreaming',
+                        'loadDashboardStreamingSuccess',
+                    ])
+                    .toFinishAllListeners()
+
+                expect(streamTilesSpy).not.toHaveBeenCalled()
+                expect(logic.values.dashboard).not.toBeNull()
+                expect(logic.values.dashboardFailedToLoad).toBe(false)
+            } finally {
+                globals.EventSource = originalEventSource
+            }
+        })
     })
 
     describe('when a dashboard item API errors', () => {
@@ -2642,6 +2837,7 @@ describe('dashboardLogic', () => {
 
                 expect(logic.values.oldestRefreshed?.toISOString()).toEqual(dayjs(staleIso).toISOString())
                 expect(logic.values.effectiveLastRefresh?.toISOString()).toEqual(dayjs(staleIso).toISOString())
+                expect(logic.values.blockRefresh).toBe(false)
             })
 
             it('persisting the last refresh keeps refreshed results instead of an earlier snapshot', async () => {
@@ -2671,15 +2867,38 @@ describe('dashboardLogic', () => {
         })
 
         describe('insight refresh', () => {
-            it('allows another manual dashboard refresh after five minutes', () => {
-                const recentRefresh = now().subtract(4, 'minutes')
-                logic.actions.updateDashboardLastRefresh(recentRefresh)
-                expect(logic.values.blockRefresh).toBe(true)
+            it('allows another manual dashboard refresh after five minutes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                for (const tile of logic.values.dashboard!.tiles) {
+                    const insight = tile.insight
+                    if (!insight) {
+                        continue
+                    }
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            { ...insight, last_refresh: now().toISOString(), query: insight.query ?? null },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                }
 
-                const lastRefresh = now().subtract(6, 'minutes')
-                logic.actions.updateDashboardLastRefresh(lastRefresh)
-                expect(logic.values.nextAllowedDashboardRefresh?.isSame(lastRefresh.add(5, 'minutes'))).toBe(true)
-                expect(logic.values.blockRefresh).toBe(false)
+                jest.useFakeTimers()
+                try {
+                    const recentRefresh = now().subtract(4, 'minutes')
+                    logic.actions.updateDashboardLastRefresh(recentRefresh)
+                    expect(logic.values.blockRefresh).toBe(true)
+
+                    await jest.advanceTimersByTimeAsync(60_100)
+                    expect(logic.values.blockRefresh).toBe(false)
+
+                    const lastRefresh = now().subtract(6, 'minutes')
+                    logic.actions.updateDashboardLastRefresh(lastRefresh)
+                    expect(logic.values.nextAllowedDashboardRefresh?.isSame(lastRefresh.add(5, 'minutes'))).toBe(true)
+                    expect(logic.values.blockRefresh).toBe(false)
+                } finally {
+                    jest.useRealTimers()
+                }
             })
 
             it('manual refresh reloads all insights', async () => {
@@ -2769,8 +2988,8 @@ describe('dashboardLogic', () => {
                             query_async: true,
                             complete: false,
                             error: true,
-                            error_code: null,
-                            error_message: 'concurrency_limit_exceeded',
+                            error_code: 'rate_limited',
+                            error_message: 'Queries are a little too busy right now.',
                         },
                     }))
 
@@ -4021,6 +4240,20 @@ describe('dashboardLogic', () => {
     describe('widget orchestration', () => {
         let fetchRunWidgetsMock: jest.SpiedFunction<typeof widgetFetchUtils.fetchRunWidgets>
 
+        async function makeInsightTilesFresh(): Promise<void> {
+            for (const tile of logic.values.insightTiles) {
+                if (tile.insight) {
+                    await expectLogic(logic, () => {
+                        dashboardsModel.actions.updateDashboardInsight(
+                            { ...tile.insight!, last_refresh: now().toISOString(), query: tile.insight!.query ?? null },
+                            undefined,
+                            5
+                        )
+                    }).toFinishAllListeners()
+                }
+            }
+        }
+
         beforeEach(() => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_WIDGETS], {
@@ -4047,6 +4280,28 @@ describe('dashboardLogic', () => {
 
         afterEach(() => {
             fetchRunWidgetsMock.mockRestore()
+        })
+
+        it('a stale widget releases the shared refresh block', async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            await makeInsightTilesFresh()
+
+            const currentTime = Date.now()
+            jest.useFakeTimers()
+            try {
+                jest.setSystemTime(currentTime - 4 * 60_000)
+                logic.actions.setWidgetRefreshStatuses([WIDGET_TILE.id], false)
+                await jest.advanceTimersByTimeAsync(4 * 60_000)
+                logic.actions.updateDashboardLastRefresh(dayjs())
+                expect(logic.values.blockRefresh).toBe(true)
+
+                await jest.advanceTimersByTimeAsync(60_100)
+                expect(logic.values.blockRefresh).toBe(false)
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('refreshDashboardWidgets fetches run_widgets for widget tiles', async () => {
@@ -4110,7 +4365,11 @@ describe('dashboardLogic', () => {
             logic = dashboardLogic({ id: 5 })
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
+            await makeInsightTilesFresh()
 
+            const previousFetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
+            logic.actions.updateDashboardLastRefresh(dayjs())
+            expect(logic.values.blockRefresh).toBe(true)
             fetchRunWidgetsMock.mockRejectedValueOnce(new Error('Network error'))
 
             await expectLogic(logic, () => {
@@ -4118,6 +4377,8 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+            expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt).toBe(previousFetchedAt)
+            expect(logic.values.blockRefresh).toBe(true)
         })
 
         it('refreshDashboardWidgets sets friendly error when run_widgets returns per-tile error', async () => {
@@ -4125,6 +4386,7 @@ describe('dashboardLogic', () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
+            const previousFetchedAt = logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt
             fetchRunWidgetsMock.mockResolvedValueOnce([
                 {
                     tile_id: WIDGET_TILE.id,
@@ -4140,6 +4402,7 @@ describe('dashboardLogic', () => {
 
             expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.error).toBe(DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
             expect(logic.values.widgetResultsByTileId[WIDGET_TILE.id]?.error).toBe('Query timeout')
+            expect(logic.values.widgetRefreshStatus[WIDGET_TILE.id]?.fetchedAt).toBe(previousFetchedAt)
         })
 
         it('refreshDashboardWidgets only marks failed tiles when a chunk has mixed results', async () => {

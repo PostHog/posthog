@@ -26,14 +26,20 @@ def is_app_bot_author(user: dict[str, Any] | None) -> bool:
     Guards the marker-based idempotency scans: on a public repo anyone can paste a marker, and a
     spoofed match suppresses a publish or gets a stranger's comment PATCHed. `type == "Bot"` blocks
     human spoofers; when `REVIEWHOG_GITHUB_BOT_LOGIN` is configured (the app's `<slug>[bot]` login),
-    markers pasted by OTHER installed bots are rejected too. Unset fails open to the type check —
+    markers pasted by OTHER installed bots are rejected too. Unset, it fails closed in production,
+    because any installed bot would pass. Local development and tests fall back to the type check:
     the app's own login isn't derivable from an installation token without extra API calls.
     """
     author = user or {}
     if author.get("type") != "Bot":
         return False
     expected = settings.REVIEWHOG_GITHUB_BOT_LOGIN
-    return author.get("login") == expected if expected else True
+    if expected:
+        return author.get("login") == expected
+    if settings.DEBUG or settings.TEST:
+        return True
+    logger.warning("REVIEWHOG_GITHUB_BOT_LOGIN is not set; no GitHub author counts as the ReviewHog app")
+    return False
 
 
 GITHUB_API_BASE = "https://api.github.com"

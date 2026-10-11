@@ -56,6 +56,7 @@ from posthog.settings.payments import *
 from posthog.settings.personhog import *
 from posthog.settings.security_hub import *
 from posthog.settings.ses import *
+from posthog.settings.streamlit_apps import *
 from posthog.settings.email import *
 from posthog.settings.exports import *
 
@@ -84,19 +85,10 @@ INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 # empty to use the real Slack email while keeping DEBUG on. Ignored outside DEBUG.
 SLACK_APP_LOCAL_DEV_EMAIL: str = os.getenv("SLACK_APP_LOCAL_DEV_EMAIL", "test@posthog.com")
 
-# Forward every Slack channel message onto the internal events topic, where a workflow with a Slack
-# trigger can pick it up. Off by default: this is the only thing admitting the full channel
-# firehose, so it doubles as the kill switch.
-SLACK_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("SLACK_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
-
-# Same for GitHub App deliveries. Off by default for the same reason: a busy repository is a
-# firehose, and this is the only thing admitting it.
+# Forward GitHub App deliveries onto the internal events topic, where a workflow with a GitHub
+# trigger can pick them up. Off by default: a busy repository is a firehose, and this is the only
+# thing admitting it.
 GITHUB_WORKFLOW_TRIGGERS_ENABLED: bool = get_from_env("GITHUB_WORKFLOW_TRIGGERS_ENABLED", False, type_cast=str_to_bool)
-
-# Vapi voice-AI integration (used by user_interviews to host public interview pages).
-VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
-VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
-VAPI_WEBHOOK_SECRET: str = os.getenv("VAPI_WEBHOOK_SECRET", "")
 
 if DEBUG:
     JS_URL: str = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")

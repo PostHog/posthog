@@ -17,6 +17,7 @@ notification_channel_per_team = {
     JobOwners.TEAM_DATA_STACK.value: "#alerts-data-warehouse",
     JobOwners.TEAM_DATA_TOOLS.value: "#alerts-data-tools",
     JobOwners.TEAM_ERROR_TRACKING.value: "#alerts-error-tracking",
+    JobOwners.TEAM_FEATURE_FLAGS.value: "#alerts-feature-flags",
     JobOwners.TEAM_GROWTH.value: "#alerts-growth",
     JobOwners.TEAM_AI_OBSERVABILITY.value: "#alerts-aio",
     JobOwners.TEAM_MANAGED_WAREHOUSE.value: "#alerts-managed-warehouse",
@@ -28,6 +29,10 @@ notification_channel_per_team = {
     JobOwners.TEAM_SELF_DRIVING.value: "#alerts-self-driving",
     JobOwners.TEAM_WAREHOUSE_SOURCES.value: "#alerts-warehouse-sources",
     JobOwners.TEAM_WEB_ANALYTICS.value: "#alerts-web-analytics",
+}
+
+JOB_ALERT_RUNBOOK_URLS = {
+    "export_query_log_archive_to_s3": "https://wiki.posthog.com/services/clickhouse/runbooks/query-log-archive-export",
 }
 
 CONSECUTIVE_FAILURE_THRESHOLDS = {
@@ -68,7 +73,7 @@ SLACK_BLOCK_REJECTION_ERRORS = frozenset(
 )
 
 
-def send_slack_alert(context, client, channel: str, blocks: list, fallback_text: str) -> None:
+def send_slack_alert(context, client, channel: str, blocks: list, fallback_text: str) -> bool:
     """Post an alert, falling back to a plain-text message if the rich blocks are rejected.
 
     A block-formatting or size error (e.g. an oversized error field exceeding Slack's 3000-char
@@ -79,24 +84,26 @@ def send_slack_alert(context, client, channel: str, blocks: list, fallback_text:
     try:
         client.chat_postMessage(channel=channel, blocks=blocks, text=fallback_text)
         context.log.info(f"Sent Slack notification to {channel}")
-        return
+        return True
     except SlackApiError as e:
         error_code = e.response.get("error") if e.response is not None else None
         if error_code not in SLACK_BLOCK_REJECTION_ERRORS:
             # The message may have posted (rate limit, transient read error, ...) — don't duplicate it.
             context.log.exception(f"Failed to send Slack notification to {channel}: {str(e)}")
-            return
+            return False
         context.log.warning(f"Slack rejected blocks ({error_code}) for {channel}, retrying text-only")
     except Exception as e:
         # Non-API failure: the outcome is ambiguous, so log and stop rather than risk a duplicate.
         context.log.exception(f"Failed to send Slack notification to {channel}: {str(e)}")
-        return
+        return False
 
     try:
         client.chat_postMessage(channel=channel, text=fallback_text)
         context.log.info(f"Sent text-only Slack fallback to {channel}")
+        return True
     except Exception as e:
         context.log.exception(f"Failed to send text-only Slack fallback to {channel}: {str(e)}")
+        return False
 
 
 # A manually materialized or backfilled asset runs under Dagster's implicit `__ASSET_JOB`, whose
@@ -128,6 +135,44 @@ def get_job_owner_for_alert(failed_run: dagster.DagsterRun, error_message: str) 
                     return owner.value
 
     return job_owner
+
+
+def build_failure_alert_blocks(
+    job_name: str,
+    run_id: str,
+    run_url: str,
+    tags_text: str,
+    error_text: str,
+    environment: str,
+) -> list[dict[str, object]]:
+    blocks: list[dict[str, object]] = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>\n*Tags*: {tags_text}",
+            },
+        }
+    ]
+
+    if runbook_url := JOB_ALERT_RUNBOOK_URLS.get(job_name):
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Runbook*: <{runbook_url}|Recover the query log archive export>"},
+            }
+        )
+
+    blocks.extend(
+        [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error_text}```"}},
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": f"Environment: {environment}"}],
+            },
+        ]
+    )
+    return blocks
 
 
 def should_suppress_alert(context: dagster.RunFailureSensorContext, job_name: str, threshold: int) -> bool:
@@ -201,22 +246,11 @@ def notify_slack_on_failure(context: dagster.RunFailureSensorContext, slack: dag
     tags_text = _truncate_for_slack(str(tags), 500)
     error_text = _truncate_for_slack(str(error), SLACK_SECTION_TEXT_LIMIT - 200)
 
-    blocks: list[dict[str, object]] = [
-        {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"❌ *Dagster job `{job_name}` failed*\n\n*Run ID*: `{run_id}`\n*Run URL*: <{run_url}|View in Dagster>\n*Tags*: {tags_text}",
-            },
-        },
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Error*:\n```{error_text}```"}},
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": f"Environment: {environment}"}],
-        },
-    ]
+    blocks = build_failure_alert_blocks(job_name, run_id, run_url, tags_text, error_text, environment)
 
     # Plain-text fallback carried on every message so the alert still lands (and renders in
     # notifications) even if the rich blocks are rejected.
     fallback_text = f"❌ Dagster job `{job_name}` failed (run {run_id}): {run_url}"
+    if runbook_url := JOB_ALERT_RUNBOOK_URLS.get(job_name):
+        fallback_text += f"\nRunbook: {runbook_url}"
     send_slack_alert(context, slack.get_client(), channel, blocks, fallback_text)

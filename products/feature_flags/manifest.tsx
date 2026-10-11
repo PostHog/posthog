@@ -1,8 +1,9 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { AnyPropertyFilter, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Feature Flags',
@@ -19,7 +20,9 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     },
     urls: {
@@ -33,11 +36,16 @@ export const manifest: ProductManifest = {
             sourceId,
             template,
             intent,
+            format,
+            properties,
         }: {
             type?: 'boolean' | 'multivariate' | 'remote_config'
             sourceId?: number | string | null
             template?: 'simple' | 'targeted' | 'multivariate' | 'targeted-multivariate'
             intent?: 'local-eval' | 'first-page-load'
+            format?: 'rules_v2'
+            /** Release condition properties for a single condition set rolled out to 100%. */
+            properties?: AnyPropertyFilter[]
         }): string => {
             const params = new URLSearchParams()
             if (type) {
@@ -52,6 +60,12 @@ export const manifest: ProductManifest = {
             if (intent) {
                 params.set('intent', intent)
             }
+            if (format) {
+                params.set('format', format)
+            }
+            if (properties?.length) {
+                params.set('properties', JSON.stringify(properties))
+            }
             return `/feature_flags/new?${params.toString()}`
         },
     },
@@ -60,6 +74,7 @@ export const manifest: ProductManifest = {
             name: 'Feature flag',
             iconType: 'feature_flag',
             href: (ref: string) => urls.featureFlag(ref),
+            listHref: () => urls.featureFlags(),
             iconColor: ['var(--color-product-feature-flags-light)'],
             filterKey: 'feature_flag',
         },
@@ -77,9 +92,23 @@ export const manifest: ProductManifest = {
         {
             path: `Feature flags`,
             intents: [ProductKey.FEATURE_FLAGS, ProductKey.EXPERIMENTS, ProductKey.EARLY_ACCESS_FEATURES],
-            category: ProductItemCategory.FEATURES,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'feature_flag',
             href: urls.featureFlags(),
+            searchKeywords: ['toggles', 'rollouts', 'remote config', 'kill switch'],
+            searchTabs: [
+                {
+                    name: 'Request usage',
+                    href: urls.featureFlags('usage'),
+                    flag: FEATURE_FLAGS.FEATURE_FLAG_REQUEST_USAGE,
+                },
+                { name: 'Projects', href: urls.featureFlags('projects') },
+                {
+                    name: 'Notifications',
+                    href: urls.featureFlags('notifications'),
+                    flag: FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS,
+                },
+            ],
             sceneKey: 'FeatureFlags',
             sceneKeys: ['FeatureFlags', 'FeatureFlag'],
         },

@@ -29,7 +29,9 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes
+from posthog.slack.formatting import channel_id_from_target
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 
 from products.signals.backend.artefact_schemas import (
@@ -38,7 +40,8 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityChoice,
     Priority,
 )
-from products.signals.backend.enums import report_link_kind_choices
+from products.signals.backend.background_pilot import OPT_OUT_DISABLED, capture_background_scout_opted_out
+from products.signals.backend.enums import ReportLinkKind, ToolPreset
 from products.signals.backend.models import SignalReportCheck, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
@@ -46,13 +49,24 @@ from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH,
 from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
+from products.signals.backend.scout_harness.lazy_seed import (
+    canonical_skill_names,
+    canonical_structured_output_schema_for,
+)
 from products.signals.backend.scout_harness.limits import MAX_RUN_NOTE_CHARS
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCES
+from products.signals.backend.scout_harness.precheck import (
+    PRECHECK_MAX_QUERY_LENGTH,
+    PRECHECK_MAX_ROWS,
+    PRECHECK_TIMEOUT_S,
+    parse_precheck_query,
+)
 from products.signals.backend.scout_harness.scout_costs import SCOUT_COST_WINDOW_DAYS
 from products.signals.backend.scout_harness.skill_loader import reserved_scout_name_error
 from products.signals.backend.scout_harness.slack_delivery import MAX_SCOUT_SLACK_DM_TARGETS
 from products.signals.backend.scout_harness.tags import slugify_tag
+from products.signals.backend.scout_harness.tool_catalogue import SCOUT_RUN_CONTEXT_TOOLS, get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tools.checks import MAX_CHECK_EXPLANATION_LENGTH
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
@@ -143,7 +157,7 @@ logger = structlog.get_logger(__name__)
     }
 )
 class RunMetadataField(serializers.DictField):
-    """The run row's whole `metadata` column: runner-stamped keys at the top level plus the nested
+    """The run row's public `metadata`: runner-stamped keys at the top level plus the nested
     `derived` map of harness-computed booleans.
 
     The known keys are spelled out so generated TypeScript and MCP consumers get real types
@@ -701,8 +715,23 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
     outcome = serializers.ChoiceField(
         choices=SignalReportCheck.Outcome.choices,
         help_text=(
-            "`passed` when the expectation still holds, `failed` when it does not, and `errored` when you "
-            "could not establish either. `failed` retires the check, so use it for a conclusion, not a suspicion."
+            "`passed` when the evidence meets the check's stated bar and the expectation holds, `failed` when "
+            "the evidence meets the bar and the expectation does not hold. `inconclusive` when your tools "
+            "worked but the evidence cannot settle the question; give a `reason`. `errored` only when a tool, "
+            "query, or model call failed. `failed` retires the check, so use it for a conclusion, not a suspicion."
+        ),
+    )
+    reason = serializers.ChoiceField(
+        choices=SignalReportCheck.InconclusiveReason.choices,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Required with `inconclusive`, and refused with any other outcome. `awaiting_data`: the data can "
+            "still arrive (a rollout lag, a soak not complete, too few samples so far), so the check looks again "
+            "later. `unmeasurable`: the data the check needs is not captured. `needs_manual_verification`: only "
+            "a person or another environment can verify it. `no_fix_to_measure`: nothing was changed to fix the "
+            "claim, so no window after a fix exists. A report resolved without a pull request still has a window "
+            "that starts when it resolved. Every reason except `awaiting_data` ends the check."
         ),
     )
     explanation = serializers.CharField(
@@ -717,6 +746,14 @@ class RecordCheckResultRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The number you measured, when the check came down to one. Leave it out otherwise.",
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        is_inconclusive = attrs["outcome"] == SignalReportCheck.Outcome.INCONCLUSIVE
+        if is_inconclusive and not attrs.get("reason"):
+            raise serializers.ValidationError({"reason": "An `inconclusive` outcome needs a reason."})
+        if not is_inconclusive and attrs.get("reason"):
+            raise serializers.ValidationError({"reason": "Only an `inconclusive` outcome takes a reason."})
+        return attrs
 
 
 class RecordCheckResultResponseSerializer(serializers.Serializer):
@@ -771,6 +808,33 @@ class ScoutCheckSummarySerializer(serializers.Serializer):
     next_run_at = serializers.DateTimeField(help_text="When the check next runs. Provisional while it is `pending`.")
     last_outcome = serializers.CharField(
         allow_null=True, help_text="Verdict of the most recent run; null before the first."
+    )
+    last_outcome_reason = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why the most recent run was `inconclusive`: `awaiting_data`, `unmeasurable`, "
+            "`needs_manual_verification`, or `no_fix_to_measure`. Null on any other outcome."
+        ),
+    )
+    run_state = serializers.CharField(
+        help_text=(
+            "Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. "
+            "`paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. "
+            "`scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. "
+            "`queued`: a run was dispatched and has not started. `running`: the dispatched run started and has "
+            "time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches "
+            "again. Any other value is the terminal status."
+        )
+    )
+    waiting_on_run = serializers.BooleanField(
+        help_text="True while an `agent` check waits on a dispatched run to record its verdict."
+    )
+    dispatched_run_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="The scout run the coordinator dispatched for the check, once it started. Null while queued.",
+    )
+    dispatched_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the coordinator last dispatched a run for the check. Null when no run waits."
     )
 
 
@@ -1224,6 +1288,15 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
             "full body — use this on wide scans so stacked notes can't dominate your context."
         ),
     )
+    text = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Return only the notes whose content contains this text, case-insensitively. Pass an "
+            "entity (an error id, a flag key, a page path, an event name) to find the notes about "
+            "it, including older ones the newest-first cap would hide."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
@@ -1437,6 +1510,27 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         return attrs
 
 
+class ReportLinkWriteSerializer(serializers.Serializer):
+    """One typed, directed link to write on the report being emitted or edited."""
+
+    kind = serializers.ChoiceField(
+        choices=ReportLinkKind.choices,
+        help_text=(
+            "How this report relates to `report_id`. `depends_on` for work that cannot land "
+            "until the other report's fix does, `part_of` for one piece of a larger report, "
+            "`follow_up_of` for work the other report left behind, `duplicate_of` for the same "
+            "problem filed twice, and `recurrence_of` for a problem a resolved report already covered."
+        ),
+    )
+    report_id = serializers.CharField(help_text="Id of the report to link to. Must be another report in this project.")
+    reason = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=MAX_REPORT_LINK_REASON_LENGTH,
+        help_text="Optional one-line note on why the reports are linked this way.",
+    )
+
+
 class EmitReportRequestSerializer(serializers.Serializer):
     """Request body for `emit-report`. Run attribution is taken from the URL path."""
 
@@ -1553,6 +1647,19 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "research left open, phrased as the reader would send them."
         ),
     )
+    links = serializers.ListField(
+        required=False,
+        child=ReportLinkWriteSerializer(),
+        max_length=MAX_REPORT_LINKS_PER_WRITE,
+        help_text=(
+            "Typed, directed links from the new report to reports that already exist. Send them here, "
+            "not in a later `edit-report` call, because autostart reads them when the report is created: "
+            "a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to "
+            "a report with no pull request yet, stops a second draft PR. Only the new report gets a row, "
+            "so link from the side the sentence starts at. Links of the same kind must stay acyclic and "
+            "every report must be in this project."
+        ),
+    )
     idempotency_key = serializers.CharField(
         required=False,
         allow_null=True,
@@ -1565,6 +1672,18 @@ class EmitReportRequestSerializer(serializers.Serializer):
             "call — pass one when a retry might reword the report."
         ),
     )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("priority") and not attrs.get("priority_explanation"):
+            raise serializers.ValidationError(
+                {
+                    "priority_explanation": (
+                        "Required when `priority` is set. Add a 2-3 sentence justification for the priority, "
+                        "or omit `priority`."
+                    )
+                }
+            )
+        return attrs
 
 
 class EmitReportResponseSerializer(serializers.Serializer):
@@ -1601,27 +1720,6 @@ class EmitReportResponseSerializer(serializers.Serializer):
             "above describe that first report. Expected on a retry; treat the report as filed and don't "
             "send it again."
         ),
-    )
-
-
-class ReportLinkWriteSerializer(serializers.Serializer):
-    """One typed, directed link to write on the report being edited."""
-
-    kind = serializers.ChoiceField(
-        choices=report_link_kind_choices(),
-        help_text=(
-            "How the edited report relates to `report_id`. `depends_on` for work that cannot land "
-            "until the other report's fix does, `part_of` for one piece of a larger report, "
-            "`follow_up_of` for work the other report left behind, `duplicate_of` for the same "
-            "problem filed twice, and `recurrence_of` for a problem a resolved report already covered."
-        ),
-    )
-    report_id = serializers.CharField(help_text="Id of the report to link to. Must be another report in this project.")
-    reason = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=MAX_REPORT_LINK_REASON_LENGTH,
-        help_text="Optional one-line note on why the reports are linked this way.",
     )
 
 
@@ -1758,8 +1856,50 @@ class EditReportRequestSerializer(serializers.Serializer):
             "checks gate the replacement. The existing pull request closes only after a successful, "
             "verified replacement. Technical failures retry automatically; policy blocks wait for a new "
             "edit or research trigger. Only honored alongside a `title` or `summary` that actually changes, "
-            "and only within the first four content revisions, including revisions that did not request replacement."
+            "and only within the first four content revisions, including revisions that did not request replacement. "
+            "When the flag is not applied, `warnings` says why."
         ),
+    )
+    actionability = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=[(c.value, c.value) for c in ActionabilityChoice],
+        help_text=(
+            "Optional new actionability call, for when new evidence changed your judgment. Replaces the "
+            "report's actionability decision and re-runs autostart: `immediately_actionable` can open a "
+            "draft PR, `requires_human_input` and `not_actionable` stop autostart from opening one. The "
+            "report's inbox status does not change. Send it with `actionability_explanation`, and with "
+            "`already_addressed` when the issue is handled, since the three replace the decision as one unit."
+        ),
+    )
+    actionability_explanation = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="2-3 sentence evidence-grounded justification for `actionability`. Required when you set it.",
+    )
+    already_addressed = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Whether the issue is already handled: fixed, or with a fix in flight. Part of the actionability "
+            "decision, so it requires `actionability` and `actionability_explanation` too; omitted means false. "
+            "Set it when a fix lands or starts, so autostart does not open a duplicate PR."
+        ),
+    )
+    priority = serializers.ChoiceField(
+        required=False,
+        allow_null=True,
+        choices=[(p.value, p.value) for p in Priority],
+        help_text=(
+            "Optional new priority (`P0`-`P4`), for when the issue escalated or eased. Replaces the report's "
+            "priority and re-runs autostart, which needs a priority to open a draft PR. Requires "
+            "`priority_explanation`."
+        ),
+    )
+    priority_explanation = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="2-3 sentence justification for `priority`. Required when `priority` is set.",
     )
 
     def validate(self, attrs: dict) -> dict:
@@ -1774,6 +1914,11 @@ class EditReportRequestSerializer(serializers.Serializer):
         if unknown:
             raise serializers.ValidationError(f"unknown fields: {', '.join(unknown)}")
         return attrs
+
+
+class EditReportWarningSerializer(serializers.Serializer):
+    field = serializers.CharField(help_text="The request field the edit did not apply.")
+    message = serializers.CharField(help_text="Why the field was not applied. The rest of the edit landed.")
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -1842,9 +1987,19 @@ class EditReportResponseSerializer(serializers.Serializer):
     supersedes_implementation = serializers.BooleanField(
         help_text=(
             "Whether the edit recorded that the report's pull request should be replaced. False when "
-            "you did not ask for it, when the edit changed no content, or when the report has already "
-            "been rewritten too many times."
+            "you did not ask for it, when the edit changed no content, or when the report has already been rewritten too many times."
         ),
+    )
+    decision_fields_set = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Which work decisions the edit replaced (`actionability`, `priority`). Empty when you set "
+            "none, or re-sent the decisions the report already held."
+        ),
+    )
+    warnings = serializers.ListField(
+        child=EditReportWarningSerializer(),
+        help_text="Request fields the edit did not apply, each with the reason. Empty when every field applied.",
     )
     corroboration_collapsed = serializers.BooleanField(
         help_text=(
@@ -2730,7 +2885,7 @@ class SignalScoutSlackDestinationSerializer(serializers.Serializer):
         deduped: list[str] = []
         seen_ids: set[str] = set()
         for target in value:
-            member_id = target.split("|", 1)[0].strip()
+            member_id = channel_id_from_target(target)
             if not re.fullmatch(r"[UW][A-Z0-9]{4,}", member_id):
                 raise serializers.ValidationError(
                     f"{target!r} is not a Slack member target. Expected a member ID starting with U or W, "
@@ -2920,6 +3075,17 @@ class StructuredOutputSchemaField(serializers.JSONField):
     it's a schema-about-data, so its own shape is only bounded by JSON Schema itself."""
 
 
+_LIFECYCLE_LOCKED_HELP = (
+    "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access "
+    "may pause, resume, switch the scout to dry run, or delete it. On, only the person the "
+    "scout's runs act as or a project admin may do any of those, or change this flag. Use it on "
+    "a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by "
+    "people and by unattended agents alike, and a resume has to pass the project's enabled-scout "
+    "maximum that a pause does not, so a bulk pause is not undone in one step. The lock never "
+    "stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker."
+)
+
+
 _STRUCTURED_OUTPUT_SCHEMA_HELP = (
     "Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces "
     "via `scout-record-output` — e.g. a per-report quality judgment "
@@ -2934,6 +3100,18 @@ _STRUCTURED_OUTPUT_SCHEMA_HELP = (
     "scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs "
     "only the config write. Records validate against the schema in force when the run was dispatched."
 )
+
+
+def _refuse_clearing_shipped_schema(skill_name: str) -> None:
+    """A null schema is what the canonical reconcile reads as "never seeded", so a clear on a
+    canonical scout that ships one would be undone on the next coordinator tick and the channel
+    would come back on. Send people to the two switches that stick instead."""
+    if skill_name in canonical_skill_names() and canonical_structured_output_schema_for(skill_name):
+        raise serializers.ValidationError(
+            "This scout ships its structured output schema, so clearing it does not stick. To stop it "
+            "recording, turn on the dry-run setting or disable the scout. To change what it records, "
+            "set a schema of your own instead."
+        )
 
 
 def _validate_structured_output_schema(value: dict | None) -> dict | None:
@@ -2951,6 +3129,31 @@ _SCOUT_MODEL_HELP = (
     "the default model, chosen by the platform. Early access: the pin can only be set on projects "
     "enrolled in the scout model preview, and only takes effect there. Set null to clear it."
 )
+
+
+_PRECHECK_QUERY_HELP = (
+    "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or "
+    "one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no "
+    "model call, and no run row. Any other result starts the run, and the scout reads the rows. A "
+    "query error also starts the run. Use `{since}` (the start of the last run that ran, or when the "
+    "scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events "
+    "WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet "
+    "it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate "
+    "it: a manual or workflow run always starts. "
+    f"The query stops after {PRECHECK_TIMEOUT_S} seconds and reads at most {PRECHECK_MAX_ROWS} rows. "
+    "Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
+)
+
+
+def _validate_precheck_query(value: str | None) -> str | None:
+    if value is None or not value.strip():
+        return None
+    query = value.strip()
+    try:
+        parse_precheck_query(query)
+    except Exception as exc:
+        raise serializers.ValidationError(f"The pre-check query is not a valid HogQL SELECT: {exc}")
+    return query
 
 
 def _validate_scout_model(value: str | None, context: dict, current: str | None = None) -> str | None:
@@ -3131,6 +3334,38 @@ def _validate_write_scopes(value: list[str]) -> list[str]:
     return sorted(set(value))
 
 
+def _allowed_mcp_tools_field(*, read_only: bool = False) -> serializers.ListField:
+    return serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        read_only=read_only,
+        allow_null=True,
+        help_text=(
+            "Exact MCP tool names selected for this scout, excluding its built-in run context tools. "
+            "Null means no tool restriction; an empty list selects no additional tools. "
+            "Write access is derived from selected write tools. Clearing to null preserves the last write scopes. "
+            "Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag."
+        ),
+    )
+
+
+def validate_allowed_mcp_tools(value: list[str] | None) -> list[str] | None:
+    if value is None:
+        return None
+    holdable = {
+        entry.definition.name
+        for entry in get_scout_tool_catalogue().tools
+        if entry.holdable and entry.definition.name not in SCOUT_RUN_CONTEXT_TOOLS
+    }
+    rejected = sorted(set(value) - holdable)
+    if rejected:
+        raise serializers.ValidationError(
+            f"Cannot select these scout tools: {', '.join(rejected)}. "
+            "Choose holdable tools from the catalogue, excluding built-in run context tools."
+        )
+    return sorted(set(value))
+
+
 class ScoutOrigin(models.TextChoices):
     CANONICAL = "canonical", "canonical"
     CUSTOM = "custom", "custom"
@@ -3248,8 +3483,18 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         help_text=(
             "Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the "
             "evaluation window), `ignored` (no person engaged with its reports — no view, rating, "
-            "note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null "
-            "unless `status` is `pending_pause` or `paused_by_system`."
+            "note, dismissal, or resolution), `repeated_failures` (consecutive failed runs), `retired` "
+            "(PostHog retired the scout), or `background_removed` (the background lane stopped "
+            "managing the scout). Null unless `status` is `pending_pause` or `paused_by_system`."
+        ),
+    )
+    managed_by = serializers.ChoiceField(
+        choices=SignalScoutConfig.ManagedBy.choices,
+        read_only=True,
+        help_text=(
+            "Who controls this scout now. `team`: a person set it up or has changed it. "
+            "`background`: PostHog runs it in the background and no person has edited it yet. Any "
+            "edit through this API changes `background` to `team`."
         ),
     )
     emit = serializers.BooleanField(
@@ -3304,6 +3549,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=_SCOUT_MODEL_HELP,
     )
+    precheck_query = serializers.CharField(read_only=True, allow_null=True, help_text=_PRECHECK_QUERY_HELP)
     last_run_at = serializers.DateTimeField(
         read_only=True,
         allow_null=True,
@@ -3372,6 +3618,13 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     # `readonly string[]`, which a client cannot hand straight back to the patch call.
     repositories = _scout_repositories_field()
     write_scopes = _write_scopes_field(read_only=True)
+    lifecycle_locked = serializers.BooleanField(read_only=True, help_text=_LIFECYCLE_LOCKED_HELP)
+    allowed_mcp_tools = _allowed_mcp_tools_field(read_only=True)
+    tool_preset = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted.",
+    )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -3433,6 +3686,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "enabled",
             "status",
             "pause_reason",
+            "managed_by",
             "emit",
             "run_interval_minutes",
             "run_cron_schedule",
@@ -3443,6 +3697,10 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "mcp_gateway_server_ids",
             "repositories",
             "write_scopes",
+            "lifecycle_locked",
+            "allowed_mcp_tools",
+            "tool_preset",
+            "precheck_query",
             "last_run_at",
             "consecutive_failure_count",
             "status_changed_at",
@@ -3525,6 +3783,37 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
     mcp_gateway_server_ids = _mcp_gateway_server_ids_field()
     repositories = _scout_repositories_field()
     write_scopes = _write_scopes_field()
+    lifecycle_locked = serializers.BooleanField(required=False, help_text=_LIFECYCLE_LOCKED_HELP)
+    allowed_mcp_tools = _allowed_mcp_tools_field()
+    tool_preset = serializers.ChoiceField(
+        choices=ToolPreset.choices,
+        required=False,
+        help_text=(
+            "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. "
+            "Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag."
+        ),
+    )
+    precheck_query = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=PRECHECK_MAX_QUERY_LENGTH,
+        help_text=_PRECHECK_QUERY_HELP,
+    )
+
+    def validate_allowed_mcp_tools(self, value: list[str] | None) -> list[str] | None:
+        return validate_allowed_mcp_tools(value)
+
+    def validate_tool_preset(self, value: str) -> str:
+        preset = next(preset for preset in get_scout_tool_catalogue().tool_presets if preset.name == value)
+        validate_allowed_mcp_tools(list(preset.tools))
+        return value
+
+    def validate(self, attrs: dict) -> dict:
+        if "allowed_mcp_tools" in attrs and "tool_preset" in attrs:
+            raise serializers.ValidationError("Send either tool_preset or allowed_mcp_tools, not both.")
+        return super().validate(attrs)
 
     def validate_run_cron_schedule(self, value: str | None) -> str | None:
         return _validate_run_cron_schedule(value) if value is not None else None
@@ -3536,6 +3825,12 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
         return _validate_scout_model(value, self.context, current=self.instance.model if self.instance else None)
 
     def validate_structured_output_schema(self, value: dict | None) -> dict | None:
+        if (
+            value is None
+            and isinstance(self.instance, SignalScoutConfig)
+            and self.instance.structured_output_schema is not None
+        ):
+            _refuse_clearing_shipped_schema(self.instance.skill_name)
         return _validate_structured_output_schema(value)
 
     def validate_mcp_gateway_server_ids(self, value: list[UUID]) -> list[str]:
@@ -3547,6 +3842,9 @@ class _ScoutConfigCapabilityFieldsMixin(serializers.Serializer):
 
     def validate_write_scopes(self, value: list[str]) -> list[str]:
         return _validate_write_scopes(value)
+
+    def validate_precheck_query(self, value: str | None) -> str | None:
+        return _validate_precheck_query(value)
 
 
 def _display_name_field() -> serializers.CharField:
@@ -3625,6 +3923,16 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         ),
     )
 
+    suggestion_id = serializers.CharField(
+        required=False,
+        write_only=True,
+        max_length=64,
+        help_text=(
+            "Optional id of the canonical scout suggestion this request turns on. It records that the "
+            "scout came from that suggestion. An id this project's batch does not hold is ignored."
+        ),
+    )
+
     def validate_output_destinations(self, value: dict) -> dict:
         return _validate_output_destinations(value, self.context)
 
@@ -3664,6 +3972,16 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
         # both of which re-check the enabled-scout cap — an unrelated edit must not sidestep that.
         if validated_data and instance.consecutive_failure_count:
             validated_data["consecutive_failure_count"] = 0
+        # A person who edits a background-managed scout takes it over, so the background coordinator
+        # must not change or remove it after this. An empty write is not an edit.
+        if validated_data and instance.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND:
+            if validated_data.get("enabled") is False and instance.enabled:
+                request = self.context.get("request")
+                user = getattr(request, "user", None)
+                capture_background_scout_opted_out(
+                    config=instance, user=user if isinstance(user, User) else None, action=OPT_OUT_DISABLED
+                )
+            validated_data["managed_by"] = SignalScoutConfig.ManagedBy.TEAM
         if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
             target = (
                 SignalScoutConfig.Status.ACTIVE
@@ -3719,6 +4037,11 @@ class SignalScoutConfigUpdateSerializer(_ScoutConfigCapabilityFieldsMixin, seria
             "mcp_gateway_server_ids",
             "repositories",
             "write_scopes",
+            "precheck_query",
+            "suggestion_id",
+            "lifecycle_locked",
+            "allowed_mcp_tools",
+            "tool_preset",
         ]
 
 
@@ -3811,6 +4134,68 @@ class SignalScoutConfigCreateSerializer(SignalScoutConfigOptionsSerializer):
         if error := reserved_scout_name_error(value):
             raise serializers.ValidationError(error)
         return value
+
+
+class ScoutPrecheckReason(models.TextChoices):
+    ROWS = "rows"
+    NO_ROWS = "no_rows"
+    FALSE_VALUE = "false_value"
+    QUERY_ERROR = "query_error"
+
+
+class SignalScoutPrecheckTestRequestSerializer(serializers.Serializer):
+    precheck_query = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        trim_whitespace=False,
+        max_length=PRECHECK_MAX_QUERY_LENGTH,
+        help_text=(
+            "HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check "
+            "gets. Omit it, or pass null or blank, to try the query saved on the scout."
+        ),
+    )
+
+    def validate_precheck_query(self, value: str | None) -> str | None:
+        return _validate_precheck_query(value)
+
+
+class SignalScoutPrecheckTestSerializer(serializers.Serializer):
+    would_run = serializers.BooleanField(
+        help_text="Whether a scheduled run that started now would run the scout. False means it would skip the run."
+    )
+    reason = serializers.ChoiceField(
+        choices=ScoutPrecheckReason.choices,
+        help_text=(
+            "Why: `rows` (the query found rows), `no_rows` (it found none, so the run is skipped), "
+            "`false_value` (it returned one false value, so the run is skipped), or `query_error` (the "
+            "query failed, so the run starts as if there were no pre-check)."
+        ),
+    )
+    since = serializers.DateTimeField(
+        help_text="The value bound to `{since}`: the start of the last run that ran, or when the scout was created."
+    )
+    now = serializers.DateTimeField(help_text="The value bound to `{now}`.")
+    row_count = serializers.IntegerField(
+        help_text=f"How many rows the query returned, at most {PRECHECK_MAX_ROWS}.",
+    )
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The column names of the result, in order.",
+    )
+    rows_text = serializers.CharField(
+        help_text=(
+            "The rows as the scout reads them: one JSON object per line, cut before the text passes "
+            "the size limit. Empty when the query returned no rows or failed."
+        ),
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Why the query failed, when it failed. A syntax or schema error is given as written; other "
+            "failures read as a general message. Null when the query ran."
+        ),
+    )
 
 
 class SignalScoutCreateSerializer(serializers.Serializer):
@@ -3955,7 +4340,7 @@ class SignalScoutManualRunSerializer(serializers.Serializer):
 
 
 class ScoutLimitsSerializer(serializers.Serializer):
-    """A team's enforced scout run caps and current usage.
+    """A team's enforced scout caps and current usage.
 
     These are the values the coordinator actually applies at dispatch (resolved per-team override →
     fleet-wide default → code constant), so the UI can show the real throttle rather than what a
@@ -3976,6 +4361,9 @@ class ScoutLimitsSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.",
     )
+    max_enabled_scouts = serializers.IntegerField(
+        help_text="Most scouts the project can have switched on at once. Enabling another past this is rejected.",
+    )
 
 
 class ScoutMetadataSerializer(serializers.Serializer):
@@ -3995,6 +4383,142 @@ class ScoutMetadataSerializer(serializers.Serializer):
         help_text="Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
     )
     limits = ScoutLimitsSerializer(help_text="The team's enforced scout run caps and current usage.")
+
+
+# --- Tool catalogue ---------------------------------------------------------
+
+
+class ScoutToolCatalogueEntrySerializer(serializers.Serializer):
+    """One MCP tool, with what a scout would need to call it."""
+
+    name = serializers.CharField(
+        source="definition.name",
+        help_text="The tool's permanent identifier, for example `insight-get`. This is the name a scout calls.",
+    )
+    title = serializers.CharField(
+        source="definition.title", help_text="The label people read, for example `Get insight`."
+    )
+    summary = serializers.CharField(
+        source="definition.summary",
+        help_text=(
+            "One line on what the tool does. The tool's full description runs to several kilobytes on some "
+            "tools, so it is not part of this listing."
+        ),
+    )
+    category = serializers.CharField(
+        source="definition.category",
+        help_text="The product area the tool belongs to, for example `Error tracking`. Use it to group the listing.",
+    )
+    feature = serializers.CharField(
+        source="definition.feature",
+        help_text="The feature key the MCP server filters on, for example `error_tracking`. Narrower than `category`.",
+    )
+    required_scopes = serializers.ListField(
+        source="definition.required_scopes",
+        child=serializers.CharField(),
+        help_text="The API scopes a token must carry to call the tool. Empty for a tool that needs none.",
+    )
+    # Not `read_only`: that name is a DRF `Field` attribute, so a field declared under it
+    # shadows the base class and fails the typecheck.
+    is_read_only = serializers.BooleanField(
+        source="definition.read_only",
+        help_text="True when the tool only reads. A false value means the tool can change the project's data.",
+    )
+    requires_ai_consent = serializers.BooleanField(
+        source="definition.requires_ai_consent",
+        help_text="True when the tool is hidden until the project consents to AI features.",
+    )
+    holdable = serializers.BooleanField(
+        help_text=(
+            "True when a scout run can hold every scope the tool requires. A false value means no scout "
+            "reaches the tool, whatever it is granted, so it cannot be configured for one."
+        )
+    )
+    missing_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Required scopes the baseline `signals_scout` preset does not carry. On a holdable tool these "
+            "are what the scout has to be granted, or the preset it has to opt into. On a tool that is not "
+            "holdable they include every scope no scout can reach, and can also include scopes a person can "
+            "grant. Compare them with `grantable_write_scopes` and `presets` to tell the two apart."
+        ),
+    )
+    feature_flag = serializers.CharField(
+        source="definition.feature_flag",
+        allow_null=True,
+        help_text=(
+            "Feature flag key that gates the tool, or null when the tool is always served. The flag resolves "
+            "per project, so evaluate it for the project you are configuring before you offer the tool."
+        ),
+    )
+    feature_flag_behavior = serializers.CharField(
+        source="definition.feature_flag_behavior",
+        allow_null=True,
+        help_text=(
+            "How `feature_flag` gates the tool: `enable` (served only while the flag is on) or `disable` "
+            "(served only while the flag is off). Null means the default, `enable`."
+        ),
+    )
+    feature_flag_variant = serializers.CharField(
+        source="definition.feature_flag_variant",
+        allow_null=True,
+        help_text="Variant of `feature_flag` the tool needs, or null when any truthy value serves it.",
+    )
+    hidden_when_flag_on = serializers.CharField(
+        source="definition.hidden_when_flag_on",
+        allow_null=True,
+        help_text="A second flag key that hides the tool while it is on, independent of `feature_flag`. Usually null.",
+    )
+    feature_entitlement = serializers.CharField(
+        source="definition.feature_entitlement",
+        allow_null=True,
+        help_text="Plan feature the organization must have for the tool to be served, or null when the tool is free.",
+    )
+
+
+class ScoutScopePresetSerializer(serializers.Serializer):
+    """A scope preset a scout run can be dispatched with."""
+
+    name = serializers.CharField(
+        help_text=(
+            "The preset's name. `signals_scout` is what every scout holds; `signals_scout_reports` adds the "
+            "report channel and is used only by a scout whose skill opted into it."
+        )
+    )
+    scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Every scope a token minted from this preset carries, including the internal ones.",
+    )
+
+
+class ScoutToolPresetSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Preset identifier accepted when saving a scout config.")
+    label = serializers.CharField(help_text="Human-readable preset name.")  # type: ignore[assignment]
+    tools = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Exact tool names expanded on save. A preset with non-holdable tools cannot be saved.",
+    )
+
+
+class ScoutToolCatalogueSerializer(serializers.Serializer):
+    """The MCP tool catalogue, with the scout scope postures to read it against."""
+
+    tools = ScoutToolCatalogueEntrySerializer(
+        many=True,
+        help_text=("Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out."),
+    )
+    tool_presets = ScoutToolPresetSerializer(many=True, help_text="Tool selections expanded and validated on save.")
+    presets = ScoutScopePresetSerializer(
+        many=True,
+        help_text="The scope presets a scout run can be dispatched with, and the scopes each one resolves to.",
+    )
+    grantable_write_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "The write scopes a person can grant to one scout from its settings. A scope outside this set "
+            "can never be added to a scout's token."
+        ),
+    )
 
 
 # --- Members (reviewer routing) --------------------------------------------

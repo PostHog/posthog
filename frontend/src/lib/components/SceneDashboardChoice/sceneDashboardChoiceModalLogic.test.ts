@@ -42,6 +42,7 @@ describe('sceneDashboardChoiceModalLogic', () => {
                         {
                             ...MOCK_DEFAULT_TEAM,
                             primary_dashboard: data?.primary_dashboard,
+                            home_tab_dashboard: data?.home_tab_dashboard,
                         },
                     ]
                 },
@@ -101,6 +102,38 @@ describe('sceneDashboardChoiceModalLogic', () => {
                 .toDispatchActions(userLogic, ['setUserScenePersonalisation', 'setUserScenePersonalisationSuccess'])
                 .toMatchValues({
                     currentDashboardId: 12,
+                })
+        })
+    })
+
+    describe('for product analytics Home', () => {
+        beforeEach(() => {
+            logic = sceneDashboardChoiceModalLogic({ scene: Scene.ProductAnalyticsHomeTab })
+            logic.mount()
+        })
+
+        it('opens the starter before the existing dashboard picker', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.showSceneDashboardChoiceModal()
+            }).toMatchValues({
+                isOpen: true,
+                dashboardChoiceView: 'starter',
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.showDashboardPicker()
+            }).toMatchValues({
+                dashboardChoiceView: 'existing',
+            })
+        })
+
+        it('can restore PostHog Home', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSceneDashboardChoice(null)
+            })
+                .toDispatchActions(teamLogic, ['updateCurrentTeam', 'updateCurrentTeamSuccess'])
+                .toMatchValues({
+                    currentDashboardId: null,
                 })
         })
     })

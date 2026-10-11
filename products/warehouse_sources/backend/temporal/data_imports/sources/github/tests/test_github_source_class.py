@@ -158,15 +158,21 @@ class TestGithubSource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
-    def test_ssl_eof_error_is_retryable_not_non_retryable(self):
-        # A TLS session cut at the socket while minting the installation access token
-        # (client_request has no in-process retry, unlike _fetch_page). Must stay retryable so a
-        # dropped connection to GitHub doesn't disable the source.
-        observed_error = (
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            # A TLS session cut at the socket while minting the installation access token.
             "HTTPSConnectionPool(host='api.github.com', port=443): Max retries exceeded with url: "
             "/app/installations/123/access_tokens (Caused by SSLError(SSLEOFError(8, "
-            "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))"
-        )
+            "'[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032)')))",
+            # A read timeout on the same call.
+            "HTTPSConnectionPool(host='api.github.com', port=443): Read timed out. (read timeout=10)",
+        ],
+    )
+    def test_token_mint_transport_error_is_retryable_not_non_retryable(self, observed_error):
+        # Neither has an in-process retry (client_request has none, unlike _fetch_page's tenacity
+        # retry). Must stay retryable so a dropped connection or a slow response to GitHub doesn't
+        # disable the source.
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in observed_error for key in non_retryable_errors)
         retryable_errors = self.source.get_retryable_errors()
@@ -496,11 +502,19 @@ class TestGithubSource:
 
         assert "GitHub access token not found" in self.source.get_non_retryable_errors()
 
-    def test_delete_webhook_skips_gracefully_when_integration_deleted(self):
-        # Webhook cleanup runs on source deletion, after the OAuth integration may already be gone;
-        # get_oauth_integration then raises "Integration not found". delete_webhook must report the
-        # skip rather than let it escape and be captured as error-tracking noise, and its message
-        # must not echo the integration id back to the caller (it surfaces in the API response).
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda source, config, url, team_id: source.delete_webhook(config, url, team_id),
+            lambda source, config, url, team_id: source.get_external_webhook_info(config, url, team_id),
+        ],
+        ids=["delete_webhook", "get_external_webhook_info"],
+    )
+    def test_webhook_calls_skip_gracefully_when_integration_deleted(self, call):
+        # The OAuth integration can be deleted while the source still references it (on source deletion,
+        # or when the account is disconnected); get_oauth_integration then raises "Integration not found".
+        # Webhook calls must report that rather than let it escape and be captured as error-tracking
+        # noise, and the message must not echo the integration id back (it surfaces in the API response).
         config = GithubSourceConfig(
             auth_method=GithubAuthMethodConfig(github_integration_id=42, selection="oauth", personal_access_token=""),
             repository="owner/repo",
@@ -509,10 +523,10 @@ class TestGithubSource:
         with mock.patch.object(
             self.source, "get_oauth_integration", side_effect=ValueError("Integration not found: 42")
         ):
-            result = self.source.delete_webhook(config, "https://ph.example/webhook", self.team_id)
+            result = call(self.source, config, "https://ph.example/webhook", self.team_id)
 
-        assert result.success is False
-        assert "42" not in (result.error or "")
+        assert result.error
+        assert "42" not in result.error
 
     @pytest.mark.parametrize(
         "selection,expected_message",

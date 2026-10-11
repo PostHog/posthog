@@ -188,9 +188,11 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_DashboardTile
   list([
+    'badge',
     'color',
     'deleted',
     'filters_overrides',
+    'group_key',
     'layouts',
     'show_description',
     'transparent_background',
@@ -333,6 +335,7 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Text
   list([
+    'agent_context',
     'body',
   ])
 # ---
@@ -484,6 +487,7 @@
     'project_id',
     'refresh_bytecode',
     'save',
+    'selector_match_changes',
     'slack_message_format',
     'steps',
     'summary',
@@ -495,6 +499,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -513,6 +518,7 @@
     '_maintain_filter_shape_hashes',
     '_meta',
     '_person_shape_changed',
+    '_refresh_count',
     '_required_backfill_stamps',
     '_safe_reset_calculating_state',
     '_safe_save_cohort_state',
@@ -568,6 +574,7 @@
     'MultipleObjectsReturned',
     'PrivilegeLevel',
     'RestrictionLevel',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -610,6 +617,7 @@
   list([
     'DoesNotExist',
     'MultipleObjectsReturned',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -621,6 +629,7 @@
     'dashboard_id',
     'dashboard_queryset',
     'filters_hash',
+    'get_badge_display',
     'id',
     'insight_id',
     'last_refresh',
@@ -689,6 +698,7 @@
     'ExperimentType',
     'MultipleObjectsReturned',
     'Status',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -817,6 +827,7 @@
     'DoesNotExist',
     'EVALUATION_RUNTIME_CHOICES',
     'MultipleObjectsReturned',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__module__',
@@ -828,6 +839,7 @@
     '_meta',
     '_payloads',
     '_tombstone_suffix',
+    '_v1_filters',
     'access',
     'aggregation_group_type_index',
     'analytics_dashboards',
@@ -835,6 +847,7 @@
     'conditions',
     'created_by_id',
     'deleted',
+    'early_exit',
     'evaluation_tag_names',
     'experiment_set',
     'featureflagdashboards_set',
@@ -883,6 +896,7 @@
     'DoesNotExist',
     'MATERIAL_INSIGHT_FIELDS',
     'MultipleObjectsReturned',
+    '__annotate_func__',
     '__doc__',
     '__firstlineno__',
     '__init__',

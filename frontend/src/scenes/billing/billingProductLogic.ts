@@ -24,7 +24,13 @@ import {
 
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { ProductKey } from '../../queries/schema/schema-general'
-import { calculateFreeTier, createGaugeItems, isAddonVisible, isProductVariantPrimary } from './billing-utils'
+import {
+    calculateFreeTier,
+    canHaveBillingLimit,
+    createGaugeItems,
+    isAddonVisible,
+    isProductVariantPrimary,
+} from './billing-utils'
 import { getBillingLimitConfig } from './billingLimitConfig'
 import type { BillingLimitConfig } from './billingLimitConfig'
 import { billingLogic } from './billingLogic'
@@ -184,10 +190,10 @@ export interface billingProductLogicActions {
     } // billingLogic
     loadBilling: () => any // billingLogic
     loadBillingSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: any
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: any
     } // billingLogic
     setProductSpecificAlert: (productSpecificAlert: BillingAlertConfig | null) => {
@@ -204,14 +210,14 @@ export interface billingProductLogicActions {
         [key: string]: number | null
     } // billingLogic
     updateBillingLimitsSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?:
             | {
                   [key: string]: number | null
               }
             | undefined
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: {
             [key: string]: number | null
         }
@@ -838,6 +844,9 @@ export const billingProductLogic = kea<billingProductLogicType>([
         customLimitUsd: [
             (s, p) => [s.billing, p.product],
             (billing: BillingType | null, product: BillingProductV2AddonType | BillingProductV2Type) => {
+                if (!canHaveBillingLimit(product)) {
+                    return null
+                }
                 const customLimit = billing?.custom_limits_usd?.[product.type]
                 if (customLimit === 0 || customLimit) {
                     return Number(customLimit)
@@ -889,12 +898,15 @@ export const billingProductLogic = kea<billingProductLogicType>([
         billingLimitAsUsage: [
             (_, p) => [p.product],
             (product: BillingProductV2AddonType | BillingProductV2Type) => {
-                return product.usage_limit || 0
+                return canHaveBillingLimit(product) ? product.usage_limit || 0 : 0
             },
         ],
         billingLimitNextPeriod: [
             (s, p) => [s.billing, p.product],
             (billing: BillingType | null, product: BillingProductV2AddonType | BillingProductV2Type) => {
+                if (!canHaveBillingLimit(product)) {
+                    return null
+                }
                 const nextPeriodLimit = billing?.next_period_custom_limits_usd?.[product.type]
                 if (nextPeriodLimit === 0 || nextPeriodLimit) {
                     return nextPeriodLimit
@@ -1006,6 +1018,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     data_warehouse_historical: 'Free historical synced rows',
                     logs: 'Logs ingestion (14-day retention)',
                     logs_retention_30d: '30-day retention',
+                    logs_retention_custom: 'Custom retention',
                 }
 
                 const mainProduct = product as BillingProductV2Type
@@ -1021,7 +1034,12 @@ export const billingProductLogic = kea<billingProductLogicType>([
                     },
                 ]
 
-                mainProduct.addons?.forEach((addon) => {
+                // Billing lists every offered add-on. A free-plan add-on has no price, so `subscribed` alone misses it.
+                const heldAddons = mainProduct.addons?.filter(
+                    (addon) => addon.subscribed || addon.plans?.some((plan) => plan.current_plan)
+                )
+
+                heldAddons?.forEach((addon) => {
                     variants.push({
                         key: addon.type,
                         product: addon as BillingProductV2Type | BillingProductV2AddonType,
@@ -1160,7 +1178,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
             if (!values.unsubscribeError && values.surveyID) {
                 actions.reportSurveySent(values.surveyID, values.surveyResponse)
                 await breakpoint(400)
-                document.getElementsByClassName('Navigation3000__scene')[0].scrollIntoView()
+                document.getElementsByClassName('Navigation3000__scene')[0]?.scrollIntoView()
             }
         },
         setScrollToProductKey: ({ scrollToProductKey }) => {
@@ -1185,6 +1203,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         handleProductUpgrade: async ({ products, redirectPath }) => {
             try {
                 const body: Record<string, string> = { products }
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingActivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 const response = await api.create('api/billing/activate', body)
 
                 if (response.success) {
@@ -1268,6 +1287,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         activateTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingTrialsActivateCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create(`api/billing/trials/activate`, {
                     type: 'autosubscribe',
                     target: props.product.type,
@@ -1284,6 +1304,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         cancelTrial: async (_, breakpoint) => {
             actions.setTrialLoading(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingTrialsCancelCreate() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.create(`api/billing/trials/cancel`)
                 lemonToast.success('Your trial has been cancelled!')
                 if (values.surveyID) {
@@ -1306,6 +1327,7 @@ export const billingProductLogic = kea<billingProductLogicType>([
         removeBillingLimitNextPeriod: async ({ productType }) => {
             actions.setRemovingBillingLimitNextPeriod(true)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.update('api/billing', { reset_limit_next_period: productType })
                 lemonToast.success('Billing limit for next period has been removed.')
             } catch (error) {

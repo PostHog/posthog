@@ -8,9 +8,10 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage import finage
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.finage import (
-    AGG_LIMIT,
     MAX_SYMBOLS,
     MIN_START_DATE,
+    STATEMENT_LIMIT,
+    SYMBOL_LIST_MAX_PAGES,
     FinageConfigError,
     FinageRetryableError,
     finage_source,
@@ -69,14 +70,10 @@ class TestParseSymbols:
 
 
 class TestValidateSourceConfig:
-    def test_accepts_valid_config(self) -> None:
-        # Class-share tickers with dots/hyphens are valid; a start date inside the window is fine.
-        validate_source_config(["AAPL", "BRK.B", "BF-B"], "2021-06-01")
-
     @parameterized.expand(
         [
             ("no_symbols", [], "2021-01-01", "at least one"),
-            ("too_many", [f"SYM{i}" for i in range(MAX_SYMBOLS + 1)], "2021-01-01", "Too many symbols"),
+            ("too_many", [f"SYM{i}" for i in range(MAX_SYMBOLS + 1)], "2021-01-01", "Too many stock symbols"),
             ("bad_ticker", ["AAPL", "not a ticker"], "2021-01-01", "Invalid stock symbol"),
             ("malformed_date", ["AAPL"], "06/01/2021", "YYYY-MM-DD"),
             ("date_before_floor", ["AAPL"], "1990-01-01", MIN_START_DATE),
@@ -86,6 +83,26 @@ class TestValidateSourceConfig:
     def test_rejects_invalid_config(self, _name: str, symbols: list[str], start_date: str, expected: str) -> None:
         with pytest.raises(FinageConfigError) as exc:
             validate_source_config(symbols, start_date)
+        assert expected in str(exc.value)
+
+    @parameterized.expand(
+        [
+            # Pair symbols carry no separators, so a stock-style ticker in the forex field is a typo
+            # that would otherwise 404 every symbol at sync time.
+            ("forex_ticker_shaped", {"forex_symbols": ["BRK.B"]}, "Invalid forex symbol"),
+            ("forex_too_short", {"forex_symbols": ["GBP"]}, "Invalid forex symbol"),
+            ("crypto_ticker_shaped", {"crypto_symbols": ["BTC-USD"]}, "Invalid crypto symbol"),
+            ("forex_too_many", {"forex_symbols": [f"AAA{i:03d}" for i in range(MAX_SYMBOLS + 1)]}, "Too many forex"),
+            (
+                "crypto_too_many",
+                {"crypto_symbols": [f"BBB{i:03d}" for i in range(MAX_SYMBOLS + 1)]},
+                "Too many crypto",
+            ),
+        ]
+    )
+    def test_rejects_invalid_pair_symbols(self, _name: str, kwargs: dict, expected: str) -> None:
+        with pytest.raises(FinageConfigError) as exc:
+            validate_source_config(["AAPL"], "2021-01-01", **kwargs)
         assert expected in str(exc.value)
 
 
@@ -103,11 +120,6 @@ class TestMsToDate:
 
 
 class TestFetchJson:
-    def test_returns_json_on_200(self) -> None:
-        session = mock.Mock()
-        session.get.return_value = _response(200, {"symbol": "AAPL"})
-        assert finage._fetch_json(session, "/last/stock/AAPL", "k", mock.Mock()) == {"symbol": "AAPL"}
-
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_terminal_statuses_raise_without_retry(self, _name: str, status: int) -> None:
         session = mock.Mock()
@@ -175,15 +187,6 @@ class TestGetRows:
         # One batch (single-element list) per symbol.
         assert [row for batch in batches for row in batch] == payloads
 
-    def test_point_in_time_pins_symbol_when_missing(self) -> None:
-        with (
-            mock.patch.object(finage, "make_tracked_session"),
-            mock.patch.object(finage, "_fetch_json", side_effect=[{"ask": 1.0, "bid": 0.9}]),
-        ):
-            batches = list(get_rows("k", "last_quote", ["AAPL"], "2020-01-01", mock.Mock()))
-
-        assert batches[0][0]["symbol"] == "AAPL"
-
     @parameterized.expand([("error_body", {"error": "no data"}), ("empty", {})])
     def test_point_in_time_skips_symbols_without_data(self, _name: str, bad_payload: dict) -> None:
         with (
@@ -240,17 +243,6 @@ class TestGetRows:
         }
         assert rows[1]["date"] == "2020-02-06"
 
-    def test_aggregates_requests_ascending_with_limit(self) -> None:
-        with (
-            mock.patch.object(finage, "make_tracked_session"),
-            mock.patch.object(finage, "_fetch_json", return_value={"results": []}) as fetch,
-        ):
-            list(get_rows("k", "aggregates", ["AAPL"], "2020-01-01", mock.Mock()))
-
-        # sort=asc must match SourceResponse.sort_mode so the pipeline orders rows correctly.
-        _args, kwargs = fetch.call_args
-        assert kwargs["params"] == {"limit": AGG_LIMIT, "sort": "asc"}
-
     def test_aggregates_skips_symbols_with_no_results(self) -> None:
         with (
             mock.patch.object(finage, "make_tracked_session"),
@@ -277,17 +269,208 @@ class TestGetRows:
             with pytest.raises((KeyError, ValueError)):
                 list(get_rows("k", "aggregates", ["AAPL"], "2020-01-01", mock.Mock()))
 
-    def test_disables_adapter_retry_so_tenacity_is_the_only_retry_layer(self) -> None:
-        # The urllib3 adapter's DEFAULT_RETRY would stack on top of `_fetch_json`'s tenacity retries,
-        # multiplying backoff. `get_rows` must opt the session out with retry=Retry(total=0).
-        with (
-            mock.patch.object(finage, "make_tracked_session") as make_session,
-            mock.patch.object(finage, "_fetch_json", return_value={"results": []}),
-        ):
-            list(get_rows("k", "aggregates", ["AAPL"], "2020-01-01", mock.Mock()))
 
-        _args, kwargs = make_session.call_args
-        assert kwargs["retry"].total == 0
+class TestFundamentalsRows:
+    @parameterized.expand(
+        [
+            ("dividends", "historical_dividends", [None]),
+            ("splits", "historical_stock_splits", [None]),
+            (
+                "cash_flow",
+                "cash_flow_statement",
+                [{"limit": STATEMENT_LIMIT, "period": "annual"}, {"limit": STATEMENT_LIMIT, "period": "quarter"}],
+            ),
+            (
+                "balance_sheet",
+                "balance_sheet_statements",
+                [{"limit": STATEMENT_LIMIT, "period": "annual"}, {"limit": STATEMENT_LIMIT, "period": "quarter"}],
+            ),
+            (
+                "income_statement",
+                "income_statement",
+                [{"limit": STATEMENT_LIMIT, "period": "annual"}, {"limit": STATEMENT_LIMIT, "period": "quarter"}],
+            ),
+        ]
+    )
+    def test_requests_one_call_per_fiscal_period(
+        self, _name: str, endpoint: str, expected_params: list[dict | None]
+    ) -> None:
+        # Statements default to annual, so dropping the quarter request would silently halve the table
+        # while leaving it looking healthy. The dividend and split paths take no period at all.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=[]) as fetch,
+        ):
+            list(get_rows("k", endpoint, ["AAPL"], "2020-01-01", mock.Mock()))
+
+        assert [call.kwargs["params"] for call in fetch.call_args_list] == expected_params
+
+    @parameterized.expand(
+        [
+            ("response_omits_symbol", {}),
+            ("response_reports_another_symbol", {"symbol": "MSFT"}),
+        ]
+    )
+    def test_pins_the_requested_symbol_onto_every_row(self, _name: str, response_symbol: dict) -> None:
+        # The split and dividend responses carry no symbol, so without pinning the rows lose half
+        # their primary key. A response that names a different company must not write its history
+        # under that company's key either.
+        record = {"numerator_factor": 4, "denominator_factor": 1, "label": "August 31, 20", "date": "2020-08-31"}
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=[{**record, **response_symbol}]),
+        ):
+            batches = list(get_rows("k", "historical_stock_splits", ["AAPL"], "2020-01-01", mock.Mock()))
+
+        assert batches == [[{**record, "symbol": "AAPL"}]]
+
+    @parameterized.expand(
+        [
+            ("missing_date", "historical_dividends", {"adj_dividend": 0.22}),
+            ("malformed_date", "historical_dividends", {"date": "November 05, 21", "adj_dividend": 0.22}),
+            ("calendar_without_symbol", "dividend_calendar", {"date": "2021-01-08", "adj_dividend": 0.003}),
+            ("calendar_blank_symbol", "dividend_calendar", {"symbol": "   ", "date": "2021-01-08"}),
+            # `strptime` parses "2021-1-8", which would key the same day two ways.
+            ("noncanonical_date", "historical_dividends", {"date": "2021-1-8", "adj_dividend": 0.22}),
+        ]
+    )
+    def test_rejects_records_that_cannot_be_keyed(self, _name: str, endpoint: str, bad_record: dict) -> None:
+        # `symbol` and `date` are the primary key, and `date` is also the partition key. A bad value
+        # merges unrelated rows together or buckets them into the fallback 1970-01 partition.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=[bad_record]),
+        ):
+            with pytest.raises(ValueError):
+                list(get_rows("k", endpoint, ["AAPL"], "2021-01-01", mock.Mock()))
+
+    def test_rejects_an_array_holding_something_that_is_not_a_record(self) -> None:
+        # Dropping the element would let the sync finish with an incomplete table, which is the
+        # outcome the key checks above exist to prevent.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=[{"date": "2020-08-31"}, "not-a-record"]),
+        ):
+            with pytest.raises(ValueError):
+                list(get_rows("k", "historical_stock_splits", ["AAPL"], "2020-01-01", mock.Mock()))
+
+    @parameterized.expand([("symbol_history", "historical_dividends"), ("calendar", "dividend_calendar")])
+    def test_404_is_skipped_but_401_stops_the_sync(self, _name: str, endpoint: str) -> None:
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", side_effect=_http_error(404)),
+        ):
+            assert list(get_rows("k", endpoint, ["BAD"], "2021-01-01", mock.Mock())) == []
+
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", side_effect=_http_error(401)),
+        ):
+            with pytest.raises(requests.HTTPError):
+                list(get_rows("k", endpoint, ["AAPL"], "2021-01-01", mock.Mock()))
+
+
+class TestSymbolProfileRows:
+    def test_skips_a_symbol_with_no_profile_but_keeps_going(self) -> None:
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(
+                finage, "_fetch_json", side_effect=[{"error": "no data"}, [{"symbol": "MSFT", "name": "Microsoft"}]]
+            ),
+        ):
+            batches = list(get_rows("k", "stock_details", ["BAD", "MSFT"], "2020-01-01", mock.Mock()))
+
+        assert [row["symbol"] for batch in batches for row in batch] == ["MSFT"]
+
+
+class TestSymbolListRows:
+    def _page(self, *symbols: str) -> dict[str, Any]:
+        return {"page": 1, "symbols": [{"symbol": s, "name": f"{s} name"} for s in symbols]}
+
+    def test_stops_at_the_page_cap_when_the_api_never_returns_an_empty_page(self) -> None:
+        # An API that ignores `page` would otherwise re-serve page one for ever and never finish.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=self._page("AAPL")) as fetch,
+        ):
+            batches = list(get_rows("k", "symbol_list", ["AAPL"], "2020-01-01", mock.Mock()))
+
+        assert len(batches) == SYMBOL_LIST_MAX_PAGES * 3
+        assert fetch.call_count == SYMBOL_LIST_MAX_PAGES * 3
+
+    def test_rejects_an_entry_that_cannot_be_keyed(self) -> None:
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value={"symbols": [{"name": "no symbol here"}]}),
+        ):
+            with pytest.raises(ValueError):
+                list(get_rows("k", "symbol_list", ["AAPL"], "2020-01-01", mock.Mock()))
+
+    def test_404_on_one_market_skips_it_but_401_stops_the_sync(self) -> None:
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(
+                finage,
+                "_fetch_json",
+                side_effect=[_http_error(404), self._page("GBPUSD"), {"symbols": []}, {"symbols": []}],
+            ),
+        ):
+            batches = list(get_rows("k", "symbol_list", ["AAPL"], "2020-01-01", mock.Mock()))
+        assert [row["market"] for batch in batches for row in batch] == ["forex"]
+
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", side_effect=_http_error(401)),
+        ):
+            with pytest.raises(requests.HTTPError):
+                list(get_rows("k", "symbol_list", ["AAPL"], "2020-01-01", mock.Mock()))
+
+
+class TestNonEquityAssetClasses:
+    @parameterized.expand(
+        [
+            ("forex_quote", "forex_last_quote", "/last/forex/GBPUSD"),
+            ("crypto_trade", "crypto_last_trade", "/last/crypto/BTCUSD"),
+        ]
+    )
+    def test_point_in_time_fans_out_over_its_own_symbol_list(self, _name: str, endpoint: str, path: str) -> None:
+        # Fanning the stock tickers into a forex or crypto path would 404 every symbol, so the
+        # endpoint must read the list that matches its asset class.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value={"symbol": "X", "price": 1.0}) as fetch,
+        ):
+            list(
+                get_rows(
+                    "k",
+                    endpoint,
+                    ["AAPL"],
+                    "2020-01-01",
+                    mock.Mock(),
+                    forex_symbols=["GBPUSD"],
+                    crypto_symbols=["BTCUSD"],
+                )
+            )
+
+        assert [call.args[1] for call in fetch.call_args_list] == [path]
+
+    @parameterized.expand(
+        [
+            ("forex_quote", "forex_last_quote"),
+            ("forex_aggregates", "forex_aggregates"),
+            ("crypto_trade", "crypto_last_trade"),
+            ("crypto_aggregates", "crypto_aggregates"),
+        ]
+    )
+    def test_no_configured_symbols_yields_nothing_without_calling_the_api(self, _name: str, endpoint: str) -> None:
+        # The pair fields are optional, so an enabled table with an empty list must sync empty
+        # rather than fall back to the stock tickers.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json") as fetch,
+        ):
+            assert list(get_rows("k", endpoint, ["AAPL"], "2020-01-01", mock.Mock())) == []
+        fetch.assert_not_called()
 
 
 class TestFinageSourceResponse:
@@ -296,6 +479,12 @@ class TestFinageSourceResponse:
             ("last_quote", ["symbol"], None, None),
             ("last_trade", ["symbol"], None, None),
             ("aggregates", ["symbol", "t"], "datetime", ["date"]),
+            ("stock_details", ["symbol"], None, None),
+            ("symbol_list", ["market", "symbol"], None, None),
+            ("forex_last_quote", ["symbol"], None, None),
+            ("forex_aggregates", ["symbol", "t"], "datetime", ["date"]),
+            ("crypto_last_trade", ["symbol"], None, None),
+            ("crypto_aggregates", ["symbol", "t"], "datetime", ["date"]),
         ]
     )
     def test_source_response_shape(

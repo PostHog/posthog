@@ -205,6 +205,28 @@ class TestSyncSavedQueryToDag(BaseTest):
         assert edge is not None
         self.assertEqual(edge.dag_id, dag.id)
 
+    def test_sync_refreshes_the_table_id_when_a_warehouse_table_is_recreated(self):
+        old_table = DataWarehouseTable.objects.create(team=self.team, name="orders", format="Parquet")
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="order_summary",
+            team=self.team,
+            query={"query": "SELECT * FROM orders", "kind": "HogQLQuery"},
+        )
+
+        sync_saved_query_to_dag(saved_query)
+        table_node = Node.objects.get(team=self.team, dag__name=DEFAULT_DAG_NAME, name="orders")
+        self.assertEqual(table_node.properties["warehouse_table_id"], str(old_table.id))
+
+        old_table.deleted = True
+        old_table.save(update_fields=["deleted"])
+        new_table = DataWarehouseTable.objects.create(team=self.team, name="orders", format="Parquet")
+
+        sync_saved_query_to_dag(saved_query)
+
+        table_node.refresh_from_db()
+        self.assertEqual(table_node.properties["origin"], "warehouse")
+        self.assertEqual(table_node.properties["warehouse_table_id"], str(new_table.id))
+
     def test_sync_creates_edges_for_multiple_dependencies(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
@@ -290,18 +312,33 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         self.assertEqual({edge.source.name for edge in Edge.objects.filter(target=node)}, {"events"})
 
-    def test_sync_creates_edge_to_other_saved_query(self):
+    @parameterized.expand(
+        [
+            ("view", "upstream_view", False),
+            ("view_under_models_root", "models.upstream_view", False),
+            ("matview", "upstream_view", True),
+            ("matview_under_models_root", "models.upstream_view", True),
+        ]
+    )
+    def test_sync_creates_edge_to_other_saved_query(self, _name: str, reference: str, materialized: bool):
         upstream_query = DataWarehouseSavedQuery.objects.create(
             name="upstream_view",
             team=self.team,
-            query={"query": "SELECT * FROM events", "kind": "HogQLQuery"},
+            query={"query": "SELECT event FROM events", "kind": "HogQLQuery"},
+            columns={"event": "String"},
         )
+        if materialized:
+            upstream_query.table = DataWarehouseTable.objects.create(
+                team=self.team, name="upstream_view", format="Parquet", columns={"event": "String"}
+            )
+            upstream_query.is_materialized = True
+            upstream_query.save(update_fields=["table", "is_materialized"])
         upstream_node = sync_saved_query_to_dag(upstream_query)
 
         downstream_query = DataWarehouseSavedQuery.objects.create(
             name="downstream_view",
             team=self.team,
-            query={"query": "SELECT * FROM upstream_view", "kind": "HogQLQuery"},
+            query={"query": f"SELECT * FROM {reference}", "kind": "HogQLQuery"},
         )
         downstream_node = sync_saved_query_to_dag(downstream_query)
 

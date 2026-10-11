@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use sqlx::PgPool;
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
@@ -27,6 +27,7 @@ pub struct ResolutionStage {
     pub remote: RemoteResolutionContext,
     pub posthog_pool: PgPool,
     pub release_cache: ReleaseCache,
+    pub drop_code_variables_team_ids: Arc<HashSet<i32>>,
 }
 
 #[derive(Clone)]
@@ -45,6 +46,7 @@ impl From<&Arc<AppContext>> for ResolutionStage {
                 .expect("processing app context requires remote resolution"),
             posthog_pool: app_context.posthog_pool.clone(),
             release_cache: app_context.release_cache.clone(),
+            drop_code_variables_team_ids: app_context.drop_code_variables_team_ids.clone(),
         }
     }
 }
@@ -73,6 +75,20 @@ impl Stage for ResolutionStage {
         // Release resolution runs after resolve_batch so it can later fall back to the resolved
         // frames' symbol sets for legacy events.
         let resolved = resolve_batch(batch, self.remote.clone()).await?;
+        let drop_team_ids = self.drop_code_variables_team_ids.clone();
+        let resolved = resolved.map(
+            |item, ()| {
+                item.map(|mut event| {
+                    if drop_team_ids.contains(&event.team_id()) {
+                        event.drop_code_variables();
+                    } else {
+                        event.mask_code_variables();
+                    }
+                    event
+                })
+            },
+            &mut (),
+        );
         let resolved = resolved.apply_operator(EventReleaseResolver, self).await?;
         Ok(resolved.map(|item, ()| item.map(|event| event.into_resolved()), &mut ()))
     }

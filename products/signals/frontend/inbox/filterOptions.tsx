@@ -19,7 +19,12 @@ import {
 } from '@posthog/icons'
 import { LemonTagType } from '@posthog/lemon-ui'
 
-import type { InboxSortDirection, InboxSortField } from './logics/inboxFiltersLogic'
+import type {
+    InboxCreatedWindow,
+    InboxRankingSortField,
+    InboxSortDirection,
+    InboxSortField,
+} from './logics/inboxFiltersLogic'
 import { SignalReportPriority } from './types'
 import { prettifyScoutSkillName } from './utils/scoutRunsWindow'
 
@@ -78,6 +83,100 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
     { label: 'Newest first', field: 'created_at', direction: 'desc', icon: <IconCalendar /> },
     { label: 'Oldest first', field: 'created_at', direction: 'asc', icon: <IconClock /> },
 ]
+
+/** Staff-only sorts by the ranking model's served probability for one outcome head. Descending only. */
+export const INBOX_MODEL_SORT_SECTIONS: { title: string; options: InboxSortOption[] }[] = [
+    {
+        title: 'Model: good outcomes',
+        options: [
+            { label: 'Most likely to merge', field: 'ranking_pr_merged', direction: 'desc', icon: <IconBrain /> },
+            { label: 'Most likely to get a PR', field: 'ranking_pr_created', direction: 'desc', icon: <IconBrain /> },
+            { label: 'Most likely to need action', field: 'ranking_action', direction: 'desc', icon: <IconBrain /> },
+            { label: 'Most likely to be opened', field: 'ranking_open', direction: 'desc', icon: <IconBrain /> },
+            { label: 'Most likely to be fixed', field: 'ranking_fixed', direction: 'desc', icon: <IconBrain /> },
+            { label: 'Most likely to be discussed', field: 'ranking_discuss', direction: 'desc', icon: <IconBrain /> },
+            {
+                label: 'Most likely to get a thumbs up',
+                field: 'ranking_thumbs_up',
+                direction: 'desc',
+                icon: <IconBrain />,
+            },
+        ],
+    },
+    {
+        title: 'Model: bad outcomes',
+        options: [
+            {
+                label: 'Most likely to need a reviewer fix',
+                field: 'ranking_reviewer_fix',
+                direction: 'desc',
+                icon: <IconBrain />,
+            },
+            { label: 'Most likely to be refunded', field: 'ranking_refund', direction: 'desc', icon: <IconBrain /> },
+            {
+                label: 'Most likely to be dismissed as wrong',
+                field: 'ranking_dismiss_wrong',
+                direction: 'desc',
+                icon: <IconBrain />,
+            },
+            {
+                label: 'Most likely to be dismissed as low value',
+                field: 'ranking_dismiss_lowvalue',
+                direction: 'desc',
+                icon: <IconBrain />,
+            },
+        ],
+    },
+]
+
+export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = INBOX_MODEL_SORT_SECTIONS.flatMap(({ options }) => options)
+
+export function isRankingSortField(field: InboxSortField): field is InboxRankingSortField {
+    return field.startsWith('ranking_')
+}
+
+/** The outcome head each model sort reads, and the short word its card tag uses ("41% merge"). */
+export const RANKING_SORT_HEADS: Record<InboxRankingSortField, { head: string; tagLabel: string }> = {
+    ranking_pr_merged: { head: 'pr_merged', tagLabel: 'merge' },
+    ranking_pr_created: { head: 'pr_created', tagLabel: 'PR' },
+    ranking_action: { head: 'action', tagLabel: 'action' },
+    ranking_open: { head: 'open', tagLabel: 'open' },
+    ranking_fixed: { head: 'fixed', tagLabel: 'fix' },
+    ranking_discuss: { head: 'discuss', tagLabel: 'discuss' },
+    ranking_thumbs_up: { head: 'thumbs_up', tagLabel: 'thumbs up' },
+    ranking_reviewer_fix: { head: 'reviewer_fix', tagLabel: 'reviewer fix' },
+    ranking_refund: { head: 'refund', tagLabel: 'refund' },
+    ranking_dismiss_wrong: { head: 'dismiss_wrong', tagLabel: 'wrong' },
+    ranking_dismiss_lowvalue: { head: 'dismiss_lowvalue', tagLabel: 'low value' },
+}
+
+/** Display names for the ranking heads in the probability tooltip. Unknown heads show their raw name. */
+export const RANKING_HEAD_LABELS: Record<string, string> = {
+    pr_merged: 'PR merged',
+    pr_created: 'PR created',
+    action: 'Needs action',
+    open: 'Opened',
+    fixed: 'Fixed',
+    thumbs_up: 'Thumbs up',
+    discuss: 'Discussed',
+    dismiss_wrong: 'Dismissed as wrong',
+    refund: 'Refunded',
+    reviewer_fix: 'Reviewer fix',
+    dismiss_lowvalue: 'Dismissed as low value',
+}
+
+export const INBOX_CREATED_WINDOW_OPTIONS: { value: InboxCreatedWindow; label: string; hours: number }[] = [
+    { value: '24h', label: 'Last 24 hours', hours: 24 },
+    { value: '3d', label: 'Last 3 days', hours: 3 * 24 },
+    { value: '7d', label: 'Last 7 days', hours: 7 * 24 },
+    { value: '14d', label: 'Last 14 days', hours: 14 * 24 },
+]
+
+/** The `created_after` bound for a window, computed at request time so a long-open tab never sends a stale bound. */
+export function createdAfterForWindow(window: InboxCreatedWindow | null, now: number = Date.now()): string | undefined {
+    const option = INBOX_CREATED_WINDOW_OPTIONS.find((o) => o.value === window)
+    return option ? new Date(now - option.hours * 60 * 60 * 1000).toISOString() : undefined
+}
 
 export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Element }[] = [
     { value: 'replay_vision', label: 'Replay vision', icon: <IconEye /> },

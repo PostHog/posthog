@@ -59,12 +59,12 @@ class ClickUpSource(ResumableSource[ClickUpSourceConfig, ClickUpResumeConfig]):
             name=ExternalDataSourceType.CLICKUP,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="ClickUp",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your ClickUp personal API token to pull your ClickUp data into the PostHog Data warehouse.
 
 You can generate a personal token (starts with `pk_`) under **Settings → Apps** in ClickUp.
 
-The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup.com/{workspace_id}/...`.
+The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup.com/{workspace_id}/...`. You can paste the full URL.
 """,
             iconPath="/static/services/clickup.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/clickup",

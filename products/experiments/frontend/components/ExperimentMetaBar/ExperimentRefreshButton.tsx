@@ -4,19 +4,23 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { experimentLogic, previousRefreshAnalytics } from 'scenes/experiments/experimentLogic'
 import { experimentMetricsLogic } from 'scenes/experiments/experimentMetricsLogic'
-import { ExperimentLastRefreshText } from 'scenes/experiments/ExperimentView/ExperimentReloadAction'
 
 import { Experiment } from '~/types'
+
+import { ExperimentLastRefreshText } from './ExperimentLastRefreshText'
 
 interface RefreshButtonProps {
     isRefreshing: boolean
     lastRefresh: string | null
     progress?: { completed: number; total: number }
     queuedHint?: string
+    blockedReason?: string
     onRefresh: () => void
 }
 
@@ -25,6 +29,7 @@ function RefreshButton({
     lastRefresh,
     progress,
     queuedHint,
+    blockedReason,
     onRefresh,
 }: RefreshButtonProps): JSX.Element {
     const loadingText =
@@ -36,8 +41,8 @@ function RefreshButton({
             size="xsmall"
             icon={isRefreshing ? <Spinner textColored /> : <IconRefresh />}
             onClick={onRefresh}
-            disabledReason={isRefreshing ? (queuedHint ?? loadingText) : undefined}
-            tooltip={isRefreshing ? undefined : 'Refresh results'}
+            disabledReason={isRefreshing ? (queuedHint ?? loadingText) : blockedReason}
+            aria-label={isRefreshing ? undefined : 'Refresh results'}
             data-attr="refresh-experiment"
         >
             {isRefreshing ? (
@@ -54,11 +59,21 @@ function RefreshButton({
 
 function RecalculationRefreshButton({ experiment }: { experiment: Experiment }): JSX.Element {
     const metricsLogic = experimentMetricsLogic({ experiment })
-    const { isRecalculating, recalculationProgress, lastRefresh, queuedRerun } = useValues(metricsLogic)
+    const {
+        isRecalculating,
+        recalculationProgress,
+        lastRefresh,
+        queuedRerun,
+        isManualRefreshBlocked,
+        nextAllowedManualRefresh,
+        backendEnforcesRefreshWindow,
+    } = useValues(metricsLogic)
     const { triggerRecalculation } = useActions(metricsLogic)
-    const { autoRefresh, currentRefresh } = useValues(experimentLogic)
+    const { currentRefresh } = useValues(experimentLogic)
     const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
     const { refreshExperimentResults } = useAsyncActions(experimentLogic)
+    // A page with stale flags learns about the window from a 429, so the backend signal counts too.
+    const showRefreshWindow = useFeatureFlag('EXPERIMENTS_RECALCULATION_RATE_LIMIT') || backendEnforcesRefreshWindow
 
     return (
         <RefreshButton
@@ -66,11 +81,14 @@ function RecalculationRefreshButton({ experiment }: { experiment: Experiment }):
             lastRefresh={lastRefresh}
             progress={recalculationProgress}
             queuedHint={queuedRerun ? 'Changes apply after the current recalculation finishes' : undefined}
+            blockedReason={
+                showRefreshWindow && isManualRefreshBlocked && nextAllowedManualRefresh
+                    ? `Next refresh possible ${dayjs(nextAllowedManualRefresh).fromNow()}`
+                    : undefined
+            }
             onRefresh={() => {
                 reportExperimentMetricsRefreshed(experiment, true, {
                     triggered_by: 'manual',
-                    auto_refresh_enabled: autoRefresh.enabled,
-                    auto_refresh_interval: autoRefresh.interval,
                     ...previousRefreshAnalytics(currentRefresh),
                 })
                 triggerRecalculation()
@@ -89,7 +107,7 @@ function LegacyRefreshButton({ experiment }: { experiment: Experiment }): JSX.El
         secondaryMetricsResults,
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
-        autoRefresh,
+        exposuresLoading,
         currentRefresh,
     } = useValues(experimentLogic)
     const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
@@ -99,13 +117,11 @@ function LegacyRefreshButton({ experiment }: { experiment: Experiment }): JSX.El
 
     return (
         <RefreshButton
-            isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+            isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading || exposuresLoading}
             lastRefresh={lastRefresh}
             onRefresh={() => {
                 reportExperimentMetricsRefreshed(experiment, true, {
                     triggered_by: 'manual',
-                    auto_refresh_enabled: autoRefresh.enabled,
-                    auto_refresh_interval: autoRefresh.interval,
                     ...previousRefreshAnalytics(currentRefresh),
                 })
                 void refreshExperimentResults(true, 'manual').catch(() => {

@@ -55,11 +55,12 @@ class LLMDetectorMisconfiguredError(LLMDetectorError):
 
 # What the alert's owner reads on a check the judge could not reach a verdict for. The raw
 # transport error can carry an internal detail, so the check history and the error email show
-# this instead, and the code is what lets it past the serializer's allowlist.
+# this instead, and the code is what lets it past the serializer's allowlist. The wording names
+# the outcome and not a cause: the same error also covers a rollout lookup that returned nothing,
+# a worker with no free model-call slot, and a model reply the judge could not read.
 LLM_DETECTOR_UNAVAILABLE_ERROR_CODE = "llm_detector_unavailable"
 LLM_DETECTOR_UNAVAILABLE_MESSAGE = (
-    "The AI detector could not reach its model provider, so this check did not run. "
-    "The alert is still on and the next check tries again."
+    "The AI detector could not complete this check. The alert is still on and the next check tries again."
 )
 
 

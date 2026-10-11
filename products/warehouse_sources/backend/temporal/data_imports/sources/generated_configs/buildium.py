@@ -6,4 +6,5 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class BuildiumSourceConfig(config.Config):
-    pass
+    client_id: str
+    client_secret: str

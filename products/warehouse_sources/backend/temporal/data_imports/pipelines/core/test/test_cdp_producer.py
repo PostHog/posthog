@@ -1,5 +1,6 @@
 import json
 import uuid
+import asyncio
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from io import BytesIO
@@ -15,12 +16,19 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from redis.crc import key_slot
+
+from posthog.redis import get_async_client
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_emitted_rows import (
+    EmittedRowStore,
+    emitted_rows_key,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
     ObjectStoreConfigurationError,
@@ -28,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sta
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.facade.testing import acreate_workflow_for_test
 
 
 def _patch_async_producer_scope(mock_producer):
@@ -63,24 +71,35 @@ async def test_should_run_no_hog_function(team):
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_should_run_with_matching_hog_function(team):
+@pytest.mark.parametrize(
+    ("schema_name", "linked_table_name", "hogql_table_name"),
+    [
+        ("public.widgets", "postgres_widgets", "postgres.widgets"),
+        ("public.widgets", None, "postgres.public__widgets"),
+    ],
+)
+async def test_should_run_with_matching_hog_function(team, schema_name, linked_table_name, hogql_table_name):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
-    table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres_table_1", external_data_source=source
+    table = (
+        await sync_to_async(DataWarehouseTable.objects.create)(
+            team=team, name=linked_table_name, external_data_source=source
+        )
+        if linked_table_name
+        else None
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
-        team=team, name="table_1", source=source, table=table
+        team=team, name=schema_name, source=source, table=table
     )
-
     await sync_to_async(HogFunction.objects.create)(
         team=team,
         enabled=True,
-        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
+        filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": hogql_table_name}]},
     )
 
     producer = CDPProducer.for_source(team_id=team.id, schema_id=str(schema.id), job_id="", logger=mock.AsyncMock())
+    assert await producer.get_dot_notated_table_name() == hogql_table_name
     assert await producer.should_run() is True
 
 
@@ -138,7 +157,7 @@ async def test_should_run_with_new_style_table_name(team):
         team=team, source_type=ExternalDataSourceType.POSTGRES
     )
     table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres.table_1", external_data_source=source
+        team=team, name="postgres_table_1", external_data_source=source
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         team=team, name="table_1", source=source, table=table
@@ -161,7 +180,7 @@ async def test_should_run_with_source_prefix(team):
         team=team, source_type=ExternalDataSourceType.POSTGRES, prefix="eu"
     )
     table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres_eu_table_1", external_data_source=source
+        team=team, name="eupostgres_table_1", external_data_source=source
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         team=team, name="table_1", source=source, table=table
@@ -184,7 +203,7 @@ async def test_should_run_with_leading_underscore_source_prefix(team):
         team=team, source_type=ExternalDataSourceType.POSTGRES, prefix="_eu"
     )
     table = await sync_to_async(DataWarehouseTable.objects.create)(
-        team=team, name="postgres_eu_table_1", external_data_source=source
+        team=team, name="_eupostgres_table_1", external_data_source=source
     )
     schema = await sync_to_async(ExternalDataSchema.objects.create)(
         team=team, name="table_1", source=source, table=table
@@ -213,9 +232,9 @@ async def test_should_run_with_matching_hog_flow(team):
         team=team, name="table_1", source=source, table=table
     )
 
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.ACTIVE,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="active",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
     )
 
@@ -236,9 +255,9 @@ async def test_should_not_produce_table_with_draft_hog_flow(team):
         team=team, name="table_1", source=source, table=table
     )
 
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.DRAFT,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="draft",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
     )
 
@@ -259,9 +278,9 @@ async def test_should_not_produce_table_with_non_matching_hog_flow_table(team):
         team=team, name="table_1", source=source, table=table
     )
 
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.ACTIVE,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="active",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.some_other_table"},
     )
 
@@ -287,9 +306,9 @@ async def test_should_run_with_both_hog_function_and_flow(team):
         enabled=True,
         filters={"source": "data-warehouse-table", "data_warehouse": [{"table_name": "postgres.table_1"}]},
     )
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
-        status=HogFlow.State.ACTIVE,
+    await acreate_workflow_for_test(
+        team_id=team.id,
+        status="active",
         trigger={"type": "data-warehouse-table", "table_name": "postgres.table_1"},
     )
 
@@ -591,6 +610,74 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(mock_capture_exception, 
     mock_capture_exception.assert_called_once()
     mock_kafka_producer.produce.assert_not_called()
     mock_fs.delete_file.assert_called_once()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.capture_exception")
+async def test_produce_to_kafka_from_s3_retries_a_transient_s3_read_failure(
+    mock_capture_exception, mock_get_s3_client, team
+):
+    # A HeadObject 503 that pyarrow surfaces as "AWS Error UNKNOWN" is a known-transient S3 blip
+    # (see is_transient_object_store_error), not a bug in our code: the open must be retried before
+    # the per-file swallow-and-delete path (which would otherwise drop the file's rows for good) is
+    # reached.
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    mock_s3_client = mock.AsyncMock()
+    mock_s3_client._ls.return_value = [{"Key": "path/chunk_0.parquet", "type": "file"}]
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+
+    mock_kafka_producer = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
+
+    test_data = pa.table({"id": [1], "name": ["Alice"]})
+    parquet_buffer = BytesIO()
+    pq.write_table(test_data, parquet_buffer, compression="zstd")
+    parquet_buffer.seek(0)
+
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=parquet_buffer)
+    mock_file.__exit__ = MagicMock(return_value=False)
+
+    transient_error = OSError(
+        "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+        "AWS Error UNKNOWN (HTTP status 503) during HeadObject operation: No response body."
+    )
+    mock_fs = MagicMock()
+    mock_fs.open_input_file.side_effect = [transient_error, mock_file]
+    mock_fs.delete_file = MagicMock()
+
+    producer = CDPProducer.for_source(
+        team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock()
+    )
+
+    with (
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        _patch_async_producer_scope(mock_kafka_producer),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store.asyncio.sleep",
+            new=mock.AsyncMock(),
+        ),
+    ):
+        await producer.produce_to_kafka_from_s3()
+
+    assert mock_fs.open_input_file.call_count == 2
+    mock_kafka_producer.produce.assert_called_once()
+    mock_fs.delete_file.assert_called_once()
+    mock_capture_exception.assert_not_called()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1120,10 +1207,10 @@ async def test_view_should_run_with_matching_hog_function(team):
 @pytest.mark.asyncio
 async def test_view_should_run_with_matching_hog_flow(team):
     view = await _create_view(team)
-    await sync_to_async(HogFlow.objects.create)(
-        team=team,
+    await acreate_workflow_for_test(
+        team_id=team.id,
         name="test workflow",
-        status=HogFlow.State.ACTIVE,
+        status="active",
         trigger={"type": "data-warehouse-view", "table_name": "daily_revenue"},
         edges=[],
         actions=[],
@@ -1245,3 +1332,199 @@ def test_staging_paths_never_collide_between_a_schema_and_a_view_of_the_same_id(
     view = CDPProducer.for_view(team_id=1, saved_query_id=shared_id, job_id="job", logger=mock.AsyncMock())
 
     assert source._get_path_prefix() != view._get_path_prefix()
+
+
+def _producer_with_known_table_name(producer: CDPProducer) -> CDPProducer:
+    """Prime the table-name cache so a produce cycle needs no database."""
+    producer._table_name_cache = "my_view"
+    return producer
+
+
+async def _produce_staged_rows(
+    producer: CDPProducer,
+    rows: list[dict],
+    *,
+    produce_raises: bool = False,
+    delivery_fails: bool = False,
+    delivery_settles_on_flush: bool = False,
+) -> list[dict]:
+    """Stage `rows` as one chunk, run a whole produce cycle, and return the rows it produced.
+
+    With `produce_raises`, the Kafka produce raises on every call. With `delivery_fails`, the produce
+    returns a delivery that Kafka later reports as failed, the way a real produce does. With
+    `delivery_settles_on_flush`, Kafka confirms a delivery only when the producer flushes, the way it
+    does for the rows still in flight at the end of a file.
+    """
+    parquet_buffer = BytesIO()
+    pq.write_table(pa.Table.from_pylist(rows), parquet_buffer, compression="zstd")
+    parquet_buffer.seek(0)
+
+    mock_s3_client = MagicMock()
+    mock_s3_client._ls = mock.AsyncMock(return_value=[{"Key": "chunk_0.parquet", "type": "file"}])
+
+    in_flight: list[asyncio.Future[None]] = []
+
+    def _delivery(**_kwargs: object) -> asyncio.Future[None]:
+        delivery: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        if delivery_fails:
+            delivery.set_exception(Exception("Message timed out"))
+        elif delivery_settles_on_flush:
+            in_flight.append(delivery)
+        else:
+            delivery.set_result(None)
+        return delivery
+
+    async def _flush() -> None:
+        for delivery in in_flight:
+            delivery.set_result(None)
+
+    mock_kafka_producer = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock(
+        side_effect=Exception("Kafka connection failed") if produce_raises else _delivery
+    )
+    mock_kafka_producer.flush = mock.AsyncMock(side_effect=_flush)
+    mock_kafka_producer.close = mock.AsyncMock()
+
+    mock_fs = MagicMock()
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=parquet_buffer)
+    mock_file.__exit__ = MagicMock(return_value=False)
+    mock_fs.open_input_file.return_value = mock_file
+    mock_fs.delete_file = MagicMock()
+
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client"
+        ) as mock_get_s3_client,
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        _patch_async_producer_scope(mock_kafka_producer),
+    ):
+        mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+        mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=None)
+        await producer.produce_to_kafka_from_s3()
+
+    return [call[1]["data"]["properties"] for call in mock_kafka_producer.produce.call_args_list]
+
+
+def _view_producer_for_id(saved_query_id: str, job_id: str = "job_1") -> CDPProducer:
+    return _producer_with_known_table_name(
+        CDPProducer.for_view(team_id=1, saved_query_id=saved_query_id, job_id=job_id, logger=mock.AsyncMock())
+    )
+
+
+@pytest.mark.parametrize(
+    "runs,produced_by_the_last_run",
+    [
+        # A view's incremental window is inclusive of the watermark, so the boundary rows come back
+        # unchanged every run. Producing them again runs every subscribed workflow again, which for
+        # an outbound message means sending it again every sync period.
+        ([[{"id": 1, "total": 5}, {"id": 2, "total": 7}]] * 2, []),
+        # A row whose content changed is a real change, so it still goes out.
+        (
+            [[{"id": 1, "total": 5}, {"id": 2, "total": 7}], [{"id": 1, "total": 9}, {"id": 2, "total": 7}]],
+            [{"id": 1, "total": 9}],
+        ),
+        # The record holds a run's suppressed rows as well as its produced ones. Without that, a row
+        # that sits on the boundary for many runs comes back on every other run.
+        ([[{"id": 1, "total": 5}]] * 3, []),
+    ],
+    ids=["unchanged rows", "one changed row", "a row that keeps coming back"],
+)
+@pytest.mark.asyncio
+async def test_what_a_later_view_run_produces(runs, produced_by_the_last_run):
+    view_id = str(uuid.uuid4())
+
+    produced: list[dict] = []
+    for run, rows in enumerate(runs):
+        produced = await _produce_staged_rows(_view_producer_for_id(view_id, f"job_{run}"), rows)
+
+    assert produced == produced_by_the_last_run
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        # A produce that raises is caught and the file dropped.
+        {"produce_raises": True},
+        # A produce only queues the row. Kafka reports a failed delivery later, on the future it returns.
+        {"delivery_fails": True},
+    ],
+    ids=["produce raises", "delivery fails"],
+)
+@pytest.mark.asyncio
+async def test_a_view_row_whose_produce_failed_is_produced_on_the_next_run(failure):
+    # The row never reached a subscriber. Recording it as produced would suppress it next run,
+    # silently losing the trigger for good.
+    view_id = str(uuid.uuid4())
+    rows = [{"id": 1, "total": 5}]
+
+    await _produce_staged_rows(_view_producer_for_id(view_id), rows, **failure)
+
+    assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == rows
+
+
+@pytest.mark.asyncio
+async def test_a_view_row_confirmed_only_at_flush_is_suppressed_on_the_next_run():
+    # Settled deliveries are recorded between batches to bound memory. A delivery still in flight at
+    # that point must stay held until the flush confirms it, or the row triggers again next run.
+    view_id = str(uuid.uuid4())
+    rows = [{"id": 1, "total": 5}]
+
+    await _produce_staged_rows(_view_producer_for_id(view_id), rows, delivery_settles_on_flush=True)
+
+    assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == []
+
+
+@pytest.mark.asyncio
+async def test_a_source_row_is_produced_on_every_sync():
+    # A source's event id already mixes in the job id, so the same row in a later sync is a new
+    # delivery rather than a repeat. Suppression must not reach this path.
+    schema_id = str(uuid.uuid4())
+    rows = [{"id": 1, "name": "Alice"}]
+
+    def _producer(job_id: str) -> CDPProducer:
+        return _producer_with_known_table_name(
+            CDPProducer.for_source(team_id=1, schema_id=schema_id, job_id=job_id, logger=mock.AsyncMock())
+        )
+
+    assert await _produce_staged_rows(_producer("job_1"), rows) == rows
+    assert await _produce_staged_rows(_producer("job_2"), rows) == rows
+
+
+@pytest.mark.asyncio
+async def test_view_rows_are_produced_when_the_record_is_unreadable():
+    # Suppression is best effort. A Redis problem costs a repeated trigger; failing closed would
+    # drop a real one.
+    view_id = str(uuid.uuid4())
+    rows = [{"id": 1, "total": 5}]
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_emitted_rows.get_async_client",
+        side_effect=RuntimeError("redis down"),
+    ):
+        assert await _produce_staged_rows(_view_producer_for_id(view_id), rows) == rows
+        assert await _produce_staged_rows(_view_producer_for_id(view_id, "job_2"), rows) == rows
+
+
+@pytest.mark.asyncio
+async def test_the_record_never_holds_more_than_the_tracked_row_limit():
+    # One key per view, so a view big enough to pass the limit must not be able to grow it without
+    # bound. The rows past the limit repeat on every run instead, which is the cheaper failure.
+    key = f"test_emitted_rows:{uuid.uuid4()}"
+    store = EmittedRowStore(key, mock.AsyncMock())
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_emitted_rows.MAX_TRACKED_ROWS", 2
+    ):
+        await store.load()
+        for event_id in ["a", "b", "c", "d"]:
+            store.record_produced(event_id)
+        await store.commit()
+
+    assert await get_async_client().scard(key) == 2
+
+
+def test_the_emitted_rows_key_and_its_scratch_key_share_a_cluster_slot():
+    key = emitted_rows_key(1, "01a0d0f3-b1c8-0000-1589-739b4a75582c")
+
+    assert key_slot(key.encode()) == key_slot(f"{key}:writing".encode())

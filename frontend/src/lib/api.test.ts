@@ -62,6 +62,38 @@ describe('API helper', () => {
         })
     })
 
+    describe('agent stream recovery requests', () => {
+        it.each(['history', 'django', 'proxy'] as const)(
+            'keeps the captured project and cancellation on the %s path',
+            async (path) => {
+                const controller = new AbortController()
+                ApiConfig.setCurrentTeamId(999)
+                if (path === 'history') {
+                    await api.tasks.runs.getLogEntries('task-1', 'run-1', { projectId: 123, signal: controller.signal })
+                } else {
+                    await api.tasks.runs.openStream('task-1', 'run-1', {
+                        projectId: 123,
+                        signal: controller.signal,
+                        lastEventId: '100-0',
+                        ...(path === 'proxy'
+                            ? { proxyTarget: { baseUrl: 'https://example.com', token: 'fake-stream-token' } }
+                            : {}),
+                    })
+                }
+                const streamHeaders = expect.objectContaining({ 'Last-Event-ID': '100-0' })
+                expect(fakeFetch).toHaveBeenCalledWith(
+                    path === 'proxy'
+                        ? 'https://example.com/v1/runs/run-1/stream?resync=1'
+                        : `/api/projects/123/tasks/task-1/runs/run-1/${path === 'history' ? 'logs' : 'stream'}/`,
+                    expect.objectContaining({
+                        signal: controller.signal,
+                        ...(path !== 'history' ? { headers: streamHeaders } : {}),
+                    })
+                )
+            }
+        )
+    })
+
     describe('dashboard tile streaming', () => {
         it.each([
             { status: 401, body: { detail: 'Authentication expired.' }, expectedCode: null },
@@ -113,7 +145,7 @@ describe('API helper', () => {
             const connectionError = new TypeError('Failed to fetch')
             streamOptions.onerror?.(connectionError)
             expect(onApiResponse).toHaveBeenCalledWith(undefined, connectionError)
-            expect(onError).toHaveBeenCalledWith(connectionError)
+            expect(onError).toHaveBeenCalledWith(connectionError, true)
 
             const abortError = new DOMException('The operation was aborted', 'AbortError')
             streamOptions.onerror?.(abortError)
@@ -122,6 +154,19 @@ describe('API helper', () => {
 
             fetchEventSourceSpy.mockRestore()
             apiStatusLogicSpy.mockRestore()
+        })
+
+        it('ends a stream with an unreadable message so a new load can recover', async () => {
+            const fetchEventSourceSpy = jest
+                .spyOn(fetchEventSourceModule, 'fetchEventSource')
+                .mockReturnValueOnce(new Promise<void>(() => {}))
+            const onError = jest.fn()
+            await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), onError)
+            const options = fetchEventSourceSpy.mock.calls[0][1]
+            options.onmessage?.({ data: 'invalid json', event: '', id: '' })
+            expect(onError).toHaveBeenCalledWith(expect.any(SyntaxError))
+            expect(options.signal?.aborted).toBe(true)
+            fetchEventSourceSpy.mockRestore()
         })
 
         it('reports a stream that closes before completion', async () => {
@@ -134,7 +179,8 @@ describe('API helper', () => {
             expect(onError).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: 'Dashboard stream ended before loading finished. Refresh the page.',
-                })
+                }),
+                false
             )
             fetchEventSourceSpy.mockRestore()
         })

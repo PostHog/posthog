@@ -1,7 +1,7 @@
 name: Frontend CI
 on:
     pull_request:
-        # PRs run a narrowed jest selection, draft or ready, over two shards. The
+        # PRs run a narrowed jest selection, draft or ready, over three shards. The
         # merge queue's trunk-merge/** run is the full matrix that gates master.
         # When selection can't be trusted, a ready PR falls back to the full matrix
         # and a draft skips jest instead, deferring to its ready run. To force the
@@ -395,7 +395,7 @@ jobs:
                   # cwd because `pnpm --filter=@posthog/frontend exec` runs from there.
                   CHANGED_FILES=$(
                       awk '
-                          /\.(ts|tsx|js|jsx|mjs|cjs)$/ {
+                          /\.(ts|tsx|js|jsx|mjs|cjs|json)$/ {
                               if ($0 ~ /^frontend\//) {
                                   sub(/^frontend\//, "", $0)
                                   print
@@ -426,19 +426,19 @@ jobs:
                       exit 0
                   fi
 
-                  # Selective mode uses two shards because a widely imported source file
+                  # Selective mode uses three shards because a widely imported source file
                   # can make --findRelatedTests approach a full suite. --findRelatedTests
                   # walks jest's import graph from these files and runs the matching
                   # *.test.* files.
                   SELECTED_COUNT=$(echo "$CHANGED_FILES" | wc -w | tr -d ' ')
                   {
                       echo "mode=selective"
-                      echo 'matrix={"include":[{"segment":"app","chunk":1,"shard_count":2},{"segment":"app","chunk":2,"shard_count":2}]}'
+                      echo 'matrix={"include":[{"segment":"app","chunk":1,"shard_count":3},{"segment":"app","chunk":2,"shard_count":3},{"segment":"app","chunk":3,"shard_count":3}]}'
                       echo "should_run=true"
                       echo "changed_files=$CHANGED_FILES"
                       echo "changed_file_count=$changed_count"
                       echo "selected_file_count=$SELECTED_COUNT"
-                      echo "shard_count=2"
+                      echo "shard_count=3"
                       echo "full_run_reason_category="
                       echo "full_run_reason_detail="
                   } >> "$GITHUB_OUTPUT"
@@ -866,7 +866,7 @@ jobs:
 
     jest:
         runs-on: ubuntu-24.04
-        # PRs run two selective shards over the tests reachable from the changed
+        # PRs run three selective shards over the tests reachable from the changed
         # files. The merge queue runs the full four-shard fanout.
         timeout-minutes: 20
         needs: [changes, select-jest-tests]
@@ -964,6 +964,8 @@ jobs:
 
             - name: Upload test results
               if: always()
+              # The quarantine gate reads the local JUnit files, so an artifact service failure must not change the test verdict.
+              continue-on-error: true
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   # Keep attempt 1's artifact available so the reporter can identify same-job
@@ -990,6 +992,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
+                  test-collection-id: OZ6hVJ5z # frontend-jest
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
             # Verdict: red a real failure the gate didn't clear as a quarantined flake. != 'success'
@@ -1060,6 +1063,7 @@ jobs:
               uses: ./.github/actions/trunk-quarantine-gate
               with:
                   junit-paths: junit-results/junit-replay-shared.xml
+                  test-collection-id: OZ6hVJ5z # frontend-jest
                   variant: replay-shared
                   previous-step-outcome: ${{ steps.run-jest.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}

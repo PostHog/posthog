@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+import pytest
 from unittest import mock
 
 import requests
@@ -9,7 +10,6 @@ from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant import firehydrant
 from products.warehouse_sources.backend.temporal.data_imports.sources.firehydrant.firehydrant import (
-    PAGE_SIZE,
     FireHydrantResumeConfig,
     base_url_for_region,
     firehydrant_source,
@@ -67,116 +67,58 @@ def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
 
-class TestPagination:
+class TestFanout:
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_page_pagination(self, MockSession) -> None:
-        session = MockSession.return_value
-        params, _urls = _wire(
-            session,
-            [
-                _response([{"id": "i1"}, {"id": "i2"}], next_page=2),
-                _response([{"id": "i3"}], next_page=None),
-            ],
-        )
-
-        manager = _make_manager()
-        rows = _rows(
-            firehydrant_source("fhb_test", "incidents", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        assert [r["id"] for r in rows] == ["i1", "i2", "i3"]
-        # First request carries per_page but no explicit page (FireHydrant defaults to page 1);
-        # the second request injects the `page` cursor from `pagination.next`.
-        assert params[0]["per_page"] == PAGE_SIZE
-        assert "page" not in params[0]
-        assert params[1]["page"] == 2
-        assert params[1]["per_page"] == PAGE_SIZE
-        # Checkpoint saved once, pointing at the next page; the final (next=None) page saves nothing.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == FireHydrantResumeConfig(next_page=2)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_unpaginated_response_terminates(self, MockSession) -> None:
-        # signals_on_call and similar endpoints may return a single page with no `pagination` object.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": "s1"}], drop_pagination=True)])
-
-        manager = _make_manager()
-        rows = _rows(
-            firehydrant_source("fhb_test", "signals_on_call", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        assert [r["id"] for r in rows] == ["s1"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_state_saved_after_each_page_with_next(self, MockSession) -> None:
+    def test_resume_skips_parents_already_synced(self, MockSession) -> None:
         session = MockSession.return_value
         _wire(
             session,
             [
-                _response([{"id": "a"}], next_page=2),
-                _response([{"id": "b"}], next_page=3),
-                _response([{"id": "c"}], next_page=None),
+                _response([{"id": "t1"}, {"id": "t2"}], next_page=None),
+                _response([{"id": "task2"}], next_page=None),
             ],
         )
 
-        manager = _make_manager()
-        _rows(firehydrant_source("fhb_test", "services", team_id=1, job_id="j", resumable_source_manager=manager))
-
-        # State saved only when a next page exists — not after the final page.
-        assert [c.args[0].next_page for c in manager.save_state.call_args_list] == [2, 3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_region_routes_requests_to_eu_host(self, MockSession) -> None:
-        # EU accounts only answer on the data-residency host; if the source ignored region it would hit
-        # the US host and every EU sync would fail.
-        session = MockSession.return_value
-        _params, urls = _wire(session, [_response([{"id": "eu1"}], next_page=None)])
-
-        manager = _make_manager()
+        manager = _make_manager(
+            FireHydrantResumeConfig(
+                paginator_state={
+                    "completed": ["/v1/teams/t1/escalation_policies"],
+                    "current": None,
+                    "child_state": None,
+                }
+            )
+        )
         rows = _rows(
             firehydrant_source(
-                "fhb_test", "incidents", team_id=1, job_id="j", resumable_source_manager=manager, region="eu"
+                "fhb_test", "team_escalation_policies", team_id=1, job_id="j", resumable_source_manager=manager
             )
         )
 
-        assert [r["id"] for r in rows] == ["eu1"]
-        assert urls[0].startswith("https://api.eu.firehydrant.io/v1/incidents")
+        # Only the unfinished parent is re-fetched, so a resumed fan-out doesn't replay the whole
+        # parent list's children.
+        assert session.send.call_count == 2
+        assert rows == [{"id": "task2", "team_id": "t2"}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resume_from_saved_state(self, MockSession) -> None:
+    def test_child_response_without_the_data_envelope_fails_loud(self, MockSession) -> None:
+        # A shape change has to stop the sync. Reading it as an empty page would replace the whole
+        # table with no rows, and nothing downstream would report that.
         session = MockSession.return_value
-        params, _urls = _wire(session, [_response([{"id": "b"}], next_page=None)])
+        renamed_envelope = Response()
+        renamed_envelope.status_code = 200
+        renamed_envelope._content = json.dumps({"escalation_policies": [{"id": "ep1"}]}).encode()
+        _wire(session, [_response([{"id": "t1"}], next_page=None), renamed_envelope])
 
-        manager = _make_manager(FireHydrantResumeConfig(next_page=2))
-        rows = _rows(
-            firehydrant_source("fhb_test", "services", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-
-        # Resumes at page 2 (page 1 is never requested), proving the saved cursor is honored.
-        assert [r["id"] for r in rows] == ["b"]
-        assert params[0]["page"] == 2
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rate_limit_then_success_is_retried(self, MockSession, monkeypatch: Any) -> None:
-        # 429 must be classified retryable (not fatal): a 429 followed by a 200 recovers and yields rows.
-        import tenacity.nap
-
-        monkeypatch.setattr(tenacity.nap.time, "sleep", lambda _s: None)
-
-        session = MockSession.return_value
-        throttled = Response()
-        throttled.status_code = 429
-        throttled.headers["Retry-After"] = "1"
-        _wire(session, [throttled, _response([{"id": "ok"}], next_page=None)])
-
-        manager = _make_manager()
-        rows = _rows(
-            firehydrant_source("fhb_test", "incidents", team_id=1, job_id="j", resumable_source_manager=manager)
-        )
-        assert [r["id"] for r in rows] == ["ok"]
+        with pytest.raises(ValueError, match="data_selector"):
+            _rows(
+                firehydrant_source(
+                    "fhb_test",
+                    "team_escalation_policies",
+                    team_id=1,
+                    job_id="j",
+                    resumable_source_manager=_make_manager(),
+                )
+            )
 
 
 class TestSourceResponse:
@@ -201,9 +143,10 @@ class TestSourceResponse:
 
     def test_partition_keys_are_stable_creation_fields(self) -> None:
         # A partition key that changes (updated_at/lastSeen) rewrites partitions every sync.
+        # `occurred_at` is when a timeline event happened, which is as immutable as `created_at`.
         for config in FIREHYDRANT_ENDPOINTS.values():
             if config.partition_key:
-                assert config.partition_key == "created_at"
+                assert config.partition_key in {"created_at", "occurred_at"}
 
     @parameterized.expand(
         [

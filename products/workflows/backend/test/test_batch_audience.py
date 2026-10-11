@@ -1,11 +1,11 @@
-import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
-from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
-from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
-from products.workflows.backend.services.batch_audience import get_batch_audience_count, get_batch_audience_person_ids
+from products.feature_flags.backend.user_blast_radius import PERSON_BATCH_SIZE, get_user_blast_radius_persons
+from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -42,20 +42,6 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         assert sorted(result) == [_uuid(i) for i in expected_indices]
 
-    def test_count_matches_deduped_audience_size(self):
-        self._create_audience(["Dup@X.com", " dup@x.com ", "b@x.com", None, ""])
-
-        count = get_batch_audience_count(self.team, FILTERS, dedupe_key="email")
-
-        assert count == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
-
-    def test_count_rejects_unsupported_dedupe_key(self):
-        # Defence-in-depth: the endpoint's serializer allowlist is the primary gate, but this
-        # raise forces a future maintainer adding a new supported key to teach the count
-        # function about it too, rather than silently returning email-deduped counts.
-        with pytest.raises(ValueError, match="Unsupported dedupe_key"):
-            get_batch_audience_count(self.team, FILTERS, dedupe_key="sms")
-
     def test_audience_without_dedupe_matches_legacy_query(self):
         self._create_audience(["a@x.com", "a@x.com", "b@x.com", None])
 
@@ -77,7 +63,7 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
 
         collected: list[str] = []
         cursor = None
-        with patch("products.workflows.backend.services.batch_audience.PERSON_BATCH_SIZE", 2):
+        with override_settings(WORKFLOWS_PERSON_BATCH_SIZE=2):
             for _ in range(10):
                 page = get_batch_audience_person_ids(self.team, FILTERS, cursor=cursor, dedupe_key=dedupe_key)
                 collected.extend(page)
@@ -86,3 +72,10 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
                 cursor = page[-1]
 
         assert collected == [_uuid(i) for i in expected_indices]
+
+    @override_settings(WORKFLOWS_PERSON_BATCH_SIZE=7)
+    def test_has_more_page_size_follows_the_audience_kind(self):
+        # A group audience pages through the flags-owned query with its own limit; comparing its
+        # page length against the person setting would stop after the first page.
+        assert audience_page_size(None) == 7
+        assert audience_page_size(0) == PERSON_BATCH_SIZE
