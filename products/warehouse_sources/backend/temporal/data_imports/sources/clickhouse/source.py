@@ -133,6 +133,10 @@ ClickHouseErrors: dict[str, str] = {
     "received http status 307": _REDIRECTED,
     "received http status 308": _REDIRECTED,
     "received http status 429": _TEMPORARILY_UNAVAILABLE,
+    # A bare 500 (no X-ClickHouse-Exception-Code header, see get_retryable_errors) is a
+    # proxy/load balancer in front of ClickHouse failing, not ClickHouse itself — same
+    # transient shape as 502/503/504 below.
+    "received http status 500": _TEMPORARILY_UNAVAILABLE,
     "received http status 502": _TEMPORARILY_UNAVAILABLE,
     "received http status 503": _TEMPORARILY_UNAVAILABLE,
     "received http status 504": _TEMPORARILY_UNAVAILABLE,
@@ -376,7 +380,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def get_retryable_errors(self) -> set[str]:
         # `_get_client` already retries dropped connections and rate limits in-process
         # (see clickhouse.py's `_is_retryable_connect_error`) before re-raising as
-        # `ClickHouseConnectionError`. Bare HTTP 502/503/504 responses skip that
+        # `ClickHouseConnectionError`. Bare HTTP 500/502/503/504 responses skip that
         # in-process retry by design (there's no proxy CONNECT to re-dial) and go
         # straight to Temporal's activity retry instead. Either way, once Temporal
         # retries the activity the failure is transient and self-recovering, so
@@ -387,6 +391,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "Connection reset by peer",
             "Connection aborted",
             "received HTTP status 429",
+            # No X-ClickHouse-Exception-Code header means ClickHouse itself never raised
+            # this — a proxy/load balancer in front of it failed instead (see
+            # clickhouse.py's NOT_A_CLICKHOUSE_HTTP_RESPONSE and the 400/404 entries
+            # above for the same reasoning applied to deterministic bare statuses).
+            "received HTTP status 500",
             "received HTTP status 502",
             "received HTTP status 503",
             "received HTTP status 504",
