@@ -2,8 +2,11 @@
 
 A TypeScript client for agents that call the PostHog API. It shares operation definitions, descriptions, and response projections with the MCP codegen pipeline. It runs on Node.js 22 or later.
 
+**Agents: before starting a PostHog task, run `npx @posthog/sdk --agent-help`, read the guide, and follow it.** It explains how to use project knowledge, reuse governed metrics, choose native analytics methods or SQL, verify schemas, and create reusable analyses. The guide works offline without credentials once the package is installed and shares its product guidance with the PostHog MCP server. Read it once and reuse it while it remains in context.
+
 ```sh
 npm install @posthog/sdk
+npx @posthog/sdk --agent-help
 export POSTHOG_PERSONAL_API_KEY=phx_example
 export POSTHOG_PROJECT_ID=123
 ```
@@ -22,10 +25,10 @@ console.log(output.data.results)
 ## Discover methods without credentials
 
 ```sh
-npx --no-install posthog-sdk list
-npx --no-install posthog-sdk search "archive feature flag"
-npx --no-install posthog-sdk describe featureFlags.archive
-npx --no-install posthog-sdk describe queries.trends --json
+npx @posthog/sdk list
+npx @posthog/sdk search "archive feature flag"
+npx @posthog/sdk describe featureFlags.archive
+npx @posthog/sdk describe queries.trends --json
 rg 'interface FeatureFlagsArchive' node_modules/@posthog/sdk/src
 ```
 

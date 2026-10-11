@@ -17,6 +17,15 @@ async function source(file) {
 
 test('offline discovery points to explicit input and output interfaces in source and declarations', async (t) => {
     t.mock.method(globalThis, 'fetch', () => assert.fail('discovery must stay offline'))
+    const guide = runCli(['--agent-help'])
+    assert.match(guide, /^# PostHog SDK guide for agents/)
+    assert.match(guide, /npx @posthog\/sdk describe queries\.trends/)
+    assert.match(guide, /`client\.dataCatalog\.metricList`/)
+    assert.doesNotMatch(guide, /\{[a-z_]+\}|posthog:exec|`(?:info|call|exec search) /)
+    const methods = new Set(catalog.tools.map((tool) => tool.method))
+    for (const [, method] of guide.matchAll(/`client\.([\w.]+)`/g)) {
+        assert.ok(methods.has(method), `Agent help must refer to an exported method: ${method}`)
+    }
     const mcp = JSON.parse(
         await fs.readFile(new URL('../../../services/mcp/schema/tool-definitions-all.json', import.meta.url), 'utf8')
     )
