@@ -93,6 +93,7 @@ export function useChatTitleGenerator(task: Task): void {
     titleGenerationStoreApi.update(taskId, { inFlight: true });
 
     let rawContent = task.description;
+    let promptsForTitle: string[] = [];
 
     if (shouldGenerateFromPrompts) {
       if (!session?.events) {
@@ -101,7 +102,7 @@ export function useChatTitleGenerator(task: Task): void {
       }
 
       const allPrompts = extractUserPromptsFromEvents(session.events);
-      const promptsForTitle = selectPromptsForTitle(allPrompts, promptCount);
+      promptsForTitle = selectPromptsForTitle(allPrompts, promptCount);
 
       rawContent = formatPromptsForTitleInput(promptsForTitle);
     }
@@ -130,9 +131,11 @@ export function useChatTitleGenerator(task: Task): void {
             log.debug("Skipping auto-title, user renamed task", { taskId });
           } else if (
             title &&
+            shouldGenerateFromPrompts &&
             !canApplyTitleFromPrompts(
-              promptCount,
+              promptsForTitle,
               getCachedTask(queryClient, taskId) ?? task,
+              task.description,
             )
           ) {
             log.debug("Skipping auto-title, keeping original-context title", {
