@@ -95,15 +95,16 @@ class TestScannerDashboardTiles(ClickhouseTestMixin, _ScannerDashboardTestCase):
         self.assertGreater(len(tiles), 3)
         for tile in tiles:
             insight = tile.insight
-            assert insight is not None
+            assert insight is not None and insight.query is not None
+            query = insight.query
             with self.subTest(insight.name):
                 response = process_query_dict(
-                    self.team, insight.query["source"], execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                    self.team, query["source"], execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS
                 )
                 payload = response if isinstance(response, dict) else response.model_dump()
                 self.assertFalse(payload.get("error"), payload.get("error"))
                 results = payload["results"]
-                if insight.query["kind"] == "InsightVizNode":
+                if query["kind"] == "InsightVizNode":
                     self.assertGreater(
                         sum(series.get("aggregated_value") or sum(series["data"]) for series in results),
                         0,
