@@ -7624,6 +7624,33 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             "Other with MAX aggregation should take the maximum value across bins (max of 3000 and 2500 = 3000), not sum them (which would be 5500)",
         )
 
+    def test_breakdown_other_with_max_of_integer_math_property(self) -> None:
+        # $time is an integer, so the "Other" fold compares a Float64 accumulator with UInt64 totals
+        for browser, second in [("a", 40), ("b", 30), ("c", 20), ("d", 10)]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=f"person_{browser}",
+                timestamp=f"2020-01-11T12:00:{second}Z",
+                properties={"$browser": browser, "$time": f"2020-01-11 12:00:{second}"},
+            )
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=PropertyMathType.MAX, math_property="$time")],
+            None,
+            BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT, breakdown_limit=2),
+        )
+
+        breakdown_to_result = {result["breakdown_value"]: result for result in response.results}
+        self.assertEqual(
+            breakdown_to_result[BREAKDOWN_OTHER_STRING_LABEL]["data"][2],
+            datetime.fromisoformat("2020-01-11T12:00:20+00:00").timestamp(),
+        )
+
     def test_breakdown_other_with_histogram_bins_aggregates_correctly(self):
         """
         Test that the "Other" breakdown with histogram bins correctly sums values,
