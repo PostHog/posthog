@@ -74,6 +74,9 @@ pub(crate) enum BootPhase {
         resume: ResumePoints,
         restore: Option<PendingRestore>,
     },
+    /// A restored position expired during boot and the process is stopping. Nothing seeks, settles
+    /// or folds, and the restore marker keeps the next boot on the restore path.
+    Halted,
     Live,
 }
 

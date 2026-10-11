@@ -137,8 +137,9 @@ pub const CHECKPOINT_RESTORE_TOTAL: &str = "checkpoint_restore_total";
 /// Checkpoint candidates a boot restore tried, labelled by `verdict`
 /// (`published`|`unusable`|`failed`) (counter).
 pub const CHECKPOINT_RESTORE_CANDIDATES_TOTAL: &str = "checkpoint_restore_candidates_total";
-/// Slices a checkpoint restore deleted because it holds no positions for them, labelled by `reason`
-/// (`not_in_checkpoint`) (counter). Each one begins again behind the coverage fence.
+/// Slices a checkpoint restore deleted because the broker cannot replay them, labelled by `reason`
+/// (`not_in_checkpoint`|`replay_out_of_range`) (counter). Each one begins again behind the coverage
+/// fence.
 pub const CHECKPOINT_RESTORE_SLICES_RESET_TOTAL: &str = "checkpoint_restore_slices_reset_total";
 /// 1 while the boot retries a restore that cannot finish, else 0 (gauge). **Alert on it**: the pod
 /// never reads ready until S3 access is fixed or `CHECKPOINT_ENABLED` is turned off.

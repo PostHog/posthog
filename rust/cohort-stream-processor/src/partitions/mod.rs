@@ -30,7 +30,9 @@ pub use partitioner::{
     merge_partition_key, murmur2, partition_for, partition_of, COHORT_PARTITION_COUNT,
 };
 pub use pause::{ConsumerPauser, PartitionPauser};
-pub use positions::{FollowerGroup, InputGroups, InputPositions, InputTopic, ResumeOffset};
+pub use positions::{
+    list_offsets, FollowerGroup, InputGroups, InputPositions, InputTopic, ResumeOffset,
+};
 pub use rebalance::{
     run_rebalance_worker, CohortConsumerContext, ConsumerCommand, ConsumerCommandReceiver,
     ConsumerCommandSender, RebalanceEvent, RebalanceEventReceiver,
