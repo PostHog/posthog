@@ -3055,7 +3055,15 @@
                 "image": 0.00000125,
                 "audio": 0.00000125,
                 "input_audio_cache": 1.25e-7,
-                "internal_reasoning": 0.00001
+                "internal_reasoning": 0.00001,
+                "context_tiers": [
+                    {
+                        "min_input_tokens": 200000,
+                        "prompt_token": 0.0000025,
+                        "completion_token": 0.000015,
+                        "cache_read_token": 6.25e-7
+                    }
+                ]
             },
             "google-ai-studio": {
                 "prompt_token": 0.00000125,
@@ -3066,7 +3074,15 @@
                 "image": 0.00000125,
                 "audio": 0.00000125,
                 "input_audio_cache": 1.25e-7,
-                "internal_reasoning": 0.00001
+                "internal_reasoning": 0.00001,
+                "context_tiers": [
+                    {
+                        "min_input_tokens": 200000,
+                        "prompt_token": 0.0000025,
+                        "completion_token": 0.000015,
+                        "cache_read_token": 6.25e-7
+                    }
+                ]
             },
             "google-ai-studio-flex": {
                 "prompt_token": 6.25e-7,
@@ -3099,7 +3115,15 @@
                 "image": 0.00000125,
                 "audio": 0.00000125,
                 "input_audio_cache": 1.25e-7,
-                "internal_reasoning": 0.00001
+                "internal_reasoning": 0.00001,
+                "context_tiers": [
+                    {
+                        "min_input_tokens": 200000,
+                        "prompt_token": 0.0000025,
+                        "completion_token": 0.000015,
+                        "cache_read_token": 6.25e-7
+                    }
+                ]
             },
             "google-vertex-global": {
                 "prompt_token": 0.00000125,
@@ -3110,7 +3134,15 @@
                 "image": 0.00000125,
                 "audio": 0.00000125,
                 "input_audio_cache": 1.25e-7,
-                "internal_reasoning": 0.00001
+                "internal_reasoning": 0.00001,
+                "context_tiers": [
+                    {
+                        "min_input_tokens": 200000,
+                        "prompt_token": 0.0000025,
+                        "completion_token": 0.000015,
+                        "cache_read_token": 6.25e-7
+                    }
+                ]
             },
             "google-vertex-global-priority": {
                 "prompt_token": 0.00000225,
@@ -3132,7 +3164,15 @@
                 "image": 0.00000125,
                 "audio": 0.00000125,
                 "input_audio_cache": 1.25e-7,
-                "internal_reasoning": 0.00001
+                "internal_reasoning": 0.00001,
+                "context_tiers": [
+                    {
+                        "min_input_tokens": 200000,
+                        "prompt_token": 0.0000025,
+                        "completion_token": 0.000015,
+                        "cache_read_token": 6.25e-7
+                    }
+                ]
             }
         }
     },
@@ -3148,7 +3188,15 @@
                 "image": 0.00000125,
                 "audio": 0.00000125,
                 "input_audio_cache": 1.25e-7,
-                "internal_reasoning": 0.00001
+                "internal_reasoning": 0.00001,
+                "context_tiers": [
+                    {
+                        "min_input_tokens": 200000,
+                        "prompt_token": 0.0000025,
+                        "completion_token": 0.000015,
+                        "cache_read_token": 6.25e-7
+                    }
+                ]
             },
             "google-ai-studio": {
                 "prompt_token": 0.00000125,
@@ -3159,7 +3207,15 @@
                 "image": 0.00000125,
                 "audio": 0.00000125,
                 "input_audio_cache": 1.25e-7,
-                "internal_reasoning": 0.00001
+                "internal_reasoning": 0.00001,
+                "context_tiers": [
+                    {
+                        "min_input_tokens": 200000,
+                        "prompt_token": 0.0000025,
+                        "completion_token": 0.000015,
+                        "cache_read_token": 6.25e-7
+                    }
+                ]
             },
             "google-ai-studio-flex": {
                 "prompt_token": 6.25e-7,
@@ -3192,7 +3248,15 @@
                 "image": 0.00000125,
                 "audio": 0.00000125,
                 "input_audio_cache": 1.25e-7,
-                "internal_reasoning": 0.00001
+                "internal_reasoning": 0.00001,
+                "context_tiers": [
+                    {
+                        "min_input_tokens": 200000,
+                        "prompt_token": 0.0000025,
+                        "completion_token": 0.000015,
+                        "cache_read_token": 6.25e-7
+                    }
+                ]
             },
             "google-vertex-global": {
                 "prompt_token": 0.00000125,
@@ -3203,7 +3267,15 @@
                 "image": 0.00000125,
                 "audio": 0.00000125,
                 "input_audio_cache": 1.25e-7,
-                "internal_reasoning": 0.00001
+                "internal_reasoning": 0.00001,
+                "context_tiers": [
+                    {
+                        "min_input_tokens": 200000,
+                        "prompt_token": 0.0000025,
+                        "completion_token": 0.000015,
+                        "cache_read_token": 6.25e-7
+                    }
+                ]
             },
             "google-vertex-global-priority": {
                 "prompt_token": 0.00000225,
@@ -3225,7 +3297,15 @@
                 "image": 0.00000125,
                 "audio": 0.00000125,
                 "input_audio_cache": 1.25e-7,
-                "internal_reasoning": 0.00001
+                "internal_reasoning": 0.00001,
+                "context_tiers": [
+                    {
+                        "min_input_tokens": 200000,
+                        "prompt_token": 0.0000025,
+                        "completion_token": 0.000015,
+                        "cache_read_token": 6.25e-7
+                    }
+                ]
             }
         }
     },

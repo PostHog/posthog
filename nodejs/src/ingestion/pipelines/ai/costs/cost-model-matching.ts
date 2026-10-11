@@ -5,9 +5,6 @@ import { resolveModelCostForProvider, resolveProviderAliases } from './provider-
 import { manualCostsByModel, openRouterCostsByModel } from './providers'
 import type { ModelCostRow, ResolvedModelCost } from './providers/types'
 
-// Work around for new gemini models that require special cost calculations
-const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
-
 export enum CostModelSource {
     OpenRouter = 'openrouter',
     Manual = 'manual',
@@ -197,21 +194,4 @@ const searchModelInCosts = (model: string, costsDict: Record<string, ModelCostRo
     }
 
     return undefined
-}
-
-export const requireSpecialCost = (aiModel: string): boolean => {
-    const lowerAiModel = aiModel.toLowerCase()
-
-    return SPECIAL_COST_MODELS.some((model) => lowerAiModel.includes(model.toLowerCase()))
-}
-
-export function getNewModelName(model: string, inputTokens: unknown): string {
-    // Gemini 2.5 Pro Preview has a limit of 200k input tokens before the price changes, we store the other price in the :large suffix
-    if (model.toLowerCase().includes('gemini-2.5-pro-preview')) {
-        const tokenCountExceeded = inputTokens ? Number(inputTokens) > 200000 : false
-
-        return tokenCountExceeded ? 'gemini-2.5-pro-preview:large' : 'gemini-2.5-pro-preview'
-    }
-
-    return model
 }
