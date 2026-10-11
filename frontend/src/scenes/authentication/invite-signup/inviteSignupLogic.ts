@@ -16,6 +16,7 @@ import { PrevalidatedInvite } from '~/types'
 
 export enum ErrorCodes {
     InvalidInvite = 'invalid_invite',
+    InviteUsed = 'invite_used',
     InvalidRecipient = 'invalid_recipient',
     UserAlreadyMember = 'user_already_member',
     Unknown = 'unknown',
@@ -256,6 +257,9 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                         if (e.status === 400) {
                             if (e.code === 'invalid_recipient') {
                                 actions.setError({ code: ErrorCodes.InvalidRecipient, detail: e.detail })
+                            } else if (e.code === 'invite_used') {
+                                posthog.capture('invite signup used invite shown')
+                                actions.setError({ code: ErrorCodes.InviteUsed, detail: e.detail })
                             } else if (e.code === 'user_already_member') {
                                 actions.setError({ code: ErrorCodes.UserAlreadyMember, detail: e.detail })
                             } else if (e.code === 'account_exists') {

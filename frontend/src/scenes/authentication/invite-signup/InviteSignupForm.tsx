@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import posthog from 'posthog-js'
 import { type ReactNode, useEffect } from 'react'
 
 import * as judgePng from '@posthog/brand/hoggies/png/judge'
@@ -374,6 +375,7 @@ function InviteInvalid(): JSX.Element {
 
     const titles: Record<ErrorCodes, string> = {
         [ErrorCodes.InvalidInvite]: 'This invite link is invalid or expired',
+        [ErrorCodes.InviteUsed]: "You've already joined",
         [ErrorCodes.UserAlreadyMember]: "You're already a member",
         [ErrorCodes.InvalidRecipient]: "This invite link can't be used",
         [ErrorCodes.Unknown]: "We couldn't validate this invite link",
@@ -386,6 +388,7 @@ function InviteInvalid(): JSX.Element {
                 <b>send you a new one</b>.
             </>
         ),
+        [ErrorCodes.InviteUsed]: <>This invite link was already used to create your account. Log in to continue.</>,
         [ErrorCodes.UserAlreadyMember]: (
             <>
                 {error?.detail || 'You already are a member of this organization.'} Your account
@@ -422,7 +425,7 @@ function InviteInvalid(): JSX.Element {
 
     const footer = (
         <p className="mt-5 mb-0 text-sm text-secondary text-center">
-            {!user && (
+            {!user && code !== ErrorCodes.InviteUsed && (
                 <>
                     <Link
                         to={urls.login()}
@@ -458,6 +461,18 @@ function InviteInvalid(): JSX.Element {
                         {user ? (
                             <LemonButton size="large" center fullWidth type="primary" to={urls.default()}>
                                 Go back to PostHog
+                            </LemonButton>
+                        ) : code === ErrorCodes.InviteUsed ? (
+                            <LemonButton
+                                size="large"
+                                center
+                                fullWidth
+                                type="primary"
+                                to={urls.login()}
+                                onClick={() => posthog.capture('invite signup used invite login clicked')}
+                                data-attr="invite-used-login"
+                            >
+                                Log in
                             </LemonButton>
                         ) : code === ErrorCodes.InvalidRecipient ? (
                             <LemonButton
