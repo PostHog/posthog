@@ -1,11 +1,14 @@
 import { Group } from 'kea-forms'
 
-import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
+import type { AlertSuggestThresholdsResponseApi } from 'products/alerts/frontend/generated/api.schemas'
 import { AlertFormType } from 'products/alerts/frontend/logic/alertFormLogic'
 import {
     fractionToPercentInput,
@@ -23,6 +26,48 @@ export interface ThresholdConditionRowProps {
      *  true for trends, HogQL last/first row, and trends funnels. */
     supportsRelativeConditions: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
+    /** Candidate bounds to pick from with one click. Shown only for the "has value" condition. */
+    thresholdSuggestions?: AlertSuggestThresholdsResponseApi | null
+    onApplyThresholdSuggestion?: (direction: 'upper' | 'lower', value: number) => void
+}
+
+function ThresholdSuggestionButtons({
+    direction,
+    suggestions,
+    currentValue,
+    onApply,
+}: {
+    direction: 'upper' | 'lower'
+    suggestions: AlertSuggestThresholdsResponseApi
+    currentValue: number | null | undefined
+    onApply: (direction: 'upper' | 'lower', value: number) => void
+}): JSX.Element | null {
+    const candidates = suggestions[direction]
+    if (candidates.length === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-wrap items-center gap-1 pl-[5.5rem]">
+            {candidates.map((candidate) => {
+                const isRecommended =
+                    suggestions.recommended_direction === direction && suggestions.recommended_value === candidate.value
+                return (
+                    <LemonButton
+                        key={candidate.value}
+                        size="xsmall"
+                        type="secondary"
+                        active={currentValue === candidate.value}
+                        icon={isRecommended ? <IconSparkles /> : undefined}
+                        tooltip={isRecommended ? `${candidate.description}. Suggested default.` : candidate.description}
+                        data-attr={`alertForm-${direction}-threshold-suggestion`}
+                        onClick={() => onApply(direction, candidate.value)}
+                    >
+                        {humanFriendlyNumber(candidate.value)}
+                    </LemonButton>
+                )
+            })}
+        </div>
+    )
 }
 
 /** Relative conditions (increase/decrease by) need a time series, so they're disabled for non-time-series
@@ -61,12 +106,15 @@ export function ThresholdConditionRow({
     isNonTimeSeriesDisplay,
     supportsRelativeConditions,
     onSetAlertFormValue,
+    thresholdSuggestions,
+    onApplyThresholdSuggestion,
 }: ThresholdConditionRowProps): JSX.Element {
     const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
     const isAnyRowHogQL =
         !!alertForm.config && alertForm.config.type === 'HogQLAlertConfig' && alertForm.config.evaluation === 'any_row'
     const disabledReason = relativeConditionDisabledReason(isNonTimeSeriesDisplay, isAnyRowHogQL)
     const isRelative = alertForm.condition?.type !== AlertConditionType.ABSOLUTE_VALUE
+    const showSuggestions = !isRelative && !!thresholdSuggestions && !!onApplyThresholdSuggestion
 
     return (
         <div className="space-y-2">
@@ -152,6 +200,14 @@ export function ThresholdConditionRow({
                         />
                     </LemonField>
                 </div>
+                {showSuggestions && (
+                    <ThresholdSuggestionButtons
+                        direction="lower"
+                        suggestions={thresholdSuggestions}
+                        currentValue={alertForm.threshold.configuration.bounds?.lower}
+                        onApply={onApplyThresholdSuggestion}
+                    />
+                )}
                 <div className="flex items-center gap-2">
                     <label className="text-sm text-muted shrink-0 w-20" htmlFor="alertForm-upper-threshold">
                         More than
@@ -183,6 +239,14 @@ export function ThresholdConditionRow({
                         />
                     </LemonField>
                 </div>
+                {showSuggestions && (
+                    <ThresholdSuggestionButtons
+                        direction="upper"
+                        suggestions={thresholdSuggestions}
+                        currentValue={alertForm.threshold.configuration.bounds?.upper}
+                        onApply={onApplyThresholdSuggestion}
+                    />
+                )}
                 <p
                     className={
                         thresholdBoundsFormError

@@ -12436,14 +12436,14 @@ export namespace Schemas {
     }
 
     export interface AlertSimulate {
+      /** Numeric insight ID or saved insight short ID. */
+      insight: number | string;
       /**
          * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
          * @minimum 0
          * @maximum 100
          */
       evaluation_delay_intervals?: number;
-      /** Numeric insight ID or saved insight short ID to simulate the detector on. */
-      insight: number | string;
       /** Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing). */
       detector_config?: DetectorConfig;
       /** Zero-based index of the series to analyze (trends insights only). */
@@ -12514,6 +12514,64 @@ export namespace Schemas {
       sub_detector_scores?: AlertSimulateResponseSubDetectorScoresItem[];
       /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
       breakdown_results?: BreakdownSimulationResult[];
+    }
+
+    export interface AlertSuggestThresholds {
+      /** Numeric insight ID or saved insight short ID. */
+      insight: number | string;
+    }
+
+    export interface ThresholdCandidate {
+      /** Threshold value. */
+      value: number;
+      /** How the value relates to the recent values of the metric. */
+      description: string;
+    }
+
+    /**
+     * * `upper` - upper
+     * * `lower` - lower
+     */
+    export type RecommendedDirectionEnum = typeof RecommendedDirectionEnum[keyof typeof RecommendedDirectionEnum];
+
+
+    export const RecommendedDirectionEnum = {
+      Upper: 'upper',
+      Lower: 'lower',
+    } as const;
+
+    /**
+     * * `jev` - jev
+     * * `heuristic` - heuristic
+     */
+    export type AlertSuggestThresholdsResponseSourceEnum = typeof AlertSuggestThresholdsResponseSourceEnum[keyof typeof AlertSuggestThresholdsResponseSourceEnum];
+
+
+    export const AlertSuggestThresholdsResponseSourceEnum = {
+      Jev: 'jev',
+      Heuristic: 'heuristic',
+    } as const;
+
+    export interface AlertSuggestThresholdsResponse {
+      /** Candidate 'more than' bounds, from the least to the most strict. */
+      upper: ThresholdCandidate[];
+      /** Candidate 'less than' bounds, from the least to the most strict. */
+      lower: ThresholdCandidate[];
+      /** Which bound the recommended value is for. Null when the insight has no data.
+       *
+       * * `upper` - upper
+       * * `lower` - lower */
+      recommended_direction: RecommendedDirectionEnum | null;
+      /**
+         * Recommended threshold value. Null when the insight has no data.
+         * @nullable
+         */
+      recommended_value: number | null;
+      /** Whether the decision model picked the recommendation, or a percentile heuristic did.
+       *
+       * * `jev` - jev
+       * * `heuristic` - heuristic */
+      source: AlertSuggestThresholdsResponseSourceEnum;
     }
 
     /**
