@@ -303,7 +303,7 @@ class TestSentryTransport:
 
         assert not valid
         assert error is not None
-        assert error.startswith("Sentry token is missing required scopes")
+        assert error.startswith("Your Sentry token is missing required scopes. Create a personal token")
         for scope in REQUIRED_SENTRY_SCOPES:
             assert scope in error
 
