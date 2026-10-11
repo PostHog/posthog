@@ -42,6 +42,8 @@ const OVERVIEW: RepoOverviewApi = {
     // A slice of billable_minutes above, not an addition to it.
     merge_queue_billable_minutes: 1180,
     merge_queue_billable_minutes_prev: 940,
+    depot_ci_billable_minutes: 2610,
+    depot_ci_billable_minutes_prev: 1730,
     merge_queue_merged_pr_count: 48,
     merge_queue_merged_pr_count_prev: 41,
     merge_queue_median_first_gate_to_merge_seconds: 32 * 60,

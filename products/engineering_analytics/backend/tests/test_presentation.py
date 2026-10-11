@@ -148,6 +148,8 @@ def _repo_overview() -> contracts.RepoOverview:
         cost_per_merge_usd_prev=0.275,
         merge_queue_billable_minutes=30.0,
         merge_queue_billable_minutes_prev=0.0,
+        depot_ci_billable_minutes=20.0,
+        depot_ci_billable_minutes_prev=0.0,
         merge_queue_merged_pr_count=38,
         merge_queue_merged_pr_count_prev=35,
         merge_queue_median_first_gate_to_merge_seconds=1920.0,
@@ -409,6 +411,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert data["merged_pr_count"] == 42
         assert data["merged_pr_count_prev"] == 40
         assert data["merge_queue_billable_minutes"] == 30.0  # the digest's queue row reads this key
+        assert data["depot_ci_billable_minutes"] == 20.0  # the digest's Depot CI row reads this key
         assert data["merge_queue_merged_pr_count"] == 38
         assert data["merge_queue_median_first_gate_to_merge_seconds"] == 1920.0
         assert data["merge_queue_failed_or_cancelled_share"] == 0.044

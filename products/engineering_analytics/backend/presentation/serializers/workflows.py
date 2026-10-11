@@ -795,6 +795,16 @@ class RepoOverviewSerializer(DataclassSerializer):
                 "source isn't synced.",
                 "allow_null": True,
             },
+            "depot_ci_billable_minutes": {
+                "help_text": "Slice of billable_minutes from jobs that ran on the Depot CI engine "
+                "(ci_engine = depot_ci); null when the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "depot_ci_billable_minutes_prev": {
+                "help_text": "Depot CI billable minutes over the previous window; null when the job-level "
+                "source isn't synced.",
+                "allow_null": True,
+            },
             "merge_queue_merged_pr_count": {
                 "help_text": "PRs merged in the window with at least one corroborated merge-queue gate run: "
                 "the population behind every merge_queue_* landing stat. All authors, bots included."
