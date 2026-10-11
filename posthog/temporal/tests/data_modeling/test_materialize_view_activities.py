@@ -808,6 +808,7 @@ class TestNodeSuspension:
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
             "Not published: 2 data quality checks failed. The previous version keeps serving until the checks pass.",
+            'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
