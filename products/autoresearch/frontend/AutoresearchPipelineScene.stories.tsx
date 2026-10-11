@@ -145,8 +145,9 @@ const onlinePerformance = {
             confusion: {
                 top_10: { tp: 480, fp: 4220, fn: 930, tn: 41370, n_flagged: 4700, precision: 0.1021, recall: 0.3404 },
                 top_20: { tp: 735, fp: 8665, fn: 675, tn: 36925, n_flagged: 9400, precision: 0.0782, recall: 0.5213 },
-                likely: { tp: 0, fp: 0, fn: 1410, tn: 45590, n_flagged: 0, precision: null, recall: 0 },
+                likely: { tp: 700, fp: 3700, fn: 710, tn: 41890, n_flagged: 4400, precision: 0.1591, recall: 0.4965 },
             },
+            likely_threshold: 0.09,
             calibration_bins: [
                 { n: 37600, mean_p_y: 0.01, positive_rate: 0.008 },
                 { n: 4700, mean_p_y: 0.08, positive_rate: 0.07 },
@@ -157,6 +158,16 @@ const onlinePerformance = {
             validated_at: '2026-02-21T03:00:00Z',
         }))
         .reverse(),
+    segment_thresholds: {
+        likely_threshold: 0.09,
+        possible_threshold: 0.03,
+        likely_lift: 3,
+        base_rate: 0.03,
+        base_rate_dates: 5,
+        champion_mean_p_y: 0.033,
+        champion_base_rate: 0.03,
+        scores_miscalibrated: false,
+    },
 }
 
 const trainingRuns = [
@@ -282,7 +293,13 @@ export const AccuracyBeforePrecisionRecall: Story = {
         mswDecorator({
             get: {
                 [`/api/projects/:team_id/autoresearch/${PIPELINE_ID}/online_performance/`]: {
-                    rows: onlinePerformance.rows.map((row) => ({ ...row, average_precision: null, confusion: null })),
+                    ...onlinePerformance,
+                    rows: onlinePerformance.rows.map((row) => ({
+                        ...row,
+                        average_precision: null,
+                        confusion: null,
+                        likely_threshold: null,
+                    })),
                 },
             },
         }),

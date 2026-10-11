@@ -18,6 +18,8 @@ import { SankeyLayoutContext } from './sankey-context'
 import type { SankeyLayoutContextValue } from './sankey-context'
 import { computeSankeyLayout, defaultValueFormatter, hoverIndexToHit } from './sankey-data'
 import type { SankeyChartLayout, SankeyLinkInput, SankeyNodeInput } from './sankey-data'
+import { outsideLabelWidth, sankeyLabelBoxes } from './sankey-labels'
+import type { SankeyLabelBox } from './sankey-labels'
 import { SankeyColumnLabels } from './SankeyColumnLabels'
 import { SankeyNodeLabels } from './SankeyNodeLabels'
 import type { SankeyChartProps, SankeyTooltipContext } from './types'
@@ -41,8 +43,10 @@ function graphKey(
     config: SankeyChartProps['config']
 ): string {
     // Structured serialization: ids are free-form strings, so a delimiter inside one must not collide.
+    // JSON writes both NaN and a missing pin as null, so pins go in as strings to keep them apart.
+    // The type goes in too, so a rejected '1' and a corrected 1 do not share a key.
     return JSON.stringify([
-        nodes.map((node) => node.id),
+        nodes.map((node) => [node.id, typeof node.column, String(node.column)]),
         links.map(({ source, target, value }) => [source, target, value]),
         [config?.nodeWidth, config?.nodePadding, config?.nodeAlign, config?.preserveNodeOrder],
     ])
@@ -83,6 +87,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         preserveNodeOrder = false,
         columnLabels,
         showNodeLabels = true,
+        lastColumnLabels = 'inside',
         showNodeValues = false,
         linkOpacity: configuredLinkOpacity = DEFAULT_LINK_OPACITY,
         valueFormatter = defaultValueFormatter,
@@ -95,14 +100,37 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     const showTooltip = tooltipConfig?.enabled !== false
     const hasColumnLabels = !!columnLabels && columnLabels.length > 0
 
+    const outsideWidth = useMemo(
+        () =>
+            showNodeLabels && lastColumnLabels === 'outside'
+                ? outsideLabelWidth(nodes, links, nodeAlign, showNodeValues, valueFormatter)
+                : 0,
+        [showNodeLabels, lastColumnLabels, nodes, links, nodeAlign, showNodeValues, valueFormatter]
+    )
+
     const margins = useMemo<ChartMargins>(() => {
-        const computed = hasColumnLabels
-            ? { ...BASE_MARGINS, top: BASE_MARGINS.top + COLUMN_LABEL_HEIGHT }
-            : BASE_MARGINS
-        return marginsOverride ? applyMarginOverride(computed, marginsOverride) : computed
+        const applied = marginsOverride ? applyMarginOverride(BASE_MARGINS, marginsOverride) : BASE_MARGINS
+        // Column headers are sized for their room, so an override cannot take it away.
+        return { ...applied, top: applied.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0) }
     }, [hasColumnLabels, marginsOverride])
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
+
+    // `outside` labels take their room from the plot, capped at half of it, so a chart narrower
+    // than the labels still has nodes to draw and the labels truncate instead.
+    const outsideRoom = dimensions ? Math.min(outsideWidth, Math.floor(dimensions.plotWidth / 2)) : 0
+    const plot = useMemo(
+        () =>
+            dimensions
+                ? {
+                      plotLeft: dimensions.plotLeft,
+                      plotTop: dimensions.plotTop,
+                      plotWidth: dimensions.plotWidth - outsideRoom,
+                      plotHeight: dimensions.plotHeight,
+                  }
+                : { plotLeft: 0, plotTop: 0, plotWidth: 0, plotHeight: 0 },
+        [dimensions, outsideRoom]
+    )
 
     // `useChartTheme` rereads the CSS variables on any class change on <html> or <body>, and returns
     // an equal palette in a new array. Keying on the values keeps that from rebuilding the layout,
@@ -130,7 +158,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
             computeSankeyLayout<NodeMeta, LinkMeta>({
                 nodes,
                 links,
-                plot: dimensions ?? { plotLeft: 0, plotTop: 0, plotWidth: 0, plotHeight: 0 },
+                plot,
                 nodeWidth,
                 nodePadding,
                 nodeAlign,
@@ -138,7 +166,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
                 colorForLabel,
                 resolveColor: resolveCssColor,
             }),
-        [nodes, links, dimensions, nodeWidth, nodePadding, nodeAlign, preserveNodeOrder, colorForLabel]
+        [nodes, links, plot, nodeWidth, nodePadding, nodeAlign, preserveNodeOrder, colorForLabel]
     )
 
     // A controlled highlight paints on the static layer, so a change to it is a full repaint
@@ -158,8 +186,22 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         [dimensions, layout, linkOpacity, hasEmphasis]
     )
 
+    const labelBoxes = useMemo<SankeyLabelBox[]>(
+        () =>
+            showNodeLabels
+                ? sankeyLabelBoxes(layout as SankeyChartLayout<unknown, unknown>, {
+                      showValues: showNodeValues,
+                      valueFormatter,
+                      lastColumnLabels,
+                      outsideWidth: outsideRoom,
+                  })
+                : [],
+        [showNodeLabels, layout, showNodeValues, valueFormatter, lastColumnLabels, outsideRoom]
+    )
+
     const { hoverIndex, hoverPosition, tooltipCtx, handlers } = useSankeyInteraction<NodeMeta, LinkMeta>({
         layout,
+        labelBoxes,
         canvasRef,
         wrapperRef,
         showTooltip,
@@ -231,7 +273,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         }
         return {
             scales,
-            dimensions,
+            dimensions: { ...dimensions, plotWidth: plot.plotWidth },
             labels: [],
             series: [],
             theme,
@@ -240,7 +282,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
             axis: { orientation: 'vertical', xTickFormatter: undefined, isPercent: false },
             yGutters: [],
         }
-    }, [scales, dimensions, theme, canvasBounds])
+    }, [scales, dimensions, plot.plotWidth, theme, canvasBounds])
     const sankeyValue = useMemo<SankeyLayoutContextValue<NodeMeta, LinkMeta>>(
         () => ({ layout, canvasBounds }),
         [layout, canvasBounds]
@@ -266,14 +308,10 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
                         handlers={handlers}
                         showOverlay={!!dimensions}
                     >
-                        {hasColumnLabels ? <SankeyColumnLabels labels={columnLabels} color={labelColor} /> : null}
-                        {showNodeLabels ? (
-                            <SankeyNodeLabels
-                                color={labelColor}
-                                showValues={showNodeValues}
-                                valueFormatter={valueFormatter}
-                            />
+                        {hasColumnLabels ? (
+                            <SankeyColumnLabels labels={columnLabels} color={labelColor} trailingRoom={outsideRoom} />
                         ) : null}
+                        {showNodeLabels ? <SankeyNodeLabels boxes={labelBoxes} color={labelColor} /> : null}
                         {children}
                         {tooltipCtx && showTooltip ? (
                             <Tooltip

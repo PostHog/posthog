@@ -655,7 +655,15 @@ class TestScoutTrialLaunch(APIBaseTest):
     @parameterized.expand(
         [
             ("completed_task_cancelled_runner", "completed", "cancelled", False, "unknown"),
-            ("failed_task_cancelled_runner", "failed", "cancelled", False, "unknown"),
+            (
+                "failed_task_cancelled_runner",
+                "failed",
+                "cancelled",
+                False,
+                "unknown",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=active_at_budget)",
+                None,
+            ),
             ("task_still_ending", "in_progress", "cancelled", False, "unknown"),
             ("recover_missing_export", "completed", None, False, "completed"),
             ("concurrent_runner_export", "completed", "cancelled", True, "completed"),
@@ -667,8 +675,52 @@ class TestScoutTrialLaunch(APIBaseTest):
             ("scout_finished_task_not_started", "not_started", "completed", False, "unknown"),
             ("scout_finished_task_queued", "queued", "completed", False, "unknown"),
             ("scout_finished_task_active", "in_progress", "completed", False, "unknown"),
-            ("scout_finished_task_failed", "failed", "completed", False, "unknown"),
+            (
+                "scout_finished_task_failed",
+                "failed",
+                "completed",
+                False,
+                "unknown",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=no_turn_output)",
+                "The scout timed out after about 30 minutes. This run was not judged.",
+            ),
             ("scout_finished_task_cancelled", "cancelled", "completed", False, "unknown"),
+            (
+                "saved_timeout",
+                "failed",
+                "failed",
+                False,
+                "unknown",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=active_at_budget)",
+                "The scout timed out after about 30 minutes. This run was not judged.",
+            ),
+            (
+                "recovered_timeout",
+                "failed",
+                None,
+                False,
+                "failed",
+                "custom_prompt - poll_for_turn: timed out after 900s (stage=stalled_after_output)",
+                "The scout timed out after about 15 minutes. This run was not judged.",
+            ),
+            (
+                "private_task_failure",
+                "failed",
+                "failed",
+                False,
+                "unknown",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=active_at_budget) Private task detail.",
+                None,
+            ),
+            (
+                "completed_task_stale_timeout",
+                "completed",
+                "completed",
+                False,
+                "unknown",
+                "custom_prompt - poll_for_turn: timed out after 1800s (stage=active_at_budget)",
+                None,
+            ),
         ]
     )
     def test_poll_preserves_terminal_result(
@@ -678,6 +730,8 @@ class TestScoutTrialLaunch(APIBaseTest):
         saved_status: str | None,
         concurrent_export: bool,
         workflow_status: Literal["unknown", "completed", "pending", "failed", "cancelled"],
+        task_error: str | None = None,
+        expected_error: str | None = None,
     ) -> None:
         self._internal_scout_base()
         launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
@@ -697,7 +751,8 @@ class TestScoutTrialLaunch(APIBaseTest):
             "reasoning_effort": launch.reasoning_effort,
             "service_tier": launch.service_tier,
         }
-        run.task_run.save(update_fields=["state"])
+        run.task_run.error_message = task_error or ""
+        run.task_run.save(update_fields=["state", "error_message"])
         concurrent_read = _label == "runner_export_after_row_read"
         if saved_status is not None and not concurrent_export and not concurrent_read:
             export_trial_result(run, status=saved_status)
@@ -751,6 +806,9 @@ class TestScoutTrialLaunch(APIBaseTest):
             assert result["status"] == expected_status
             assert result["task_status"] == task_status
             assert result["export_error"] is None
+            if task_error is not None:
+                assert result["error"] == expected_error
+                assert task_error not in json.dumps(result)
             if concurrent_read:
                 assert result["summary"] == run.summary
                 assert result["input_tokens"] == 120
