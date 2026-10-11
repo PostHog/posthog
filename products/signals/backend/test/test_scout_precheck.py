@@ -208,6 +208,40 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         assert properties["query_source"] == "skill_default"
         assert properties["rollout_bucket"] is not None
 
+    @parameterized.expand(
+        [
+            ("ai_observability_active", "signals-scout-ai-observability", "$ai_span", 24 * 6, "run"),
+            ("ai_observability_quiet", "signals-scout-ai-observability", "$ai_span", 24 * 8, "skip"),
+            ("csp_active", "signals-scout-csp-violations", "$csp_violation", 24 * 6, "run"),
+            ("csp_quiet", "signals-scout-csp-violations", "$csp_violation", 24 * 8, "skip"),
+            ("mcp_active", "signals-scout-mcp-tool-calls", "$mcp_tool_call", 24 * 6, "run"),
+            ("mcp_quiet", "signals-scout-mcp-tool-calls", "$mcp_tool_call", 24 * 8, "skip"),
+            ("conversations_active", "signals-scout-conversations", "$conversation_message_sent", 24 * 29, "run"),
+            ("conversations_quiet", "signals-scout-conversations", "$conversation_ticket_created", 24 * 31, "skip"),
+            ("conversations_widget_event", "signals-scout-conversations", "$conversations_widget_opened", 1, "skip"),
+            ("web_vitals_active", "signals-scout-web-vitals", "$web_vitals", 24 * 6, "run"),
+            ("web_vitals_quiet", "signals-scout-web-vitals", "$web_vitals", 24 * 8, "skip"),
+            ("web_analytics_active", "signals-scout-web-analytics", "$pageview", 24 * 6, "run"),
+            ("web_analytics_quiet", "signals-scout-web-analytics", "$pageview", 24 * 8, "skip"),
+        ]
+    )
+    def test_product_presence_defaults_skip_only_on_absence(self, _name, skill, event, hours_ago, outcome) -> None:
+        LLMSkill.objects.create(
+            team=self.team, name=skill, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=skill)
+        _create_event(team=self.team, event=event, distinct_id="d1", timestamp=NOW - timedelta(hours=hours_ago))
+        flush_persons_and_events()
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+        ):
+            result = evaluate_scout_precheck(self.team.pk, skill)
+
+        assert result is not None
+        assert (result.outcome, result.query_source) == (outcome, "skill_default")
+
     def test_project_outside_the_rollout_runs_as_before(self) -> None:
         result, capture = self._evaluate(rollout_percent=0)
 

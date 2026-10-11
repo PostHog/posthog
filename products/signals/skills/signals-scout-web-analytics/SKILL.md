@@ -19,6 +19,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: web_analytics
+scout-precheck-query: |
+  SELECT 1 AS pageview_seen
+  FROM events
+  WHERE event = '$pageview'
+    AND timestamp > {now} - INTERVAL 7 DAY
+  LIMIT 1
 ---
 
 # Signals scout: web analytics
@@ -40,6 +46,8 @@ Three mechanical facts anchor everything:
 3. **`$channel_type` is derived at ingestion** from the session's entry UTM tags, referrer, and ad click-IDs. When tagging breaks, traffic doesn't disappear — it _reclassifies_: Paid Search drops while Unknown/Direct rises by a similar amount. Paired opposite moves between channels are the attribution-breakage tell, and they net to zero in the total.
 
 ## Quick close-out: is there web traffic at all?
+
+A scheduled run can start with a `<precheck_result>` block. The block means that at least one `$pageview` arrived in the last 7 days, so the project has web traffic. It holds no session counts, so still run the query below: `pageviews_7d` can still be near zero.
 
 One cheap read tells you the posture:
 
