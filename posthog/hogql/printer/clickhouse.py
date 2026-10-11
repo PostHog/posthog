@@ -278,6 +278,14 @@ class ClickHousePrinter(BasePrinter):
         if func_meta.tz_aware:
             has_tz_override = len(node.args) == func_meta.max_args
 
+            if (
+                has_tz_override
+                and node.args
+                and isinstance(node.args[-1], ast.Constant)
+                and not isinstance(node.args[-1].value, str)
+            ):
+                raise QueryError(f"The last argument of '{node.name}' must be a time zone string, such as 'UTC'")
+
             if not has_tz_override:
                 args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
