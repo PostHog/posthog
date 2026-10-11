@@ -42,10 +42,12 @@ pub struct PostgresStorage {
     pub(crate) bulk_chunk_size: usize,
     pub(crate) bulk_max_concurrent_chunks: usize,
     pub(crate) tombstoned_delete_max_rows: usize,
+    pub(crate) hash_key_override_statement_timeout_ms: u64,
 }
 
 impl PostgresStorage {
     /// Create a new PostgresStorage with separate primary, replica, and bulk pools.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         primary_pool: PgPool,
         replica_pool: PgPool,
@@ -54,6 +56,7 @@ impl PostgresStorage {
         bulk_chunk_size: usize,
         bulk_max_concurrent_chunks: usize,
         tombstoned_delete_max_rows: usize,
+        hash_key_override_statement_timeout_ms: u64,
     ) -> Self {
         Self {
             primary_pool,
@@ -63,6 +66,7 @@ impl PostgresStorage {
             bulk_chunk_size,
             bulk_max_concurrent_chunks,
             tombstoned_delete_max_rows,
+            hash_key_override_statement_timeout_ms,
         }
     }
 
