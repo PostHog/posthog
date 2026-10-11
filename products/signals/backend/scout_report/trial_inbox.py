@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 from django.db.models import QuerySet
 
 from pydantic import JsonValue
-from rest_framework import exceptions
+from rest_framework import exceptions, serializers
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.response import Response
 
@@ -27,6 +27,10 @@ class TrialInboxReads:
     SUPPORTED_LIST_PARAMETERS = frozenset(
         {
             "search",
+            "created_after",
+            "priority",
+            "actionability",
+            "already_addressed",
             "status",
             "include_all_statuses",
             "include_source_metadata",
@@ -100,6 +104,10 @@ class TrialInboxReads:
                 changed_fields.add("repo_slug")
         if any(artefact["type"] == "repo_selection" for artefact in report.artefacts):
             changed_fields.add("repo_slug")
+        if any(artefact["type"] == "actionability_judgment" for artefact in report.artefacts):
+            changed_fields.update({"actionability", "already_addressed"})
+        if any(artefact["type"] == "priority_judgment" for artefact in report.artefacts):
+            changed_fields.add("priority")
         for field in changed_fields:
             if field in report.document:
                 document[field] = report.document[field]
@@ -161,6 +169,12 @@ class TrialInboxReads:
             reason = f"This scout run cannot compare inbox filters: {', '.join(sorted(unsupported))}."
             self.store.invalidate(reason)
             raise exceptions.ValidationError({"detail": reason})
+        clauses = self.view._parse_signal_report_ordering()
+        ranking_fields = {self.view._SIGNAL_REPORT_ORDERING_FIELDS[name] for name in self.view._RANKING_ORDERING_HEADS}
+        if any(clause.lstrip("-") in ranking_fields for clause in clauses):
+            reason = "This scout run cannot compare inbox ordering by ranking scores."
+            self.store.invalidate(reason)
+            raise exceptions.ValidationError({"ordering": reason})
 
     @staticmethod
     def _tokens(value: str | None) -> list[str]:
@@ -235,7 +249,16 @@ class TrialInboxReads:
             for row in self.view._render_report_rows(list(originals), include_source_metadata=include_source_metadata)
         }
         statuses = self.view._visible_statuses()
-        search = (self.view.request.query_params.get("search") or "").casefold()
+        query = self.view.request.query_params
+        search = (query.get("search") or "").casefold()
+        created_after = (
+            serializers.DateTimeField().to_internal_value(query["created_after"])
+            if query.get("created_after")
+            else None
+        )
+        priorities = [priority.upper() for priority in self._tokens(query.get("priority"))]
+        actionabilities = self._tokens(query.get("actionability"))
+        already_addressed = self.view._bool_query_param("already_addressed")
         matched: dict[str, set[str]] = {}
         result = []
         for report in reports:
@@ -249,6 +272,17 @@ class TrialInboxReads:
             if document.get("status") not in statuses:
                 continue
             if search and not any(search in str(document.get(field, "")).casefold() for field in ("title", "summary")):
+                continue
+            if (
+                created_after is not None
+                and datetime.fromisoformat(str(document["created_at"]).replace("Z", "+00:00")) < created_after
+            ):
+                continue
+            if priorities and document.get("priority") not in priorities:
+                continue
+            if actionabilities and document.get("actionability") not in actionabilities:
+                continue
+            if already_addressed is not None and document.get("already_addressed") is not already_addressed:
                 continue
             if not self._matches_sources(report, originals, matched):
                 continue

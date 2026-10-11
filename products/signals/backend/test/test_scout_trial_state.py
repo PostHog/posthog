@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -301,14 +302,22 @@ class TestScoutTrialReportCapture(APIBaseTest):
             append_evidence=[
                 ReportEvidence(description="The second fixture also returns 12.", source_id="second-observation")
             ],
+            actionability="requires_human_input",
+            actionability_explanation="The fixture needs an owner to choose the expected total.",
+            already_addressed=True,
+            priority="P1",
+            priority_explanation="The fixture blocks the checkout flow.",
         )
 
         assert result.updated_fields == ["summary"]
         assert result.evidence_appended == 1
+        assert result.decision_fields_set == ("actionability", "priority")
         draft = self.store.get_report(report_id)
         assert draft is not None
         assert draft.document["summary"] == "A revised synthetic explanation."
-        assert draft.document["priority"] == "P2"
+        assert draft.document["priority"] == "P1"
+        assert draft.document["actionability"] == "requires_human_input"
+        assert draft.document["already_addressed"] is True
         assert draft.document["signal_count"] == 2
         assert draft.payload["repository"] == "NO_REPO"
         assert draft.edits[0]["append_note"] == "A second fixture confirms it."
@@ -328,6 +337,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             ("note", {"append_note": "A second fixture confirms it."}, False),
             ("reviewers", {"suggested_reviewers": [ReviewerInput(github_login="synthetic-reviewer")]}, False),
             ("summary", {"summary": "A revised synthetic explanation."}, True),
+            ("priority", {"priority": "P1", "priority_explanation": "The fixture blocks checkout."}, False),
         ]
     )
     def test_edit_moves_updated_at_only_when_production_would(
@@ -355,11 +365,28 @@ class TestScoutTrialReportCapture(APIBaseTest):
             signal_count=1,
             total_weight=1,
         )
+        for kind, content in (
+            (
+                "actionability_judgment",
+                {
+                    "actionability": "immediately_actionable",
+                    "explanation": "Correct the fixture's checkout total.",
+                    "already_addressed": False,
+                },
+            ),
+            ("priority_judgment", {"priority": "P2", "explanation": "The fixture returns an incorrect total."}),
+        ):
+            SignalReportArtefact.objects.create(team=self.team, report=original, type=kind, content=json.dumps(content))
         unchanged = edit_report_sync(
             team=self.team,
             author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=str(original.id),
             title=original.title,
+            actionability="immediately_actionable",
+            actionability_explanation="Correct the fixture's checkout total.",
+            already_addressed=False,
+            priority="P2",
+            priority_explanation="The fixture returns an incorrect total.",
         )
         assert not unchanged.changed
         unchanged_draft = self.store.get_report(str(original.id))
@@ -371,15 +398,39 @@ class TestScoutTrialReportCapture(APIBaseTest):
             report_id=str(original.id),
             title="Privately revised title",
             append_note="Private supporting note",
+            actionability="requires_human_input",
+            actionability_explanation="The fixture needs an owner to choose the expected total.",
+            already_addressed=True,
+            priority="P1",
+            priority_explanation="The fixture blocks the checkout flow.",
         )
 
         original.refresh_from_db()
         assert original.title == "Existing synthetic report"
-        assert not original.artefacts.exists()
+        assert original.latest_actionability == "immediately_actionable"
+        assert original.latest_already_addressed is False
+        assert original.artefacts.count() == 2
         draft = self.store.get_report(str(original.id))
         assert draft is not None
         assert draft.document["title"] == "Privately revised title"
+        assert draft.document["priority"] == "P1"
+        assert draft.document["actionability"] == "requires_human_input"
+        assert draft.document["already_addressed"] is True
         assert draft.source_report_id == str(original.id)
+        repeated = edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(original.id),
+            actionability="requires_human_input",
+            actionability_explanation="The fixture needs an owner to choose the expected total.",
+            already_addressed=True,
+            priority="P1",
+            priority_explanation="The fixture blocks the checkout flow.",
+        )
+        assert not repeated.changed
+        after_repeat = self.store.get_report(str(original.id))
+        assert after_repeat is not None
+        assert after_repeat.artefacts == draft.artefacts
         sibling = _make_run(self.team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
         assert ScoutTrialStore(sibling).get_report(str(original.id)) is None
 
@@ -780,6 +831,117 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert first.title == "Earlier report"
 
     @parameterized.expand(
+        [
+            ("created_after", {"created_after": "2026-09-01T14:00:00+02:00"}),
+            ("priority", {"priority": " p2, P1 "}),
+            ("actionability", {"actionability": " immediately_actionable "}),
+            ("already_addressed", {"already_addressed": "false"}),
+            (
+                "combined",
+                {
+                    "created_after": "2026-09-01T12:00:00Z",
+                    "priority": "P2",
+                    "actionability": "immediately_actionable",
+                    "already_addressed": "false",
+                },
+            ),
+        ]
+    )
+    @time_machine.travel("2026-09-01T15:00:00Z", tick=False)
+    def test_inbox_filters_merge_private_decisions_with_live_reports(self, _name: str, query: dict[str, str]) -> None:
+        cutoff = datetime(2026, 9, 1, 12, tzinfo=UTC)
+        original = SignalReport.objects.create(team=self.team, title="Edited report", status="ready")
+        unjudged = SignalReport.objects.create(team=self.team, title="Unjudged report", status="ready")
+        live = SignalReport.objects.create(team=self.team, title="Live report", status="ready")
+        SignalReport.objects.filter(id=original.id).update(created_at=cutoff)
+        SignalReport.objects.filter(id=unjudged.id).update(created_at=cutoff - timedelta(hours=1))
+        SignalReport.objects.filter(id=live.id).update(created_at=cutoff + timedelta(hours=2))
+        actionability = {
+            "actionability": "immediately_actionable",
+            "explanation": "Correct the fixture's checkout total.",
+            "already_addressed": False,
+        }
+        priority = {"priority": "P2", "explanation": "The fixture returns an incorrect total."}
+        for kind, content in (("actionability_judgment", actionability), ("priority_judgment", priority)):
+            SignalReportArtefact.objects.create(team=self.team, report=live, type=kind, content=json.dumps(content))
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(original.id),
+            actionability="immediately_actionable",
+            actionability_explanation=str(actionability["explanation"]),
+            already_addressed=False,
+            priority="P2",
+            priority_explanation=priority["explanation"],
+        )
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(unjudged.id),
+            title="Privately edited without a judgment",
+        )
+        with time_machine.travel(cutoff - timedelta(hours=1), tick=False):
+            excluded_id = self._emit(key="excluded")
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=excluded_id,
+            actionability="requires_human_input",
+            actionability_explanation="The fixture needs an owner to decide the expected result.",
+            already_addressed=True,
+            priority="P4",
+            priority_explanation="The fixture affects only an optional path.",
+        )
+        with time_machine.travel(cutoff + timedelta(hours=1), tick=False):
+            private_id = self._emit()
+        sibling = _make_run(self.team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
+        sibling_store = ScoutTrialStore(sibling, initial_memory=[])
+        private = self.store.get_report(private_id)
+        assert private is not None
+        sibling_id = str(uuid4())
+        sibling_store.capture_report(
+            TrialReport(id=sibling_id, document={**private.document, "id": sibling_id}), idempotency_key="sibling"
+        )
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store) as trial_store,
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            rows = []
+            for offset in range(3):
+                page = self.client.get(base, {**query, "sort": "oldest", "offset": str(offset), "limit": "1"})
+                assert page.status_code == 200
+                assert page.json()["count"] == 3
+                rows.extend(page.json()["results"])
+            assert [row["id"] for row in rows] == [str(original.id), private_id, str(live.id)]
+            assert rows[0]["priority"] == "P2"
+            assert rows[0]["actionability"] == "immediately_actionable"
+            assert rows[0]["already_addressed"] is False
+            count = self.client.get(base, {**query, "count_only": "true"})
+            assert count.status_code == 200
+            assert count.json() == {"count": 3, "next": None, "previous": None, "results": []}
+            detail = self.client.get(f"{base}{original.id}/")
+            assert detail.status_code == 200
+            assert detail.json()["priority"] == "P2"
+            assert detail.json()["actionability"] == "immediately_actionable"
+            assert detail.json()["already_addressed"] is False
+            trial_store.return_value = sibling_store
+            sibling_rows = self.client.get(base, {**query, "sort": "oldest"})
+            assert sibling_rows.status_code == 200
+            expected_sibling_ids = {sibling_id, str(live.id)}
+            if "created_after" in query and len(query) == 1:
+                expected_sibling_ids.add(str(original.id))
+            assert {row["id"] for row in sibling_rows.json()["results"]} == expected_sibling_ids
+        original.refresh_from_db()
+        assert original.latest_actionability is None
+        assert original.latest_already_addressed is None
+        assert not original.artefacts.exists()
+        assert SignalReport.objects.filter(team=self.team).count() == 3
+        assert self.store.invalid_reason() is None
+        assert sibling_store.invalid_reason() is None
+
+    @parameterized.expand(
         [("source_product", "signals_scout"), ("source_id", "synthetic-observation"), ("scout_prefix", "test")]
     )
     def test_inbox_source_filters_find_private_evidence(self, field: str, value: str) -> None:
@@ -825,9 +987,17 @@ class TestScoutTrialReportCapture(APIBaseTest):
         # One lookup filters the production list and one covers every edited report.
         assert fetch_report_ids.call_count == 2
 
-    def test_unsupported_inbox_filter_invalidates_comparison(self) -> None:
+    @parameterized.expand(
+        [
+            ("view", {"view": "actionable"}),
+            ("ranking", {"ordering": "-ranking_pr_merged,created_at"}),
+        ]
+    )
+    def test_unsupported_inbox_filter_invalidates_comparison(self, _name: str, query: dict[str, str]) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
         with patch("products.signals.backend.views.trial_store_for_request", return_value=self.store):
-            result = self.client.get(f"/api/projects/{self.team.id}/signals/reports/", {"view": "actionable"})
+            result = self.client.get(f"/api/projects/{self.team.id}/signals/reports/", query)
         assert result.status_code == 400
         assert self.store.invalid_reason() is not None
 
