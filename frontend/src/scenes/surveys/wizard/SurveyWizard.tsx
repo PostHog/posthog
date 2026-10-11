@@ -82,7 +82,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     const { setPreferredEditor } = useActions(surveysLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
 
     // Redirect existing surveys that use wizard-unsupported fields to the full
     // editor. Brand-new surveys should always start on template selection,
@@ -113,7 +112,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
 
     const [previewPageIndex, setPreviewPageIndex] = useState(0)
     const [guidedEditingLanguage, setGuidedEditingLanguage] = useState<string | null>(null)
-    const activeEditingLanguage = surveyTranslationsEnabled ? guidedEditingLanguage : null
 
     const maxPreviewIndex = survey.appearance?.displayThankYouMessage
         ? survey.questions.length
@@ -122,12 +120,6 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     useEffect(() => {
         setPreviewPageIndex((current) => (current > maxPreviewIndex ? Math.max(0, maxPreviewIndex) : current))
     }, [maxPreviewIndex])
-
-    useEffect(() => {
-        if (!surveyTranslationsEnabled && guidedEditingLanguage !== null) {
-            setGuidedEditingLanguage(null)
-        }
-    }, [guidedEditingLanguage, surveyTranslationsEnabled])
 
     const handleCustomizeMore = (): void => {
         setPreferredEditor('full')
@@ -193,7 +185,7 @@ function SurveyWizard({ id }: SurveyWizardLogicProps): JSX.Element {
     }
 
     const previewSurvey: NewSurvey = {
-        ...getSurveyWithTranslatedContent(survey, activeEditingLanguage),
+        ...getSurveyWithTranslatedContent(survey, guidedEditingLanguage),
         id,
     } as NewSurvey
 
