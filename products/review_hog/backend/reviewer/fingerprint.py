@@ -30,6 +30,7 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_RUNTIME_ADAPTER,
     FLASH_DEDUP_MODEL,
     FLASH_DEDUP_REASONING_EFFORT,
+    FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
     FLASH_LENS_CHUNK_MAX_LINES,
     FLASH_LENS_MAX_CHUNKS,
     FLASH_LENSES,
@@ -47,7 +48,6 @@ from products.review_hog.backend.reviewer.constants import (
     validation_arm_for_mode,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
-from products.review_hog.backend.reviewer.models.issue_deduplicator import FlashIssueDeduplication
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.sandbox.executor import JSON_RETRY_PROMPT
 from products.review_hog.backend.reviewer.skill_loader import (
@@ -175,8 +175,6 @@ class TurnFingerprint:
                 (SINGLE_AGENT_PROMPT_PATH / prompt_file).read_text()
             )
         hashes["issue_deduplicator/system"] = _text_hash(DEDUP_SYSTEM_PROMPT)
-        # The Flash dedup renders its output schema from the model, not from `schema.json`.
-        hashes["issue_deduplicator/flash_schema"] = _text_hash(json.dumps(FlashIssueDeduplication.model_json_schema()))
         hashes["sandbox/json_retry"] = _text_hash(JSON_RETRY_PROMPT)
         return hashes
 
@@ -256,6 +254,7 @@ class TurnFingerprint:
                         "max_findings_per_extra_part": FLASH_MAX_FINDINGS_PER_EXTRA_PART,
                         "max_findings_ceiling": FLASH_MAX_FINDINGS_CEILING,
                         "must_fix_cap_multiplier": FLASH_MUST_FIX_CAP_MULTIPLIER,
+                        "follow_up_change_margin_lines": FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
                         "lens_chunk_max_lines": FLASH_LENS_CHUNK_MAX_LINES,
                         "lens_max_chunks": FLASH_LENS_MAX_CHUNKS,
                         "prompt_diff_max_chars": FLASH_PROMPT_DIFF_MAX_CHARS,

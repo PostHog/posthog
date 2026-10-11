@@ -63,9 +63,11 @@ tools:
             idempotent: true
         title: Search selected repositories
         description: >
-            Search file paths and README text in the GitHub repositories selected for business knowledge. Pass file
-            names, path fragments, or identifiers, not a full sentence. Then read a matching file. Does not search
-            inside file contents and does not call GitHub code search.
+            Search file paths and README text in the GitHub repositories selected for business knowledge. Call this when
+            business knowledge document search returns nothing. Pass file names or identifiers, not a full sentence.
+            Each repository in the response includes its GitHub description. When a description says the repository
+            holds a handbook or docs, search that repository for those words and read the file. Does not search inside
+            file contents and does not call GitHub code search.
         feature_flag: business-knowledge-github-repos
     business-knowledge-sources-list:
         operation: business_knowledge_sources_list

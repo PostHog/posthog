@@ -10,8 +10,22 @@
             "labels": ["team/feature-flags", "feature/cohorts"]
         },
         {
-            "scopes": ["desktop", "tasks", "agent-proxy", "canvas"],
+            "scopes": ["desktop", "canvas"],
             "labels": ["feature/desktop"]
+        },
+        {
+            "scopes": [
+                "tasks",
+                "tasks-agent",
+                "agent-proxy",
+                "agent-runner",
+                "cloud-agent",
+                "sandboxes",
+                "gateway",
+                "llm-gateway",
+                "ai-gateway"
+            ],
+            "labels": ["feature/agent-infra"]
         }
     ]
 }

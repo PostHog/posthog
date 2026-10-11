@@ -33,7 +33,6 @@ LOCAL_ENVIRONMENT = "local"
 CANDIDATE_TRAINED_EVENT = "inbox_ranking_candidate_trained"
 EXAMPLES_BUILT_EVENT = "inbox_ranking_examples_built"
 PROMOTION_DECIDED_EVENT = "inbox_ranking_promotion_decided"
-UNSEEN_REPORT_SCORED_EVENT = "inbox_ranking_unseen_report_scored"
 UNSEEN_HEAD_GRADED_EVENT = "inbox_ranking_unseen_head_graded"
 UNSEEN_HEAD_EVALUATED_EVENT = "inbox_ranking_unseen_head_evaluated"
 UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
@@ -170,6 +169,7 @@ def promotion_event(
             "model_version": partition_key,
             "run_id": run_id,
             "would_promote": decision.promote,
+            "gates_passed": decision.gates_passed,
             "promoted": promoted,
             "reason": decision.reason,
             "override": outcome.override,
@@ -218,12 +218,6 @@ def serving_manifest_event(
     if mirror_published is not None:
         properties["mirror_published"] = mirror_published
     return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
-
-
-def unseen_score_events(*, run_id: str, rows: Sequence[Mapping[str, Any]]) -> list[TrainingEvent]:
-    """One event per (report, model) for the day's unseen pool. Every property is flat and
-    numeric where it is a number, so a trends insight can aggregate a head's scores directly."""
-    return [TrainingEvent(event=UNSEEN_REPORT_SCORED_EVENT, properties={**row, "run_id": run_id}) for row in rows]
 
 
 def unseen_head_graded_events(*, run_id: str, grades: Sequence[HeadGrade]) -> list[TrainingEvent]:

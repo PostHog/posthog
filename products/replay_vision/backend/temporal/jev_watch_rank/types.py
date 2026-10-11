@@ -12,6 +12,9 @@ class JevWatchRankSweepResult(BaseModel, frozen=True):
     teams_enrolled: int = 0
     # Enrolled in the flag, but the organization has not approved AI data processing.
     teams_without_consent: int = 0
+    # Queued while the organization approved AI data processing, then skipped at their turn because
+    # it was revoked in between.
+    scanners_consent_revoked: int = 0
     scanners_judged: int = 0
     # Windows whose every row the judged set already holds, so no Jev call was spent.
     scanners_skipped_unchanged: int = 0
@@ -22,6 +25,10 @@ class JevWatchRankSweepResult(BaseModel, frozen=True):
     # overwrite it), plus writes that failed after judging.
     cache_errors: int = 0
     failed_chunks: int = 0
+    # Scanners whose requests the gateway rate-limited, and scanners left for the next run because
+    # the run had already been rate-limited RATE_LIMIT_BACKOFF_AFTER times.
+    scanners_rate_limited: int = 0
+    scanners_backed_off: int = 0
     input_tokens: int = 0
     estimated_cost_usd: float = 0.0
     hit_team_cap: bool = False

@@ -1,3 +1,4 @@
+import threading
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -32,6 +33,7 @@ from products.replay_vision.backend.jev_watch_feed import (
     rank_watch_feed_by_jev,
     store_watch_ranks,
     watch_feed_ranker,
+    watch_feed_ranker_variant,
 )
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -40,12 +42,16 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.temporal.jev_watch_rank.activities import _judge_watch_ranks, _teams_with_scanners
-from products.replay_vision.backend.temporal.jev_watch_rank.constants import MAX_JUDGE_ATTEMPTS
+from products.replay_vision.backend.temporal.jev_watch_rank.constants import (
+    MAX_JUDGE_ATTEMPTS,
+    RATE_LIMIT_BACKOFF_AFTER,
+)
 from products.replay_vision.backend.temporal.jev_watch_rank.types import JevWatchRankSweepInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 
 _FLAG = "products.replay_vision.backend.jev_watch_feed.get_feature_flag_or_none"
 _API = "products.replay_vision.backend.jev_watch_feed.decision_api"
+_REGION = f"{_API}.decisions_available_here"
 
 
 def _answer_every_question(probability: float, reason: str = "visible_error"):
@@ -90,8 +96,19 @@ class TestWatchFeedRankerFlag(SimpleTestCase):
         ]
     )
     def test_only_known_variants_leave_the_default_arm(self, _name: str, flag_value: object, expected: str) -> None:
-        with patch(_FLAG, return_value=flag_value):
-            assert watch_feed_ranker(1) == expected
+        with patch(_FLAG, return_value=flag_value), patch(_REGION, return_value=True):
+            assert watch_feed_ranker(1, "project-uuid") == expected
+
+    def test_the_flag_keys_on_the_project_uuid_and_skips_regions_without_jev(self) -> None:
+        # Both regions evaluate this one flag and team ids repeat between them, so only the uuid is unique.
+        with patch(_FLAG, return_value="jev") as flag, patch(_REGION, return_value=True):
+            assert watch_feed_ranker_variant(2, "project-uuid") == "jev"
+        assert flag.call_args.kwargs["groups"] == {"project": "project-uuid"}
+        # A region with no sweep to fill the cache must not land a team on an empty jev feed.
+        with patch(_FLAG, return_value="jev") as flag, patch(_REGION, return_value=False):
+            assert watch_feed_ranker_variant(2, "project-uuid") is None
+            assert watch_feed_ranker(2, "project-uuid") == "weighted-score"
+        flag.assert_not_called()
 
 
 class TestJudgeScannerWindow(SimpleTestCase):
@@ -248,6 +265,17 @@ class TestJudgeScannerWindow(SimpleTestCase):
         assert judgment.probabilities == {"watchable": 0.7, "routine": 0.1}
         assert judgment.failed_chunks == 0
         assert judgment.failed_reason_chunks == (1 if reason_error else 0)
+
+    def test_a_rate_limit_stops_the_window_and_charges_no_retry_budget(self) -> None:
+        # The rate limit is shared with every product's Jev calls, so the window must not keep
+        # sending after it. The rows it did not reach retry free on the next sweep.
+        rows = [_prose_row(uuid4(), f"summary {index}") for index in range(WINDOW_CHUNK_SIZE + 6)]
+        with patch(_API) as api:
+            api.decide_when_available.side_effect = DecisionGatewayError(429, "rate limited")
+            judgment = judge_scanner_window(1, uuid4(), rows)
+        assert api.decide_when_available.call_count == 1
+        assert judgment.rate_limited
+        assert judgment.batch_failed_ids == ()
 
     def test_an_empty_window_makes_no_request(self) -> None:
         with patch(_API) as api:
@@ -573,9 +601,101 @@ class TestJevWatchRankSweep(BaseTest):
         assert result.scanners_judged == 0
         assert load_watch_ranks(self.team.id, [scanner.id]).probabilities == {"judged-earlier": 0.9}
 
+    def test_scanners_are_judged_concurrently(self) -> None:
+        # One scanner at a time cannot cover a half rollout inside the time budget. The barrier only
+        # opens while both scanners' Jev calls are in flight, so a sequential sweep fails every chunk.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        for name in ("a", "b"):
+            scanner = ReplayScanner.objects.create(
+                team=self.team,
+                name=name,
+                scanner_type=ScannerType.SUMMARIZER,
+                scanner_config={"prompt": "p", "length": "short"},
+                model=ScannerModel.GEMINI_3_8_FLASH,
+            )
+            self._succeeded_observation(scanner, f"session-{name}", "The user hit an error at checkout.")
+        barrier = threading.Barrier(2, timeout=10)
+        answer = _answer_every_question(0.7)
+
+        def _together(request: DecisionRequest, **kwargs: Any) -> DecisionResult:
+            barrier.wait()
+            return answer(request)
+
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        with (
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            patch(_API) as api,
+            patch("posthoganalytics.capture"),
+        ):
+            api.decide_when_available.side_effect = _together
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        assert result.scanners_judged == 2
+        assert result.observations_judged == 2
+        assert result.failed_chunks == 0
+
+    def test_a_rate_limited_run_leaves_the_remaining_scanners_for_the_next_run(self) -> None:
+        # A run that keeps sending after the shared rate limit takes capacity from other features.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        scanner_count = RATE_LIMIT_BACKOFF_AFTER + 3
+        for index in range(scanner_count):
+            scanner = ReplayScanner.objects.create(
+                team=self.team,
+                name=f"s{index}",
+                scanner_type=ScannerType.SUMMARIZER,
+                scanner_config={"prompt": "p", "length": "short"},
+                model=ScannerModel.GEMINI_3_8_FLASH,
+            )
+            self._succeeded_observation(scanner, f"session-{index}", "The user hit an error at checkout.")
+
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        with (
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            patch(_API) as api,
+            patch("posthoganalytics.capture"),
+        ):
+            api.decide_when_available.side_effect = DecisionGatewayError(429, "rate limited")
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        assert RATE_LIMIT_BACKOFF_AFTER <= result.scanners_rate_limited < scanner_count
+        assert api.decide_when_available.call_count == result.scanners_rate_limited
+        assert result.scanners_backed_off == scanner_count - result.scanners_rate_limited
+
+    def test_a_consent_revoked_while_a_scanner_waits_sends_nothing(self) -> None:
+        # Scanners are queued when their team passes the consent check but judged at their turn,
+        # which can come most of the run later. A revocation in between must stop the prose from
+        # reaching the model.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="s",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "short"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        self._succeeded_observation(scanner, "s1", "The user hit an error at checkout.")
+
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        with (
+            patch(f"{activities}.watch_feed_ranker", side_effect=self._flag_arm("jev-shadow")),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            # Approved when the team is queued, revoked by the time its scanner's turn comes.
+            patch(f"{activities}.is_ai_data_processing_approved", side_effect=[True, False]),
+            patch(_API) as api,
+            patch("posthoganalytics.capture"),
+        ):
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        api.decide_when_available.assert_not_called()
+        assert result.teams_enrolled == 1
+        assert result.scanners_consent_revoked == 1
+        assert result.scanners_judged == 0
+
     def _flag_arm(self, arm: str):
         """The experiment arm for self.team only, so the pinned team 2 stays on the default arm."""
-        return lambda team_id: arm if team_id == self.team.id else "weighted-score"
+        return lambda team_id, _team_uuid: arm if team_id == self.team.id else "weighted-score"
 
     def test_posthogs_own_team_is_always_swept_first(self) -> None:
         # While the experiment is internal-only, team 2 must never fall past the team cap,

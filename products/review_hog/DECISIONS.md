@@ -198,6 +198,205 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ DECIDED 2026-10-09 — the `review-hog-internal` gate is gone
+
+- **What.** `review-hog` is the only ReviewHog flag. Automatic Flash reviews, the label trigger, resolution, manual
+  Flash, Inbox reviews, the Stamphog Inbox switch, and the tiered review arms run wherever it is on.
+  `backend/internal_features.py` and the `internal_feature` refusal code are removed.
+- **Why.** The gate was never created in production, so after the deploy all of those parts stopped with no error.
+  The flag then went to 100% for every organization, which left a second flag with no remaining audience and a
+  silent off switch for most of the product. Removing it keeps the behavior of the 100% rollout and removes the
+  failure mode. The resolution hardening TODO in ARCHITECTURE.md still applies: the `review-hog` flag does not
+  establish repository or comment trust.
+
+### ✅ BUILT 2026-10-09 — Full reviews without other reviewers' comments (`reviewhog-full-1-4`)
+
+- **What.** The perspective review prompt quotes only the PR author's own inline comments, as context for intent and
+  replies. Other reviewers' comments, from people and bots, are left out. Dedup still matches findings against them
+  afterwards and lists the overlaps (entry below).
+- **Why.** The prompt used to quote every comment "to understand what has already been discussed". A reviewer that
+  reads another bot's finding tends to agree with it or skip it, so Full's own judgment and its agreement both lost
+  meaning. Seeing comments and posting duplicates are separate choices: detection stays independent, and the output
+  is consolidated after it.
+- **Also.** The chunking prompt gets the same author-only comments, because its free-text chunk summary reaches every
+  review prompt. Dedup treats a PR comment anywhere in a finding's file as a possible repeat, not only one on
+  overlapping lines, because a review that never saw the comment often anchors the same problem elsewhere.
+- **Measure.** Compare `reviewhog-full-1-4` with `1-3` on findings per turn, overlaps listed per turn, and how often
+  authors act on Full's findings.
+
+### ✅ BUILT 2026-10-09 — Full lists what other reviewers already raised; Flash never reads PR comments (`reviewhog-full-1-3`)
+
+- **What.** A Full turn reads the PR's inline comments again at dedup time, skips outdated ones, and still keeps a
+  finding another comment already raises off the PR. The final status comment now lists those findings with the
+  comment they repeat ("Also found in comments already on this pull request"), and a turn with nothing new says
+  "Nothing new to raise." instead of celebrating. Flash, in both designs, never reads PR comments. The
+  `dedupe_against_pr_comments` switch from the entry below is gone: no trigger ever set it, and a flag that changed
+  Flash but not Full would have meant two things.
+- **Why.** How people run Full (Sep 25 to Oct 9, human-authored PRs): 85% of runs are a label the author adds about
+  6 minutes after opening the PR, and another review bot is active on 85% of PRs, so Full almost always has company.
+  Posting duplicates would cost authors double replies; dropping them silently hid that ReviewHog agreed. Listing
+  them keeps one thread per issue and shows the agreement. When Full is the only reviewer, nothing changes.
+- **Next.** Full's review prompt still shows every PR comment, so its reviewers can still lean on what others said.
+  Showing only the PR author's own comments is the follow-up, measured under its own version.
+
+### ✅ BUILT 2026-10-09 — Flash reviews independently of other PR comments (`reviewhog-flash-2-2`)
+
+- **What.** Flash dedup no longer reads the PR's comments, from people or other bots. It still drops repeats of
+  ReviewHog's own earlier findings. A per-trigger switch on the review input, `dedupe_against_pr_comments` (default
+  off), brings the old behavior back for a review that should add only what is not on the PR yet; the status comment
+  then counts the findings it skipped. No setting stores it. The `@posthog review` comment command is the planned way
+  to set it.
+- **Why.** A finding that repeated another bot's comment dropped silently, so the PR showed that bot's P1 next to
+  ReviewHog's "Nothing worth raising" although ReviewHog found the same issue. No vendor we checked dedups against
+  other bots' comments; each dedups only against its own earlier comments. On PostHog PRs, 16% of bot comments repeat
+  another bot's, almost all from bots running in parallel on the same commit, and no bot acknowledged another.
+- **Not chosen.** A reply in the other bot's thread (Greptile answers bot replies about half the time, which starts
+  a bot exchange) and a stored per-user preference (only if someone asks). Full mode keeps its comment dedup for now:
+  its chunker and dedup prompts both read PR comments, so it is a separate change.
+
+### ✅ DECIDED 2026-10-09 — resolution fix profiles as canonical skills
+
+- **What.** Two new canonical resolution-criteria skills, `review-hog-resolution-criteria-gaps` and
+  `review-hog-resolution-criteria-small`, sit next to the default `review-hog-resolution-criteria`.
+  A user picks one in the existing per-user criteria picker.
+  - **gaps** fixes real, reachable `should_fix` and `must_fix` bugs.
+    It leaves typos, nits, wording, stale docs and style to the author.
+  - **small** fixes small, contained issues, typos included.
+    It leaves a finding only when the fix needs a design choice that the code and conventions do not settle.
+  - Only the default auto-seeds active. The loader treats every name in `CANONICAL_RESOLUTION_SKILL_NAMES` as
+    visible, so a selected profile drives the run instead of falling back to the default.
+- **Why skills, not settings.** The resolution stage already applies one selected skill per user.
+  A profile changes the bar, and the bar lives in the skill text.
+  A skill needs no new setting, migration or UI control, and a team can copy a profile into a custom skill.
+- **Why a leave uses `escalate`.** `escalate` keeps the thread open, and the driver never resolves it.
+  `wont_fix` resolves the thread and hides it from the author and from an observing agent.
+  The reply opens "Left for the author:" and says what was checked and why the profile left it,
+  so an observing agent can act on it.
+- **Trial evidence.** A coarse offline trial ran the same 10 bot threads from 3 merged PRs under each profile,
+  with Opus and Sonnet at high effort, one run each, on API keys. No tests ran.
+  - The first gaps text fixed only the one `must_fix` thread and left 4 real bugs.
+    Version 2 states that a confirmed, reachable `should_fix` or `must_fix` bug is a gap.
+    With it, gaps fixes the reachable bugs and leaves the copy, docs and logging nits.
+    The two models agree on 9 of 10 threads.
+  - The first small text made Sonnet escalate contained fixes.
+    Version 2 says that several correct small fixes are not a design choice.
+    With it, Sonnet fixes those threads, and both models leave the one thread whose fix needs a design choice.
+    The two models agree on 8 of the 9 threads that ran.
+  - Both profiles cost about the same as the default criteria on the same model, or slightly less.
+  - The leave replies give code evidence and a reason.
+    One run in the first trial returned `wont_fix` for a leave, so both profiles now forbid `wont_fix` for a leave.
+- **Rejected.** A code-level skip of P2 and P3 findings before the resolution turn.
+  In the trial it matched 0 of 10 threads, because older comments carry their level as a badge or a priority line,
+  not as the `**P{n} · title**` heading. The skill rubric handles priority for now.
+- **Caveats.** Each thread and model ran once. Production runs one warm session per PR, not one session per thread.
+  Like the default, gaps still fixes one ask that the author declined on the original PR.
+  Watch the resolution outcomes per profile on the dashboard after users pick them.
+
+### ✅ BUILT 2026-10-09 — Flash follow-up turns drop P2 and P3 findings on unchanged code (`reviewhog-flash-2-1`)
+
+- **What.** On a follow-up turn, a P2 or P3 finding that sits more than `FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES` (3)
+  lines from any code that changed since the head the last completed turn reviewed drops as `old_code` before dedup.
+  P0 and P1 findings still post. The two heads' PR diffs are compared by line content per file
+  (`ChangedSinceReview`), so lines that a base merge or a rebase only moved stay old. A first review, a re-run at the
+  reviewed head, a missing snapshot, or a file whose patch GitHub left out skips the check.
+- **Why.** Each follow-up turn re-reviews the whole PR, and a fresh review picks different issues out of the same
+  code, so findings on code from the first commit trickled in push after push. An offline study of 12 PRs found that
+  51% of later-turn findings sat on code unchanged since the first review (66% on PRs with three or more posting
+  turns). Authors acted on 34% of those, against 70% of first-turn findings and 73% of later findings on new code,
+  which are often bugs in the author's fixes. Performance and security findings on old code: 0 of 8 acted on.
+- **Not chosen yet.** Reviewing only the changes since the last head (a delta prompt) or resuming the earlier session
+  would also save review cost, but neither is tested. The prompt does not mention the rule, so the sessions have no
+  reason to raise a level to get a finding posted.
+
+### ✅ DECIDED 2026-10-09 — resolution stage on Opus 5.5 @ high instead of xhigh
+
+- **What.** `RESOLUTION_REASONING_EFFORT` moves from `xhigh` to `high`. The model stays `claude-opus-5-5`.
+- **Why.** The xhigh pin came from the validator, and no one compared it against other options. A coarse offline
+  trial ran 10 bot threads from 3 merged PRs (#72074, #106886, #109785), one fresh session per thread, on API keys.
+  - Opus @ high matched the reference outcome on 9 of 10 threads. Opus @ xhigh matched on all 6 threads it ran.
+  - On the shared threads, high cost about two thirds of xhigh and took about half the wall time.
+  - Clear fixes came out the same at every effort level. xhigh only added extra tests and docs.
+  - xhigh's one extra win was declining a speculative bot ask (read from the writer DB). The cheaper arms made a
+    small, plausible fix there instead.
+- **Rejected.** Opus @ medium saves little over high. Sonnet 5.5 @ high escalated contained fixes it should make.
+  GPT-6.1 Sol @ high made a wrong decline and one large out-of-scope fix.
+- **Caveats.** Each thread and arm ran once, and no tests ran in the trial. Production runs one warm session per PR,
+  not one session per thread. Watch the resolution outcomes on the dashboard after the change.
+
+### ✅ BUILT 2026-10-09 — settings rework: project rules, repository ownership, the PR owner rule, and first-class enablement
+
+Decided with the maintainer on 2026-10-09 (settings audit and settings mockup). Built in two layers: the data model
+and API (storage, ownership, the Flash decision), then the behavior rules. The record of the settled spec:
+
+- **Storage.** Personal preferences live in `ReviewUserSettings.preferences`, a sparse JSON dict typed in
+  `backend/preferences.py`: an absent key inherits, unknown keys and invalid values are ignored on read, and a write
+  equal to the inherited value removes the key. Keys: `default_review_mode` (follow / flash / off), `resolve_comments`
+  (default off, personal only), `urgency_threshold` and `celebrate_clean_reviews` (Full only, layered code default →
+  project default → user value), and the two Inbox opt-ins. The old columns stay on the model, unused. A GET creates no
+  row. Project rules live in `ReviewProjectSettings`: `flash_for` (everyone / listed / off, default off = opt-in only),
+  `bot_prs` (skip / run), and the two project defaults. People lists are `ReviewRepositoryPerson` rows; a row without
+  a repository belongs to the project rule.
+- **Ownership.** A repository belongs to at most one project, like GitHub's install picker: a
+  `ReviewInstallationClaim` per (project, installation) is `all` (at most one project per installation) or
+  `selected`, and a selected `ReviewRepository` row (unique across projects, matched by GitHub repository id, then by
+  name) wins over another project's `all` claim. Global uniqueness, not one project per GitHub organization, because
+  several projects often share one installation. The repository list in the settings reads the core GitHub
+  integration's cached repository list; the core `installation_repositories` webhook refreshes it.
+- **Flash decision**, highest first: the user's choice for the repository → the user's default unless follow → the
+  repository exception → the project rule. Bots and authors without an active member follow `bot_prs` only; a bot
+  review runs as the user who connected the installation, with default settings and no writes.
+- **PR owner** (`backend/pr_owner.py`): the author when the login maps to an active member; a self-driving PR (opened
+  by the PostHog app) belongs to its Inbox report's canonical reviewer; else nobody.
+- **Whose settings shape a review.** Automatic: the owner's rules (Flash reads no personal settings). Review button
+  and MCP: the person who asks. Label: the owner, else the connector with default settings. Inbox: the report
+  reviewer. The `review_labeled_prs` opt-out is gone: a label always runs.
+- **Resolution** runs only after a Full review, only when the owner opted in, whoever triggered, and only with the
+  `review-hog-internal` flag (`review_request_rules.ResolutionGate`). No owner, no writes. The resolve-only action
+  answers 409 `resolution_not_opted_in`, and `_prepare_run` checks the gate again. Guards: a protected head branch
+  holds the stage before any push (`CommitHold.BRANCH_PROTECTED`), and `is_app_bot_author` fails closed in production
+  when `REVIEWHOG_GITHUB_BOT_LOGIN` is unset.
+- **Flash vs Full.** Flash ignores `urgency_threshold`: it publishes every kept finding and records `consider` in
+  `published_urgency_thresholds`. No Flash after Full: once a PR has a published Full review, automatic dispatch, the
+  turn's recheck, and manual Flash requests (API, MCP) refuse it (`flash_after_full`). Full may resolve Flash threads.
+- **Push gate.** New rule `reviewhog_commits_only`: an automatic follow-up skips when the ReviewHog app authored every
+  new commit since the last automatically reviewed head (resolution fixes). It emits `reviewhog_push_gate_decided`
+  like the other rules.
+- **First-class enablement.** No per-deploy team constant decides behavior: `REVIEWHOG_TEAM_IDS`,
+  `REVIEWHOG_RUN_USER_ID`, and `REVIEWHOG_TRIGGER_TOKEN` are gone. One feature flag, `review-hog-internal`, evaluated
+  per project like `review-hog`, gates the internal-only parts: automatic reviews, the label trigger, resolution, manual
+  Flash, the tiered review arms, and the Inbox and Stamphog controls. The `review-hog` flag stays the product switch.
+  The label trigger moved from the GitHub Action (deleted) to the GitHub App's own `labeled` delivery through the
+  existing `review_hog_authored_prs` consumer, which now routes by action (`accept_pull_request_event`). A person or
+  `stamphog[bot]` may label; another bot's label gets the explaining comment and is removed with the app token. The
+  shared-secret `/api/review_hog/trigger` and `/resolve` endpoints are removed, because nothing else called them. No
+  migration seeds a claim: a project admin sets the claim in the settings UI. Customer setup: enable the flag →
+  connect GitHub → claim the installation → set the project rule.
+- **Facade.** `facade/github.py::owning_team_id(installation_id, repository)` exposes ownership, so a PR comment
+  command dispatcher can pick the project.
+- **One request entry.** `requested_reviews.request_pr_review()` serves the UI, MCP and the `@posthog review` comment,
+  and applies the owner rule, the resolution gate and the Flash-after-Full check for all of them. A comment run
+  follows the same owner rule.
+- **Open follow-ups.** Claims and rows of an uninstalled installation are not cleaned up yet.
+
+### ✅ BUILT 2026-10-08 — inline finding comments: one P-level heading and one paragraph
+
+- **What.** An inline comment is `**P{n} · {title}**`, then one paragraph with the issue and its fix, then the hidden
+  marker. A pipeline finding's `suggestion` joins its body with one space. The `### {title}` heading, the
+  "Should fix · category" line, the "Suggested fix" header, and the GitHub suggestion block are gone. The body's
+  "Other findings" section uses the same heading, then the file and lines, then the same paragraph, with no collapsed
+  blocks and no category.
+- **Why.** Every published finding is meant to be fixed, so a "should fix" label adds nothing, and the category does
+  not change what the author does. Coding agents read most of these comments and apply the fix from the wording, so
+  the suggestion block added length without value. `suggestion_code` stays stored on the finding for a later UI. The
+  comment stays plain text, so it reads the same in email notifications.
+- **P level.** A single-agent finding shows its own P0-P3 while that level still folds into the effective priority
+  (validator override first, as before). A validator override or a dedup survivor raised by a more severe duplicate
+  shows the mapped level instead: `must_fix` P1, `should_fix` P2, `consider` P3. Pipeline findings always map.
+- **Matching.** `find_finding_comment` accepts the whole first line as `**P{n} · {title}**` for P0-P3 or as the old
+  `### {title}`, so comments already on open PRs still match. The level is not checked, because it can change after
+  publish. The resolution stage finds ReviewHog threads by the hidden marker, and the body-only fallback copies the
+  comment text, so neither depends on the heading.
+
 ### ✅ BUILT 2026-10-08 — Flash v2: lens sessions, one short prioritized list, any PR size
 
 - **What.** A single-agent turn runs the main session and two lens sessions (performance and reliability, contracts

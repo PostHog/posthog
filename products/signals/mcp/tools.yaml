@@ -29,12 +29,13 @@ tools:
             types are latest-wins — appending a new version supersedes the previous one as the report's canonical
             status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation,
             actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason),
-            `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the
-            canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses
-            them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is
-            validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate
-            the work with your current claim; stale or foreign claims are rejected. Returns the created artefact
-            including its id.
+            `suggested_reviewers` (a list of {github_login}), `source_suggestion` (product, reason: a product the
+            project does not use that would have given this report better evidence; the inbox hides it once the product
+            is in use). Status judgments are consequential, not advisory: the canonical priority/actionability steer
+            what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act
+            on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are
+            attributed to your task automatically. Pass claim_id to associate the work with your current claim; stale or
+            foreign claims are rejected. Returns the created artefact including its id.
     inbox-report-artefacts-delete:
         operation: signals_report_artefacts_destroy
         enabled: true
@@ -255,25 +256,28 @@ tools:
             search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers,
             `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick
             work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently
-            suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this
-            when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` /
-            `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses
-            are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's
-            full work log, including signal findings, judgments, and log entries, is readable via
-            inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
-            '-is_suggested_reviewer,status,-updated_at' by default. To answer "what should I look at next", pass
-            `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready,
-            actionable reports that have no implementation PR yet, at or above the requesting user's personal
-            PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which
-            priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default
-            ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports,
-            each with its summary. The other views are `needs_input` (waiting on a human), `needs_decision` (failed
-            reports, plus actionable ready or pending-input reports without an implementation PR), `monitoring` (an
-            implementation PR is open), `resolved`, `dismissed`, `not_actionable`, and `all`. Narrow by reviewer with
-            `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every
-            report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving
-            reports for one source record — e.g. what the inbox already investigated for a specific support ticket —
-            pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket:
+            suppressed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating
+            against the full inbox state, and read each row's `status` (plus `suppression_source`, `dismissal_reason`,
+            and `dismissal_note` on suppressed rows) before acting. A suppressed row's `suppression_source` says whether
+            someone dismissed it (`dismissed`) or a judge held it back before anyone saw it (`safety_judge`,
+            `not_actionable`, `system`). For picking up work, filter to `ready` — earlier statuses are still moving
+            through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log,
+            including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it
+            before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at'
+            by default. To answer "what should I look at next", pass `view=actionable` with
+            `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready, actionable reports that
+            have no implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling
+            back to the project threshold. `use_priority_preference` selects which priorities to include, and does not
+            order them, so pass `sort=priority` to put P0 first; the default ordering can put a recently updated P4
+            above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. The other views
+            are `needs_input` (waiting on a human), `needs_decision` (failed reports, plus actionable ready or
+            pending-input reports without an implementation PR), `monitoring` (an implementation PR is open),
+            `resolved`, `dismissed` (suppressed by a person, an agent, a merge, or a closed PR), `held_back` (suppressed
+            by a judge, with nobody's review yet), `not_actionable`, and `all`. Narrow by reviewer with `scope=for_me`,
+            or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every report.
+            `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving reports
+            for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that
+            record's id as `source_id` together with exactly one `source_product` (for a support ticket:
             `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to
             include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot,
             but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted.
@@ -301,6 +305,8 @@ tools:
                 - already_addressed
                 - dismissal_reason
                 - dismissal_note
+                - suppression_source
+                - suppression_explanation
                 - signal_count
                 - total_weight
                 - source_products
@@ -620,6 +626,24 @@ tools:
             tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those
             findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name.
             Pair with `scout-config-update` to tune them.
+    scout-config-precheck-test:
+        operation: signals_scout_config_precheck_test
+        enabled: true
+        scopes:
+            - signal_scout:read
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Test a scout pre-check
+        description: >
+            Run a scout's pre-check query once by its config `id` and return the rows, without starting a run and
+            without saving anything. Pass `precheck_query` to try a query before you save it with `scout-config-update`,
+            or omit it to try the saved one. The query gets the same `{since}` (the start of the last run that ran) and
+            `{now}` values the next scheduled run would get. `would_run` and `reason` say whether that run would start
+            (`rows`, `query_error`) or skip (`no_rows`, `false_value`). `rows_text` is the text the scout reads, one
+            JSON object per line. A query error comes back in `error`: fix the query and test again.
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -655,7 +679,10 @@ tools:
             minutes apart; set null to return to the rolling interval. You can also configure
             `output_destinations.slack` with a Slack integration plus either a `channel` to post into or `users` to DM
             directly (handy for personal scouts) — find channel ids with integrations-channels-retrieve and member ids
-            with integrations-users-retrieve. `skill_name` is fixed. Enabling records who flipped it on and is
+            with integrations-users-retrieve. Set `precheck_query` to a HogQL `SELECT` so a scheduled run starts only
+            when the query returns something: no rows, or one false value such as a zero `count()`, skips the run;
+            `{since}` and `{now}` bind the last run that ran and the current time. Try the query with
+            `scout-config-precheck-test` first. `skill_name` is fixed. Enabling records who flipped it on and is
             activity-logged, since running a scout drives spend.
     scout-create:
         operation: signals_scout_create

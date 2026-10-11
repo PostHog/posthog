@@ -751,14 +751,42 @@ class TestDuplicateProbeTargetsMergeKey:
         assert mock_clickhouse_source.call_args.kwargs["stored_primary_keys"] == ["id"]
 
 
+def _failing_server(*_args: object, **_kwargs: object) -> MagicMock:
+    raise ClickHouseError("timeout")
+
+
+def _readonly_server(*_args: object, settings: dict[str, object] | None = None, **_kwargs: object) -> MagicMock:
+    if settings:
+        raise ProgrammingError("Setting max_execution_time is unknown or readonly")
+    return MagicMock(result_rows=[(42,)])
+
+
+def _readonly_server_that_times_out(
+    *_args: object, settings: dict[str, object] | None = None, **_kwargs: object
+) -> MagicMock:
+    if settings:
+        raise ProgrammingError("Setting max_execution_time is unknown or readonly")
+    raise OperationalError("Read timed out")
+
+
 class TestGetIncrementalRowCount:
     def _logger(self):
         return MagicMock()
 
-    def test_returns_none_on_error(self):
+    @pytest.mark.parametrize(
+        "server, expected",
+        [
+            pytest.param(_failing_server, None, id="query_fails"),
+            pytest.param(_readonly_server, 42, id="server_refuses_settings"),
+            pytest.param(_readonly_server_that_times_out, None, id="server_refuses_settings_and_the_count_fails"),
+        ],
+    )
+    def test_counts_the_rows_after_the_cursor_or_gives_none(
+        self, server: Callable[..., MagicMock], expected: int | None
+    ) -> None:
         client = MagicMock()
-        client.query.side_effect = ClickHouseError("timeout")
-        assert _get_incremental_row_count(client, "db", "t", "id", 0, self._logger()) is None
+        client.query.side_effect = server
+        assert _get_incremental_row_count(client, "db", "t", "id", 0, self._logger()) == expected
 
 
 class TestGetPartitionSettings:
@@ -918,6 +946,36 @@ class TestGetRowsBatching:
             self._run_get_rows([], stream_client=stream_client)
 
         stream_client.query_column_block_stream.assert_not_called()
+
+    def test_retries_with_the_servers_max_execution_time_ceiling(self):
+        constraint_error = ClickHouseError(
+            "Received ClickHouse exception, code: 452, server response: Code: 452. DB::Exception: "
+            "Setting max_execution_time shouldn't be greater than 600. (SETTING_CONSTRAINT_VIOLATION)"
+        )
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = [constraint_error, self._stream_context([self._block(5)])]
+
+        yielded = self._run_get_rows([], stream_client=stream_client)
+
+        assert len(yielded) == 1
+        assert yielded[0].num_rows == 5
+        stream_client.set_client_setting.assert_called_once_with("max_execution_time", 600)
+        assert stream_client.query_arrow_stream.call_count == 2
+
+    def test_gives_up_after_one_max_execution_time_retry(self):
+        # A host that keeps rejecting every value we set must not spin the sync forever.
+        constraint_error = ClickHouseError(
+            "Received ClickHouse exception, code: 452, server response: Code: 452. DB::Exception: "
+            "Setting max_execution_time shouldn't be greater than 600. (SETTING_CONSTRAINT_VIOLATION)"
+        )
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = [constraint_error, constraint_error]
+
+        with pytest.raises(ClickHouseError, match="SETTING_CONSTRAINT_VIOLATION"):
+            self._run_get_rows([], stream_client=stream_client)
+
+        stream_client.set_client_setting.assert_called_once_with("max_execution_time", 600)
+        assert stream_client.query_arrow_stream.call_count == 2
 
     def test_limit_error_after_rows_were_read_does_not_fall_back_to_pages(self):
         def blocks_then_limit_error():

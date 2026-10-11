@@ -2268,6 +2268,9 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `flag_live_before_launch` - Flag Live Before Launch
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
  * * `no_metric` - No Metric
+ * * `srm` - Sample Ratio Mismatch
+ * * `zero_exposures` - Zero Exposures
+ * * `forced_variant_release_condition` - Forced Variant Release Condition
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2279,6 +2282,9 @@ export const ExperimentHealthFindingCodeEnumApi = {
     FlagLiveBeforeLaunch: 'flag_live_before_launch',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
     NoMetric: 'no_metric',
+    Srm: 'srm',
+    ZeroExposures: 'zero_exposures',
+    ForcedVariantReleaseCondition: 'forced_variant_release_condition',
 } as const
 
 /**
@@ -2301,6 +2307,8 @@ export const ExperimentHealthFindingSeverityEnumApi = {
  * * `use_first_seen_variant` - Use First Seen Variant
  * * `add_primary_metric` - Add Primary Metric
  * * `add_secondary_metric` - Add Secondary Metric
+ * * `edit_exposure_criteria` - Edit Exposure Criteria
+ * * `edit_release_conditions` - Edit Release Conditions
  */
 export type ExperimentHealthFindingActionKindEnumApi =
     (typeof ExperimentHealthFindingActionKindEnumApi)[keyof typeof ExperimentHealthFindingActionKindEnumApi]
@@ -2311,6 +2319,8 @@ export const ExperimentHealthFindingActionKindEnumApi = {
     UseFirstSeenVariant: 'use_first_seen_variant',
     AddPrimaryMetric: 'add_primary_metric',
     AddSecondaryMetric: 'add_secondary_metric',
+    EditExposureCriteria: 'edit_exposure_criteria',
+    EditReleaseConditions: 'edit_release_conditions',
 } as const
 
 /**
@@ -2326,7 +2336,10 @@ export interface ExperimentHealthFindingApi {
      * * `flag_live_after_end` - Flag Live After End
      * * `flag_live_before_launch` - Flag Live Before Launch
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `no_metric` - No Metric */
+     * * `no_metric` - No Metric
+     * * `srm` - Sample Ratio Mismatch
+     * * `zero_exposures` - Zero Exposures
+     * * `forced_variant_release_condition` - Forced Variant Release Condition */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.

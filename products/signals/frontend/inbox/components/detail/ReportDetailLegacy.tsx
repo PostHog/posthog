@@ -56,6 +56,7 @@ import { ReportChart } from './ReportChart'
 import { ReportChartsContext } from './reportChartsContext'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
+import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 import { TrackerIssueNote } from './TrackerIssueNote'
@@ -112,7 +113,9 @@ function ReportDetailMeta({
 
     return (
         <div className="flex items-center gap-x-2 gap-y-1.5 flex-wrap text-xs text-tertiary leading-none select-none">
-            {showStatus && <SignalReportStatusBadge status={report.status} />}
+            {showStatus && (
+                <SignalReportStatusBadge status={report.status} suppressionSource={report.suppression_source} />
+            )}
             <SignalReportActionabilityBadge
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
@@ -405,6 +408,9 @@ function InboxDetailFrameLegacy({
                                         >
                                             {evidenceExpanded ? 'Show less' : 'Show more'}
                                         </LemonButton>
+                                    )}
+                                    {report.source_suggestion && (
+                                        <ReportSourceSuggestion report={report} suggestion={report.source_suggestion} />
                                     )}
                                 </div>
                             )}

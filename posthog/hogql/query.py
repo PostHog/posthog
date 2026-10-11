@@ -446,6 +446,10 @@ class HogQLQueryExecutor:
 
         source = self._direct_source
         adapter = get_adapter(source.direct_engine) if source is not None else None
+        if adapter is not None and adapter.dialect is None:
+            # A raw-only engine (BigQuery) has no HogQL printer; falling back to another
+            # dialect would send SQL the engine cannot parse.
+            raise ExposedHogQLError("This connection supports raw SQL queries only (sendRawQuery).")
         dialect: HogQLDialect = adapter.dialect if adapter is not None and adapter.dialect is not None else "postgres"
 
         direct_context = dataclasses.replace(

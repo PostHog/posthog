@@ -79,7 +79,47 @@ class TestListPagination:
         manager.can_resume.return_value = False
         return manager
 
-    def test_paginates_until_total_reached(self) -> None:
+    @pytest.mark.parametrize(
+        ("config", "expected_requests"),
+        [
+            (
+                _list_config(),
+                [
+                    ("GET", {"params": {"page_size": 2, "offset": 0}, "json": None}),
+                    ("GET", {"params": {"page_size": 2, "offset": 2}, "json": None}),
+                ],
+            ),
+            (
+                LinearbEndpointConfig(
+                    name="incidents",
+                    path="/api/v1/incidents/search",
+                    method="POST",
+                    page_size_param="limit",
+                    page_size=2,
+                    request_body={"issued_at": {"after": "2000-01-01"}, "sort_by": "issued_at", "sort_dir": "asc"},
+                ),
+                [
+                    (
+                        "POST",
+                        {
+                            "params": None,
+                            "json": {
+                                "issued_at": {"after": "2000-01-01"},
+                                "sort_by": "issued_at",
+                                "sort_dir": "asc",
+                                "limit": 2,
+                                "offset": offset,
+                            },
+                        },
+                    )
+                    for offset in (0, 2)
+                ],
+            ),
+        ],
+    )
+    def test_paginates_until_total_reached(
+        self, config: LinearbEndpointConfig, expected_requests: list[tuple[str, dict[str, Any]]]
+    ) -> None:
         # total=3 with page_size=2 -> a full page then a final short page.
         responses = [
             _response(payload={"total": 3, "items": [{"id": 1}, {"id": 2}]}),
@@ -87,10 +127,13 @@ class TestListPagination:
         ]
         session = _session_returning(responses)
 
-        pages = list(_iter_list_rows(session, {}, mock.MagicMock(), _list_config(), self._manager()))
+        pages = list(_iter_list_rows(session, {}, mock.MagicMock(), config, self._manager()))
 
         assert [row["id"] for page in pages for row in page] == [1, 2, 3]
-        assert session.request.call_count == 2
+        assert [
+            (call.args[0], {"params": call.kwargs["params"], "json": call.kwargs["json"]})
+            for call in session.request.call_args_list
+        ] == expected_requests
 
     def test_stops_on_empty_page(self) -> None:
         session = _session_returning([_response(payload={"total": 0, "items": []})])

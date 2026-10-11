@@ -81,7 +81,7 @@ import {
     WorkReleaseContent,
 } from './artefactTypes'
 import { prActivityTitle } from './prActivityPresentation'
-import { CHECK_LIFECYCLE_ENTRIES } from './reportCheckPresentation'
+import { CHECK_LIFECYCLE_ENTRIES, inconclusiveReasonLabel } from './reportCheckPresentation'
 
 /** Map a file extension to a CodeSnippet language for syntax highlighting; falls back to plain text. */
 function languageFromPath(path: string | undefined): Language {
@@ -385,7 +385,7 @@ const CHECK_OUTCOME: Record<NonNullable<CheckResultContent['outcome']>, { label:
     passed: { label: 'Still holds', type: 'success' },
     failed: { label: 'No longer holds', type: 'danger' },
     errored: { label: "Couldn't measure", type: 'warning' },
-    inconclusive: { label: 'Inconclusive', type: 'warning' },
+    inconclusive: { label: 'Inconclusive', type: 'info' },
 }
 
 function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Element | null {
@@ -395,6 +395,9 @@ function CheckResultBody({ content }: { content: CheckResultContent }): JSX.Elem
     return (
         <div className="flex w-full flex-col items-start gap-1">
             <span className="text-xs text-default">{content.explanation}</span>
+            {content.outcome === 'inconclusive' ? (
+                <span className="text-xs text-tertiary">{inconclusiveReasonLabel(content.reason)}</span>
+            ) : null}
             {content.threshold ? (
                 <span className="text-xs text-tertiary">
                     Expected {content.threshold}

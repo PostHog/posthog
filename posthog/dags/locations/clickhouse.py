@@ -70,6 +70,7 @@ defs = dagster.Definitions(
         part_breaker.break_oversized_parts_schedule,
         data_deletion_requests.auto_approve_deletion_requests_schedule,
         warehouse_object_reads_daily.warehouse_object_reads_daily_schedule,
+        deletes.monthly_old_events_cleanup_schedule,
     ],
     sensors=[
         clickhouse_cleanup.run_cleanup_sweep_after_deletes,
@@ -77,6 +78,7 @@ defs = dagster.Definitions(
         deletes.run_deletes_after_manual_trigger,
         data_deletion_requests.data_deletion_request_pickup_sensor,
         data_deletion_requests.verify_queued_deletion_requests,
+        warehouse_object_reads_daily.warehouse_object_reads_daily_overdue_sensor,
     ],
     loggers=loggers,
     resources=resources,

@@ -76,6 +76,13 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    physical table the mark applies to when two live tables share a name, and `proposed_status` tells you
    whether the row asks to certify the source or to deprecate it.
 
+   If the `warehouse-suggestions-*` tools are available, also call `warehouse-suggestions-list` with
+   `status=proposed`. A `certify` suggestion names a view or table that read usage says to certify. A
+   `deprecate` suggestion names a materialized view that nobody reads. Neither is in `certifications` until
+   someone accepts it: accept with
+   `posthog:warehouse-suggestions-accept-prepare` / `-execute`, or dismiss with
+   `posthog:warehouse-suggestions-dismiss`.
+
    Each entity type keeps its pending queue separate from its usable/verified surface, so an agent
    without this skill never mistakes an unreviewed item for an approved one:
    `information_schema.relationships` lists only real joins (a proposal shows up there **only after**

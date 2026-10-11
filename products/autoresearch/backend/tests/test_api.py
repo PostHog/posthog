@@ -224,13 +224,25 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             status="kept",
         )
         now = django_timezone.now()
-        for rows_scored, minutes_ago in [(100, 60), (250, 5)]:
+        coverage = {
+            "population": 400,
+            "with_score": 300,
+            "never_scored": 100,
+            "age_days_avg": 1.5,
+            "age_days_p50": 1.0,
+            "age_days_p90": 3.0,
+            "age_days_max": 4.0,
+            "lookback_days": 30,
+        }
+        # The newest run, a backfill or shadow run, has no coverage, so the pipeline keeps the older measure.
+        for rows_scored, minutes_ago, metrics in [(100, 60, {"coverage": coverage}), (250, 5, {})]:
             AutoresearchRun.objects.create(
                 pipeline=validated,
                 run_type=AutoresearchRun.RunType.INFERENCE,
                 status="completed",
                 rows_scored=rows_scored,
                 completed_at=now - timedelta(minutes=minutes_ago),
+                metrics=metrics,
             )
         for prediction_date, auc, minutes_ago in [
             ("2026-01-02", 0.7, 30),
@@ -312,6 +324,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             return sum('"autoresearch_' in q["sql"] for q in captured.captured_queries)
 
         assert autoresearch_queries(more_queries) == autoresearch_queries(queries)
+        assert {name: row["coverage"] for name, row in by_name.items()} == {
+            "Validated": coverage,
+            "Preliminary": None,
+            "No positives": None,
+            "Zero lift": None,
+            "Untrained": None,
+        }
         assert {
             name: (
                 row["champion_holdout_auc"],
@@ -1039,9 +1058,33 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             holdout_score=0.6,
         )
         AutoresearchRun.objects.create(pipeline=pipeline, model=model, status="completed", rows_scored=100)
+        AutoresearchRun.objects.create(
+            pipeline=pipeline,
+            model=model,
+            status="completed",
+            rows_scored=50,
+            metrics={
+                "coverage": {
+                    "population": 80,
+                    "with_score": 0,
+                    "never_scored": 80,
+                    "age_days_avg": None,
+                    "age_days_p50": None,
+                    "age_days_p90": None,
+                    "age_days_max": None,
+                    "lookback_days": 30,
+                }
+            },
+        )
         resp = self.client.get(f"{self.base_url}/{pipeline.id}/runs/")
         assert resp.status_code == status.HTTP_200_OK
-        assert resp.json()["count"] == 1
+        assert resp.json()["count"] == 2
+        assert sorted(
+            (run["rows_scored"], (run["coverage"] or {}).get("never_scored")) for run in resp.json()["results"]
+        ) == [
+            (50, 80),
+            (100, None),
+        ]
 
     def test_online_performance_keeps_an_archived_former_champion(self):
         pipeline = self._make_pipeline()
@@ -1072,6 +1115,11 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             "realized_auc_ci_low": 0.65,
             "realized_auc_ci_high": 0.75,
             "calibration_bins": [{"n": 10, "mean_p_y": 0.4, "positive_rate": 0.2}],
+            "average_precision": 0.5,
+            "confusion": {
+                cutoff: {"tp": 1, "fp": 0, "fn": 1, "tn": 8, "n_flagged": 1, "precision": 1.0, "recall": 0.5}
+                for cutoff in ("top_10", "top_20", "likely")
+            },
         }
         latest = validation("2026-09-01", {str(former.pk): populated}, completed_minutes_ago=20)
         validation(
@@ -1096,7 +1144,30 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             0.75,
         )
         assert rows[1]["calibration_bins"] == [{"n": 10, "mean_p_y": 0.4, "positive_rate": 0.2}]
+        assert rows[1]["average_precision"] == 0.5
+        assert rows[1]["confusion"]["likely"] == {
+            "tp": 1,
+            "fp": 0,
+            "fn": 1,
+            "tn": 8,
+            "n_flagged": 1,
+            "precision": 1.0,
+            "recall": 0.5,
+        }
+        assert rows[1]["likely_threshold"] == 0.6
         assert rows[0]["realized_auc_ci_low"] is None and rows[0]["calibration_bins"] is None
+        assert rows[0]["average_precision"] is None and rows[0]["confusion"] is None
+        assert rows[0]["likely_threshold"] is None
+        assert resp.json()["segment_thresholds"] == {
+            "likely_threshold": 0.6,
+            "possible_threshold": 0.2,
+            "likely_lift": 3.0,
+            "base_rate": None,
+            "base_rate_dates": 2,
+            "champion_mean_p_y": None,
+            "champion_base_rate": None,
+            "scores_miscalibrated": False,
+        }
 
         limited = self.client.get(f"{self.base_url}/{pipeline.id}/online_performance/?limit=1").json()["rows"]
         assert [r["prediction_date"] for r in limited] == ["2026-09-03"]

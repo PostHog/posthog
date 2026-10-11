@@ -14,7 +14,7 @@ import {
     KafkaConsumerV2Config,
     RdKafkaConsumerOverrides,
 } from '~/common/kafka/consumer/consumer-v2'
-import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { KafkaProducer } from '~/common/kafka/producer'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
@@ -92,7 +92,7 @@ function getAnonymizer(): typeof import('@posthog/replay-anonymizer') {
 }
 
 export function buildFrontierPublisher(
-    producer: KafkaProducerWrapper,
+    producer: KafkaProducer,
     maxConcurrentImagePublishes: number
 ): FrontierPublisher {
     return new FrontierPublisher(producer, {
