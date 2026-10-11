@@ -308,6 +308,15 @@ export interface CommentSentToAgentProperties {
   with_screenshot: boolean;
 }
 
+export interface SubagentPanelOpenedProperties {
+  subagent_count: number;
+  running_count: number;
+}
+
+export interface SubagentPanelJumpedProperties {
+  status: "pending" | "in_progress" | "completed" | "failed";
+}
+
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
 
@@ -1912,6 +1921,8 @@ export const ANALYTICS_EVENTS = {
   LOOP_RUN_VIEWED: "Loop run viewed",
   LOOP_LINK_COPIED: "Loop link copied",
   COMMENT_SENT_TO_AGENT: "Comment sent to agent",
+  SUBAGENT_PANEL_OPENED: "Subagent panel opened",
+  SUBAGENT_PANEL_JUMPED: "Subagent panel jumped to subagent",
 } as const;
 
 // Event property mapping
@@ -2143,6 +2154,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.LOOP_RUN_VIEWED]: LoopRunViewedProperties;
   [ANALYTICS_EVENTS.LOOP_LINK_COPIED]: LoopLinkCopiedProperties;
   [ANALYTICS_EVENTS.COMMENT_SENT_TO_AGENT]: CommentSentToAgentProperties;
+  [ANALYTICS_EVENTS.SUBAGENT_PANEL_OPENED]: SubagentPanelOpenedProperties;
+  [ANALYTICS_EVENTS.SUBAGENT_PANEL_JUMPED]: SubagentPanelJumpedProperties;
 };
 
 /**
