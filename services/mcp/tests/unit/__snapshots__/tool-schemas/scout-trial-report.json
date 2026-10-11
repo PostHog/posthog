@@ -1,0 +1,47 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "comparison_id": {
+            "description": "Saved comparison identity.",
+            "type": "string"
+        },
+        "fields": {
+            "description": "Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.",
+            "items": {
+                "enum": [
+                    "comparison_id",
+                    "config_id",
+                    "context_id",
+                    "created_at",
+                    "baseline_variant_id",
+                    "rubric_revision",
+                    "variants",
+                    "status",
+                    "archived",
+                    "error",
+                    "evaluation",
+                    "evaluation.status",
+                    "evaluation.error",
+                    "evaluation.report",
+                    "evaluation.report.summary",
+                    "evaluation.report.outcome",
+                    "evaluation.report.variants",
+                    "evaluation.report.runs",
+                    "evaluation.report.evidence",
+                    "evaluation.report.criteria",
+                    "evaluation.report.rubric_reference_context",
+                    "evaluation.report.limitations"
+                ],
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "comparison_id"],
+    "type": "object"
+}
