@@ -42,13 +42,12 @@ from posthog.event_usage import groups
 from posthog.models import Team
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
-from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY
+from products.signals.backend.scout_harness.limits import MAX_PRECHECK_ROWS_BYTES, SCOUT_TRIAL_METADATA_KEY
 
 logger = structlog.get_logger(__name__)
 
 PRECHECK_TIMEOUT_S = 10
 PRECHECK_MAX_ROWS = 50
-PRECHECK_MAX_TEXT_BYTES = 8 * 1024
 PRECHECK_MAX_QUERY_LENGTH = 10_000
 
 PrecheckOutcome = Literal["run", "skip", "error"]
@@ -62,7 +61,7 @@ class PrecheckResult:
     outcome: PrecheckOutcome
     reason: PrecheckReason
     row_count: int = 0
-    # The capped rows, one JSON object per line, for a later prompt block.
+    # The capped rows, one JSON object per line, for the run prompt.
     rows_text: str | None = None
 
     @property
@@ -237,7 +236,7 @@ def _render_rows(found: _PrecheckRows) -> str:
     for row in found.rows:
         line = json.dumps(dict(zip(found.columns, row)), default=str, ensure_ascii=False)
         size += len(line.encode("utf-8")) + 1
-        if size > PRECHECK_MAX_TEXT_BYTES:
+        if size > MAX_PRECHECK_ROWS_BYTES:
             break
         lines.append(line)
     return "\n".join(lines)
