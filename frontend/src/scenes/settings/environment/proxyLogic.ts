@@ -6,6 +6,7 @@ import { loaders } from 'kea-loaders'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -39,6 +40,9 @@ import type {
 export type ProxyRecord = ProxyRecordApi
 
 export type FormState = 'collapsed' | 'active'
+
+// Matches DIAGNOSE_COOLDOWN_SECONDS in posthog/api/proxy_record.py.
+export const DIAGNOSE_COOLDOWN_SECONDS = 30
 
 export type DiagnosticCheckStatus = DiagnosticCheckResultStatusEnumApi
 export type DiagnosticSummaryStatus = DiagnosticReportSummaryStatusEnumApi
@@ -122,6 +126,7 @@ export interface proxyLogicValues {
         },
         ValidationErrorType
     >
+    diagnoseCooldownIds: string[]
     diagnoseLoadingIds: string[]
     diagnosticReports: Record<string, DiagnosticReport>
     expandedRecordIds: string[]
@@ -224,6 +229,9 @@ export interface proxyLogicActions {
     ) => {
         id: string
         report: DiagnosticReportApi
+    }
+    endDiagnoseCooldown: (id: ProxyRecord['id']) => {
+        id: string
     }
     loadRecords: () => any
     loadRecordsFailure: (
@@ -392,6 +400,7 @@ export const proxyLogic = kea<proxyLogicType>([
         diagnoseSuccess: (id: ProxyRecord['id'], report: DiagnosticReport) => ({ id, report }),
         diagnoseFailure: (id: ProxyRecord['id'], error: string) => ({ id, error }),
         clearDiagnosticReport: (id: ProxyRecord['id']) => ({ id }),
+        endDiagnoseCooldown: (id: ProxyRecord['id']) => ({ id }),
         setRecordExpanded: (id: ProxyRecord['id'], expanded: boolean) => ({ id, expanded }),
         setRecordActiveTab: (id: ProxyRecord['id'], tab: string) => ({ id, tab }),
         setRootRedirectDraft: (id: ProxyRecord['id'], rootRedirectUrl: string) => ({ id, rootRedirectUrl }),
@@ -444,6 +453,14 @@ export const proxyLogic = kea<proxyLogicType>([
                 diagnose: (state, { id }) => (state.includes(id) ? state : [...state, id]),
                 diagnoseSuccess: (state, { id }) => state.filter((existingId) => existingId !== id),
                 diagnoseFailure: (state, { id }) => state.filter((existingId) => existingId !== id),
+            },
+        ],
+        diagnoseCooldownIds: [
+            [] as string[],
+            {
+                diagnoseSuccess: (state, { id }) => (state.includes(id) ? state : [...state, id]),
+                diagnoseFailure: (state, { id }) => (state.includes(id) ? state : [...state, id]),
+                endDiagnoseCooldown: (state, { id }) => state.filter((existingId) => existingId !== id),
             },
         ],
         expandedRecordIds: [
@@ -549,38 +566,72 @@ export const proxyLogic = kea<proxyLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
-        collapseForm: () => actions.loadRecords(),
-        deleteRecordFailure: () => actions.loadRecords(),
-        retryRecordFailure: () => actions.loadRecords(),
-        loadRecordsSuccess: ({ proxyRecords }) => {
-            // Mark the reverse proxy setup task as completed if any proxy is valid
-            const hasValidProxy = proxyRecords.some((r) => r.status === 'valid')
-            if (hasValidProxy) {
-                globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy)
-            }
-        },
-        maybeRefreshRecords: () => {
-            if (values.shouldRefreshRecords) {
-                actions.loadRecords()
-            }
-        },
-        diagnose: async ({ id }) => {
-            try {
-                const report = await proxyRecordsDiagnoseCreate(values.currentOrganizationId, id)
-                actions.diagnoseSuccess(id, report)
-            } catch (e) {
-                const message = e instanceof Error ? e.message : String(e)
-                actions.diagnoseFailure(id, message)
-                lemonToast.error(`Diagnose failed: ${message}`)
-            }
-        },
-        diagnoseSuccess: ({ id }) => {
-            // Auto-expand the row and switch to the Diagnosis tab so the user sees the report immediately.
-            actions.setRecordExpanded(id, true)
-            actions.setRecordActiveTab(id, 'diagnosis')
-        },
-    })),
+    listeners(({ actions, values, cache }) => {
+        // The backend refuses a second diagnose for the same user and record inside this window.
+        const startDiagnoseCooldown = (id: ProxyRecord['id']): void => {
+            cache.disposables.add(
+                () => {
+                    const timer = window.setTimeout(
+                        () => actions.endDiagnoseCooldown(id),
+                        DIAGNOSE_COOLDOWN_SECONDS * 1000
+                    )
+                    return () => clearTimeout(timer)
+                },
+                `diagnoseCooldown-${id}`,
+                { pauseOnPageHidden: false }
+            )
+        }
+        return {
+            collapseForm: () => actions.loadRecords(),
+            deleteRecordFailure: () => actions.loadRecords(),
+            retryRecordFailure: () => actions.loadRecords(),
+            loadRecordsSuccess: ({ proxyRecords }) => {
+                // Mark the reverse proxy setup task as completed if any proxy is valid
+                const hasValidProxy = proxyRecords.some((r) => r.status === 'valid')
+                if (hasValidProxy) {
+                    globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpReverseProxy)
+                }
+            },
+            maybeRefreshRecords: () => {
+                if (values.shouldRefreshRecords) {
+                    actions.loadRecords()
+                }
+            },
+            diagnose: async ({ id }) => {
+                try {
+                    const report = await proxyRecordsDiagnoseCreate(values.currentOrganizationId, id)
+                    actions.diagnoseSuccess(id, report)
+                } catch (e) {
+                    const message = e instanceof Error ? e.message : String(e)
+                    actions.diagnoseFailure(id, message)
+                    if (e instanceof ApiError && e.status === 429) {
+                        if (values.diagnosticReports[id]) {
+                            actions.setRecordExpanded(id, true)
+                            actions.setRecordActiveTab(id, 'diagnosis')
+                            lemonToast.info(
+                                `Diagnostics ran for this proxy in the last ${DIAGNOSE_COOLDOWN_SECONDS} seconds. The latest report is in the Diagnosis tab.`
+                            )
+                        } else {
+                            lemonToast.info(
+                                `Diagnostics ran for this proxy in the last ${DIAGNOSE_COOLDOWN_SECONDS} seconds. Try again in about ${DIAGNOSE_COOLDOWN_SECONDS} seconds.`
+                            )
+                        }
+                    } else {
+                        lemonToast.error(`Diagnose failed: ${message}`)
+                    }
+                }
+            },
+            diagnoseSuccess: ({ id }) => {
+                // Auto-expand the row and switch to the Diagnosis tab so the user sees the report immediately.
+                actions.setRecordExpanded(id, true)
+                actions.setRecordActiveTab(id, 'diagnosis')
+                startDiagnoseCooldown(id)
+            },
+            diagnoseFailure: ({ id }) => {
+                startDiagnoseCooldown(id)
+            },
+        }
+    }),
     forms(({ actions, values }) => ({
         createRecord: {
             defaults: { domain: initialDomainFor(values.user) },
