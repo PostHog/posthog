@@ -53,7 +53,7 @@ from products.warehouse_sources.backend.facade.hogql import (
 )
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
-from . import incremental_config, sync_cadence, view_description, view_state
+from . import incremental_config, lifecycle, sync_cadence, view_description, view_state
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -118,6 +118,10 @@ _MOVE_REFUSALS = {
     "moved": "Something else moved this view while we were moving it. Try again.",
 }
 
+_DEPENDENCY_SYNC_FAILED = (
+    "Could not resolve this view's dependencies, which materializing it needs. Try again or contact support."
+)
+
 
 def _authored_model_answering_to(
     team_id: int, name: str, exclude: DataWarehouseSavedQuery | None
@@ -164,8 +168,12 @@ class DataWarehouseSavedQuerySerializer(
         help_text=(
             "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', "
             "'24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest "
-            "cadence available. Null means no scheduled materialization. Read back after a write, this "
-            "reflects the cadence stored on the view's DAG node."
+            "cadence available. Null means no scheduled materialization. Any cadence other than 'never' means "
+            "the view is materialized: on a create, or on an update of a view that is not materialized yet, it "
+            "materializes the view at that cadence and starts its first run. On a view that is already "
+            "materialized it only changes the cadence. A cadence the view's lineage cannot support fails the "
+            "request with a 400 and saves nothing. Read back after a write, this reflects the cadence stored on "
+            "the view's DAG node."
         ),
     )
     sync_frequency_bounds = serializers.SerializerMethodField(
@@ -425,8 +433,10 @@ class DataWarehouseSavedQuerySerializer(
                     ],
                 ),
             )
-            # Best-effort only when the caller left placement to us. A supplied dag_id is
-            # write-only, so the response cannot show that the placement was discarded.
+            # Best-effort only when the caller left placement to us and asked for no cadence. A
+            # supplied dag_id is write-only, so the response cannot show that the placement was
+            # discarded, and materializing needs the node: without it the enable below fails anyway,
+            # after a Temporal round trip and a second captured exception.
             try:
                 with transaction.atomic():
                     modeling_api.sync_saved_query_to_dag(view, dag=dag_id)
@@ -435,15 +445,21 @@ class DataWarehouseSavedQuerySerializer(
                 logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
                 if dag_given:
                     raise serializers.ValidationError({"dag_id": "Could not place this view in the requested DAG."})
-            if sync_frequency is not None:
-                if sync_frequency != "never":
-                    assert_user_can_read_query(
-                        view.query,
-                        view.team_id,
-                        cast(User, self.context["request"].user),
-                        database=self.context.get("database"),
-                    )
-                _apply_frequency_target(view, sync_frequency, self.user_access_control)
+                if sync_frequency not in (None, "never"):
+                    raise exceptions.APIException(_DEPENDENCY_SYNC_FAILED) from e
+            if sync_frequency not in (None, "never"):
+                # Inside the transaction, so a cadence the lineage refuses also discards the view.
+                lifecycle.enable_materialization(
+                    view,
+                    user=cast(User, self.context["request"].user),
+                    sync_frequency=sync_frequency,
+                    user_access_control=self.user_access_control,
+                    was_impersonated=is_impersonated(self.context["request"]),
+                )
+
+        if sync_frequency not in (None, "never"):
+            # The facade and schedule bootstrap save separate copies; bootstrap can disable it after commit.
+            view.refresh_from_db()
 
         self._report_view_action(
             "view created",
@@ -542,6 +558,10 @@ class DataWarehouseSavedQuerySerializer(
             except DataWarehouseSavedQuery.DoesNotExist:
                 raise exceptions.NotFound("Not found.")
             before_update = copy.copy(locked_instance)
+            # A cadence other than never means a materialized view, so a view that is not
+            # materialized yet gets materialized below instead of only having its node retargeted.
+            materializes = sync_frequency not in (None, "never") and not locked_instance.is_materialized
+            retargets = frequency_changed and not materializes
 
             query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query
 
@@ -569,7 +589,7 @@ class DataWarehouseSavedQuerySerializer(
                     capture_exception(e)
                     raise serializers.ValidationError({"dag_id": "Could not move this view to the requested DAG."})
 
-            if frequency_changed:
+            if retargets:
                 previous_target = modeling_api.declared_targets_by_saved_query(view.team_id, [view.pk]).get(
                     str(view.pk)
                 )
@@ -603,7 +623,7 @@ class DataWarehouseSavedQuerySerializer(
                 )
                 for change in changes
             ]
-            if frequency_changed and previous_target != target:
+            if retargets and previous_target != target:
                 # The cadence lives on the DAG node, so changes_between() sees nothing and
                 # log_activity would discard the whole updated entry as a no-op.
                 changes.append(
@@ -626,19 +646,37 @@ class DataWarehouseSavedQuerySerializer(
                 detail=Detail(name=view.name, changes=changes),
             )
 
-            # Best effort sync to the data modeling DAG representation. It reads the node's
-            # placement, so it stays under the row lock a move also takes: outside it a move can
+            # The sync reads the node's placement, so it stays under the row lock a move also takes: a move can
             # land between the read and the sync, which would then create a second node in the
-            # DAG the move just left. The savepoint keeps a failed sync best effort without
-            # poisoning the update's own transaction.
-            if "query" in validated_data and not dag_given:
+            # DAG the move just left. The savepoint lets ordinary edits survive a failed sync without
+            # poisoning the transaction.
+            if ("query" in validated_data or materializes) and not dag_given:
                 try:
                     with transaction.atomic():
                         node = Node.objects.filter(team_id=view.team_id, saved_query=view).select_related("dag").first()
-                        modeling_api.sync_saved_query_to_dag(view, dag=node.dag if node else None)
+                        modeling_api.sync_saved_query_to_dag(
+                            view, dag=node.dag if node else None, reconcile=not materializes
+                        )
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+                    if materializes:
+                        raise exceptions.APIException(_DEPENDENCY_SYNC_FAILED) from e
+
+            if materializes:
+                # Last, because the full saves of `view` above would write a stale is_materialized
+                # back if they ran after it, and the lineage check must see the edges of the saved query.
+                lifecycle.enable_materialization(
+                    view,
+                    user=cast(User, self.context["request"].user),
+                    sync_frequency=sync_frequency,
+                    user_access_control=self.user_access_control,
+                    was_impersonated=is_impersonated(self.context["request"]),
+                )
+
+        if materializes:
+            # The schedule bootstrap can disable materialization after commit.
+            view.refresh_from_db()
 
         self._report_view_action(
             "view updated",

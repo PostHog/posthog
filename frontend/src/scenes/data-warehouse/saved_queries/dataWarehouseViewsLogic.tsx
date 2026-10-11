@@ -633,8 +633,8 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.runDataWarehouseSavedQuery(payload.id)
             }
 
-            // Enabling a sync frequency schedules materialization, whose is_materialized flip can
-            // land asynchronously — mark it materializing (spinner) and poll until it settles.
+            // A cadence other than 'never' leaves the view materialized when this update returns, so the
+            // spinner only shows until the reload below reports is_materialized.
             if (payload?.id && payload.sync_frequency) {
                 actions.addMaterializingViews([payload.id])
             }
