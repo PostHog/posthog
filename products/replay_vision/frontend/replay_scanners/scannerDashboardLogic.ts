@@ -5,10 +5,14 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { visionScannersCreateDashboardCreate } from '../generated/api'
+import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { replayScannerLogic } from './replayScannerLogic'
 import type { ScannerFormValues } from './types'
 
@@ -93,7 +97,11 @@ export const scannerDashboardLogic = kea<scannerDashboardLogicType>([
         showDashboardOffer: [
             (s) => [s.featureFlags, s.scanner],
             (featureFlags: FeatureFlagsSet, scanner: ScannerFormValues): boolean =>
-                !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCANNER_DASHBOARD] && !!scanner?.dashboard_suggested,
+                !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCANNER_DASHBOARD] &&
+                !!scanner?.dashboard_suggested &&
+                // Only offer to people the endpoint accepts, rather than showing a button that answers with a 403.
+                !getReplayVisionEditDisabledReason(scanner.user_access_level) &&
+                !getAccessControlDisabledReason(AccessControlResourceType.Dashboard, AccessControlLevel.Editor),
         ],
     }),
     listeners(({ actions, props, values }) => ({

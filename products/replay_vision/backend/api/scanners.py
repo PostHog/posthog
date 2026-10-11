@@ -3030,7 +3030,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         detail=True,
         methods=["post"],
         url_path="create_dashboard",
-        required_scopes=["replay_scanner:read", "dashboard:write", "insight:write"],
+        required_scopes=["replay_scanner:read", "session_recording:read", "dashboard:write", "insight:write"],
     )
     def create_dashboard(self, request: Request, **kwargs: Any) -> Response:
         """Create a dashboard that charts this scanner's observations, and link it to the scanner.

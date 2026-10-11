@@ -117,7 +117,7 @@ class TestScannerDashboardTiles(ClickhouseTestMixin, _ScannerDashboardTestCase):
 
 
 class TestScannerDashboardEndpoint(_ScannerDashboardTestCase):
-    def _observe(self, scanner: ReplayScanner, count: int) -> None:
+    def _observe(self, scanner: ReplayScanner, count: int, *, days_ago: int = 0) -> None:
         start = ReplayObservation.objects.filter(scanner=scanner).count()
         ReplayObservation.objects.bulk_create(
             ReplayObservation(
@@ -128,7 +128,7 @@ class TestScannerDashboardEndpoint(_ScannerDashboardTestCase):
                 scanner_snapshot=snapshot_for(scanner),
                 scanner_result={},
                 triggered_by=ObservationTrigger.SCHEDULE,
-                completed_at=timezone.now(),
+                completed_at=timezone.now() - timedelta(days=days_ago),
             )
             for index in range(start, start + count)
         )
@@ -144,6 +144,10 @@ class TestScannerDashboardEndpoint(_ScannerDashboardTestCase):
 
     def test_suggests_once_populated_and_links_one_live_dashboard(self) -> None:
         scanner = self._make_scanner()
+        # Observations older than the dashboard's date range would chart nothing, so they do not count.
+        self._observe(scanner, DASHBOARD_SUGGESTION_MIN_OBSERVATIONS, days_ago=40)
+        self.assertEqual(self._scanner_state(scanner), (None, False))
+
         self._observe(scanner, DASHBOARD_SUGGESTION_MIN_OBSERVATIONS - 1)
         self.assertEqual(self._scanner_state(scanner), (None, False))
 

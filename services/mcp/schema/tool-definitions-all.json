@@ -14471,7 +14471,7 @@
         "feature": "replay_vision",
         "summary": "Create a dashboard for a scanner",
         "title": "Create a dashboard for a scanner",
-        "required_scopes": ["replay_scanner:read", "dashboard:write", "insight:write"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "dashboard:write", "insight:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

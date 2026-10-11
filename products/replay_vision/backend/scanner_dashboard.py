@@ -1,11 +1,16 @@
+import re
 import textwrap
 from collections.abc import Collection, Sequence
+from datetime import timedelta
 from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Exists, OuterRef
+from django.utils import timezone
+
+import structlog
 
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
@@ -21,11 +26,14 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import OBSERVATION_EVENT_NAME
 
+logger = structlog.get_logger(__name__)
+
 # Enough rows that every tile renders a real chart on the day the dashboard is created.
 DASHBOARD_SUGGESTION_MIN_OBSERVATIONS = 20
 
 DASHBOARD_NAME_PREFIX = "Replay Vision: "
-DASHBOARD_DATE_FROM = "-30d"
+DASHBOARD_DAYS = 30
+DASHBOARD_DATE_FROM = f"-{DASHBOARD_DAYS}d"
 
 _TILE_HEIGHT = 5
 # How far back "first seen" looks for a freeform category, so the tile does not scan the scanner's whole history.
@@ -53,12 +61,16 @@ def live_dashboard_ids(team_id: int, scanners: Sequence[ReplayScanner]) -> dict[
 
 
 def scanners_ready_for_dashboard(team_id: int, scanner_ids: Collection[UUID]) -> set[UUID]:
-    """The scanners with at least `DASHBOARD_SUGGESTION_MIN_OBSERVATIONS` succeeded observations."""
+    """The scanners with at least `DASHBOARD_SUGGESTION_MIN_OBSERVATIONS` succeeded observations inside the
+    dashboard's default date range, so the dashboard the offer creates opens with data in it."""
     if not scanner_ids:
         return set()
+    window_start = timezone.now() - timedelta(days=DASHBOARD_DAYS)
     # An offset probe stops at the threshold row, so a scanner with millions of observations costs the same as one with 20.
     threshold_row = (
-        ReplayObservation.objects.filter(scanner_id=OuterRef("pk"), status=ObservationStatus.SUCCEEDED)
+        ReplayObservation.objects.filter(
+            scanner_id=OuterRef("pk"), status=ObservationStatus.SUCCEEDED, completed_at__gte=window_start
+        )
         .order_by()
         .values("pk")[DASHBOARD_SUGGESTION_MIN_OBSERVATIONS - 1 : DASHBOARD_SUGGESTION_MIN_OBSERVATIONS]
     )
@@ -377,13 +389,20 @@ class _TileBuilder:
 
     @cached_property
     def _primary_group_type(self) -> tuple[int, str] | None:
-        group_types = get_group_types_for_project(
-            self.scanner.team.project_id, caller_tag="replay_vision/scanner_dashboard"
-        )
+        try:
+            group_types = get_group_types_for_project(
+                self.scanner.team.project_id, caller_tag="replay_vision/scanner_dashboard"
+            )
+        except Exception:
+            # The account tiles are optional, so a failed lookup builds the dashboard without them.
+            logger.warning("replay_vision.scanner_dashboard.group_types_lookup_failed", scanner_id=self.scanner_id)
+            return None
         if not group_types:
             return None
         first = min(group_types, key=lambda mapping: mapping["group_type_index"])
-        return first["group_type_index"], str(first.get("name_plural") or _pluralize(first["group_type"])).lower()
+        plural = str(first.get("name_plural") or _pluralize(first["group_type"])).lower()
+        # The plural is user-edited and becomes a column alias, so keep only characters an identifier allows.
+        return first["group_type_index"], re.sub(r"[^\w ]", "", plural).strip() or "accounts"
 
     def _series(self, name: str, *, extra: list[dict[str, Any]] | None = None, **math: Any) -> dict[str, Any]:
         return {
