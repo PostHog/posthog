@@ -202,6 +202,22 @@ Gathering context before building a monitoring dashboard:
 """
 
 
+FORM_DISMISSED_MESSAGE = (
+    "The user dismissed the form and chose not to answer these questions. "
+    "Continue without these answers if possible. If the missing information is required, "
+    "briefly explain what is blocked and offer the user a lower-friction alternative."
+)
+
+
+def _format_answer(answer: str | list[str] | None) -> str:
+    if answer is None:
+        return "(skipped)"
+    if isinstance(answer, list):
+        formatted = [f'"{v}"' if "," in v else v for v in answer]
+        return ", ".join(formatted)
+    return answer
+
+
 class CreateFormToolArgs(BaseModel):
     questions: list[MultiQuestionFormQuestion] = Field(..., description="The questions to ask the user")
 
@@ -212,73 +228,52 @@ class CreateFormTool(MaxTool):
     description: str = CREATE_FORM_PROMPT
 
     async def _arun_impl(self, questions: list[MultiQuestionFormQuestion]) -> tuple[str, Any]:
+        self._validate_question_count(questions)
+        questions = self._merge_multi_field_questions(questions)
+        self._validate_questions(questions)
+
+        form_payload = self._parse_form_response(interrupt(value=MultiQuestionForm(questions=questions)))
+        if form_payload is None:
+            return FORM_DISMISSED_MESSAGE, {"status": "dismiss_form"}
+
+        return self._format_answers(questions, form_payload.form_answers), {
+            "status": "form",
+            "answers": form_payload.form_answers,
+        }
+
+    @staticmethod
+    def _validate_question_count(questions: list[MultiQuestionFormQuestion]) -> None:
         if not questions:
             raise MaxToolRetryableError("At least one question is required.")
         if len(questions) > 4:
             raise MaxToolRetryableError("Do not ask more than 4 questions at a time.")
 
+    @staticmethod
+    def _merge_multi_field_questions(questions: list[MultiQuestionFormQuestion]) -> list[MultiQuestionFormQuestion]:
         # Coalesce multiple multi_field questions into one to avoid showing a broken form.
         # The frontend renders the form from the streamed tool call args before validation runs,
         # so raising a retryable error here would flash a form then discard it.
         multi_field_questions = [q for q in questions if (q.type or "select") == "multi_field"]
-        if len(multi_field_questions) > 1:
-            merged_fields = []
-            for q in multi_field_questions:
-                if q.fields:
-                    merged_fields.extend(q.fields)
-            multi_field_questions[0].fields = merged_fields
-            questions = [q for q in questions if (q.type or "select") != "multi_field"] + [multi_field_questions[0]]
+        if len(multi_field_questions) <= 1:
+            return questions
+        merged_fields = []
+        for q in multi_field_questions:
+            if q.fields:
+                merged_fields.extend(q.fields)
+        multi_field_questions[0].fields = merged_fields
+        return [q for q in questions if (q.type or "select") != "multi_field"] + [multi_field_questions[0]]
 
+    @classmethod
+    def _validate_questions(cls, questions: list[MultiQuestionFormQuestion]) -> None:
         for q in questions:
             question_type = q.type or "select"
             if question_type == "multi_field":
                 if not q.fields:
                     q.fields = []
                 for field in q.fields:
-                    self._validate_field(field, q.id)
-            else:
-                if not q.options:
-                    raise MaxToolRetryableError(f"Question '{q.id}' with type '{question_type}' requires options.")
-
-        response = interrupt(value=MultiQuestionForm(questions=questions))
-        try:
-            form_payload = FormResumePayload.model_validate(response)
-        except ValidationError:
-            try:
-                FormDismissPayload.model_validate(response)
-            except ValidationError as e:
-                raise MaxToolRetryableError(f"Invalid response from the user: {e}")
-
-            return (
-                "The user dismissed the form and chose not to answer these questions. "
-                "Continue without these answers if possible. If the missing information is required, "
-                "briefly explain what is blocked and offer the user a lower-friction alternative.",
-                {
-                    "status": "dismiss_form",
-                },
-            )
-
-        def format_answer(answer: str | list[str] | None) -> str:
-            if answer is None:
-                return "(skipped)"
-            if isinstance(answer, list):
-                formatted = [f'"{v}"' if "," in v else v for v in answer]
-                return ", ".join(formatted)
-            return answer
-
-        lines: list[str] = []
-        for q in questions:
-            if q.fields:
-                lines.append(f"{q.question}:")
-                for field in q.fields:
-                    lines.append(f"  {field.label}: {format_answer(form_payload.form_answers.get(field.id))}")
-            else:
-                lines.append(f"{q.question}: {format_answer(form_payload.form_answers.get(q.id))}")
-
-        return "\n".join(lines), {
-            "status": "form",
-            "answers": form_payload.form_answers,
-        }
+                    cls._validate_field(field, q.id)
+            elif not q.options:
+                raise MaxToolRetryableError(f"Question '{q.id}' with type '{question_type}' requires options.")
 
     @staticmethod
     def _validate_field(field: MultiQuestionFormField, question_id: str) -> None:
@@ -290,3 +285,27 @@ class CreateFormTool(MaxTool):
             raise MaxToolRetryableError(
                 f"Field '{field.id}' in question '{question_id}' with type 'slider' requires min and max."
             )
+
+    @staticmethod
+    def _parse_form_response(response: Any) -> FormResumePayload | None:
+        """Return the submitted answers, or None when the user dismissed the form."""
+        try:
+            return FormResumePayload.model_validate(response)
+        except ValidationError:
+            try:
+                FormDismissPayload.model_validate(response)
+            except ValidationError as e:
+                raise MaxToolRetryableError(f"Invalid response from the user: {e}")
+            return None
+
+    @staticmethod
+    def _format_answers(questions: list[MultiQuestionFormQuestion], answers: dict[str, str | list[str]]) -> str:
+        lines: list[str] = []
+        for q in questions:
+            if q.fields:
+                lines.append(f"{q.question}:")
+                for field in q.fields:
+                    lines.append(f"  {field.label}: {_format_answer(answers.get(field.id))}")
+            else:
+                lines.append(f"{q.question}: {_format_answer(answers.get(q.id))}")
+        return "\n".join(lines)
