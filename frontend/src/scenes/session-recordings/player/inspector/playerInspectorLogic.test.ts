@@ -5,7 +5,9 @@ import { RecordingSnapshot } from '@posthog/replay-shared'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
+    InspectorListItemEvent,
     PlayerInspectorLogicProps,
+    findAdjacentErrorItem,
     playerInspectorLogic,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { sessionRecordingExperimentContextLogic } from 'scenes/session-recordings/player/player-meta/sessionRecordingExperimentContextLogic'
@@ -659,6 +661,26 @@ describe('playerInspectorLogic', () => {
 
             const seekbarMarkers = logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')
             expect(seekbarMarkers).toHaveLength(1)
+        })
+    })
+
+    describe('findAdjacentErrorItem', () => {
+        const errorAt = (timeInRecording: number): InspectorListItemEvent =>
+            ({ type: 'events', timeInRecording, key: `error-${timeInRecording}` }) as InspectorListItemEvent
+        const errorItems = [errorAt(5000), errorAt(20000), errorAt(40000)]
+
+        it.each([
+            ['next from the start', 0, 'next', 5000],
+            ['next from an error moves past it', 5000, 'next', 20000],
+            ['next after the last error', 40000, 'next', null],
+            ['previous from an error moves before it', 20000, 'previous', 5000],
+            ['previous shortly after an error moves before it', 20500, 'previous', 5000],
+            ['previous well after an error returns it', 30000, 'previous', 20000],
+            ['previous before the first error', 5000, 'previous', null],
+        ] as const)('%s', (_, currentPlayerTime, direction, expected) => {
+            expect(findAdjacentErrorItem(errorItems, currentPlayerTime, direction)?.timeInRecording ?? null).toBe(
+                expected
+            )
         })
     })
 
