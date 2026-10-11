@@ -50,6 +50,8 @@ def _create_delivery(subscription: Subscription, content_snapshot: dict) -> Subs
         team=subscription.team,
         status=SubscriptionDelivery.Status.STARTING,
         content_snapshot=content_snapshot,
+        # idempotency_key is unique; production sets it from the workflow id, tests need their own per row.
+        idempotency_key=str(uuid.uuid4()),
     )
 
 
