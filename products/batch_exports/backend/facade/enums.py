@@ -70,3 +70,11 @@ class BatchExportInterval(LabeledStrEnum):
     WEEK = "week", "week"
     EVERY_5_MINUTES = "every 5 minutes", "every 5 minutes"
     EVERY_15_MINUTES = "every 15 minutes", "every 15 minutes"
+
+
+class IncrementalMode(LabeledStrEnum):
+    """Different modes to handle incremental updates."""
+
+    APPEND = "APPEND"
+    MERGE = "MERGE"
+    # TODO: Add 'FULL_REFRESH': data is re-created on every run.

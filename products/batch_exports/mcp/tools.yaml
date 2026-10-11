@@ -24,7 +24,9 @@ tools:
             the model field (events, persons, sessions, or hogql). Omitting it defaults to events. For the hogql model,
             provide hogql_query. Optionally provide hogql_modifiers, which override the project HogQL modifiers with the
             same names for this export only, for example {"convertToProjectTimezone": false} to export timestamps in
-            UTC.
+            UTC. incremental_mode accepts APPEND (the default) or MERGE for any model. For hogql, MERGE requires a
+            primary_key. Use nonempty lists of query output column names or aliases for primary_key and the optional
+            version_key. These keys are only configurable for the hogql model.
         exclude_params:
             - id
             - team_id
@@ -61,7 +63,7 @@ tools:
         title: Get batch export
         description: >
             Get a batch export by ID. Returns full non-sensitive configuration including destination type and config,
-            linked integration ID when present, schedule, model, and the 10 most recent runs.
+            linked integration ID when present, schedule, model, incremental_mode, and the 10 most recent runs.
     batch-export-update:
         operation: batch_exports_partial_update
         enabled: true
@@ -74,10 +76,12 @@ tools:
         title: Update batch export
         description: >
             Partially update a batch export. Top-level fields (name, paused, interval, timezone, offset_day,
-            offset_hour) work for any destination type. For the hogql model, hogql_query and hogql_modifiers can also
-            change; send hogql_modifiers as null to remove them. Typed destination config updates are available for
-            Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. The destination
-            type cannot be changed. Do not change the model field on an existing batch export.
+            offset_hour, incremental_mode) work for any destination type. incremental_mode accepts APPEND or MERGE; omit
+            it to preserve the saved mode. For the hogql model, hogql_query, hogql_modifiers, primary_key, and
+            version_key can also change; send hogql_modifiers as null to remove them. Keys use query output column names
+            or aliases, and MERGE requires a primary_key. Typed destination config updates are available for Databricks,
+            AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, and Redshift. The destination type cannot be
+            changed. Do not change the model field on an existing batch export.
         exclude_params:
             - id
             - team_id
@@ -99,15 +103,16 @@ tools:
         list: true
         title: List batch exports
         description: >
-            List batch exports in the project. Batch exports send event, person, or session data on a schedule to
+            List batch exports in the project. Batch exports send event, person, session data, or HogQL query results to
             destinations like S3, Snowflake, BigQuery, Databricks, Azure Blob, Postgres, Redshift, or HTTP. Returns
-            destination type, interval, paused state, and non-sensitive config; credentials are never exposed. Use
-            batch-export-get with the ID for full details including latest runs, query, and filters.
+            destination type, incremental_mode, interval, paused state, and non-sensitive config; credentials are never
+            exposed. Use batch-export-get with the ID for full details including latest runs, query, and filters.
         response:
             include:
                 - id
                 - name
                 - model
+                - incremental_mode
                 - destination
                 - interval
                 - paused

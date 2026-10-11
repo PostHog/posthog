@@ -148,6 +148,25 @@ class BatchExportRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text=HOGQL_MODIFIERS_HELP_TEXT,
     )
+    primary_key = serializers.ListField(
+        child=serializers.CharField(allow_null=False, allow_blank=False),
+        required=False,
+        allow_null=True,
+        allow_empty=False,
+        help_text="The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export.",
+    )
+    version_key = serializers.ListField(
+        child=serializers.CharField(allow_null=False, allow_blank=False),
+        required=False,
+        allow_null=True,
+        allow_empty=False,
+        help_text="The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.",
+    )
+    incremental_mode = serializers.ChoiceField(
+        choices=BatchExport.IncrementalMode.choices,
+        default=serializers.CreateOnlyDefault(BatchExport.IncrementalMode.APPEND),  # type: ignore[arg-type]
+        help_text="How this batch export handles incremental updates.",
+    )
     filters = serializers.JSONField(
         required=False,
         allow_null=True,
@@ -280,6 +299,25 @@ class BatchExportSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=HOGQL_MODIFIERS_HELP_TEXT,
     )
+    primary_key = serializers.ListField(
+        child=serializers.CharField(allow_null=False, allow_blank=False),
+        required=False,
+        allow_null=True,
+        allow_empty=False,
+        help_text="The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'.",
+    )
+    version_key = serializers.ListField(
+        child=serializers.CharField(allow_null=False, allow_blank=False),
+        required=False,
+        allow_null=True,
+        allow_empty=False,
+        help_text="The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.",
+    )
+    incremental_mode = serializers.ChoiceField(
+        choices=BatchExport.IncrementalMode.choices,
+        default=serializers.CreateOnlyDefault(BatchExport.IncrementalMode.APPEND),  # type: ignore[arg-type]
+        help_text="How this batch export handles incremental updates.",
+    )
     timezone = serializers.ChoiceField(
         choices=TIMEZONES,
         required=False,
@@ -319,6 +357,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "latest_runs",
             "hogql_query",
             "hogql_modifiers",
+            "primary_key",
+            "version_key",
+            "incremental_mode",
             "schema",
             "filters",
             "timezone",
@@ -343,6 +384,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         self._validate_attribute_only_supported_for_model(attrs, name="filters", model=BatchExport.Model.EVENTS)
         self._validate_attribute_only_supported_for_model(attrs, name="hogql_modifiers", model=BatchExport.Model.HOGQL)
+
+        # Pre-defined models have these values hard-coded, only HogQL allows user input
+        self._validate_attribute_only_supported_for_model(attrs, name="primary_key", model=BatchExport.Model.HOGQL)
+        self._validate_attribute_only_supported_for_model(attrs, name="version_key", model=BatchExport.Model.HOGQL)
 
         # TODO: Once these teams are migrated, remove this.
         if model == BatchExport.Model.EVENTS and (hogql_query := attrs.get("hogql_query")) is not None:
@@ -464,9 +509,44 @@ class BatchExportSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         hogql_modifiers = self._get_hogql_modifiers(attrs)
         try:
-            validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=hogql_modifiers)
+            parsed = validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=hogql_modifiers)
         except UnsupportedHogQLQueryError as e:
             raise serializers.ValidationError({"hogql_query": str(e)}) from e
+
+        # NOTE: Should be populated after a successful preparation
+        assert isinstance(parsed.type, (ast.SelectQueryType, ast.SelectSetQueryType))
+        output_columns = set(parsed.type.columns)
+
+        saved_incremental_mode = self.instance.incremental_mode if self.instance is not None else None
+        incremental_mode = attrs.get("incremental_mode", saved_incremental_mode)
+
+        saved_primary_key = source.primary_key if source is not None else None
+        primary_key = set(attrs.get("primary_key", saved_primary_key) or ())
+
+        if not primary_key and incremental_mode == BatchExport.IncrementalMode.MERGE:
+            raise serializers.ValidationError(
+                {"primary_key": "'primary_key' is required when 'incremental_mode' is 'MERGE'"}
+            )
+
+        missing_primary_key = primary_key - output_columns
+
+        if missing_primary_key:
+            raise serializers.ValidationError(
+                {
+                    "primary_key": f"'primary_key' contains columns that are not present in the query: {','.join(missing_primary_key)}"
+                }
+            )
+
+        saved_version_key = source.version_key if source is not None else None
+        version_key = set(attrs.get("version_key", saved_version_key) or ())
+        missing_version_key = version_key - output_columns
+
+        if missing_version_key:
+            raise serializers.ValidationError(
+                {
+                    "version_key": f"'version_key' contains columns that are not present in the query: {','.join(missing_version_key)}"
+                }
+            )
 
     def _get_hogql_modifiers(self, attrs: dict[str, typing.Any]) -> HogQLQueryModifiers | None:
         if "hogql_modifiers" in attrs:
@@ -875,10 +955,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
         model = validated_data["model"]
         hogql_query = validated_data.pop("hogql_query", None)
         hogql_modifiers = validated_data.pop("hogql_modifiers", None)
+        primary_key = validated_data.pop("primary_key", None)
+        version_key = validated_data.pop("version_key", None)
 
         source = None
         if model == BatchExport.Model.HOGQL:
-            source = BatchExportSource(team_id=team_id, hogql_query=hogql_query, hogql_modifiers=hogql_modifiers)
+            source = BatchExportSource(
+                team_id=team_id,
+                hogql_query=hogql_query,
+                hogql_modifiers=hogql_modifiers,
+                primary_key=primary_key,
+                version_key=version_key,
+            )
         elif hogql_query is not None:
             # TODO: Migrate batch exports using a HogQL query to HogQL model.
             validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
@@ -997,10 +1085,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
     def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
         destination_data = validated_data.pop("destination", None)
-        hogql_query_provided = "hogql_query" in validated_data
-        hogql_query = validated_data.pop("hogql_query", None)
-        hogql_modifiers_provided = "hogql_modifiers" in validated_data
-        hogql_modifiers = validated_data.pop("hogql_modifiers", None)
+
+        missing = object()
+        hogql_query = validated_data.pop("hogql_query", missing)
+        hogql_modifiers = validated_data.pop("hogql_modifiers", missing)
+        primary_key = validated_data.pop("primary_key", missing)
+        version_key = validated_data.pop("version_key", missing)
 
         user = self.context["request"].user
         if not isinstance(user, User):
@@ -1023,18 +1113,26 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 batch_export.destination.integration = integration
 
             if batch_export.model == BatchExport.Model.HOGQL:
-                if hogql_query is not None or hogql_modifiers_provided:
+                hogql_attributes = (hogql_query, hogql_modifiers, primary_key, version_key)
+                if any(attr is not missing for attr in hogql_attributes):
                     source = batch_export.source or BatchExportSource(team_id=batch_export.team_id)
-                    if hogql_query is not None:
+
+                    if hogql_query is not missing:
                         source.hogql_query = hogql_query
-                    if hogql_modifiers_provided:
+                    if hogql_modifiers is not missing:
                         source.hogql_modifiers = hogql_modifiers
+                    if primary_key is not missing:
+                        source.primary_key = primary_key
+                    if version_key is not missing:
+                        source.version_key = version_key
+
                     source.save()
                     batch_export.source = source
-            elif hogql_query is not None:
-                validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
-            elif hogql_query_provided:
-                validated_data["schema"] = None
+
+            elif hogql_query is not missing:
+                validated_data["schema"] = (
+                    self.serialize_hogql_query_to_batch_export_schema(hogql_query) if hogql_query is not None else None
+                )
 
             batch_export.destination.save()
             batch_export = super().update(batch_export, validated_data)
