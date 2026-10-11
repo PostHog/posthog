@@ -4258,6 +4258,7 @@ export namespace Schemas {
         fix?: (string | null) | undefined;
         message: string;
         start?: (number | null) | undefined;
+        url?: (string | null) | undefined;
     };
     export type PredicateFixAction =
         | "edit_query"
@@ -6195,6 +6196,7 @@ export namespace Schemas {
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_titles: Record<string, string>;
     }>;
     /**
      * Serializer mixin that handles tags for objects.
@@ -6283,6 +6285,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_titles?: (Record<string, string> | null) | undefined;
         tiles: Array<Record<string, unknown>> | null;
         /**
          * Serializer mixin that handles tags for objects.
@@ -6381,6 +6387,11 @@ export namespace Schemas {
         sm: _DashboardPatchTileLayoutBoxOpenApi;
         xs?: _DashboardPatchTileLayoutBoxOpenApi | undefined;
     };
+    /**
+     * * `winner` - Winner
+     * * `cheeky-hog` - Cheeky hog
+     */
+    export type DashboardTileBadgeEnum = "winner" | "cheeky-hog";
     /**
      * * `activity_events_list` - activity_events_list
      * * `canvas_app` - canvas_app
@@ -6559,6 +6570,8 @@ export namespace Schemas {
         id: number;
         layouts: _DashboardPatchTileLayoutsOpenApi;
         show_description: boolean;
+        group_key: string | null;
+        badge: DashboardTileBadgeEnum | NullEnum;
         widget: DashboardPatchWidgetOpenApi;
     }>;
     export type DashboardTileBasic = {
@@ -6653,6 +6666,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_titles?: (Record<string, string> | null) | undefined;
         tiles: Array<Record<string, unknown>> | null;
         /**
          * Serializer mixin that handles tags for objects.
@@ -9892,6 +9909,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9901,7 +9919,8 @@ export namespace Schemas {
         | "bias_risk_multiple_excluded"
         | "no_metric"
         | "srm"
-        | "zero_exposures";
+        | "zero_exposures"
+        | "forced_variant_release_condition";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9918,6 +9937,7 @@ export namespace Schemas {
      * * `add_primary_metric` - Add Primary Metric
      * * `add_secondary_metric` - Add Secondary Metric
      * * `edit_exposure_criteria` - Edit Exposure Criteria
+     * * `edit_release_conditions` - Edit Release Conditions
      */
     export type ExperimentHealthFindingActionKindEnum =
         | "open_feature_flag"
@@ -9925,7 +9945,8 @@ export namespace Schemas {
         | "use_first_seen_variant"
         | "add_primary_metric"
         | "add_secondary_metric"
-        | "edit_exposure_criteria";
+        | "edit_exposure_criteria"
+        | "edit_release_conditions";
     export type ExperimentHealthFinding = {
         /**
          * Stable identifier of the problem. Each code has one meaning across every surface that reports it.
@@ -9938,6 +9959,7 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
+         * * `forced_variant_release_condition` - Forced Variant Release Condition
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -12232,6 +12254,8 @@ export namespace Schemas {
      * * `Neo4j` - Neo4j
      * * `TestDino` - TestDino
      * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13606,7 +13630,9 @@ export namespace Schemas {
         | "Arcade"
         | "Neo4j"
         | "TestDino"
-        | "ChessCom";
+        | "ChessCom"
+        | "Userback"
+        | "Rewardful";
     /**
      * * `web` - web
      * * `api` - api
@@ -14990,6 +15016,8 @@ export namespace Schemas {
          * * `Neo4j` - Neo4j
          * * `TestDino` - TestDino
          * * `ChessCom` - ChessCom
+         * * `Userback` - Userback
+         * * `Rewardful` - Rewardful
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15191,7 +15219,7 @@ export namespace Schemas {
          */
         evaluation_contexts?: Array<unknown> | undefined;
         /**
-         * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
+         * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.
          */
         usage_dashboard: number | null;
         /**
@@ -18508,6 +18536,15 @@ export namespace Schemas {
         created_at?: (string | null) | undefined;
     };
     /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     */
+    export type TaskClientProvenanceEnum =
+        | "posthog_desktop"
+        | "posthog_mobile"
+        | "posthog_web";
+    /**
      * Detail response for a task.
      *
      * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
@@ -18596,6 +18633,14 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         origin_key?: (string | null) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
     };
     /**
      * Basic list response for a task, returned when the list is asked for ``basic=true``.
@@ -18709,6 +18754,17 @@ export namespace Schemas {
          * server-side.
          */
         origin_key?: (string | null) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
         /**
          * First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text.
          */
@@ -19263,6 +19319,7 @@ export namespace Schemas {
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_titles: Record<string, string> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
         use_template: string;
         use_dashboard: number | null;
@@ -19760,6 +19817,7 @@ export namespace Schemas {
         email_tracking_consent_mode: EmailTrackingConsentModeEnum;
         workflow_task_rate_limit_per_day: number | null;
         workflow_task_team_rate_limit_per_day: number | null;
+        default_email_integration_id: number | null;
     }>;
     export type TeamFeatureFlagPolicyConfig = Partial<{
         require_tags: boolean;
@@ -21009,6 +21067,14 @@ export namespace Schemas {
          * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
         run_error?: string | undefined;
     };
     export type TaskReviewFile = {
@@ -21190,6 +21256,13 @@ export namespace Schemas {
          * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         origin_key?: (string | null) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
         /**
          * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
@@ -21637,6 +21710,9 @@ export namespace Endpoints {
         };
         responses: { 200: Schemas.Ticket };
     };
+    /**
+     * Soft-delete a ticket. A daily sweeper hard-deletes it after the grace window.
+     */
     export type delete_Conversations_tickets_destroy = {
         method: "DELETE";
         path: "/api/projects/{project_id}/conversations/tickets/{id}/";
@@ -22583,7 +22659,10 @@ export namespace Endpoints {
                 basic: boolean;
                 channel: string;
                 ci_status: "passing" | "failing" | "pending" | "none";
-                client_provenance: "posthog_desktop";
+                client_provenance:
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web";
                 commented_by: number;
                 created_by: number;
                 exclude_origin_product:
@@ -22645,7 +22724,13 @@ export namespace Endpoints {
         requestFormat: "json";
         parameters: {
             path: { project_id: string };
-            header: Partial<{ "X-PostHog-Warm-Retry": string }>;
+            header: Partial<{
+                "X-PostHog-Client-Provenance":
+                    | "posthog_desktop"
+                    | "posthog_mobile"
+                    | "posthog_web";
+                "X-PostHog-Warm-Retry": string;
+            }>;
             body: Schemas.TaskCreate;
         };
         responses: {
