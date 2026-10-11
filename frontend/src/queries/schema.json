@@ -50894,7 +50894,14 @@
         },
         "QueryScanFindingKind": {
             "description": "`no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.",
-            "enum": ["no_event_filter", "no_start_date", "persons_join"],
+            "enum": [
+                "no_event_filter",
+                "no_start_date",
+                "persons_join",
+                "repeated_cte_expansion",
+                "cross_join_equality",
+                "date_arrays_before_breakdown_limit"
+            ],
             "type": "string"
         },
         "QueryScanFixLocation": {
