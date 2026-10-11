@@ -24,6 +24,9 @@ pub const STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN: usize = STAGE2_KEY_LEN 
 pub const STAGE2_TRANSFERRED_REGISTER_KEY_LEN: usize =
     STAGE2_TRANSFERRED_REGISTER_PERSON_PREFIX_LEN + 8;
 const STAGE2_TRANSFERRED_REGISTER_DISCRIMINANT: u8 = 2;
+/// `[partition_id u16][0xFF; 32][provenance discriminant][slot u8]`.
+pub const PARTITION_PROVENANCE_KEY_LEN: usize = STAGE2_KEY_LEN + 1 + 1;
+const PARTITION_PROVENANCE_DISCRIMINANT: u8 = 3;
 /// `[partition_id u16][team_id u64][old_person 16][merge_msg_partition u32][merge_msg_offset u64]`.
 pub const MERGE_DRAIN_KEY_LEN: usize = 2 + 8 + 16 + 4 + 8;
 /// `[partition_id u16][team_id u64][old_person 16]`.
@@ -79,6 +82,17 @@ pub struct Stage2TransferredRegisterPersonPrefix {
     pub partition_id: u16,
     pub team_id: u64,
     pub person_id: Uuid,
+}
+
+/// One slot of a partition's provenance: its lineage, or the committed offset of one input.
+///
+/// It lives in the `cf_stage2` metadata tail rather than in `cf_meta`, because `delete_partition`
+/// must reclaim it together with the state it describes. Reusing a partitioned CF avoids a new CF
+/// and the `STORE_SCHEMA_VERSION` bump that a new CF needs.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub struct PartitionProvenanceKey {
+    pub partition_id: u16,
+    pub slot: u8,
 }
 
 /// `cf_merge_drains_applied` key: Phase 1 idempotence marker for one merge message.
@@ -264,6 +278,44 @@ impl Stage2DirtyPrefix {
 impl From<Stage2Key> for Stage2DirtyKey {
     fn from(value: Stage2Key) -> Self {
         Self::new(value)
+    }
+}
+
+impl PartitionProvenanceKey {
+    pub const fn new(partition_id: u16, slot: u8) -> Self {
+        Self { partition_id, slot }
+    }
+
+    pub fn encode(self) -> [u8; PARTITION_PROVENANCE_KEY_LEN] {
+        let mut out = [0u8; PARTITION_PROVENANCE_KEY_LEN];
+        out[0..2].copy_from_slice(&self.partition_id.to_be_bytes());
+        out[2..STAGE2_KEY_LEN].fill(0xFF);
+        out[STAGE2_KEY_LEN] = PARTITION_PROVENANCE_DISCRIMINANT;
+        out[STAGE2_KEY_LEN + 1] = self.slot;
+        out
+    }
+
+    pub fn decode(bytes: &[u8]) -> Result<Self, StoreError> {
+        check_len(bytes, PARTITION_PROVENANCE_KEY_LEN, "partition provenance")?;
+        if bytes[2..STAGE2_KEY_LEN].iter().any(|byte| *byte != 0xFF)
+            || bytes[STAGE2_KEY_LEN] != PARTITION_PROVENANCE_DISCRIMINANT
+        {
+            return Err(StoreError::UnknownKey {
+                kind: "partition provenance",
+            });
+        }
+        Ok(Self {
+            partition_id: u16::from_be_bytes(array2(&bytes[0..2])),
+            slot: bytes[STAGE2_KEY_LEN + 1],
+        })
+    }
+
+    /// Half-open byte range holding every provenance slot of one partition.
+    pub fn partition_range(partition_id: u16) -> (Vec<u8>, Vec<u8>) {
+        let start = Self::new(partition_id, 0).encode();
+        let mut end = start[..=STAGE2_KEY_LEN].to_vec();
+        end[STAGE2_KEY_LEN] += 1;
+        (start[..=STAGE2_KEY_LEN].to_vec(), end)
     }
 }
 

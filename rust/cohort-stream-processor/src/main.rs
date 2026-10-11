@@ -28,8 +28,9 @@ use cohort_stream_processor::observability::disk::SharedDiskUtilization;
 use cohort_stream_processor::observability::store_stats::{DiskProbe, StoreStatsSweeper};
 use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, ConsumerPauser, Follower, FollowerSet,
-    LiveWatermarks, OffsetTracker, PartitionPauser, PartitionRouter,
+    run_rebalance_worker, ClassifierInput, CohortConsumerContext, ConsumerCommits, ConsumerPauser,
+    Follower, FollowerSet, LiveWatermarks, OffsetTracker, PartitionPauser, PartitionRouter,
+    ProvenanceClassifier, ProvenanceInput, ProvenanceRegistry,
 };
 use cohort_stream_processor::producer::{
     CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaReconcileMarkerSink,
@@ -52,6 +53,9 @@ use cohort_stream_processor::workers::{
 common_alloc::used!();
 
 const SERVICE_NAME: &str = "cohort-stream-processor";
+/// How often waiting partition tenures get classified. Their offsets do not commit until then, so
+/// this stays well under the offset-commit interval.
+const PROVENANCE_CLASSIFY_INTERVAL: Duration = Duration::from_secs(1);
 
 fn main() -> Result<()> {
     let config = Config::init_from_env()
@@ -237,6 +241,13 @@ async fn async_main(config: Config) -> Result<()> {
         Arc::new(NoopReconcileMarkerSink)
     };
     let reconcile_backlog = Arc::new(ReconcileBacklog::default());
+    // Provenance needs the boot assignment that only the durable-restore boot sweep records. Without
+    // durable restore the registry stays disabled, and every partition reads warm as before.
+    let provenance = Arc::new(if config.durable_restore_enabled {
+        ProvenanceRegistry::enabled()
+    } else {
+        ProvenanceRegistry::default()
+    });
     let merge_deps = Arc::new(MergeWorkerDeps {
         transfer_sink,
         stream_event_sink,
@@ -259,6 +270,7 @@ async fn async_main(config: Config) -> Result<()> {
             scan_page: config.cohort_seed_reconcile_scan_page,
             backlog: reconcile_backlog.clone(),
             marker_sink,
+            provenance: provenance.clone(),
         },
         person_seed: PersonSeedDeps {
             enabled: config.cohort_seed_person_apply_enabled,
@@ -448,6 +460,65 @@ async fn async_main(config: Config) -> Result<()> {
                 manifest,
             );
         }
+    }
+
+    if provenance.is_enabled() {
+        let mut inputs = vec![
+            ClassifierInput {
+                input: ProvenanceInput::Events,
+                topic: config.cohort_stream_events_topic.clone(),
+                commits: Arc::new(ConsumerCommits::new(
+                    stream_consumer.clone(),
+                    config.cohort_stream_events_topic.clone(),
+                )),
+            },
+            ClassifierInput {
+                input: ProvenanceInput::Merges,
+                topic: config.person_merge_events_topic.clone(),
+                commits: Arc::new(ConsumerCommits::new(
+                    merges_follower_consumer.clone(),
+                    config.person_merge_events_topic.clone(),
+                )),
+            },
+            ClassifierInput {
+                input: ProvenanceInput::Transfers,
+                topic: config.cohort_merge_state_transfer_topic.clone(),
+                commits: Arc::new(ConsumerCommits::new(
+                    transfers_follower_consumer.clone(),
+                    config.cohort_merge_state_transfer_topic.clone(),
+                )),
+            },
+        ];
+        if let Some(cascade_consumer) = &cascade_follower_consumer {
+            inputs.push(ClassifierInput {
+                input: ProvenanceInput::Cascades,
+                topic: config.cohort_cascade_events_topic.clone(),
+                commits: Arc::new(ConsumerCommits::new(
+                    cascade_consumer.clone(),
+                    config.cohort_cascade_events_topic.clone(),
+                )),
+            });
+        }
+        if let Some(seed_consumer) = &seed_follower_consumer {
+            inputs.push(ClassifierInput {
+                input: ProvenanceInput::Seeds,
+                topic: config.cohort_stream_seed_events_topic.clone(),
+                commits: Arc::new(ConsumerCommits::new(
+                    seed_consumer.clone(),
+                    config.cohort_stream_seed_events_topic.clone(),
+                )),
+            });
+        }
+        let classifier = ProvenanceClassifier::new(
+            provenance.clone(),
+            dispatcher.clone(),
+            inputs,
+            restore.manifest.clone(),
+        );
+        tokio::spawn(classifier.run(
+            PROVENANCE_CLASSIFY_INTERVAL,
+            consumer_handle.shutdown_token(),
+        ));
     }
 
     let mut follower_mirrors = vec![
