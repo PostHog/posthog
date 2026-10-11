@@ -3,11 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { SuggestedCertificationsTable } from 'products/warehouse_suggestions/frontend/components/SuggestedCertificationsTable'
 
 import { CertificationStatusFilter, certificationsLogic } from '../certificationsLogic'
 import { NewCertificationModal } from '../components/NewCertificationModal'
@@ -28,6 +32,7 @@ const STATUS_TAG: Record<string, { label: string; type: 'warning' | 'success' | 
 
 export function CertificationsTab(): JSX.Element {
     const { filteredCertifications, certificationsLoading, filters, actionsInFlight } = useValues(certificationsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         setFilters,
         loadCertifications,
@@ -166,6 +171,9 @@ export function CertificationsTab(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
+            {featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS] && (
+                <SuggestedCertificationsTable onAccepted={() => loadCertifications()} />
+            )}
             <LemonTable
                 data-attr="data-catalog-certifications-table"
                 dataSource={filteredCertifications}
