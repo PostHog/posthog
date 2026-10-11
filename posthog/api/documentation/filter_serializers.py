@@ -40,14 +40,14 @@ class PropertyItemSerializer(serializers.Serializer):
         help_text='Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]`',
         required=True,
     )
-    operator = serializers.ChoiceField(
+    operator = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=get_args(OperatorType),
         required=False,
         allow_blank=True,
         default="exact",
         allow_null=True,
     )
-    type = serializers.ChoiceField(
+    type = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=get_args(PropertyType),
         default="event",
         required=False,
@@ -73,7 +73,7 @@ class _PropertyFilterBase(serializers.Serializer):
         help_text="Key of the property you're filtering on. For example `email` or `$current_url`.",
         required=True,
     )
-    type = serializers.ChoiceField(
+    type = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=_PROPERTY_TYPE_CHOICES,
         default="event",
         required=False,
@@ -116,7 +116,7 @@ class NumericPropertyFilterSerializer(_PropertyFilterBase):
         help_text="Numeric value to compare against.",
         required=True,
     )
-    operator = serializers.ChoiceField(
+    operator = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=["exact", "is_not", "gt", "lt", "gte", "lte"],
         default="exact",
         required=False,
@@ -132,7 +132,7 @@ class ArrayPropertyFilterSerializer(_PropertyFilterBase):
         help_text='List of values to match. For example `["test@example.com", "ok@example.com"]`.',
         required=True,
     )
-    operator = serializers.ChoiceField(
+    operator = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=["exact", "is_not", "in", "not_in"],
         default="exact",
         required=False,
@@ -183,7 +183,7 @@ _FEATURE_FLAG_FILTER_NON_FLAG_TYPE_CHOICES = [
 
 class _FeatureFlagFilterPropertyBaseSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Property key used in this feature flag condition.")
-    type = serializers.ChoiceField(
+    type = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=_FEATURE_FLAG_FILTER_NON_FLAG_TYPE_CHOICES,
         required=False,
         help_text="Property filter type. Set it on every property. Use `group` with `group_type_index` to filter on a group's properties.",
@@ -205,7 +205,7 @@ class FeatureFlagFilterPropertyGenericSchemaSerializer(_FeatureFlagFilterPropert
         required=True,
         help_text="Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.",
     )
-    operator = serializers.ChoiceField(
+    operator = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=[
             "exact",
             "is_not",
@@ -240,7 +240,7 @@ class FeatureFlagFilterPropertyExistsSchemaSerializer(_FeatureFlagFilterProperty
 
 
 class FeatureFlagFilterPropertyDateSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
-    operator = serializers.ChoiceField(
+    operator = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=["is_date_exact", "is_date_after", "is_date_before"],
         required=True,
         help_text="Date comparison operator.",
@@ -252,7 +252,7 @@ class FeatureFlagFilterPropertyDateSchemaSerializer(_FeatureFlagFilterPropertyBa
 
 
 class FeatureFlagFilterPropertySemverSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
-    operator = serializers.ChoiceField(
+    operator = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=[
             "semver_gt",
             "semver_gte",
@@ -274,7 +274,7 @@ class FeatureFlagFilterPropertySemverSchemaSerializer(_FeatureFlagFilterProperty
 
 
 class FeatureFlagFilterPropertyMultiContainsSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
-    operator = serializers.ChoiceField(
+    operator = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=["icontains_multi", "not_icontains_multi"],
         required=True,
         help_text="Multi-contains operator.",
@@ -287,7 +287,7 @@ class FeatureFlagFilterPropertyMultiContainsSchemaSerializer(_FeatureFlagFilterP
 
 
 class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
-    type = serializers.ChoiceField(
+    type = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=["cohort"],
         required=True,
         help_text="Cohort property type required for in/not_in operators.",
