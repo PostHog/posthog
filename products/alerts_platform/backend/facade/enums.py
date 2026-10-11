@@ -13,6 +13,7 @@ class PlatformAlertConfigurationSourceKind(LabeledStrEnum):
 
     LOGS = "logs", "Logs"
     INSIGHT = "insight", "Insight"
+    BILLING = "billing", "Billing"
 
 
 class PlatformAlertState(LabeledStrEnum):
