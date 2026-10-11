@@ -918,6 +918,7 @@ class TestSignupAPI(APIBaseTest):
         use_invite: bool = False,
         expired_invite: bool = False,
         asserted_email: str = "jane@hogflix.posthog.com",
+        other_user_exists: bool = False,
     ):
         # Make sure Google Auth is valid for this test instance
         mock_sso_providers.return_value = {"google-oauth2": True}
@@ -943,6 +944,9 @@ class TestSignupAPI(APIBaseTest):
             if expired_invite:
                 invite.created_at = timezone.now() - timedelta(days=30)  # Set invite to 30 days old
                 invite.save()
+
+        if other_user_exists:
+            User.objects.create_user(email="existing@example.com", password=None, first_name="Existing")
 
         user_count = User.objects.count()
         response = self.client.get(reverse("social:begin", kwargs={"backend": "google-oauth2"}))
@@ -975,6 +979,7 @@ class TestSignupAPI(APIBaseTest):
         signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
         assert signup_calls, "expected a 'user signed up' capture call"
         self.assertFalse(signup_calls[-1].kwargs["properties"]["is_organization_first_user"])
+        self.assertEqual(signup_calls[-1].kwargs["properties"]["is_first_user"], not other_user_exists)
 
         if use_invite and not expired_invite:
             # make sure the org invite no longer exists
@@ -1002,12 +1007,17 @@ class TestSignupAPI(APIBaseTest):
             # Check that the user was still created and added to the organization
             self.assertEqual(user.organization, new_org)
 
+    @parameterized.expand([("only_user", False), ("other_user_exists", True)])
     @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
-    def test_social_signup_with_allowed_domain_on_self_hosted(self, mock_sso_providers, mock_request, mock_capture):
-        self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
+    def test_social_signup_with_allowed_domain_on_self_hosted(
+        self, _name, other_user_exists, mock_sso_providers, mock_request, mock_capture
+    ):
+        self.run_test_for_allowed_domain(
+            mock_sso_providers, mock_request, mock_capture, other_user_exists=other_user_exists
+        )
 
     @parameterized.expand(["jane@hogflix.posthog.com", "Jane@Hogflix.posthog.com"])
     @patch("posthoganalytics.capture")
