@@ -11251,25 +11251,29 @@ snapshots:
     scenes-app-inbox-scene--triage--light:
         hash: v1.k794b7964.ea1f0a1a3cd9c029a33e39277a276be15a04555ba2addee17df2aacb108316dc.CFYN_7EjRWTlSCsBQMuZ6Bq_ViTyRy7_RqqtqKfg05w
     scenes-app-inbox-scout-comparison-report--completed--dark:
-        hash: v1.k794b7964.bde7c95ff4b10a7207a1033be8371299db8262535dfef24f00bf468e3b3a416a.XxO2bLTKsm0AfRGuhA8QmEsAIZ5zVrc4RnCUjCUFkHA
+        hash: v1.k794b7964.179dd1ea74dfa1727c501df365f491d5bb9246bfc731ac4821594687795197b1.Za7jkz_YuKW0eyjzp928-Hv652aROII5i6Da4dNfiuk
     scenes-app-inbox-scout-comparison-report--completed--light:
-        hash: v1.k794b7964.dc0fcac6f32410ab6f48dbde7a7f8535d2e07c00304d7ee1d67ca46a8d6c5ac3.wBBNQAPhU2qmCqkPQGmdT-PoBxTK4C0J14FZ5poX3BY
+        hash: v1.k794b7964.e7398105251db112e826ace5c21e53dbbfdddc0cc887fff863a16f575fe54586.Vc46v16nqaDOa0f3VbK7zbt3ahVLhx7rED1EsPOEMj8
     scenes-app-inbox-scout-comparison-report--narrow--dark:
-        hash: v1.k794b7964.5a22eb71a5dd3da5c533ac95dc4b7009e2a60c4c1c78635e566217d2fd9c86b4.Xgvw0yjUAWv1-Gdf2etryIStyoUk_IrgyQ11R6b7WLc
+        hash: v1.k794b7964.0b722f01c41e9b7e9e8823ca857cb8782bea1fd2713bd3a330d440e0fcf6d58f.g3f4yzApbydGHiCibYpLdrMgCHA4nOzWvecVVYg-3Ow
     scenes-app-inbox-scout-comparison-report--narrow--light:
-        hash: v1.k794b7964.2c0501903d8ed72ebab9d02dd5be7f03f687299fb5ad7de77cf173a9a3ca80fc.9zReQkI-0ZxtevUGUcU4SYtmtzPLMdGdxGQZfjo-Xa4
+        hash: v1.k794b7964.27703f41510e44bad576f483f5a04ac876db43c6db8c283449bb0f5251955ef2.cHm2wLfRefIf3YXBjtKWAlxlcWJZEgq6pvCLOlfuUNs
     scenes-app-inbox-scout-comparison-report--partial-evidence--dark:
-        hash: v1.k794b7964.fe60099df1ca0a9a610373d966a407eeb3655ecca44cf46f8722892174184eab.MCXzX2YcEtebuMRjg6Sj3LVn_tnrcVl4UeNam07cF-k
+        hash: v1.k794b7964.1cd1b5e035f195d6023f8a5c1b59ab71fe465e6eae00e2444fe71650d9a18385.HGq5YE07MKzc9jNJJ5Xne8p6qLOehObGOtUSrTR04uc
     scenes-app-inbox-scout-comparison-report--partial-evidence--light:
-        hash: v1.k794b7964.6316ef24a6e8455a9b9339fd58f25e4c54e21bfb5a9c3bf062bebdcadd319740.Cb-zIyn8aVctoHeuSZ7AtTit8fXzy01Be5qyvqS-3nA
+        hash: v1.k794b7964.7b55abae9d62bc53a010d56f66413e5fee268bde0bc19045b33e37c3970dac48.y0VvP-2kaonTzXDOqeYWLe6lGEBxeeDBl0AVLh3nS1E
+    scenes-app-inbox-scout-comparison-report--provisional-with-excluded-version--dark:
+        hash: v1.k794b7964.0d7ae222506ca576820ae512573a9961f23621ef1aac4f01e8685a92ab357cf8.RBWWgKPSKpyY5COAQVvzy-HH3GBhV4wTSqtLp0RU-NU
+    scenes-app-inbox-scout-comparison-report--provisional-with-excluded-version--light:
+        hash: v1.k794b7964.f12a66d7718ac7299e2b91badaa7db4e7f93fb2396a39085c76cf33739dbca1b.7tsk8_48ZxaPEWnBZZOI8xTV1OfhBSL5Q9A0m-xCDU4
     scenes-app-inbox-scout-comparison-report--saved-rubric--dark:
         hash: v1.k794b7964.edf4ea65e1743e44f4663a240839da906759cfeffe7c560ef6d24dbc22970b4c.sAyj4yU32EkApd-4Qhbfg-nz77whdSP6lhWQD_liOEU
     scenes-app-inbox-scout-comparison-report--saved-rubric--light:
         hash: v1.k794b7964.bb9005e232996137b1dec470fa5b624688f6a6b3fc1b606adefbc04ce0a72b9f.CeQcqzk3v9BzPAG89Ni2LfSa1CyGaYRu0jdGtitxtm0
     scenes-app-inbox-scout-comparison-report--saved-without-conclusion--dark:
-        hash: v1.k794b7964.0d1a9e9aefe758b2c97a26442b074852b9f35a7e0d843593cf9298c079baebed.dsF6SLjVkfLUFGR1Lq74klXKfjZPZuZ0F5Z8PqGzIuU
+        hash: v1.k794b7964.4522023356b6af7a16c6429605a4ea4bf7c4572a62c0f0bff09982b4d221778c.kQoI6T92e7vCtPh_nUryhesPm57wfcrDDzgqGeNKSW8
     scenes-app-inbox-scout-comparison-report--saved-without-conclusion--light:
-        hash: v1.k794b7964.38db646ee23535c2dd81f98471fe1417f29a7f41b55488a588d5924828660aa2.9lVtt8JtGs3ZH91m4Qpwk41zi9PgZ3_hlbl4q_J9-EQ
+        hash: v1.k794b7964.8edca2f2456d3a59383a48e141482abdd3275126e8eedac8c74e2ef45bccbd4a.kEpxgx15rO56AVfNkUrqW5x2RvHfvpRdXJEc8hWQfhU
     scenes-app-inbox-scout-comparison-report--tie--dark:
         hash: v1.k794b7964.6d08f0cf00174dc5964dbb7d030611e3098e307488c1a20472bc8ce936bad486.LnUvn3vfMEls6MYNg72smDhEA8SmeBCyIZCVAfJCS0Y
     scenes-app-inbox-scout-comparison-report--tie--light:
@@ -11279,9 +11283,9 @@ snapshots:
     scenes-app-inbox-scout-comparison-report--twelve-rubrics--light:
         hash: v1.k794b7964.eeedea24a43ca2e8f1a654068902ae9fd84e04c5b23e189c15b01c1d0cdec2fa.qkHuAqtowa1Kvp0hzRvgtRsZ8Ye38t54Uih4pEHfZU4
     scenes-app-inbox-scout-comparison-report--twelve-rubrics-narrow--dark:
-        hash: v1.k794b7964.9cf8176ad44b0563ecc481e6efefde6f516c9ddc2d2a973e3cf9d8ade0bccb0e.ERV9ltQ2LPFqcLeFW1MrxcOXLWYFmwZgm73uqyE4aAI
+        hash: v1.k794b7964.8f05613b90ffd12b5ea9d96bf1289cd01e690db478991299c0f01b919dcb92d3.LwEf7QT12U6UfASYb_htyt3XWanp7yH4-_CJ5E54xFw
     scenes-app-inbox-scout-comparison-report--twelve-rubrics-narrow--light:
-        hash: v1.k794b7964.481b6146b8c00208b408cee3bc04af2674277a2ed91e7d66665077671afaed07.a8lIdTdMTxzmGA7VPzBP6cKlTfjTXa5SJ540vbfN_BQ
+        hash: v1.k794b7964.076433eef997e3f5e347f93153346b94c588bf13551891c1775d14c10dcae083.Z0ORivTB1k4pqMR2KKLJvYRsp5R9y3ccHwYlO2w4XFM
     scenes-app-inbox-scout-comparisons--archived--dark:
         hash: v1.k794b7964.d79efd52758535007dda391ffa79c431fc723269aa9063f13953ac53d933b20d.g0dlEEoVoPSiCLJbBapVwSmLN4GjGPBRdG1XMYPDHaE
     scenes-app-inbox-scout-comparisons--archived--light:
@@ -11315,9 +11319,9 @@ snapshots:
     scenes-app-inbox-scout-comparisons--many-rubrics--light:
         hash: v1.k794b7964.5df26dccf7b8cf5960878c5faf5f6cd6a837f073d086b2db497003db8b66fbd2.SowFWB7XSAu_5YPzXHAAfVMWJgjxdm5rdPqVtCDN1lM
     scenes-app-inbox-scout-comparisons--many-rubrics-narrow--dark:
-        hash: v1.k794b7964.202841a7046db4a42fd3f1864a57a4d55fdcd1dbbb4bfc9e93a0b14232fd9560.tFEFTbkmVxeRo9Oo0WhdxJ_wciCqkTm1dHj1kePcFUQ
+        hash: v1.k794b7964.07cf23c3ccd2e941f51a4b03bcfc8bb299c52a9712f0cabbba5b91b337664aa6.poWGr1HgHlHgaPyXwQUZEGzkBjCAirrOQMz0B4nBLpU
     scenes-app-inbox-scout-comparisons--many-rubrics-narrow--light:
-        hash: v1.k794b7964.500612a262e5118f23af173c0f4b53a69503547df712d58a8c3a2be4a6b195f1.JonL4M9GYQJG9purie4YtY-dShjDCJnTmtyoDYf0FqY
+        hash: v1.k794b7964.b81d371227d8991407f9727a959efb7938efb3a9ff8bfbee99f360739e66f2cb._CKv0b9ATcip28P3ahjCz32p7ADxn5V7_vP20cVL5Hs
     scenes-app-inbox-scout-comparisons--missing-saved-rubric--dark:
         hash: v1.k794b7964.18496b515d6b92e96e151b1ff428bfba92de3df56de9488385a01e58eeeecf45.RcI6PYNWzHreMfFiMqEfmMakjX_JcL68vipa9kT1xUA
     scenes-app-inbox-scout-comparisons--missing-saved-rubric--light:
@@ -11343,13 +11347,13 @@ snapshots:
     scenes-app-inbox-scout-comparisons--scored--light:
         hash: v1.k794b7964.f3a5e2f20df24053c5e6d93457d7c9b69d6197d22b9abbe6eab61e272c14d58d.et8rU3sDnPRmqFfRB86FwixaOOb0kl4xTV-SOn5vWi8
     scenes-app-inbox-scout-comparisons--scored-narrow--dark:
-        hash: v1.k794b7964.8e9213a5f9628415367afd7564f156eae7666f832dbde6e863833b78a40c4ada.PAy7h5uc8-VBeYUrUFVcGZkJJ2g50aFFFa6khQM4GSE
+        hash: v1.k794b7964.f17eb0d85051d08f552bc5ef543f309a9951c0be2852ae81fa06a28b03ce11e7.FJdjU5Gvs48DWcZA6A0escqWNtac_Miiilm2CyrQf5E
     scenes-app-inbox-scout-comparisons--scored-narrow--light:
-        hash: v1.k794b7964.f0437cc149985372ae4f679d50bf9876b38da564f68c0536b727462db36747db.TUIkBdQJfAA0VIhuUq8z5PY0rlOhu_Nuw9CIXFs9Pz4
+        hash: v1.k794b7964.5f370c42175efce684a7e7246df9af19698d53115700e989b2268254158b88ca.icD-fL0YTCapszPCVx5QJd4repcs8RH3V6rTIF8yIHU
     scenes-app-inbox-scout-comparisons--scored-with-judge-error--dark:
-        hash: v1.k794b7964.c93b40e3960f14f2b3df60e2e61a310d76623ca2267555fb25a65f21c477e2e3.iqftelzyEFEDXeW5QR1myZ8Kyck5NH7SUGMpj0_szoo
+        hash: v1.k794b7964.1af9bb1e7afb827890571bb8bb143e22015c2f4a5d5bffc1d54a26a67b1aabfb.OvxVezL_rV4dkKf1jVrdQ4QSKBF6pj2DcYkuYG8T9WI
     scenes-app-inbox-scout-comparisons--scored-with-judge-error--light:
-        hash: v1.k794b7964.04eab8f290c46ca9245d105742f1a30f832142b803d7330ca0b1d3ca28a1300a.qMmsG_g2u-KuRuVzEeQE_0ywkQvNLqrDfG_AsX8lVhQ
+        hash: v1.k794b7964.1d549fc936129c623ba890fac6e6302aa8d8e1cf1c87e2bf77d3907470bd8307.J5ls_C0HKe7ORijl6pmPXV_TkDBNkhU9llUAZQqs6VU
     scenes-app-inbox-scout-comparisons--scoring--dark:
         hash: v1.k794b7964.8520822da584372a1269788304b1b2c6876ddfe0e6394fa1d152fb041595e2e1.eF-e2oYCBolypY5GadwqVJGj3QQj6Ubk4kqGcCBHkBo
     scenes-app-inbox-scout-comparisons--scoring--light:
