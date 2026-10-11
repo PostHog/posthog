@@ -29396,6 +29396,21 @@ export namespace Schemas {
       readonly subject_uuid: string;
     }
 
+    export interface QuestionProgress {
+      /** Check whose frozen inputs are being evaluated. */
+      check_id: string;
+      /** Whether the complete input snapshot is still being prepared. */
+      preparing: boolean;
+      /** Rows in the complete frozen input set. Available after preparation. */
+      total_row_count: number;
+      /** Rows in completed durable checkpoints. */
+      evaluated_row_count: number;
+      /** Completed evaluation batches. */
+      completed_chunk_count: number;
+      /** Batches in the complete frozen input set. */
+      total_chunk_count: number;
+    }
+
     export interface DataQualitySuiteRun {
       readonly id: string;
       /** manual, materialization, source_sync, or scheduled. */
@@ -29413,6 +29428,8 @@ export namespace Schemas {
          */
       readonly subject_uuid: string | null;
       readonly workflow_id: string;
+      /** Active question execution coverage, populated when retrieving one suite run. */
+      readonly question_progress: readonly QuestionProgress[];
       readonly checks_passed: number;
       readonly checks_failed: number;
       readonly checks_errored: number;
@@ -93148,6 +93165,58 @@ export namespace Schemas {
 
     export interface QueryUpgradeResponse {
       query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingFingerprintProjectionQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingReleasesQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebBotsTableQuery | WebAgentAnalyticsQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | WebNotableChangesQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | MarketingAnalyticsAttributionQuery | MarketingAnalyticsAttributionPathsQuery | MarketingAnalyticsRetentionQuery | MarketingAnalyticsSearchQuery | DataVisualizationNode | BIVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | PathsV2Query | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | RecordingsQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | MetricsQuery | MetricsHistogramQuery | TraceSpansQuery | TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | SessionQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | AccountsQuery | AccountsTableQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | MCPToolCallBreakdownQuery | MCPToolCallsAndErrorsQuery | MCPHarnessBreakdownQuery | MCPModelBreakdownQuery | MCPProtocolVersionBreakdownQuery | MCPToolTopUsersQuery | MCPToolFailuresQuery | MCPToolFailureOccurrencesQuery | MCPToolStatsQuery | MCPToolDailyStatsQuery | MCPToolQualityRowsQuery | MCPToolQualityDailyStatsQuery | MCPToolCategoryCountsQuery | MCPToolCategoriesQuery | MCPToolCategoryMapQuery | MCPToolDescriptionsQuery | MCPToolSampleIntentsQuery | MCPToolNeighborsQuery | MCPMissingCapabilitiesQuery | PropertyValuesQuery;
+    }
+
+    export interface QuestionPreviewInput {
+      /**
+         * Exact text sent to the evaluator, or null for a null column value.
+         * @nullable
+         */
+      input: string | null;
+      /** Number of preview rows with this input. */
+      row_count: number;
+      /**
+         * Probability of Yes, or null for a deterministic null-column failure.
+         * @nullable
+         */
+      probability: number | null;
+    }
+
+    export interface QuestionPreview {
+      /** Decisions for this small preview only. */
+      inputs: QuestionPreviewInput[];
+      /** Maximum number of source rows in a preview. Full runs examine all rows in scope. */
+      row_limit: number;
+      /** Source rows included in this preview. */
+      examined_row_count: number;
+      /** Distinct decisions reused from the shared question cache. */
+      reused_decision_count: number;
+      /** New distinct decisions returned by the evaluator, not a billing total. */
+      new_decision_count: number;
+    }
+
+    /**
+     * Question configuration using the question check type's schema.
+     */
+    export type QuestionPreviewRequestConfig = { [key: string]: unknown };
+
+    /**
+     * The subject a request names, wherever it names it: a body, a query string, or both.
+     */
+    export interface QuestionPreviewRequest {
+      /** Kind of object: 'table', 'view', 'metric', or 'posthog_table'.
+       *
+       * * `table` - table
+       * * `view` - view
+       * * `metric` - metric
+       * * `posthog_table` - posthog_table */
+      subject_type: SubjectTypeEnum;
+      /** Id of the table, view, metric, or PostHog table. */
+      subject_uuid: string;
+      /** Column evaluated in single-column mode. Leave blank in row mode. */
+      column_name?: string;
+      /** Question configuration using the question check type's schema. */
+      config: QuestionPreviewRequestConfig;
     }
 
     export interface QuotaResourceLimit {

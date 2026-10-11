@@ -25,6 +25,7 @@ Actions for which we don't want to show error alerts,
 mostly to avoid user confusion.
 */
 const ERROR_FILTER_ALLOW_LIST = [
+    'runQuestionPreview',
     'loadFacetValues', // Logs and tracing facets show an inline error icon on the failed facet.
     'fetchLogs', // Logs and tracing show a warning icon on the pane whose query failed.
     'fetchSpans',

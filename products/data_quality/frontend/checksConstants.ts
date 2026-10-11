@@ -14,6 +14,7 @@ export const CHECK_TYPE_LABELS: Record<string, string> = {
     [CheckTypeEnumApi.Relationships]: 'Relationship',
     [CheckTypeEnumApi.RowCount]: 'Row count',
     [CheckTypeEnumApi.Freshness]: 'Freshness',
+    [CheckTypeEnumApi.Question]: 'Question',
     [CheckTypeEnumApi.CustomSql]: 'Custom SQL',
 }
 
@@ -125,6 +126,16 @@ export function checkDisplayName(check: NamedCheck): string {
     }
     const label = checkTypeLabel(check.check_type)
     return check.column_name ? `${label} on ${check.column_name}` : label
+}
+
+export function checkInputLabel(check: Pick<DataQualityCheckApi, 'check_type' | 'column_name' | 'config'>): string {
+    if (check.column_name) {
+        return check.column_name
+    }
+    const columns = check.check_type === CheckTypeEnumApi.Question ? check.config?.columns : undefined
+    return Array.isArray(columns)
+        ? columns.filter((name): name is string => typeof name === 'string').join(', ') || '-'
+        : '-'
 }
 
 export function checkRunDisplayName(

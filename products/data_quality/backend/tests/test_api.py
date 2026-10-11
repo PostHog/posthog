@@ -24,6 +24,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.models import Metric
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_quality.backend.facade import api
+from products.data_quality.backend.facade.contracts import QuestionPreview, QuestionPreviewInput, QuestionProgress
 from products.data_quality.backend.facade.enums import CheckRunStatus, CheckSeverity, CheckType, SubjectType
 from products.data_quality.backend.logic import checks as checks_logic
 from products.data_quality.backend.logic.posthog_tables import by_name
@@ -1145,11 +1146,47 @@ class TestDataQualityCheckAPI(APIBaseTest):
         suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).get(id=response.json()["id"])
         assert suite_run.status == "running"
         assert response.json()["workflow_id"] == suite_run.workflow_id
+        assert response.json()["question_progress"] == []
         # The handle is only pollable if it carries the subject: the nested routes filter on it.
-        polled = self.client.get(f"{self.suites_url}/{suite_run.id}/")
+        with patch(
+            "products.data_quality.backend.facade.api.question_progress",
+            return_value=[
+                QuestionProgress(
+                    check_id=str(check.id),
+                    preparing=False,
+                    total_row_count=5000,
+                    evaluated_row_count=2500,
+                    completed_chunk_count=2,
+                    total_chunk_count=4,
+                )
+            ],
+        ):
+            polled = self.client.get(f"{self.suites_url}/{suite_run.id}/")
         assert polled.status_code == status.HTTP_200_OK
+        assert polled.json()["question_progress"][0]["evaluated_row_count"] == 2500
         listed = self.client.get(self._runs_of(self.view.id))
-        assert str(suite_run.id) in {row["id"] for row in listed.json()["results"]}
+        listed_run = next(row for row in listed.json()["results"] if row["id"] == str(suite_run.id))
+        assert listed_run["question_progress"] == []
+
+    def test_question_progress_is_limited_to_the_subjects_a_token_scope_reaches(self) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="view only",
+            secure_value=hash_key_value(token),
+            scopes=["query:read", "warehouse_view:read"],
+        )
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(team=self.team, trigger="manual")
+        self.client.logout()
+
+        with patch("products.data_quality.backend.facade.api.question_progress", return_value=[]) as progress:
+            response = self.client.get(f"{self.suites_url}/{suite_run.id}/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        readable = progress.call_args.args[3]
+        assert readable is not None
+        assert not readable.contains(SubjectType.TABLE, uuid4())
+        assert readable.table_ids == frozenset()
 
     def test_running_a_whole_subject_records_it_on_the_report(self) -> None:
         self._create_check()
@@ -2052,6 +2089,13 @@ class TestDataQualityCheckAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("create", lambda self, check: self.client.post(f"{self.url}/", self._payload(column_name="total"))),
+            (
+                "question_preview",
+                lambda self, check: self.client.post(
+                    f"{self.url}/question_preview/",
+                    {**self.subject, "column_name": "total", "config": {"question": "Is this total positive?"}},
+                ),
+            ),
             ("run", lambda self, check: self.client.post(f"{self.url}/{check.id}/run/")),
             ("run_all", lambda self, check: self.client.post(f"{self.suites_url}/", self.subject)),
             ("runs", lambda self, check: self.client.get(f"{self.url}/{check.id}/runs/")),
@@ -2233,6 +2277,36 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "to_lookback_hours" in response.json()["detail"]
+
+    def test_question_preview_validates_fields_and_never_creates_a_check_run(self) -> None:
+        payload = {
+            **self._table_subject(),
+            "column_name": "customer_id",
+            "config": {"question": "Is this a valid identifier?"},
+        }
+        preview = QuestionPreview(
+            inputs=[QuestionPreviewInput(input="example", row_count=1, probability=0.9)],
+            row_limit=10,
+            examined_row_count=1,
+            reused_decision_count=0,
+            new_decision_count=1,
+        )
+        with patch("products.data_quality.backend.facade.api.QuestionPreviewRunner") as runner:
+            runner.return_value.run.return_value = preview
+            response = self.client.post(f"{self.url}/question_preview/", payload)
+            assert response.status_code == 200, response.content
+            assert response.json()["inputs"][0]["probability"] == 0.9
+            assert not DataQualityCheckRun.objects.for_team(self.team.id).exists()
+            assert not DataQualityCheck.objects.for_team(self.team.id).exists()
+            invalid = self.client.post(f"{self.url}/question_preview/", {**payload, "column_name": "unavailable"})
+            assert invalid.status_code == 400, invalid.content
+            wrong_kind = self.client.post(f"{self.url}/question_preview/", {**payload, **self.subject})
+            assert wrong_kind.status_code == 400, wrong_kind.content
+            assert runner.call_count == 1
+            runner.return_value.run.side_effect = RuntimeError("source value must stay private")
+            failed = self.client.post(f"{self.url}/question_preview/", payload)
+            assert failed.status_code == 400, failed.content
+            assert "source value" not in failed.content.decode()
 
     def test_question_authoring_is_warehouse_only_and_warning_only(self) -> None:
         payload = {

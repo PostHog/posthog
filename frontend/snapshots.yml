@@ -7214,6 +7214,30 @@ snapshots:
         hash: v1.k794b7964.f7bd678d57ae64d2ec9dec79e1017fbc7a916f466a56562bb387a0a4eb3a58a9.bQGrcXvT7JLVejN-8Xo7XKYa4rSc5A6C-7dkfpXHPcw
     products-data-quality-overview--narrow-empty--light:
         hash: v1.k794b7964.2e8bd152beae69121fee95257fd82b94845eb349372d743971a471eb3e5328cd.YgUtIxLiYjsHr0Val39OaOaf-D4S9aToLSY85dDjB4I
+    products-data-quality-question-check--column--dark:
+        hash: v1.k794b7964.45034d23f99707e5117408d3bd6a1fe813eed0deafbcebe7b4b497e4abd581df.E2i8sd1JZZUrOZ7XTudc2PajjScT03C3v5R9Wc70CyY
+    products-data-quality-question-check--column--light:
+        hash: v1.k794b7964.38fb60f05fbe6faf80c2d8358ca18573c88160840738375b971ef2814031035e.XUBGxGN03WKE8TpDLS4MZVTn41VsI7NpbE1qFc1w0OE
+    products-data-quality-question-check--preview--dark:
+        hash: v1.k794b7964.aad416251fb4e88b3fb5af02bb6e22b49f9d705925d877d9d385d23727926cab.BxS6IIiS_UPE-CZnCo0vxEr76ruzFhp4DV_TQnwAvlk
+    products-data-quality-question-check--preview--light:
+        hash: v1.k794b7964.6abbffc8179d7443108ab2b4c7fc5bf82925f37cfc639f8217fd70cd9ac390a9.-HAZ9uSnBtnvQxuGfh7PuySKqbm5MVwtAAAPk5Bcv_Q
+    products-data-quality-question-check--selected-row-fields--dark:
+        hash: v1.k794b7964.45034d23f99707e5117408d3bd6a1fe813eed0deafbcebe7b4b497e4abd581df.jiT973_lphfiI91Dyl4yEBWA391wXawhJQf0Q4hVug0
+    products-data-quality-question-check--selected-row-fields--light:
+        hash: v1.k794b7964.38fb60f05fbe6faf80c2d8358ca18573c88160840738375b971ef2814031035e.zU-j-iO_9n-h_eW_xKqkguKvxJvRWC3vOCP4YUGrfn4
+    products-data-quality-question-run-result--complete--dark:
+        hash: v1.k794b7964.a75b8e6884e61d437276b0f0f277fbab46130ff80e042853ece4069ef400de97.cnAAAnmv0NT4NBKOFuToD47B83RsAvCvsDC5lVjN3aA
+    products-data-quality-question-run-result--complete--light:
+        hash: v1.k794b7964.fa4b6273f7c6813f8ebbe900f0d27742f20a66621eddfe8aceef347ae4169776.MDF7DVvEar6xUuX5LueVYjhQPKVf_R6uhR2PaFIbDxw
+    products-data-quality-question-run-result--empty--dark:
+        hash: v1.k794b7964.c9e39c0fb0f843d3b4761c92fbeb1937451b3a3997a1bd4cd4b052853b8eac79.uD7yPRLzuciSssS3Nj7MrUrDuf_BICKo7jst0n0zkeU
+    products-data-quality-question-run-result--empty--light:
+        hash: v1.k794b7964.448c2137dca962071bd2bdb7b6312b955f873bebc774d14496dbb0ea629af4fb.6fC6BXIIEWH-n1IoXDYqu4QzKMQb9xmLUmyJg0xPTMo
+    products-data-quality-question-run-result--incomplete--dark:
+        hash: v1.k794b7964.8c569778d695932ce35904146f13169943b5f1d2860d41bc134be335e80e5ca9.oPr6VaR6aMkjiZ-8z1IKPXEdYqaWrBDl9KWunioKlgo
+    products-data-quality-question-run-result--incomplete--light:
+        hash: v1.k794b7964.d3fc76883406ac90064b700c4d095af49c544398e11a592065c79510f943b803.ozriPASpsGy3xoQbjM_1ZKVaNqUwKRiqadMqP24gNCI
     products-growth-enrichment-scoring--editor--dark:
         hash: v1.k794b7964.1bebb0a45ebc460c6fcba6e4adb467a466593f29536672709bfb6aa2e09baffe.6a-F4ZLRZjkGnfQ_YiLTUEW995s4MI887rruhzvst3A
     products-growth-enrichment-scoring--editor--light:

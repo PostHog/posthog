@@ -12,6 +12,7 @@ import {
     runResultCell,
 } from './checksConstants'
 import type { DataQualityCheckRunApi } from './generated/api.schemas'
+import { QuestionRunResult } from './QuestionRunResult'
 
 type CheckRunColumn = LemonTableColumn<DataQualityCheckRunApi, keyof DataQualityCheckRunApi | undefined>
 
@@ -51,6 +52,9 @@ const OUTCOME_COLUMNS: CheckRunColumn[] = [
         title: 'Result',
         key: 'observed_value',
         render: (_, run) => {
+            if (run.question_result) {
+                return <QuestionRunResult result={run.question_result} />
+            }
             const { label, tooltip } = runResultCell(run)
             return tooltip ? (
                 <Tooltip title={tooltip}>

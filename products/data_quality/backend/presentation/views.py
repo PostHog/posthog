@@ -52,6 +52,8 @@ from .serializers import (
     DataQualitySubjectScheduleSerializer,
     DataQualitySubjectSerializer,
     DataQualitySuiteRunSerializer,
+    QuestionPreviewRequestSerializer,
+    QuestionPreviewSerializer,
     SubjectHealthSerializer,
 )
 
@@ -387,6 +389,7 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
             "runs",
             "health",
             "output_schema",
+            "question_preview",
             "schedule",
             "subjects",
             "metric_subjects",
@@ -554,6 +557,31 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance: DataQualityCheck) -> None:
         api.soft_delete_check(instance)
+
+    @extend_schema(
+        description="Preview a question on at most ten rows. Full check runs still examine every row in scope. Preview uses the same billed evaluator and shared decision cache but creates no check run.",
+        request=QuestionPreviewRequestSerializer,
+        responses={200: QuestionPreviewSerializer},
+    )
+    @action(methods=["POST"], detail=False, throttle_classes=[HogQLQueryThrottle])
+    def question_preview(self, request: Request, **kwargs: Any) -> Response:
+        serializer = QuestionPreviewRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        subject = self._named_subject(data)
+        self._require_subject(subject, write=True)
+        try:
+            result = api.preview_question(
+                team=self.team,
+                user=cast(User, request.user),
+                subject_type=subject.subject_type,
+                subject_uuid=subject.subject_uuid,
+                column_name=data["column_name"],
+                config=data["config"],
+            )
+        except (api.CheckConfigError, api.SubjectUnresolvableError) as error:
+            raise ValidationError({"config": str(error)}) from None
+        return Response(QuestionPreviewSerializer(result).data)
 
     @extend_schema(
         description="Run this check now. Returns the suite run to poll for the report.",
@@ -794,6 +822,13 @@ class DataQualityRunViewSet(
     QUERY_GATED_ACTIONS = frozenset({"list", "retrieve", "create", "check_runs"})
     serializer_class = DataQualitySuiteRunSerializer
     queryset = DataQualitySuiteRun.objects.unscoped()
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        suite = self.get_object()
+        readable = self._denial_context().readable if self._can_be_object_denied() else None
+        progress = api.question_progress(self.team, cast(User, request.user), str(suite.id), readable)
+        context = {**self.get_serializer_context(), "question_progress": progress}
+        return Response(self.get_serializer(suite, context=context).data)
 
     def safely_get_queryset(self, queryset: QuerySet[DataQualitySuiteRun]) -> QuerySet[DataQualitySuiteRun]:
         queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
