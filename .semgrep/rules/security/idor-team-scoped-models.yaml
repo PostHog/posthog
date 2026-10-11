@@ -338,6 +338,7 @@ rules:
                               |ReplayObservation
                               |ReplayObservationLabel
                               |ReplayObservationMedia
+                              |ReplayObservationRequest
                               |ReplayObservationUsage
                               |ReplayObservationView
                               |ReplayScanner
@@ -788,6 +789,7 @@ rules:
                         |ReplayObservation
                         |ReplayObservationLabel
                         |ReplayObservationMedia
+                        |ReplayObservationRequest
                         |ReplayObservationUsage
                         |ReplayObservationView
                         |ReplayScanner

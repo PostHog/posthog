@@ -367,6 +367,31 @@ tools:
             today, zero-filled on days without spend. Spend covers every project in the organization. Use it to see when
             spend picked up or to project where the period will end; `vision-quota-get` gives the running total and the
             limit.
+    vision-requests-create:
+        operation: vision_requests_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Request session scans
+        description: >
+            Scan up to 200 session recordings with a saved scanner (`scanner_id`) or a one-off question (`inline`, with
+            the same `prompt`, `scanner_type`, `scanner_config` and `model` fields as `vision-scanners-inline-scan`),
+            and get back one request id that covers every session. Pass an `idempotency_key` when you might retry the
+            call: the same key returns the first request instead of starting and charging for the scans again. Results
+            are not inline. Poll `vision-requests-get` with the returned `id` until `status` is `completed`; each
+            session then carries its `state` and, when it succeeded, its `scanner_result`. Sessions past a credit or
+            concurrency limit come back as `skipped` with the reason in `scan_outcome`, rather than failing the call.
+        requires_ai_consent: true
+    vision-requests-get:
+        operation: vision_requests_retrieve
+        enabled: true
+        title: Get a session scan request
+        description: >
+            Read a scan request made with `vision-requests-create`: its `status` (`running` until every session has
+            settled, then `completed`) and, for each session, its `state`, `observation_id` and `scanner_result` once it
+            succeeded.
     vision-scanners-affected-cohort-create:
         operation: vision_scanners_affected_cohort_create
         enabled: true

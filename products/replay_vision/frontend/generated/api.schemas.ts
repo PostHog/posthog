@@ -966,6 +966,185 @@ export interface VisionSpendSeriesApi {
 }
 
 /**
+ * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
+ * * `gemini-3.8-flash` - Gemini 3.8 Flash
+ */
+export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
+
+export const ScannerModelEnumApi = {
+    Gemini35FlashLite: 'gemini-3.5-flash-lite',
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
+    Gemini38Flash: 'gemini-3.8-flash',
+} as const
+
+/**
+ * A question asked inline, without saving a scanner first.
+ */
+export interface InlineScanConfigApi {
+    /**
+     * What to look for in these sessions, in plain language. The same instruction a saved scanner carries.
+     * @maxLength 20000
+     */
+    prompt: string
+    /** What the scan produces. Defaults to monitor, an open-ended observation against the prompt. Use `summarizer` to get PostHog's own AI summary of a recording. An inline scan is keyed by its whole config, so the Summarize button in the replay player shares this scan only when the prompt and `scanner_config` match the ones it sends.
+     *
+     * * `monitor` - Monitor
+     * * `classifier` - Classifier
+     * * `scorer` - Scorer
+     * * `summarizer` - Summarizer
+     * * `experiment` - Experiment */
+    scanner_type?: ScannerTypeEnumApi
+    /** Type-specific configuration beyond the prompt: `tags` for a classifier, `scale` for a scorer, optional `length` for a summarizer. Omit it for a monitor. `prompt` belongs in the `prompt` field and is rejected here. */
+    scanner_config?: unknown
+    /** Model to scan with. Determines what each observation costs in credits.
+     *
+     * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.8-flash` - Gemini 3.8 Flash */
+    model?: ScannerModelEnumApi
+}
+
+/**
+ * Body of POST /vision/requests/ - the sessions plus a saved scanner or an inline question.
+ */
+export interface CreateObservationRequestApi {
+    /**
+     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole request. Duplicates are dropped.
+     * @maxItems 200
+     * @items.maxLength 128
+     */
+    session_ids: string[]
+    /** A saved scanner to apply to the sessions. Pass this or `inline`, not both. */
+    scanner_id?: string
+    /** A question to ask without saving a scanner first. Asking the same question again reuses the answers already given for the same sessions. Pass this or `scanner_id`, not both. */
+    inline?: InlineScanConfigApi
+    /**
+     * Any unique string per logical request, such as a UUID. Sending the same key again returns the first request instead of starting new scans, so a retry after a timeout never charges twice.
+     * @maxLength 200
+     */
+    idempotency_key?: string
+    /**
+     * Your own id for this request, such as a ticket or job id. Returned unchanged.
+     * @maxLength 200
+     */
+    reference?: string
+}
+
+/**
+ * * `running` - Running
+ * * `completed` - Completed
+ */
+export type ObservationRequestStatusEnumApi =
+    (typeof ObservationRequestStatusEnumApi)[keyof typeof ObservationRequestStatusEnumApi]
+
+export const ObservationRequestStatusEnumApi = {
+    Running: 'running',
+    Completed: 'completed',
+} as const
+
+/**
+ * * `started` - Started
+ * * `already_running` - Already running
+ * * `already_scanned` - Already scanned
+ * * `skipped_limit` - Skipped, in-flight limit reached
+ * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+ * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
+ * * `failed` - Failed to start
+ */
+export type ScanOutcomeEnumApi = (typeof ScanOutcomeEnumApi)[keyof typeof ScanOutcomeEnumApi]
+
+export const ScanOutcomeEnumApi = {
+    Started: 'started',
+    AlreadyRunning: 'already_running',
+    AlreadyScanned: 'already_scanned',
+    SkippedLimit: 'skipped_limit',
+    SkippedQuota: 'skipped_quota',
+    SkippedScannerLimit: 'skipped_scanner_limit',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `succeeded` - Succeeded
+ * * `failed` - Failed
+ * * `ineligible` - Ineligible
+ * * `skipped` - Skipped
+ * * `lost` - Lost
+ */
+export type RequestSessionStateEnumApi = (typeof RequestSessionStateEnumApi)[keyof typeof RequestSessionStateEnumApi]
+
+export const RequestSessionStateEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Succeeded: 'succeeded',
+    Failed: 'failed',
+    Ineligible: 'ineligible',
+    Skipped: 'skipped',
+    Lost: 'lost',
+} as const
+
+/**
+ * One session of a request: how it started and where it stands now.
+ */
+export interface ObservationRequestSessionApi {
+    /** The session recording this outcome is for. */
+    session_id: string
+    /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.
+     *
+     * * `started` - Started
+     * * `already_running` - Already running
+     * * `already_scanned` - Already scanned
+     * * `skipped_limit` - Skipped, in-flight limit reached
+     * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
+     * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
+     * * `failed` - Failed to start */
+    scan_outcome: ScanOutcomeEnumApi
+    /** Where the session stands now. 'pending' and 'running' are still in progress; 'succeeded' has a result; 'failed' and 'ineligible' finished without one; 'skipped' never started because a limit was reached (`scan_outcome` names which); 'lost' started but produced nothing before the scan timed out.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `succeeded` - Succeeded
+     * * `failed` - Failed
+     * * `ineligible` - Ineligible
+     * * `skipped` - Skipped
+     * * `lost` - Lost */
+    state: RequestSessionStateEnumApi
+    /**
+     * The observation for this session, once one exists. Null before that.
+     * @nullable
+     */
+    readonly observation_id: string | null
+    /** The scanner's answer for this session. Null until the session succeeds. */
+    readonly scanner_result: ScannerResultApi | null
+}
+
+/**
+ * A scan request and the current state of each of its sessions.
+ */
+export interface ObservationRequestApi {
+    /** Request ID. Poll `GET /vision/requests/{id}/` with it. */
+    id: string
+    /** 'completed' once every session has settled, whether or not it produced a result.
+     *
+     * * `running` - Running
+     * * `completed` - Completed */
+    status: ObservationRequestStatusEnumApi
+    /**
+     * The scanner the sessions were scanned with. For an inline question this is a hidden scanner, shared by every request that asks the same question. Null when nothing could start.
+     * @nullable
+     */
+    scanner_id: string | null
+    /** The `reference` sent with the request. */
+    reference: string
+    /** When the request was made. */
+    created_at: string
+    /** One entry per session, in request order. */
+    sessions: ObservationRequestSessionApi[]
+}
+
+/**
  * * `ai` - AI draft
  * * `template` - Template
  * * `scratch` - From scratch
@@ -999,19 +1178,6 @@ export type ScannerProviderEnumApi = (typeof ScannerProviderEnumApi)[keyof typeo
 
 export const ScannerProviderEnumApi = {
     Google: 'google',
-} as const
-
-/**
- * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
- * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.8-flash` - Gemini 3.8 Flash
- */
-export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
-
-export const ScannerModelEnumApi = {
-    Gemini35FlashLite: 'gemini-3.5-flash-lite',
-    Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini38Flash: 'gemini-3.8-flash',
 } as const
 
 /**
@@ -1362,27 +1528,6 @@ export interface BulkObserveRequestApi {
      */
     session_ids: string[]
 }
-
-/**
- * * `started` - Started
- * * `already_running` - Already running
- * * `already_scanned` - Already scanned
- * * `skipped_limit` - Skipped, in-flight limit reached
- * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
- * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
- * * `failed` - Failed to start
- */
-export type ScanOutcomeEnumApi = (typeof ScanOutcomeEnumApi)[keyof typeof ScanOutcomeEnumApi]
-
-export const ScanOutcomeEnumApi = {
-    Started: 'started',
-    AlreadyRunning: 'already_running',
-    AlreadyScanned: 'already_scanned',
-    SkippedLimit: 'skipped_limit',
-    SkippedQuota: 'skipped_quota',
-    SkippedScannerLimit: 'skipped_scanner_limit',
-    Failed: 'failed',
-} as const
 
 /**
  * Per-session outcome of a bulk scan trigger.
@@ -2570,12 +2715,6 @@ export interface EstimateResponseApi {
  */
 export interface InlineScanRequestApi {
     /**
-     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
-     * @maxItems 200
-     * @items.maxLength 128
-     */
-    session_ids: string[]
-    /**
      * What to look for in these sessions, in plain language. The same instruction a saved scanner carries.
      * @maxLength 20000
      */
@@ -2596,6 +2735,12 @@ export interface InlineScanRequestApi {
      * * `gemini-3-flash-preview` - Gemini 3 Flash
      * * `gemini-3.8-flash` - Gemini 3.8 Flash */
     model?: ScannerModelEnumApi
+    /**
+     * Session recording IDs to scan, at most 200 per request. Scans start until the in-flight limit or monthly credit quota is reached; the rest are reported as skipped rather than failing the whole batch.
+     * @maxItems 200
+     * @items.maxLength 128
+     */
+    session_ids: string[]
 }
 
 /**

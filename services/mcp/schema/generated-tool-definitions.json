@@ -13793,6 +13793,35 @@
             "readOnlyHint": true
         }
     },
+    "vision-requests-create": {
+        "description": "Scan up to 200 session recordings with a saved scanner (`scanner_id`) or a one-off question (`inline`, with the same `prompt`, `scanner_type`, `scanner_config` and `model` fields as `vision-scanners-inline-scan`), and get back one request id that covers every session. Pass an `idempotency_key` when you might retry the call: the same key returns the first request instead of starting and charging for the scans again. Results are not inline. Poll `vision-requests-get` with the returned `id` until `status` is `completed`; each session then carries its `state` and, when it succeeded, its `scanner_result`. Sessions past a credit or concurrency limit come back as `skipped` with the reason in `scan_outcome`, rather than failing the call.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Request session scans",
+        "title": "Request session scans",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "requires_ai_consent": true
+    },
+    "vision-requests-get": {
+        "description": "Read a scan request made with `vision-requests-create`: its `status` (`running` until every session has settled, then `completed`) and, for each session, its `state`, `observation_id` and `scanner_result` once it succeeded.",
+        "category": "Replay vision",
+        "feature": "replay_vision",
+        "summary": "Get a session scan request",
+        "title": "Get a session scan request",
+        "required_scopes": ["replay_scanner:write", "session_recording:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "vision-scanners-affected-cohort-create": {
         "description": "Create a static cohort of the users a scanner matched within the trailing window (default 30 days). Monitors count verdict-yes observations and take no qualifiers; classifiers require `tag`; scorers require `min_score` and/or `max_score`. The cohort is a dated snapshot and does not live-update; calling again creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting, experiment exclusion. Fails when the window has no users or none resolve to a person profile.",
         "category": "Replay vision",

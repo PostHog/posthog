@@ -161,7 +161,7 @@ def start_observations(
     *,
     scanner: ReplayScanner,
     session_ids: list[str],
-    user: User,
+    user: User | None,
     headroom: ScanHeadroom,
     finished: frozenset[str],
 ) -> tuple[int, list[dict[str, str]]]:
@@ -196,7 +196,7 @@ def start_observations(
         _, outcome = start_apply_scanner_workflow(
             scanner,
             session_id,
-            triggered_by_user_id=user.id,
+            triggered_by_user_id=user.id if user is not None else None,
             trigger=ObservationTrigger.ON_DEMAND,
             # Row counts are this request's snapshot; the atomic claim inside makes racing requests
             # visible to each other, which the snapshot alone cannot.
@@ -224,7 +224,7 @@ def start_observations(
 
 
 def scan_existing_scanner(
-    *, scanner: ReplayScanner, session_ids: list[str], user: User
+    *, scanner: ReplayScanner, session_ids: list[str], user: User | None
 ) -> tuple[int, list[dict[str, str]]]:
     """Point a saved scanner at named sessions."""
     return start_observations(
@@ -239,7 +239,7 @@ def scan_existing_scanner(
 def run_inline_scan(
     *,
     team: Team,
-    user: User,
+    user: User | None,
     session_ids: list[str],
     scanner_type: ScannerType,
     scanner_config: dict[str, Any],
