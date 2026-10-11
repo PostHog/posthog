@@ -134,12 +134,12 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
 
     async def _react(self, message: PostHogCodeSlackMentionWorkflowInputs, reaction_activity: Any) -> None:
         """Run one of the reaction activities for a mention or DM. Untagged
-        thread followups get no reactions — they were never addressed to the
-        bot, and most are dropped by the chitchat classifier.
+        thread followups and untagged questions get no reactions,
+        because nobody addressed them to the bot and a classifier drops most of them.
         """
         channel = message.event.get("channel")
         message_ts = message.event.get("ts")
-        if message.untagged_followup or not channel or not message_ts:
+        if message.untagged_followup or message.untagged_question or not channel or not message_ts:
             return
         try:
             await workflow.execute_activity(
@@ -169,7 +169,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         """
         channel = message.event.get("channel")
         thread_ts = message.event.get("thread_ts") or message.event.get("ts")
-        if message.untagged_followup or not channel or not thread_ts:
+        if message.untagged_followup or message.untagged_question or not channel or not thread_ts:
             return
         try:
             await workflow.execute_activity(

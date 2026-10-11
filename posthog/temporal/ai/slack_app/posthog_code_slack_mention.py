@@ -20,6 +20,7 @@ from posthog.temporal.ai.slack_app import (
     classify_slack_app_model_router_activity,
     classify_slack_app_project_route_activity,
     classify_untagged_followup_activity,
+    classify_untagged_question_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_task_for_repo_activity,
     discover_posthog_code_repository_via_agent_activity,
@@ -29,6 +30,7 @@ from posthog.temporal.ai.slack_app import (
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_repo_picker_activity,
     request_untagged_followup_confirmation_activity,
+    request_untagged_question_confirmation_activity,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
@@ -82,6 +84,9 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
         if not channel or not thread_ts or not slack_user_id:
             return
 
+        # An untagged question stays silent, error replies included, until its author's
+        # mode lets the run answer. Old histories carry no such input, so they never skip.
+        silent_on_error = inputs.untagged_question and not inputs.untagged_question_confirmed
         try:
             # Gate every workflow entry on the team's AI-credits quota before any
             # other activity runs. Webhook-level short-circuit catches the common
@@ -138,6 +143,18 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                 )
                 if awaiting_confirmation:
                     return
+
+            # Both gates run before anything visible, because nobody tagged us in this message.
+            if inputs.untagged_question and not inputs.untagged_question_confirmed:
+                answerable = await _execute_posthog_code_activity(classify_untagged_question_activity, inputs)
+                if not answerable:
+                    return
+                awaiting_confirmation = await _execute_posthog_code_activity(
+                    request_untagged_question_confirmation_activity, inputs
+                )
+                if awaiting_confirmation:
+                    return
+                silent_on_error = False
 
             # Read a model or effort request ("use fable for this one", "actually run
             # this on opus") out of the message. Classified above the follow-up/new-task
@@ -349,6 +366,8 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
                     "error_type": type(exc).__name__,
                 },
             )
+            if silent_on_error:
+                return
             await _execute_posthog_code_activity(
                 post_posthog_code_internal_error_activity,
                 inputs,
