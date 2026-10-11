@@ -4255,6 +4255,15 @@ class SignalScoutPrecheckTestSerializer(serializers.Serializer):
             "failures read as a general message. Null when the query ran."
         ),
     )
+    acting_user = UserBasicSerializer(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "The member scheduled runs check the query as, when that is not you. The test runs with your "
+            "access, so a table you can read can still fail on a scheduled run, and the run then starts "
+            "as if there were no pre-check. Null when scheduled runs check it as you."
+        ),
+    )
 
 
 class SignalScoutCreateSerializer(serializers.Serializer):
