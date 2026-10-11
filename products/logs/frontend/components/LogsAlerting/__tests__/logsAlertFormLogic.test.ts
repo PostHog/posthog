@@ -13,6 +13,7 @@ import {
     LogsAlertConfigurationStateEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
+import { buildAlertSeedFromLog } from '../alertSeed'
 import { buildFormDefaults, LogsAlertFormType, logsAlertFormLogic } from '../logsAlertFormLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
@@ -539,6 +540,42 @@ describe('logsAlertFormLogic', () => {
             })
 
             logic.unmount()
+        })
+
+        it.each([
+            [
+                'service and severity',
+                { severity_text: 'error', resource_attributes: { 'service.name': 'checkout' } },
+                { name: 'checkout error logs', severityLevels: ['error'], serviceNames: ['checkout'] },
+            ],
+            [
+                'unknown severity keeps the default levels',
+                { severity_text: 'CRITICAL', resource_attributes: { 'service.name': 'checkout' } },
+                {
+                    name: 'checkout logs',
+                    severityLevels: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'],
+                    serviceNames: ['checkout'],
+                },
+            ],
+            [
+                'no service',
+                { severity_text: 'WARN', resource_attributes: {} },
+                { name: 'warn logs', severityLevels: ['warn'], serviceNames: [] },
+            ],
+        ])('prefills a new alert from a log line: %s', (_, log, expected) => {
+            const logic = logsAlertFormLogic({ alert: null, seed: buildAlertSeedFromLog(log) })
+            logic.mount()
+
+            expect(logic.values.alertForm).toMatchObject({ ...expected, thresholdCount: 100 })
+
+            logic.unmount()
+        })
+
+        it('ignores a seed when editing an existing alert', () => {
+            expect(buildFormDefaults(MOCK_ALERT, { name: 'From a log', serviceNames: ['checkout'] })).toMatchObject({
+                name: 'Test Alert',
+                serviceNames: [],
+            })
         })
     })
 })
