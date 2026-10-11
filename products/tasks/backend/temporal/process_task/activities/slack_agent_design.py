@@ -1,7 +1,8 @@
-"""Agent-design activities: chat.startStream lifecycle (start / append / stop).
+"""Agent-design activities: chat.startStream lifecycle (start / append / rotate / stop).
 
-Every turn shape rides the same three-activity lifecycle. Plan-block steps, the final
-answer and the turn's attachments all flow as chunks into one streamed message.
+Every turn shape rides the same start / append / stop lifecycle. Plan-block steps, the final
+answer and the turn's attachments all flow as chunks into one streamed message. A turn that
+outlives a stream moves its plan to a new stream through the rotate activity.
 Best-effort: a Slack outage must never escalate to a task failure.
 """
 
@@ -36,6 +37,16 @@ class StartSlackAgentDesignStreamInput:
     plan_title: Optional[str] = None
     run_id: Optional[str] = None
     # The message this turn answers. The reply tags its sender.
+    message_id: Optional[str] = None
+
+
+@frozen
+class RotateSlackAgentDesignStreamInput:
+    slack_thread_context: dict[str, Any]
+    sealed_ts: str
+    task_updates: list[TaskUpdateChunk] = field(default_factory=list)
+    plan_title: Optional[str] = None
+    run_id: Optional[str] = None
     message_id: Optional[str] = None
 
 
@@ -104,28 +115,62 @@ def _chunk_dicts(task_updates: list[TaskUpdateChunk]) -> list[dict[str, Any]]:
     return [{"id": t.id, "title": t.title, "status": t.status, "details": t.details} for t in task_updates]
 
 
+def _start_stream(input: StartSlackAgentDesignStreamInput) -> Optional[SlackAgentDesignStream]:
+    from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
+
+    context = SlackThreadContext.from_dict(input.slack_thread_context)
+    handler = SlackThreadHandler(context, actor_slack_user_id=_reply_target(input.run_id, input.message_id))
+    markdown_text = _rewrite_object_tags(input.first_markdown_text, handler.project_url)
+    new_ts = handler.start_status_stream(
+        task_updates=_chunk_dicts(input.task_updates),
+        first_markdown_text=markdown_text,
+        plan_title=input.plan_title,
+    )
+    if not new_ts:
+        return None
+    return SlackAgentDesignStream(
+        ts=new_ts, has_plan=bool(input.task_updates), actor_slack_user_id=handler.actor_slack_user_id
+    )
+
+
 @activity.defn
 @close_db_connections
 def start_slack_agent_design_stream(input: StartSlackAgentDesignStreamInput) -> Optional[SlackAgentDesignStream]:
     """Open the turn's stream and seed it. Returns None when no stream opened."""
+    try:
+        return _start_stream(input)
+    except Exception as e:
+        logger.warning("slack_app_start_agent_design_stream_failed", error=str(e))
+        return None
+
+
+@activity.defn
+@close_db_connections
+def rotate_slack_agent_design_stream(input: RotateSlackAgentDesignStreamInput) -> Optional[SlackAgentDesignStream]:
+    """Move the plan of a stream that Slack sealed into a new stream, then delete the sealed message.
+
+    Slack seals a stream about five minutes after it starts, and a sealed message takes no more
+    updates. The sealed message holds only the plan, because the answer goes out when the turn
+    ends, so deleting it keeps one reply per turn in the thread. Returns None when no new stream
+    opened, and then the sealed message stays.
+    """
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 
     try:
-        context = SlackThreadContext.from_dict(input.slack_thread_context)
-        handler = SlackThreadHandler(context, actor_slack_user_id=_reply_target(input.run_id, input.message_id))
-        markdown_text = _rewrite_object_tags(input.first_markdown_text, handler.project_url)
-        new_ts = handler.start_status_stream(
-            task_updates=_chunk_dicts(input.task_updates),
-            first_markdown_text=markdown_text,
-            plan_title=input.plan_title,
+        stream = _start_stream(
+            StartSlackAgentDesignStreamInput(
+                slack_thread_context=input.slack_thread_context,
+                task_updates=input.task_updates,
+                plan_title=input.plan_title,
+                run_id=input.run_id,
+                message_id=input.message_id,
+            )
         )
-        if not new_ts:
-            return None
-        return SlackAgentDesignStream(
-            ts=new_ts, has_plan=bool(input.task_updates), actor_slack_user_id=handler.actor_slack_user_id
-        )
+        if stream is not None:
+            SlackThreadHandler(SlackThreadContext.from_dict(input.slack_thread_context)).delete_message(input.sealed_ts)
+        return stream
     except Exception as e:
-        logger.warning("slack_app_start_agent_design_stream_failed", error=str(e))
+        logger.warning("slack_app_rotate_agent_design_stream_failed", error=str(e))
         return None
 
 

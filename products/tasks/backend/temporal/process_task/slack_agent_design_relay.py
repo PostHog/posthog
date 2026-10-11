@@ -8,7 +8,8 @@ arrive in time. While the turn runs, one line always spins and the plan title sa
 
 The first turn's relay starts before the sandbox exists, so the plan shows the setup steps the
 parent sends through ``setup_step``. Slack ends a stream that gets no update for a few minutes,
-so a quiet relay re-sends its open line.
+so a quiet relay re-sends its open line. Slack also seals a stream about five minutes after it
+starts, even when it gets updates, so a longer turn moves its plan to a new stream.
 """
 
 from dataclasses import replace
@@ -17,6 +18,7 @@ from typing import Any, Optional
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -39,11 +41,13 @@ with workflow.unsafe.imports_passed_through():
 
     from .activities.slack_agent_design import (
         AppendSlackAgentDesignStepsInput,
+        RotateSlackAgentDesignStreamInput,
         SlackAgentDesignStream,
         StartSlackAgentDesignStreamInput,
         StopSlackAgentDesignStreamInput,
         TaskUpdateChunk,
         append_slack_agent_design_steps,
+        rotate_slack_agent_design_stream,
         start_slack_agent_design_stream,
         stop_slack_agent_design_stream,
     )
@@ -60,6 +64,7 @@ _ACTIVITY_RETRY = RetryPolicy(maximum_attempts=3)
 # The parent's progress step that the first setup line shows.
 _SANDBOX_SETUP_STEP = "sandbox"
 _PATCH_ID_STREAM_ENDED = "tasks-slack-relay-stream-ended"
+_PATCH_ID_STREAM_ROTATE = "tasks-slack-relay-stream-rotate"
 
 
 def _trace_key(trace_id: Optional[str]) -> Optional[str]:
@@ -113,6 +118,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         self._stream: Optional[SlackAgentDesignStream] = None
         # Slack closed the stream early. Later appends to it can only fail.
         self._stream_ended: bool = False
+        # The relay sends its last appends and the answer. A new stream now would delete a sealed
+        # message that can already hold the answer.
+        self._closing: bool = False
         self._last_dispatched_at: float = 0.0
         self._last_signal_at: Optional[datetime] = None
         self._started_at: datetime = datetime.min
@@ -363,7 +371,60 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         # An older activity returns None, which means the stream is still open. The patch keeps
         # histories that older workflow code wrote on their recorded command sequence.
         if stream_open is False and workflow.patched(_PATCH_ID_STREAM_ENDED):
+            # Slack seals a stream about five minutes after it starts, so a long turn outlives it.
+            # While the turn runs, its plan moves to a new stream. When the stream closes, the
+            # stop activity posts the answer outside it.
+            if not self._closing and workflow.patched(_PATCH_ID_STREAM_ROTATE) and await self._rotate_stream(input):
+                return
             self._stream_ended = True
+
+    async def _rotate_stream(self, input: SlackAgentDesignRelayInput) -> bool:
+        assert self._stream is not None
+        try:
+            stream = await workflow.execute_activity(
+                rotate_slack_agent_design_stream,
+                RotateSlackAgentDesignStreamInput(
+                    slack_thread_context=input.slack_thread_context,
+                    sealed_ts=self._stream.ts,
+                    task_updates=self._plan_snapshot(),
+                    plan_title=self._plan_title,
+                    run_id=input.run_id,
+                    message_id=input.message_id,
+                ),
+                # The activity makes several Slack calls in a row, so it gets the stop activity's budget.
+                start_to_close_timeout=timedelta(minutes=2),
+                # One attempt, because a retry after a start that succeeded would open a second stream.
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except ActivityError as e:
+            # A failure here must not end the relay, because then the turn's answer never reaches Slack.
+            workflow.logger.warning(
+                "slack_app_agent_design_relay_rotate_failed",
+                extra={"workflow_id": workflow.info().workflow_id, "error": str(e)},
+            )
+            return False
+        if stream is None:
+            return False
+        self._stream = stream
+        return True
+
+    def _plan_snapshot(self) -> list[TaskUpdateChunk]:
+        """Every line the plan shows now, so a new stream can show the same plan.
+
+        The snapshot takes the unsent descriptions of each line, because Slack appends details and
+        a later flush would show them a second time."""
+        lines = list(self._setup_lines.values())
+        for key in self._line_ids:
+            status = "in_progress" if key == self._current_key else "complete"
+            unsent = self._unsent_details.pop(key, None)
+            details = "\n".join(unsent) if unsent else self._last_description.get(key)
+            if details:
+                self._keys_with_details.add(key)
+            lines.append(replace(self._line_chunk(key, status), details=details))
+        lines.extend(self._agent_plan)
+        if self._placeholder is not None:
+            lines.append(self._placeholder)
+        return lines
 
     @workflow.run
     async def run(self, input: SlackAgentDesignRelayInput) -> None:
@@ -431,6 +492,7 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
         return None
 
     async def _close_stream(self, input: SlackAgentDesignRelayInput) -> None:
+        self._closing = True
         final_answer = self._final_answer()
         final_for_stop: Optional[str] = final_answer or None
         mention_sent = False

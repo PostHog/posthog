@@ -571,6 +571,15 @@ class SlackThreadHandler:
             return False
         return True
 
+    def delete_message(self, ts: str) -> bool:
+        """Delete a message the app posted in this thread. Returns whether Slack deleted it."""
+        try:
+            self._get_client().chat_delete(channel=self.context.channel, ts=ts)
+        except Exception as e:
+            logger.warning("slack_app_delete_message_failed", error=str(e))
+            return False
+        return True
+
     def _append_chunks(self, ts: str, chunks: list[dict[str, Any]], failure_event: str) -> bool:
         if not chunks:
             return True
