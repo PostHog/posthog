@@ -150,7 +150,8 @@ Match the action to the user's intent, and **corroborate before you create work*
   what the user says it should have concluded.
 - **Work the Inbox.** If the scanner emits signals, its findings may already be clustered into signal reports —
   `vision-observations-signal-reports-list` names the reports one observation fed, and
-  `vision-scanners-self-driving-stats` sums what the scanner led to. Read and act on those reports with
+  `vision-scanners-self-driving-stats` sums what the scanner led to. It requires the scanner's `id`, for example
+  `vision-scanners-self-driving-stats({ id: scanner.id })`. Read and act on those reports with
   `inbox-reports-list` + `inbox-report-artefacts-list` (the report's work log is the evidence). See the
   [[inbox-exploration]] skill; that path also records your work against the report.
 
