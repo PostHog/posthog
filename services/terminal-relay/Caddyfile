@@ -1,0 +1,8 @@
+{$RELAY_HOST} {
+    handle /netplay {
+        reverse_proxy relay:8080
+    }
+    handle {
+        respond 404
+    }
+}

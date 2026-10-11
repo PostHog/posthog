@@ -5,6 +5,8 @@ import { ApiError } from 'lib/api-error'
 import { terminalNetplayMailboxRetrieve, terminalNetplaySignalCreate } from '~/generated/core/api'
 import type { TerminalNetplayReceivedSignalApi } from '~/generated/core/api.schemas'
 
+import { TerminalRelay } from './terminalRelay'
+
 // Doom's network module in PostHog/terminal-assets sends SLIP frames over the guest's third serial port.
 // The first byte names the peer: guest frames name the destination, and host frames name the source.
 const SLIP_END = 0xc0
@@ -16,12 +18,14 @@ const CONTROL_PEER = 255
 const MAX_FRAME = 1500
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }]
 const HOST_POLL_MS = 1000
 const JOIN_POLL_MS = 500
-const JOIN_TIMEOUT_MS = 20_000
-const GATHER_TIMEOUT_MS = 3000
+// Doom gives the browser 30 seconds to answer over the serial control channel.
+const JOIN_TIMEOUT_MS = 25_000
+const GATHER_TIMEOUT_MS = 5000
 const MAX_PENDING_PEERS = 16
+
+const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.cloudflare.com:3478' }]
 
 interface HostLobby {
     room: string
@@ -156,12 +160,24 @@ export class TerminalNetplay {
     private game?: AbortController
     private lobby?: AbortController
     private channels = new Map<number, RTCDataChannel>()
+    private relay: TerminalRelay
 
     constructor(
         private projectId: string,
         signal: AbortSignal
     ) {
+        this.relay = new TerminalRelay(
+            signal,
+            (message) => this.reply(message),
+            (peer, bytes) => {
+                this.send?.(encodeFrame(peer, bytes))
+            }
+        )
         signal.addEventListener('abort', () => this.endGame(), { once: true })
+    }
+
+    command(argv: string[]): string {
+        return this.relay.command(argv)
     }
 
     attach(send: (bytes: Uint8Array) => void): void {
@@ -177,6 +193,10 @@ export class TerminalNetplay {
             this.control(new TextDecoder().decode(frame.subarray(1)))
             return
         }
+        if (this.relay.active) {
+            this.relay.send(frame[0], frame.slice(1))
+            return
+        }
         const channel = this.channels.get(frame[0])
         if (channel?.readyState === 'open') {
             channel.send(frame.slice(1))
@@ -185,12 +205,24 @@ export class TerminalNetplay {
 
     private control(message: string): void {
         if (message === 'host') {
-            void this.host(this.newGame())
+            const game = this.newGame()
+            if (this.relay.configured) {
+                this.relay.start(undefined, game)
+            } else {
+                void this.host(game)
+            }
         } else if (message.startsWith('join ')) {
-            void this.join(message.slice(5).toUpperCase(), this.newGame())
+            const game = this.newGame()
+            const room = message.slice(5).toUpperCase()
+            if (this.relay.configured) {
+                this.relay.start(room, game)
+            } else {
+                void this.join(room, game)
+            }
         } else if (message === 'launched') {
             // Doom accepts no players after launch, so the room can expire.
             this.lobby?.abort()
+            this.relay.launched()
         }
     }
 
@@ -212,8 +244,12 @@ export class TerminalNetplay {
 
     private connect(
         peer: number,
-        game: AbortSignal
+        game: AbortSignal,
+        signal: AbortSignal
     ): { connection: RTCPeerConnection; channel: RTCDataChannel; close: () => void } {
+        if (signal.aborted || game.aborted) {
+            throw new DOMException('Aborted', 'AbortError')
+        }
         const connection = new RTCPeerConnection({ iceServers: ICE_SERVERS })
         // Doom resends lost packets itself, so late packets are worse than lost ones.
         const channel = connection.createDataChannel('doom', {
@@ -310,7 +346,7 @@ export class TerminalNetplay {
         let close: (() => void) | undefined
         let connected = false
         try {
-            const client = this.connect(peer, lobby.game)
+            const client = this.connect(peer, lobby.game, signal)
             close = client.close
             signal.addEventListener('abort', client.close, { once: true })
             const { connection, channel } = client
@@ -354,13 +390,9 @@ export class TerminalNetplay {
         room: string,
         peer: string,
         token: string,
-        deadline: number,
         game: AbortSignal
     ): Promise<string | undefined> {
         while (!game.aborted) {
-            if (Date.now() > deadline) {
-                throw new NetplayError('The host did not answer. Check the room code and try again.')
-            }
             await sleep(JOIN_POLL_MS, game)
             if (game.aborted) {
                 return
@@ -381,15 +413,24 @@ export class TerminalNetplay {
         const id = randomCode('abcdefghijklmnopqrstuvwxyz0123456789', 16)
         const token = randomCode('0123456789abcdef', 64)
         const deadline = Date.now() + JOIN_TIMEOUT_MS
+        const negotiation = new AbortController()
+        const signal = negotiation.signal
+        const abort = (): void => negotiation.abort()
+        const timeout = setTimeout(abort, JOIN_TIMEOUT_MS)
+        game.addEventListener('abort', abort, { once: true })
         let close: (() => void) | undefined
         let connected = false
         try {
-            const client = this.connect(HOST_PEER, game)
+            const client = this.connect(HOST_PEER, game, signal)
             close = client.close
+            signal.addEventListener('abort', client.close, { once: true })
             const { connection, channel } = client
             await connection.setLocalDescription()
-            await gathered(connection, game)
-            if (game.aborted || !connection.localDescription) {
+            await gathered(connection, signal)
+            if (signal.aborted) {
+                throw new DOMException('Aborted', 'AbortError')
+            }
+            if (!connection.localDescription) {
                 return
             }
             await terminalNetplaySignalCreate(
@@ -400,18 +441,19 @@ export class TerminalNetplay {
                     recipient: 'host',
                     description: { type: 'offer', sdp: connection.localDescription.sdp },
                 },
-                { signal: game, headers: { 'X-Terminal-Netplay-Token': token } }
+                { signal, headers: { 'X-Terminal-Netplay-Token': token } }
             )
-            const answer = await this.waitForAnswer(room, id, token, deadline, game)
-            if (game.aborted || !answer) {
+            const answer = await this.waitForAnswer(room, id, token, signal)
+            if (signal.aborted) {
+                throw new DOMException('Aborted', 'AbortError')
+            }
+            if (!answer) {
                 return
             }
             await connection.setRemoteDescription({ type: 'answer', sdp: answer })
-            connected = await opened(channel, Math.max(deadline - Date.now(), 5000), game)
+            connected = await opened(channel, Math.max(deadline - Date.now(), 0), signal)
             if (!connected) {
-                throw new NetplayError(
-                    'Could not connect to the host. A firewall or VPN may block peer-to-peer connections.'
-                )
+                throw new NetplayError('Could not connect to the host. Check your network and try again.')
             }
             if (!game.aborted) {
                 this.reply('joined')
@@ -419,10 +461,17 @@ export class TerminalNetplay {
             }
         } catch (error) {
             if (!game.aborted) {
-                this.reply(`error ${this.describe(error, 'Could not join the deathmatch. Try again.')}`)
+                this.reply(
+                    `error ${this.describe(error, signal.aborted ? 'The connection timed out. Try again.' : 'Could not join the deathmatch. Try again.')}`
+                )
                 posthog.capture('terminal deathmatch joined', { success: false })
             }
         } finally {
+            clearTimeout(timeout)
+            game.removeEventListener('abort', abort)
+            if (close) {
+                signal.removeEventListener('abort', close)
+            }
             if (!connected) {
                 close?.()
             }

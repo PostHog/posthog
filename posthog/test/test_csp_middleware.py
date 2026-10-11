@@ -16,6 +16,7 @@ from posthog.csp_middleware import (
     app_csp_header_name,
     narrowed_app_policy,
     object_storage_upload_source,
+    terminal_relay_source,
 )
 
 
@@ -457,6 +458,7 @@ class TestCSPMiddleware(APIBaseTest):
     @override_settings(
         OBJECT_STORAGE_PUBLIC_ENDPOINT="https://s3.us-east-1.amazonaws.com",
         OBJECT_STORAGE_BUCKET="posthog-test-bucket",
+        TERMINAL_NETPLAY_RELAY_URL="wss://relay.example.com/netplay",
     )
     def test_connect_src_admits_the_presigned_upload_endpoint(self) -> None:
         # Narrowing must keep it: cloud enforces the narrowed policy, and an upload it drops
@@ -469,6 +471,7 @@ class TestCSPMiddleware(APIBaseTest):
         policy = response["Content-Security-Policy"]
         connect_src = next(part for part in policy.split("; ") if part.startswith("connect-src ")).split()
         assert "https://s3.us-east-1.amazonaws.com/posthog-test-bucket" in connect_src
+        assert "wss://relay.example.com/netplay" in connect_src
 
 
 @override_settings(CLOUD_DEPLOYMENT="LOCAL")
@@ -590,6 +593,23 @@ class TestNarrowedAppPolicy(SimpleTestCase):
             "img-src 'self' data: https://*.posthog.com",
             "connect-src 'self' https://api.github.com https://internal-j.posthog.com",
         ]
+
+
+class TestTerminalRelaySource(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("", False, ""),
+            ("wss://relay.example.com/netplay", False, "wss://relay.example.com/netplay"),
+            ("wss://relay.example.com/netplay; connect-src *", False, ""),
+            ("wss://*.example.com/netplay", False, ""),
+            ("ws://relay.example.com/netplay", True, ""),
+            ("ws://localhost:8080/netplay", False, ""),
+            ("ws://localhost:8080/netplay", True, "ws://localhost:8080/netplay"),
+        ]
+    )
+    def test_admits_only_the_configured_endpoint(self, url: str, debug: bool, expected: str) -> None:
+        with override_settings(TERMINAL_NETPLAY_RELAY_URL=url, DEBUG=debug, TEST=False):
+            assert terminal_relay_source() == expected
 
 
 class TestObjectStorageUploadSource(SimpleTestCase):
