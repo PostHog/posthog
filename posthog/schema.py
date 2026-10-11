@@ -6197,6 +6197,14 @@ class HogQLQueryModifiers(BaseModel):
             " dataclass instances directly via PyO3, skipping the JSON round-trip."
         ),
     )
+    personIdFilterPrewhere: bool | None = Field(
+        default=None,
+        description=(
+            "Opt in to filtering events by stored person IDs and raw override"
+            " candidates before reading other columns. The resolved person_id filter"
+            " remains authoritative."
+        ),
+    )
     personIdPushdown: bool | None = Field(
         default=None,
         description=(
