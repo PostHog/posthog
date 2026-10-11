@@ -38,7 +38,7 @@ from products.signals.backend.temporal.llm import effort_kwargs
 
 logger = structlog.get_logger(__name__)
 
-LLM_MODEL = os.getenv("SIGNAL_EMISSION_LLM_MODEL", "claude-sonnet-5")
+LLM_MODEL = os.getenv("SIGNAL_EMISSION_LLM_MODEL", "claude-sonnet-5-5")
 # ai_product label for the emission-stage generations (summarization, actionability).
 EMISSION_AI_PRODUCT = "signals_emission"
 # Concurrent LLM calls limit for actionability/summarization checks
@@ -334,6 +334,8 @@ async def check_actionability(
 ) -> bool:
     """One record's actionability verdict, fail-open: every retry exhausted returns actionable.
 
+    A model refusal is the exception and returns not actionable.
+
     Shared with the direct-source gate in `direct_gate.py`, which judges a single signal that never
     entered this batch pipeline.
     """
@@ -383,6 +385,17 @@ async def check_actionability(
                     ),
                     timeout=LLM_CALL_TIMEOUT_SECONDS,
                 )
+                # A refusal means the model's safety classifier declined the record itself, so there
+                # is no verdict to fail open on. Dropping the record keeps an unjudged payload out of
+                # the pipeline; an empty answer without a refusal still fails open below.
+                if response.stop_reason == "refusal":
+                    logger.info(
+                        "Actionability check refused by the model",
+                        source_product=output.source_product,
+                        source_type=output.source_type,
+                        source_id=output.source_id,
+                    )
+                    return False
                 response_text = _extract_text(response).strip().upper()
                 return "NOT_ACTION" not in response_text
             except Exception as e:
