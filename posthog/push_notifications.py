@@ -142,14 +142,14 @@ def _post_to_expo(payload: list[dict[str, Any]], *, token_count: int) -> tuple[l
             "expo_push.client_error",
             status_code=response.status_code,
             token_count=token_count,
-            body=response.text[:500],
+            body=getattr(response, "text", "")[:500],
         )
         return None, False
 
     try:
         body_json = response.json()
     except ValueError:
-        logger.warning("expo_push.invalid_response", body=response.text[:500])
+        logger.warning("expo_push.invalid_response", body=getattr(response, "text", "")[:500])
         return None, False
 
     tickets = body_json.get("data", []) if isinstance(body_json, dict) else []
