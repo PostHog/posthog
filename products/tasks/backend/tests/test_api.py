@@ -41,7 +41,12 @@ from posthog.models.utils import generate_random_token_personal
 from posthog.ph_client import filter_scout_experiment_capture
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE
 from posthog.storage import object_storage
-from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, ARRAY_APP_CLIENT_ID_US, POSTHOG_AI_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import (
+    ARRAY_APP_CLIENT_ID_DEV,
+    ARRAY_APP_CLIENT_ID_US,
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
+    POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
+)
 from posthog.utils import absolute_uri
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -1534,18 +1539,38 @@ class TestTaskAPI(BaseTaskAPITest):
         assert body["detail"] == "Task usage is temporarily unavailable."
         assert body["code"] == "task_usage_upstream_unavailable"
 
-    def test_desktop_oauth_task_creation_records_trusted_provenance(self):
-        client = self._oauth_client(ARRAY_APP_CLIENT_ID_DEV)
+    @parameterized.expand(
+        [
+            ("desktop", ARRAY_APP_CLIENT_ID_DEV, None, TaskClientProvenance.POSTHOG_DESKTOP),
+            ("mobile", POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US, None, TaskClientProvenance.POSTHOG_MOBILE),
+            (
+                "web",
+                ARRAY_APP_CLIENT_ID_DEV,
+                TaskClientProvenance.POSTHOG_WEB,
+                TaskClientProvenance.POSTHOG_WEB,
+            ),
+        ]
+    )
+    def test_oauth_task_creation_records_trusted_client_provenance(
+        self,
+        _name: str,
+        client_id: str,
+        header: TaskClientProvenance | None,
+        expected: TaskClientProvenance,
+    ) -> None:
+        client = self._oauth_client(client_id)
 
         response = client.post(
             "/api/projects/@current/tasks/",
-            {"title": "Desktop task", "description": "Created in Desktop"},
+            {"title": "Client task", "description": "Created in a first-party client"},
             format="json",
+            **({"HTTP_X_POSTHOG_CLIENT_PROVENANCE": header} if header else {}),
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         task = Task.objects.get(id=response.json()["id"])
-        self.assertEqual(task.client_provenance, TaskClientProvenance.POSTHOG_DESKTOP)
+        self.assertEqual(task.client_provenance, expected)
+        self.assertEqual(response.json()["client_provenance"], expected)
 
     @parameterized.expand(
         [

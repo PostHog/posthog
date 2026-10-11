@@ -104,6 +104,7 @@ export {
   type PendingFollowupMessage,
   type StoreSkillStub,
   type Task,
+  type TaskClientProvenance,
   type TaskRun,
   type TaskRunArtifact,
   type TaskRunArtifactMetadata,

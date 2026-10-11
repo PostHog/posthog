@@ -276,7 +276,7 @@ def _get_task_compute_cost(*, team_id: int, task_id: UUID) -> Decimal:
         SandboxSession.objects.for_team(team_id)
         .filter(
             task_run__task_id=task_id,
-            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+            client_provenance__in=TaskClientProvenance.values,
             user_attributed_at__isnull=False,
         )
         .filter(

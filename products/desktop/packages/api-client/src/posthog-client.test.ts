@@ -39,6 +39,9 @@ describe("PostHogAPIClient", () => {
       const [url, request] = fetch.mock.calls[0];
       expect((url as URL).pathname).toBe("/api/projects/42/tasks/");
       expect(request.method).toBe("POST");
+      expect(
+        (request.headers as Headers).get("X-PostHog-Client-Provenance"),
+      ).toBe("posthog_desktop");
       expect(JSON.parse(request.body)).toEqual({
         description: "Read the report evidence",
         title: "Review report",
@@ -49,6 +52,31 @@ describe("PostHogAPIClient", () => {
           ? { signal_report_discussion_question: "What caused this?" }
           : {}),
       });
+    },
+  );
+
+  it.each(["posthog_mobile", "posthog_web"] as const)(
+    "sends %s provenance when it creates a task",
+    async (provenance) => {
+      const fetch = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ id: "task-1" }), { status: 201 }),
+        );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch, taskClientProvenance: provenance },
+      );
+
+      await client.createTask({ description: "Create a task" });
+
+      const request = fetch.mock.calls[0]?.[1];
+      expect(
+        (request?.headers as Headers).get("X-PostHog-Client-Provenance"),
+      ).toBe(provenance);
     },
   );
 

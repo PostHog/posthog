@@ -11,7 +11,9 @@ import {
   filterChannelItems,
   groupChannelItems,
   hasActiveChannelItemFilters,
+  MOBILE_SOURCE,
   sortChannelItems,
+  WEB_SOURCE,
 } from "./channelItems";
 import type { DashboardRecord } from "./dashboardSchemas";
 
@@ -221,15 +223,26 @@ describe("buildChannelItems", () => {
     expect(item.repository).toBeNull();
   });
 
-  it("reads the source for filed and Desktop sessions", () => {
-    const items = build({
-      feedTasks: [
-        task({ id: "filed", origin_product: "slack" }),
-        task({ id: "own", origin_product: "user_created" }),
-      ],
-    });
-    expect(items.map((i) => i.source)).toEqual(["slack", DESKTOP_SOURCE]);
-  });
+  it.each([
+    ["a filed session", "slack", undefined, "slack"],
+    ["a Desktop session", "user_created", "posthog_desktop", DESKTOP_SOURCE],
+    ["a legacy manual session", "user_created", undefined, DESKTOP_SOURCE],
+    ["a Mobile session", "user_created", "posthog_mobile", MOBILE_SOURCE],
+    ["a Web session", "user_created", "posthog_web", WEB_SOURCE],
+  ] as const)(
+    "maps %s to its source",
+    (_label, originProduct, clientProvenance, expected) => {
+      const [item] = build({
+        feedTasks: [
+          task({
+            origin_product: originProduct,
+            client_provenance: clientProvenance,
+          }),
+        ],
+      });
+      expect(item.source).toBe(expected);
+    },
+  );
 
   it("marks the sessions asking for input and the ones you haven't read", () => {
     const items = build({
@@ -469,8 +482,8 @@ describe("channelItemSources", () => {
     ];
     expect(channelItemSources(items)).toEqual([
       "error_tracking",
-      "slack",
       DESKTOP_SOURCE,
+      "slack",
     ]);
   });
 });

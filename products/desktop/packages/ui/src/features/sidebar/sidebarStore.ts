@@ -71,6 +71,12 @@ interface SidebarStoreActions {
 }
 
 type SidebarStore = SidebarStoreState & SidebarStoreActions;
+type PersistedSidebarStoreState = Omit<
+  SidebarStoreState,
+  "isResizing" | "collapsedSections"
+> & {
+  collapsedSections: string[];
+};
 
 export const DEFAULT_SIDEBAR_CHANNEL_ITEM_FILTERS: ChannelItemFilters = {
   ...DEFAULT_CHANNEL_ITEM_FILTERS,
@@ -167,23 +173,37 @@ export const useSidebarStore = create<SidebarStore>()(
     }),
     {
       name: "sidebar-storage",
-      version: 2,
+      version: 3,
       migrate: (persisted, version) => {
-        const state = persisted as {
+        const state = persisted as Omit<
+          Partial<PersistedSidebarStoreState>,
+          "channelItemFilters"
+        > & {
           channelItemFilters?: Partial<ChannelItemFilters> & {
             source?: unknown;
           };
         };
         const saved = state.channelItemFilters;
-        if (version >= 2 || !saved) return state;
-        const filters = migrateSourceFilter(saved);
+        if (version >= 3 || !saved) {
+          return state as unknown as PersistedSidebarStoreState;
+        }
+        const filters = version < 2 ? migrateSourceFilter(saved) : saved;
+        const sources = filters.sources
+          ? Array.from(
+              new Set(
+                filters.sources.map((source) =>
+                  source === "user_created" ? DESKTOP_SOURCE : source,
+                ),
+              ),
+            )
+          : filters.sources;
         return {
           ...state,
           channelItemFilters:
-            version === 0 && !filters.sources?.length
+            version === 0 && !sources?.length
               ? { ...filters, sources: [DESKTOP_SOURCE] }
-              : filters,
-        };
+              : { ...filters, sources },
+        } as unknown as PersistedSidebarStoreState;
       },
       partialize: (state) => ({
         open: state.open,

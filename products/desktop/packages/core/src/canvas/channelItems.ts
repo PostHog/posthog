@@ -135,6 +135,15 @@ function environmentOf(
 }
 
 function sourceOf(task: Task): string | null {
+  if (task.origin_product === "user_created") {
+    if (
+      task.client_provenance === MOBILE_SOURCE ||
+      task.client_provenance === WEB_SOURCE
+    ) {
+      return task.client_provenance;
+    }
+    return DESKTOP_SOURCE;
+  }
   return task.origin_product || null;
 }
 
@@ -230,7 +239,9 @@ export type ChannelItemSort = "recent" | "created" | "alpha";
 export type KindFilter = "any" | "task" | "canvas";
 
 export const ANY_SOURCE: SourceFilter = [];
-export const DESKTOP_SOURCE = "user_created";
+export const DESKTOP_SOURCE = "posthog_desktop";
+export const MOBILE_SOURCE = "posthog_mobile";
+export const WEB_SOURCE = "posthog_web";
 
 export interface ChannelItemFilters {
   kind: KindFilter;

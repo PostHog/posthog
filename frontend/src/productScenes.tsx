@@ -21,17 +21,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/ai_observability/frontend/datasets/AIObservabilityDatasetsScene'),
     AIObservabilityDataset: () =>
         import('../../products/ai_observability/frontend/datasets/AIObservabilityDatasetScene'),
-    AIObservabilityEvaluations: () => import('../../products/ai_observability/frontend/evaluations/EvaluationsScene'),
-    AIObservabilityScorers: () =>
-        import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorersScene'),
-    AIObservabilityScorer: () =>
-        import('../../products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorerScene'),
-    AIObservabilityOfflineExperiments: () =>
-        import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentsScene'),
-    AIObservabilityOfflineExperiment: () =>
-        import('../../products/ai_observability/frontend/offline-evaluations/OfflineExperimentScene'),
-    AIObservabilityOfflineScorerHistory: () =>
-        import('../../products/ai_observability/frontend/offline-evaluations/OfflineScorerHistoryScene'),
+    AIObservabilityEvaluations: () =>
+        import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluationsScene'),
     AIObservabilityEvaluation: () =>
         import('../../products/ai_observability/frontend/evaluations/AIObservabilityEvaluation'),
     AIObservabilityEvaluationTemplates: () =>
@@ -181,7 +172,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     TaskSpaces: () => import('../../products/tasks/frontend/spaces/SpacesScene'),
-    TaskNewSession: () => import('../../products/tasks/frontend/spaces/NewSessionScene'),
     TaskSpace: () => import('../../products/tasks/frontend/spaces/SpaceScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
