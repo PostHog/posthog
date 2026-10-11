@@ -513,9 +513,24 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             // The failure count is what tips a source into snapshotSourceLoadExhausted, so reset it
             // before restarting — otherwise the very next attempt is already over the cap.
             cache.loadFailureCount = 0
-            // Re-fetch the source list, which on success re-triggers loadNextSnapshotSource. This
-            // recovers both a failed source listing and a failed per-source fetch.
-            actions.loadSnapshots()
+            cache.retryPending = true
+            if (values.snapshotSources?.length) {
+                // The listing is fine, so fetch the failed source now. Do not wait for an in-flight
+                // poll: it can sit in its backoff for a long time and the player buffers meanwhile.
+                actions.loadNextSnapshotSource()
+            } else {
+                // Call the loader directly, not loadSnapshots: that skips while a listing is in flight,
+                // so the retry would start no fetch.
+                actions.loadSnapshotSources()
+            }
+        },
+
+        loadSnapshotSourcesFailure: () => {
+            // Only a retry that had no source list ends here. A poll failure must not end a retry that is fetching a source.
+            if (cache.retryPending && !values.snapshotSources?.length) {
+                cache.retryPending = false
+                posthog.capture('recording snapshot retry finished', { recovered: false })
+            }
         },
 
         loadSnapshotSourcesSuccess: ({ snapshotSources }) => {
@@ -549,6 +564,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
         loadSnapshotsForSourceSuccess: ({ snapshotsForSource }) => {
             cache.loadFailureCount = 0
+            if (cache.retryPending) {
+                cache.retryPending = false
+                posthog.capture('recording snapshot retry finished', { recovered: true })
+            }
             const sources = values.snapshotSources
             if (!sources) {
                 return
@@ -606,6 +625,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         loadSnapshotsForSourceFailure: async (_, breakpoint) => {
             cache.loadFailureCount = (cache.loadFailureCount ?? 0) + 1
             if (cache.loadFailureCount > 3) {
+                if (cache.retryPending) {
+                    cache.retryPending = false
+                    posthog.capture('recording snapshot retry finished', { recovered: false })
+                }
                 // Give up loudly: nothing else retries this source, so without a terminal action the
                 // player would buffer forever whenever playback reaches the missing range.
                 actions.snapshotSourceLoadExhausted()

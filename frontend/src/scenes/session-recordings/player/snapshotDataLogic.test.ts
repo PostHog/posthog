@@ -104,6 +104,52 @@ describe('snapshotDataLogic', () => {
             consoleError.mockRestore()
         })
 
+        it('fetches the failed source on retry even while a source poll is in flight', async () => {
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+            let listingCalls = 0
+            let releasePoll: () => void = () => {}
+            const pollHeld = new Promise<void>((resolve) => {
+                releasePoll = resolve
+            })
+            try {
+                overrideSessionRecordingMocks({
+                    getMocks: {
+                        '/api/environments/:team_id/session_recordings/:id/snapshots': async ({ request }) => {
+                            if (new URL(request.url).searchParams.get('source')) {
+                                return [500, { detail: 'Failed to load recording block' }]
+                            }
+                            listingCalls += 1
+                            if (listingCalls > 1) {
+                                await pollHeld
+                            }
+                            return [200, { sources: [BLOB_SOURCE, BLOB_SOURCE_TWO] }]
+                        },
+                    },
+                })
+                logic.actions.setPlayerActive(true)
+                await expectLogic(logic, () => {
+                    logic.actions.loadSnapshotSources()
+                }).toDispatchActions(['loadSnapshotSourcesSuccess', 'loadSnapshotsForSourceFailure'])
+                await expectLogic(logic, () => {
+                    logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                    logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                    logic.actions.loadSnapshotsForSourceFailure('load failed', new Error('load failed'))
+                }).toDispatchActions(['snapshotSourceLoadExhausted'])
+
+                logic.actions.loadSnapshotSources()
+                await expectLogic(logic).toMatchValues({ snapshotSourcesLoading: true })
+
+                await expectLogic(logic, () => {
+                    logic.actions.retrySnapshotLoading()
+                })
+                    .toDispatchActions(['loadSnapshotsForSource'])
+                    .toMatchValues({ snapshotSourcesLoading: true })
+            } finally {
+                releasePoll()
+                consoleError.mockRestore()
+            }
+        })
+
         it('does not grant a permanently-unauthorized source a fresh retry budget on a new seek target', async () => {
             const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
             const error = new ApiError('Unauthorized', 401)

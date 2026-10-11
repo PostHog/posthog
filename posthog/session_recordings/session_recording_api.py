@@ -99,7 +99,7 @@ from posthog.session_recordings.queries.session_replay_events import (
     SessionReplayEvents,
     get_latest_session_event_properties,
 )
-from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.errors import BlockFetchError, BlockNotFoundError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
 from posthog.session_recordings.recordings.replay_proxy_jwt import mint_replay_proxy_token
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
@@ -125,6 +125,10 @@ from .queries.sub_queries.events_subquery import ReplayFiltersEventsSubQuery
 MAX_RECORDINGS_PER_BULK_ACTION = 20
 # Matches recording-api's MAX_DELETE_SESSION_IDS — one downstream call per delete batch.
 MAX_RECORDINGS_PER_BULK_DELETE = 100
+
+# Most block read failures are transient, so retry a block before the whole range fails.
+BLOCK_FETCH_MAX_ATTEMPTS = 3
+BLOCK_FETCH_RETRY_BASE_DELAY_SECONDS = 0.2
 
 SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
     "snapshots_personal_api_key_counter",
@@ -1636,28 +1640,33 @@ class SessionRecordingViewSet(
         decompress: bool,
     ) -> BlockList:
         async def fetch_single_block(block_index: int) -> tuple[int, bytes | None]:
-            try:
-                block = blocks[block_index]
-                content = await api_client.fetch_block(
-                    block.key,
-                    block.start_byte,
-                    block.end_byte,
-                    recording.session_id,
-                    self.team.id,
-                    decompress=decompress,
-                )
-                return block_index, content
-            except RecordingDeletedError:
-                # Let this propagate up to return a 410 response
-                raise
-            except BlockFetchError:
-                logger.exception(
-                    "fetch_block_failed",
-                    recording_id=recording.session_id,
-                    team_id=self.team.id,
-                    block_index=block_index,
-                )
-                return block_index, None
+            block = blocks[block_index]
+            for attempt in range(1, BLOCK_FETCH_MAX_ATTEMPTS + 1):
+                try:
+                    content = await api_client.fetch_block(
+                        block.key,
+                        block.start_byte,
+                        block.end_byte,
+                        recording.session_id,
+                        self.team.id,
+                        decompress=decompress,
+                    )
+                    return block_index, content
+                except RecordingDeletedError:
+                    # Let this propagate up to return a 410 response
+                    raise
+                except BlockFetchError as e:
+                    if isinstance(e, BlockNotFoundError) or attempt == BLOCK_FETCH_MAX_ATTEMPTS:
+                        logger.exception(
+                            "fetch_block_failed",
+                            recording_id=recording.session_id,
+                            team_id=self.team.id,
+                            block_index=block_index,
+                            attempts=attempt,
+                        )
+                        return block_index, None
+                    await asyncio.sleep(BLOCK_FETCH_RETRY_BASE_DELAY_SECONDS * attempt)
+            return block_index, None
 
         tasks = [fetch_single_block(block_index) for block_index in range(min_blob_key, max_blob_key + 1)]
         results = await asyncio.gather(*tasks)
