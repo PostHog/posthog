@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from posthog.test.base import BaseTest
+import unittest
 
 from products.posthog_ai.eval_harness.acp_log import parse_log
 
@@ -107,7 +107,7 @@ def _join(lines: list[str]) -> str:
     return "\n".join(lines)
 
 
-class TestSandboxedTraceCaptureParser(BaseTest):
+class TestSandboxedTraceCaptureParser(unittest.TestCase):
     def test_single_turn_text_response(self):
         raw = _join(
             [
