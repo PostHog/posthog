@@ -38,6 +38,7 @@ from products.event_definitions.backend.models import effective_project_id_expr
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
 from ..property_access_control import (
+    UserNotOrganizationMemberError,
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
     is_property_access_control_enabled,
 )
@@ -543,6 +544,7 @@ __all__ = [
     "PropertyAccessControlRuleNotFoundError",
     "PropertyAccessLevel",
     "PropertyDefinitionNotFoundError",
+    "UserNotOrganizationMemberError",
     "available_access_levels",
     "delete_property_access_control",
     "get_property_access_state",

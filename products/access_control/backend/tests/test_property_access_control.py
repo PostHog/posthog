@@ -10,6 +10,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.models.role import Role, RoleMembership
 from products.access_control.backend.property_access_control import (
     PropertyAccessLevel,
+    UserNotOrganizationMemberError,
     _restriction_cache_var,
     get_default_access_level,
     get_property_access_level,
@@ -473,6 +474,17 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
 
         restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
         assert restricted == {("secret_event_prop", PropertyDefinition.Type.EVENT)}
+
+    def test_user_who_left_the_organization_raises_typed_error(self):
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        self.organization_membership.delete()
+
+        with self.assertRaises(UserNotOrganizationMemberError):
+            get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
 
 
 class TestRestrictionCacheScope(BaseTest):

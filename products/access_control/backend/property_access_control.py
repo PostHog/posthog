@@ -24,6 +24,14 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import RoleMembership
 
+
+class UserNotOrganizationMemberError(ValueError):
+    """The user has no membership in the organization, so their property restrictions are unknown."""
+
+    def __init__(self) -> None:
+        super().__init__("user does not have organization membership")
+
+
 # Scoped memoization for `get_restricted_properties_for_team`. A single request, Celery task,
 # or other unit of work can construct many query runners (e.g. a dashboard with N insights),
 # each of which would otherwise issue an identical PropertyAccessControl lookup. We cache the
@@ -169,7 +177,7 @@ def get_property_access_level(
         )
 
         if membership is None:
-            raise ValueError("user does not have organization membership")
+            raise UserNotOrganizationMemberError()
 
         user_role_ids = _get_user_role_ids(membership, property.team.organization)
 
@@ -360,7 +368,7 @@ def get_restricted_properties_with_group_type_index_for_team(
         membership = membership_qs.first()
 
         if membership is None:
-            raise ValueError("user does not have organization membership")
+            raise UserNotOrganizationMemberError()
 
         user_role_ids = _get_user_role_ids(membership, organization)
 
