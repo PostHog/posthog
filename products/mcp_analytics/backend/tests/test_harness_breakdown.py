@@ -15,6 +15,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.query import execute_hogql_query
 
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
@@ -83,6 +84,28 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             team=self.team,
         )
         return {row.harness: row for row in runner.calculate().results}
+
+    def test_virtual_harness_property_groups_as_string_and_marks_display_column(self) -> None:
+        self._emit(properties={"$mcp_client_name": "codex-mcp-client"})
+        self._emit(properties={"$mcp_client_name": "codex-mcp-client"}, distinct_id="d2")
+        self._emit(properties={"$mcp_client_name": "claude-code"}, distinct_id="d3")
+
+        response = execute_hogql_query(
+            "SELECT properties.$virt_mcp_harness AS client, count() AS calls "
+            "FROM events WHERE event = '$mcp_tool_call' GROUP BY client ORDER BY calls DESC",
+            team=self.team,
+        )
+
+        self.assertEqual(response.columns, ["client", "calls"])
+        self.assertEqual(response.column_formats, ["mcp_harness", None])
+        self.assertEqual(response.results, [("OpenAI Codex", 2), ("Claude Code", 1)])
+
+    def test_virtual_harness_property_is_empty_on_other_events(self) -> None:
+        _create_event(team=self.team, event="$pageview", distinct_id="d1", properties={"$mcp_client_name": "codex"})
+
+        response = execute_hogql_query("SELECT properties.$virt_mcp_harness FROM events", team=self.team)
+
+        self.assertEqual(response.results, [(None,)])
 
     def test_tool_name_scopes_to_effective_tool_and_new_sdk(self) -> None:
         new_sdk = {"$mcp_source": "posthog_mcp_analytics"}

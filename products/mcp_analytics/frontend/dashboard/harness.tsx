@@ -26,3 +26,12 @@ export function HarnessPill({ category, title }: { category: string; title?: str
         </span>
     )
 }
+
+export function HarnessLabel({ category }: { category: string }): JSX.Element {
+    return (
+        <span className="inline-flex items-center gap-1.5">
+            <HarnessLogo category={category} />
+            <span>{category}</span>
+        </span>
+    )
+}

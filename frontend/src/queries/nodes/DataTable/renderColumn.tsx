@@ -43,6 +43,7 @@ import {
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilityGlobalColumnRenderers } from 'products/ai_observability/frontend/aiObservabilityGlobalColumns'
+import { HarnessLabel } from 'products/mcp_analytics/frontend/dashboard/harness'
 import { GroupActorDisplay } from 'products/persons/frontend/components/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'products/persons/frontend/components/PersonDisplay'
 import { pickBestPersonDistinctId } from 'products/persons/frontend/person-utils'
@@ -95,7 +96,8 @@ export function renderColumn(
     rowCount: number,
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
-    context?: QueryContext<DataTableNode>
+    context?: QueryContext<DataTableNode>,
+    columnFormat?: string | null
 ): JSX.Element | string {
     const { queryContextColumnName, queryContextColumn } = getContextColumn(key, context?.columns)
     const originalKey = key
@@ -111,6 +113,8 @@ export function renderColumn(
         return <Spinner />
     } else if (value === errorColumn) {
         return <LemonTag className="text-danger">Error</LemonTag>
+    } else if (columnFormat === 'mcp_harness' && typeof value === 'string') {
+        return <HarnessLabel category={value} />
     } else if (queryContextColumnName && queryContextColumn?.render) {
         const Component = queryContextColumn?.render
         return (

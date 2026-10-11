@@ -88,6 +88,7 @@ import {
 
 import { WarehouseWizardHint } from 'products/data_warehouse/frontend/shared/components/WarehouseWizardHint'
 import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
+import { HarnessLabel } from 'products/mcp_analytics/frontend/dashboard/harness'
 import { HogQLBoldNumber } from 'products/product_analytics/frontend/insights/shared/BoldNumber/BoldNumber'
 
 import {
@@ -781,6 +782,9 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                     renderCell: (props: any) => {
                         const columnKey = `${column}_${index}`
                         const value = props.row[columnKey]
+                        if (response.column_formats?.[index] === 'mcp_harness' && typeof value === 'string') {
+                            return <HarnessLabel category={value} />
+                        }
                         if (typeof value === 'string' && value.startsWith('["__hx_tag",') && value.endsWith(']')) {
                             try {
                                 const parsedHogQLX = JSON.parse(value)

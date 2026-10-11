@@ -6950,6 +6950,8 @@ export interface HogQLQueryResponseApi {
     clickhouse?: string | null
     /** Returned columns */
     columns?: unknown[] | null
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Query explanation output */
