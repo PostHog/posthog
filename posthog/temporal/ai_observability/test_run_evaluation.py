@@ -48,8 +48,8 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
 from products.ai_observability.backend.llm.providers.openrouter import (
-    NON_CHAT_MODELS_CACHE_KEY,
-    NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY,
+    MODEL_MODALITIES_CACHE_KEY,
+    MODEL_MODALITIES_LAST_GOOD_CACHE_KEY,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
@@ -309,12 +309,15 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
 
 
 @pytest.mark.parametrize("flag", [True, False, None])
-def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enabled(flag: bool | None) -> None:
+@pytest.mark.parametrize("judge_method", [None, "llm"])
+def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enabled(
+    flag: bool | None, judge_method: str | None
+) -> None:
     key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
-            "products.ai_observability.backend.llm.providers.openrouter._non_chat_models", return_value=None
+            "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities", return_value=None
         ) as catalogue,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
@@ -324,28 +327,81 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
             provider="openrouter", model="openai/gpt-4o", provider_key=key, is_byok=True
         )
         complete.return_value = MagicMock(parsed=BooleanEvalResult(verdict=True, reasoning="Polite"), usage=None)
-        with pytest.raises(TransientJudgeError, match="OpenRouter model capabilities") if flag else nullcontext():
+        with (
+            pytest.raises(TransientJudgeError, match="OpenRouter model capabilities")
+            if flag and judge_method is None
+            else nullcontext()
+        ):
             result = call_llm_judge(
-                evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is the response polite?"}},
+                evaluation={
+                    "team_id": 1,
+                    "evaluation_config": {
+                        "prompt": "Is the response polite?",
+                        **({"judge_method": judge_method} if judge_method else {}),
+                    },
+                },
                 system_prompt="",
                 user_prompt="Hello!",
                 allows_na=False,
             )
-    if flag:
+    if flag and judge_method is None:
         complete.assert_not_called()
     else:
         assert result["verdict"] is True
-        catalogue.assert_called_once_with(refresh=False)
+        if judge_method is None:
+            catalogue.assert_called_once_with(refresh=False)
+        else:
+            catalogue.assert_not_called()
     decide.assert_not_called()
+
+
+@pytest.mark.parametrize("flag", [True, False, None])
+@pytest.mark.parametrize("judge_method", [None, "llm"])
+def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
+    flag: bool | None, judge_method: str | None
+) -> None:
+    key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch(
+            "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
+            return_value={"example/dual-model": ["text", "decisions"]},
+        ),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openrouter", model="example/dual-model", provider_key=key, is_byok=True
+        )
+        complete.return_value = MagicMock(
+            parsed=BooleanEvalResult(verdict=True, reasoning="Meets the criteria."), usage=None
+        )
+        result = call_llm_judge(
+            evaluation={
+                "team_id": 1,
+                "evaluation_config": {
+                    "prompt": "Check the response.",
+                    **({"judge_method": judge_method} if judge_method else {}),
+                },
+            },
+            system_prompt="Check the response.",
+            user_prompt="Example response.",
+            allows_na=False,
+        )
+    complete.assert_called_once()
+    decide.assert_not_called()
+    assert result["verdict"] is True
+    assert result["reasoning"] == "Meets the criteria."
 
 
 @pytest.mark.parametrize("flag", [False, None])
 @pytest.mark.parametrize("cached", [True, False])
 def test_openrouter_decision_model_with_disabled_flag_skips_without_disabling(flag: bool | None, cached: bool) -> None:
-    cache.delete_many([NON_CHAT_MODELS_CACHE_KEY, NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY])
+    cache.delete_many([MODEL_MODALITIES_CACHE_KEY, MODEL_MODALITIES_LAST_GOOD_CACHE_KEY])
     model = "example/decision"
     if cached:
-        cache.set(NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY, {model: ["decisions"]}, timeout=None)
+        cache.set(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY, {model: ["decisions"]}, timeout=None)
     key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
     try:
         with (
@@ -377,7 +433,7 @@ def test_openrouter_decision_model_with_disabled_flag_skips_without_disabling(fl
         assert catalogue.call_count == (0 if cached else 1)
         decide.assert_not_called()
     finally:
-        cache.delete_many([NON_CHAT_MODELS_CACHE_KEY, NON_CHAT_MODELS_LAST_GOOD_CACHE_KEY])
+        cache.delete_many([MODEL_MODALITIES_CACHE_KEY, MODEL_MODALITIES_LAST_GOOD_CACHE_KEY])
 
 
 @pytest.mark.parametrize(
@@ -417,7 +473,9 @@ def test_openrouter_decision_model_with_disabled_flag_skips_without_disabling(fl
     "probability,applicability,allows_na,verdict",
     [(0.49, 1.0, False, False), (0.5, 1.0, False, True), (0.9, 0.1, True, None), (0.0, 0.9, True, False)],
 )
+@pytest.mark.parametrize("judge_method", [None, "decision"])
 def test_system_one_judge_emits_boolean_probability_without_reasoning(
+    judge_method: str | None,
     probability: float,
     applicability: float,
     allows_na: bool,
@@ -443,12 +501,16 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         "id": "test-evaluation",
         "name": "Politeness",
         "team_id": 1,
-        "evaluation_config": {"prompt": "Is the response polite?"},
+        "evaluation_config": {
+            "prompt": "Is the response polite?",
+            **({"judge_method": judge_method} if judge_method else {}),
+        },
     }
+
     with (
         override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
         patch(
-            "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+            "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
@@ -500,7 +562,9 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
     ],
 )
 @pytest.mark.parametrize("provider", ["system_one", "openrouter"])
+@pytest.mark.parametrize("judge_method", [None, "decision"])
 def test_system_one_categorical_results_use_category_keys_without_boolean_probability(
+    judge_method: str | None,
     provider: str,
     selection_mode: str,
     probabilities: list[float],
@@ -514,7 +578,10 @@ def test_system_one_categorical_results_use_category_keys_without_boolean_probab
         "name": "Response categories",
         "team_id": 1,
         "evaluation_type": "llm_judge",
-        "evaluation_config": {"prompt": "Classify the response."},
+        "evaluation_config": {
+            "prompt": "Classify the response.",
+            **({"judge_method": judge_method} if judge_method else {}),
+        },
         "output_type": "categorical",
         "output_config": {"options": options, "selection_mode": selection_mode, "allows_na": allows_na},
     }
@@ -529,9 +596,10 @@ def test_system_one_categorical_results_use_category_keys_without_boolean_probab
         provider=provider,
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
+
     with (
         patch(
-            "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+            "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
@@ -584,7 +652,9 @@ def test_system_one_categorical_results_use_category_keys_without_boolean_probab
     ],
 )
 @pytest.mark.parametrize("provider", ["system_one", "openrouter"])
+@pytest.mark.parametrize("judge_method", [None, "decision"])
 def test_decision_numeric_scores_use_configured_bounds(
+    judge_method: str | None,
     provider: str,
     minimum: float,
     maximum: float,
@@ -599,7 +669,7 @@ def test_decision_numeric_scores_use_configured_bounds(
         "name": "Answer quality",
         "team_id": 1,
         "evaluation_type": "llm_judge",
-        "evaluation_config": {"prompt": prompt},
+        "evaluation_config": {"prompt": prompt, **({"judge_method": judge_method} if judge_method else {})},
         "output_type": "numeric",
         "output_config": {"min": minimum, "max": maximum, "step": 1, "allows_na": allows_na},
     }
@@ -609,9 +679,10 @@ def test_decision_numeric_scores_use_configured_bounds(
     if allows_na:
         answers["applicable"] = {"noul": 0.9 if applicable else 0.1}
     key = MagicMock(provider=provider, encrypted_config={"api_key": "", "base_url": "https://decisions.example.com/v1"})
+
     with (
         patch(
-            "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+            "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"typesafe/jev-1.13": ["decisions"]},
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
@@ -749,7 +820,7 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
     )
     with (
         patch(
-            "products.ai_observability.backend.llm.providers.openrouter._non_chat_models",
+            "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"example-judge-v1": ["decisions"]},
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),

@@ -23,7 +23,7 @@ import {
 import type { EvaluationBackfillApi, TestHogRequestApi, TestHogResultItemApi } from '../generated/api.schemas'
 import type { EvaluationApiOutputConfig } from '../generated/api.schemas'
 import { parsePlaygroundProviderKeyId } from '../ModelPicker'
-import { modelPickerLogic, type ModelOption } from '../modelPickerLogic'
+import { modelPickerLogic, type ModelOption, type ProviderModelGroup } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic, toLLMProvider } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
@@ -67,6 +67,7 @@ import type {
     EvaluationType,
     HogEvaluation,
     LLMJudgeEvaluation,
+    JudgeMethod,
     ModelConfiguration,
     SentimentEvaluation,
 } from './types'
@@ -303,6 +304,7 @@ export interface llmEvaluationLogicValues {
     providerKeysLoading: boolean // llmProviderKeysLogic
     requiresProviderKey: boolean // llmProviderKeysLogic
     byokModels: ModelOption[] // modelPickerLogic
+    evaluationProviderModelGroups: ProviderModelGroup[] // modelPickerLogic
     activeTab: string
     breadcrumbs: Breadcrumb[]
     canEnable: boolean
@@ -325,6 +327,8 @@ export interface llmEvaluationLogicValues {
     isForceRefresh: boolean
     isNewEvaluation: boolean
     isReportableEvaluation: boolean
+    judgeMethod: JudgeMethod
+    judgeModelGroups: ProviderModelGroup[]
     maxContext: MaxContextInput[]
     modelSelectionRequired: boolean
     numericBoundsRequired: boolean
@@ -482,6 +486,9 @@ export interface llmEvaluationLogicActions {
     setHogTestMessage: (message: string | null) => {
         message: string | null
     }
+    setJudgeMethod: (judgeMethod: JudgeMethod) => {
+        judgeMethod: JudgeMethod
+    }
     setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => {
         modelConfiguration: ModelConfiguration | null
     }
@@ -543,7 +550,12 @@ export interface llmEvaluationLogicMeta {
             originalEvaluation: EvaluationConfig | null,
             evaluationId: string
         ) => boolean
-        usesDecisionModel: (evaluation: EvaluationConfig | null, byokModels: ModelOption[]) => boolean
+        judgeMethod: (evaluation: EvaluationConfig | null, byokModels: ModelOption[]) => JudgeMethod
+        usesDecisionModel: (judgeMethod: JudgeMethod) => boolean
+        judgeModelGroups: (
+            evaluationProviderModelGroups: ProviderModelGroup[],
+            judgeMethod: JudgeMethod
+        ) => ProviderModelGroup[]
         numericBoundsRequired: (evaluation: EvaluationConfig | null, usesDecisionModel: boolean) => boolean
         formValid: (
             evaluation: EvaluationConfig | null,
@@ -612,7 +624,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             llmProviderKeysLogic,
             ['providerKeys', 'providerKeysLoading', 'requiresProviderKey', 'activeProviderKey'],
             modelPickerLogic,
-            ['byokModels'],
+            ['byokModels', 'evaluationProviderModelGroups'],
         ],
         actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadEvaluationConfigSuccess']],
     })),
@@ -633,6 +645,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setTrueIsFailure: (trueIsFailure: boolean) => ({ trueIsFailure }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
+        setJudgeMethod: (judgeMethod: JudgeMethod) => ({ judgeMethod }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
         setEvaluationTarget: (target: EvaluationTarget) => ({ target }),
         setSettleStrategy: (strategy: EvaluationSettleStrategy) => ({ strategy }),
@@ -906,6 +919,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setModelConfiguration: (state, { modelConfiguration }) =>
                     state && isLLMJudgeEvaluation(state)
                         ? { ...state, model_configuration: modelConfiguration }
+                        : state,
+                setJudgeMethod: (state, { judgeMethod }) =>
+                    state && isLLMJudgeEvaluation(state)
+                        ? { ...state, evaluation_config: { ...state.evaluation_config, judge_method: judgeMethod } }
                         : state,
                 setEvaluationType: (state, { evaluationType }) => {
                     if (!state) {
@@ -1375,6 +1392,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
             const playgroundProvider = parsePlaygroundProviderKeyId(providerKeyId)
             if (playgroundProvider) {
+                actions.setJudgeMethod(values.judgeMethod)
                 actions.setModelConfiguration({
                     provider: playgroundProvider,
                     model: modelId,
@@ -1384,11 +1402,34 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
             const key = values.providerKeys.find((k: LLMProviderKey) => k.id === providerKeyId)
             if (key) {
+                actions.setJudgeMethod(values.judgeMethod)
                 actions.setModelConfiguration({
                     provider: key.provider,
                     model: modelId,
                     provider_key_id: providerKeyId,
                 })
+            }
+        },
+        setJudgeMethod: () => {
+            const config = values.evaluation?.model_configuration
+            if (!config) {
+                return
+            }
+            const model = values.byokModels.find(
+                (model) =>
+                    model.id === config.model &&
+                    toLLMProvider(model.provider) === config.provider &&
+                    (!config.provider_key_id || model.providerKeyId === config.provider_key_id)
+            )
+            const compatible = model
+                ? values.judgeMethod === 'decision'
+                    ? model.supportsDecisions
+                    : (model.supportsChat ?? !model.supportsDecisions)
+                : config.provider === 'system_one'
+                  ? values.judgeMethod === 'decision'
+                  : values.judgeMethod === 'llm'
+            if (!compatible) {
+                actions.setModelConfiguration(null)
             }
         },
         setEvaluationType: () => {
@@ -1498,29 +1539,52 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!isLLMJudgeEvaluation(evaluation)) {
                     return false
                 }
-                if (evaluationId === 'new' || originalEvaluation?.evaluation_type !== 'llm_judge') {
+                if (
+                    evaluationId === 'new' ||
+                    originalEvaluation?.evaluation_type !== 'llm_judge' ||
+                    evaluation.evaluation_config?.judge_method != null
+                ) {
                     return true
                 }
                 return originalEvaluation.model_configuration != null
             },
         ],
 
-        usesDecisionModel: [
+        judgeMethod: [
             (s) => [s.evaluation, s.byokModels],
-            (evaluation: EvaluationConfig | null, models: ModelOption[]): boolean => {
+            (evaluation: EvaluationConfig | null, models: ModelOption[]): JudgeMethod => {
+                if (isLLMJudgeEvaluation(evaluation) && evaluation.evaluation_config?.judge_method) {
+                    return evaluation.evaluation_config.judge_method
+                }
                 const config = evaluation?.model_configuration
-                return (
-                    config?.provider === 'system_one' ||
+                return config?.provider === 'system_one' ||
                     (config?.provider === 'openrouter' &&
                         models.some(
                             (model) =>
                                 model.id === config.model &&
                                 toLLMProvider(model.provider) === 'openrouter' &&
                                 (!config.provider_key_id || model.providerKeyId === config.provider_key_id) &&
-                                model.supportsDecisions
+                                model.supportsDecisions &&
+                                !model.supportsChat
                         ))
-                )
+                    ? 'decision'
+                    : 'llm'
             },
+        ],
+        usesDecisionModel: [(s) => [s.judgeMethod], (judgeMethod: JudgeMethod): boolean => judgeMethod === 'decision'],
+        judgeModelGroups: [
+            (s) => [s.evaluationProviderModelGroups, s.judgeMethod],
+            (groups: ProviderModelGroup[], judgeMethod: JudgeMethod): ProviderModelGroup[] =>
+                groups
+                    .map((group) => ({
+                        ...group,
+                        models: group.models.filter((model) =>
+                            judgeMethod === 'decision'
+                                ? model.supportsDecisions
+                                : (model.supportsChat ?? !model.supportsDecisions)
+                        ),
+                    }))
+                    .filter((group) => group.models.length > 0 || group.disabledReason),
         ],
         numericBoundsRequired: [
             (s) => [s.evaluation, s.usesDecisionModel],

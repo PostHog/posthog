@@ -60,6 +60,13 @@ The worker closes the connection when that read finishes or reaches the provider
 ## Decision model judges
 
 Decision models are available under the existing LLM judge option. They return typed answers without written reasoning.
+The evaluation editor separates **Judge method** from **Model**. Choose **LLM with explanation** for chat completions or **Decision model** for typed decisions.
+Each method lists models with the corresponding capability from the project's saved provider connections. API keys stay in AI provider settings.
+Switching methods keeps a compatible model and its saved connection; an incompatible model is cleared without changing the criteria or output settings.
+The selection is stored as `evaluation_config.judge_method` (`llm` or `decision`). Evaluations without this field keep automatic routing until a method or model is explicitly selected.
+Automatic OpenRouter routing selects decisions only for models without text output. Models supporting both methods keep chat routing unless decisions are explicitly selected.
+Prompt-only `evaluation_config` PATCH requests preserve the saved method; an explicit `judge_method: null` restores automatic routing.
+Explicit method selection requires a selected model, including for legacy evaluations that use the project's default connection.
 The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
 Both use the project's UUID as its group key; the numeric project ID is a group property.
 Deploy the ingestion and evaluation worker changes before enabling the flag.
@@ -77,12 +84,13 @@ The picker does not exclude individual decision models. Listed models may not su
 The catalogue does not expose supported question types. If a model rejects a request, the run is skipped without retrying, with a reason to check output-type and criteria compatibility.
 Support added by a provider works on subsequent runs without a PostHog code change.
 Chat models such as Jev Router keep using chat completions.
-Decision models are excluded from the playground and tagger model pickers.
+Models without text output are excluded from the playground and tagger model pickers. Models supporting both text and decisions remain available for both judge methods and for chat.
 The catalogue refreshes hourly and keeps its last successful response when a refresh fails, retrying refreshes after one minute.
-For projects with this flag enabled, an unavailable catalogue makes OpenRouter runs retry only when no successful response is cached.
-These projects also need the catalogue when changing a model or output configuration, changing the evaluation type, or enabling an evaluation.
+For projects with this flag enabled, an unavailable catalogue makes automatically routed OpenRouter runs retry only when no successful response is cached.
+Automatic routing and explicit decision selection also need the catalogue when changing a model or output configuration, changing the evaluation type, enabling an evaluation, or changing the judge method.
+Explicit LLM judging uses chat completions without a routing catalogue lookup, including for models supporting both methods.
 Renaming or disabling an evaluation does not require the catalogue.
-With the flag off or unavailable, cached decision models skip their runs without calling either API or disabling the evaluation.
+With the flag off or unavailable, cached decision-only models skip their runs without calling either API or disabling the evaluation.
 Other OpenRouter models keep the existing chat path without a catalogue refresh. If a failed chat call identifies a decision model, that run also skips without disabling the evaluation.
 An out-of-credits response disables the evaluation and marks its provider key as failing, as on the chat path.
 For other compatible services, add a connection under **System One** in provider key settings.

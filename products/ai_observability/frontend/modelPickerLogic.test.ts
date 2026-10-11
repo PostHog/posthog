@@ -114,6 +114,7 @@ describe('modelPickerLogic', () => {
                     description: m.description,
                     isRecommended: true,
                     supportsDecisions: false,
+                    supportsChat: true,
                     providerKeyId: 'key-1',
                 }))
             )
@@ -132,6 +133,12 @@ describe('modelPickerLogic', () => {
                             ? [
                                   { id: 'typesafe/jev-1.13', provider: 'OpenRouter', supports_decisions: true },
                                   { id: 'typesafe/jev-router', provider: 'OpenRouter', supports_decisions: false },
+                                  {
+                                      id: 'example/dual-model',
+                                      provider: 'OpenRouter',
+                                      supports_decisions: true,
+                                      supports_chat: true,
+                                  },
                               ]
                             : [],
                     ],
@@ -144,9 +151,16 @@ describe('modelPickerLogic', () => {
             expect(logic.values.evaluationProviderModelGroups[0].models.map((model) => model.id)).toEqual([
                 'typesafe/jev-1.13',
                 'typesafe/jev-router',
+                'example/dual-model',
             ])
-            expect(logic.values.providerModelGroups[0].models.map((model) => model.id)).toEqual(['typesafe/jev-router'])
-            expect(logic.values.generativeByokModels.map((model) => model.id)).toEqual(['typesafe/jev-router'])
+            expect(logic.values.providerModelGroups[0].models.map((model) => model.id)).toEqual([
+                'typesafe/jev-router',
+                'example/dual-model',
+            ])
+            expect(logic.values.generativeByokModels.map((model) => model.id)).toEqual([
+                'typesafe/jev-router',
+                'example/dual-model',
+            ])
         })
 
         it('should map is_recommended correctly for both true and false values', async () => {
@@ -276,6 +290,7 @@ describe('modelPickerLogic', () => {
                     isRecommended: true,
                     providerKeyId: 'key-2',
                     supportsDecisions: false,
+                    supportsChat: true,
                 }))
             )
             expect(logic.values.providerModelGroups.find((g) => g.providerKeyId === 'key-1')).toEqual({

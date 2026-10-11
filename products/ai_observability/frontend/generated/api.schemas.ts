@@ -1967,6 +1967,8 @@ export type EvaluationApiEvaluationConfig =
            * @minLength 1
            */
           prompt: string
+          /** Judge method. Omit to preserve automatic routing for existing evaluations. */
+          judge_method?: 'llm' | 'decision'
       }
     | {
           /**
@@ -2277,6 +2279,8 @@ export type PatchedEvaluationApiEvaluationConfig =
            * @minLength 1
            */
           prompt: string
+          /** Judge method. Omit to preserve automatic routing for existing evaluations. */
+          judge_method?: 'llm' | 'decision'
       }
     | {
           /**
