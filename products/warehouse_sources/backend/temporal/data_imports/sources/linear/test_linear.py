@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linear.lin
     _make_paginated_request,
     _parse_retry_after,
     linear_source,
+    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.queries import QUERIES
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.settings import (
@@ -574,3 +575,57 @@ class TestLinearSourceNonRetryableErrors:
         non_retryable_errors = LinearSource().get_non_retryable_errors()
         # Transient/server errors must stay retryable so the pipeline backs off and retries.
         assert not any(key in observed_error for key in non_retryable_errors)
+
+
+def _make_validation_response(status_code: int, body: Any) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.json.return_value = body
+    return response
+
+
+class TestValidateCredentials:
+    @parameterized.expand(
+        [
+            ("unauthorized_401", _make_validation_response(401, {}), "Linear rejected your connection"),
+            (
+                "authentication_error_400",
+                _make_validation_response(400, {"errors": [{"extensions": {"code": "AUTHENTICATION_ERROR"}}]}),
+                "Linear rejected your connection",
+            ),
+            ("forbidden_403", _make_validation_response(403, {}), "can't read this workspace"),
+            ("server_error_503", _make_validation_response(503, {}), "Couldn't reach Linear"),
+            (
+                "unexpected_graphql_error",
+                _make_validation_response(400, {"errors": [{"message": "boom"}]}),
+                "Couldn't verify your Linear connection",
+            ),
+            ("network_error", requests.exceptions.ConnectionError("api.linear.app down"), "Couldn't reach Linear"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_failures_return_user_facing_message(
+        self,
+        _name: str,
+        outcome: MagicMock | Exception,
+        expected_message: str,
+        mock_session_cls: MagicMock,
+        _mock_capture: MagicMock,
+    ) -> None:
+        mock_session_cls.return_value.post.side_effect = [outcome]
+
+        valid, message = validate_credentials("tok")
+
+        assert valid is False
+        assert message is not None
+        assert expected_message in message
+        assert "api.linear.app" not in message
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
+    def test_viewer_response_is_valid(self, mock_session_cls: MagicMock) -> None:
+        mock_session_cls.return_value.post.return_value = _make_validation_response(
+            200, {"data": {"viewer": {"id": "user-1"}}}
+        )
+
+        assert validate_credentials("tok") == (True, None)
