@@ -2,14 +2,16 @@ from typing import Any
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from rest_framework import viewsets
+from prometheus_client import Counter
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.statement_timeout import statement_timeout
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.permissions import PostHogFeatureFlagPermission
 
@@ -31,6 +33,20 @@ _COMPARE_DEFAULT_LIMIT = 20
 _COMPARE_MAX_LIMIT = 100
 _DISCOVER_DEFAULT_LIMIT = 5
 _DISCOVER_MAX_LIMIT = 20
+# Agents call discover over MCP, and MCP clients drop a call after about a minute. A refusal well
+# inside that window tells the agent to retry. A dropped call tells it nothing.
+DISCOVER_STATEMENT_TIMEOUT_MS = 15_000
+
+DISCOVER_TIMED_OUT_COUNTER = Counter(
+    "mcp_registry_discover_timed_out_total",
+    "MCP registry discover requests cancelled by the statement timeout.",
+)
+
+
+class DiscoverTimedOut(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "mcp_registry_discover_timeout"
+    default_detail = "Finding MCP servers took too long. Try again in a moment, or describe the task in fewer words."
 
 
 class MCPRegistryPagination(LimitOffsetPagination):
@@ -159,10 +175,11 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             OpenApiParameter("version", OpenApiTypes.STR, description="Ranking version to rank candidates by."),
             OpenApiParameter("limit", OpenApiTypes.INT, description="Candidates to return (default 5, max 20)."),
         ],
-        responses={200: MCPDiscoverResponseSerializer},
+        responses={200: MCPDiscoverResponseSerializer, 503: OpenApiTypes.OBJECT},
         description="Given a task, return the MCP servers most likely to do it, each with its rank rationale, "
         "real usage signal where we measure it, and ready-to-run connection instructions. One call is "
-        "everything an agent needs to go from a task to a connected server.",
+        "everything an agent needs to go from a task to a connected server. Answers 503 with code "
+        "`mcp_registry_discover_timeout` when the search runs too long, so retry the call.",
     )
     @action(detail=False, methods=["GET"], pagination_class=None)
     def discover(self, request: Request, **kwargs) -> Response:
@@ -175,9 +192,12 @@ class MCPRegistryServerViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ValueError:
             raise ValidationError({"limit": "must be an integer"})
 
-        candidates = registry_api.discover_servers(
-            intent=intent, version=version, limit=limit, **self._caller_context()
-        )
+        with statement_timeout(
+            registry_api.read_db_alias(), DISCOVER_STATEMENT_TIMEOUT_MS, DiscoverTimedOut, DISCOVER_TIMED_OUT_COUNTER
+        ):
+            candidates = registry_api.discover_servers(
+                intent=intent, version=version, limit=limit, **self._caller_context()
+            )
         return Response(
             MCPDiscoverResponseSerializer({"intent": intent, "ranking_version": version, "candidates": candidates}).data
         )

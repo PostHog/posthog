@@ -21,7 +21,7 @@ export const McpRegistryServersRetrieveParams = () => zod.object({
 })
 
 /**
- * Given a task, return the MCP servers most likely to do it, each with its rank rationale, real usage signal where we measure it, and ready-to-run connection instructions. One call is everything an agent needs to go from a task to a connected server.
+ * Given a task, return the MCP servers most likely to do it, each with its rank rationale, real usage signal where we measure it, and ready-to-run connection instructions. One call is everything an agent needs to go from a task to a connected server. Answers 503 with code `mcp_registry_discover_timeout` when the search runs too long, so retry the call.
  */
 export const McpRegistryServersDiscoverRetrieveParams = () => zod.object({
     project_id: zod
