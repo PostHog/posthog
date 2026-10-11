@@ -41,6 +41,7 @@ from posthog.schema import (
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import is_mcp_request
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.event_usage import report_user_action
@@ -77,6 +78,7 @@ from ..logic import (
     run_service_names_query,
     run_tree_query,
 )
+from ..redaction import redact_attribute_value, redact_span_rows
 from ..sparkline_query_runner import TraceSpansSparklineQueryRunner
 from .date_window import normalize_tracing_date_range
 
@@ -1361,6 +1363,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 boundary_trace_id, boundary_ts = ordered_traces[requested_limit - 1]
                 next_cursor = _encode_after_cursor(boundary_ts.isoformat(), trace_id=boundary_trace_id)
 
+        if is_mcp_request(request):
+            results = redact_span_rows(results)
+
         report_user_action(
             request.user,
             "tracing query executed",
@@ -1823,11 +1828,14 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             facet_search=query_data.get("facetSearch") or None,
         )
 
+        results = [row.model_dump() for row in response.results]
+        compare = _serialize_compare_rows(response.compare)
+        if is_mcp_request(request):
+            for row in [*results, *(compare or [])]:
+                row["value"] = redact_attribute_value(breakdown_key, row["value"])
+
         return Response(
-            {
-                "results": [row.model_dump() for row in response.results],
-                "compare": _serialize_compare_rows(response.compare),
-            },
+            {"results": results, "compare": compare},
             status=status.HTTP_200_OK,
         )
 
@@ -1892,6 +1900,8 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         # Self-time needs a span's children present. On a paged (truncated) trace it overstates for
         # spans whose children fall on a later page — an accepted bound, same as the prior 2000 cap.
         annotate_self_time(results)
+        if is_mcp_request(request):
+            results = redact_span_rows(results)
 
         self._report_usage(
             request,
@@ -2026,5 +2036,9 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             limit=limit,
             offset=offset,
         )
+
+        if is_mcp_request(request):
+            names = dict.fromkeys(redact_attribute_value(attribute_key, row["name"]) for row in results)
+            results = [{"id": name, "name": name} for name in names]
 
         return Response({"results": results}, status=status.HTTP_200_OK)
