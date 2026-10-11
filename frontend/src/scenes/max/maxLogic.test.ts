@@ -284,6 +284,30 @@ describe('maxLogic', () => {
             ])
             expect(logic.values.question).toBe('')
         })
+
+        it('leaves the prompt to the new composer when the new view is active', async () => {
+            initKeaTests(true, undefined, undefined, {
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: true,
+            })
+            useMocks(maxMocks)
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
+            jest.useFakeTimers()
+            try {
+                router.actions.push(urls.ai(undefined, 'Explore my traces'))
+
+                logic = maxLogic({ panelId: 'test' })
+                logic.mount()
+                jest.advanceTimersByTime(1000)
+
+                await expectLogic(logic).toNotHaveDispatchedActions(['askMax'])
+                expect(logic.values.question).toBe('')
+            } finally {
+                jest.useRealTimers()
+                featureFlagLogic.unmount()
+            }
+        })
     })
 
     it('does not reset conversation when 404 occurs during active message generation', async () => {
