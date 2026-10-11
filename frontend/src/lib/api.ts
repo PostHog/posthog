@@ -1319,12 +1319,6 @@ export class ApiRequest {
         return this.errorTrackingReleases().addPathComponent(id)
     }
 
-    public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
-        return this.teamProjectDetail(teamId)
-            .addPathComponent('error_tracking')
-            .addPathComponent('git-provider-file-links')
-    }
-
     public errorTrackingStackFrames(): ApiRequest {
         return this.errorTracking().addPathComponent('stack_frames/batch_get')
     }
@@ -4309,43 +4303,6 @@ const api = {
         },
         async delete(id: string): Promise<void> {
             return await new ApiRequest().quickFilter(id).delete()
-        },
-    },
-
-    gitProviderFileLinks: {
-        async resolveGithub(
-            owner: string,
-            repository: string,
-            codeSample: string,
-            fileName: string
-        ): Promise<{ found: boolean; url?: string }> {
-            return await new ApiRequest()
-                .gitProviderFileLinks()
-                .withAction('resolve_github')
-                .withQueryString({
-                    owner,
-                    repository,
-                    code_sample: codeSample,
-                    file_name: fileName,
-                })
-                .get()
-        },
-        async resolveGitlab(
-            owner: string,
-            repository: string,
-            codeSample: string,
-            fileName: string
-        ): Promise<{ found: boolean; url?: string }> {
-            return await new ApiRequest()
-                .gitProviderFileLinks()
-                .withAction('resolve_gitlab')
-                .withQueryString({
-                    owner,
-                    repository,
-                    code_sample: codeSample,
-                    file_name: fileName,
-                })
-                .get()
         },
     },
 
