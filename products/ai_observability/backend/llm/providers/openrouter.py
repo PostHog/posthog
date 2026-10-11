@@ -83,10 +83,14 @@ def non_chat_model_ids() -> frozenset[str] | None:
     )
 
 
-def decision_model_ids(*, refresh: bool = True) -> frozenset[str] | None:
+def decision_model_ids(*, refresh: bool = True, decision_only: bool = False) -> frozenset[str] | None:
     models = _model_output_modalities(refresh=refresh)
     return (
-        frozenset(model for model, modalities in models.items() if "decisions" in modalities)
+        frozenset(
+            model
+            for model, modalities in models.items()
+            if "decisions" in modalities and (not decision_only or "text" not in modalities)
+        )
         if models is not None
         else None
     )

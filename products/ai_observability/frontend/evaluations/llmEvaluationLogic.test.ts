@@ -1640,32 +1640,38 @@ return result`,
     })
 
     describe('selectModelFromPicker', () => {
-        it('displays a legacy decision model without writing a judge method on unrelated edits', async () => {
-            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-            modelPickerLogic.actions.loadByokModelsSuccess([
-                {
-                    id: 'example/decision-model',
-                    name: 'example/decision-model',
-                    description: '',
-                    provider: 'OpenRouter',
-                    providerKeyId: 'key-3',
-                    supportsDecisions: true,
-                    supportsChat: false,
-                },
-            ])
-            logic.actions.loadEvaluationSuccess({
-                ...mockEvaluation,
-                model_configuration: {
-                    provider: 'openrouter',
-                    model: 'example/decision-model',
-                    provider_key_id: 'key-3',
-                },
-            })
-            expect(logic.values.judgeMethod).toBe('decision')
-            logic.actions.setEvaluationName('Renamed evaluation')
-            expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: 'Is this response helpful?' })
-            expect(logic.values.selectedModel).toBe('example/decision-model')
-        })
+        it.each([
+            [false, 'decision'],
+            [true, 'llm'],
+        ] as const)(
+            'keeps legacy routing when the decision model supportsChat=%s',
+            async (supportsChat, expectedMethod) => {
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                modelPickerLogic.actions.loadByokModelsSuccess([
+                    {
+                        id: 'example/decision-model',
+                        name: 'example/decision-model',
+                        description: '',
+                        provider: 'OpenRouter',
+                        providerKeyId: 'key-3',
+                        supportsDecisions: true,
+                        supportsChat,
+                    },
+                ])
+                logic.actions.loadEvaluationSuccess({
+                    ...mockEvaluation,
+                    model_configuration: {
+                        provider: 'openrouter',
+                        model: 'example/decision-model',
+                        provider_key_id: 'key-3',
+                    },
+                })
+                expect(logic.values.judgeMethod).toBe(expectedMethod)
+                logic.actions.setEvaluationName('Renamed evaluation')
+                expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: 'Is this response helpful?' })
+                expect(logic.values.selectedModel).toBe('example/decision-model')
+            }
+        )
 
         it.each(['llm', 'decision'] as const)(
             'keeps a dual-capability model and its key when selecting %s',

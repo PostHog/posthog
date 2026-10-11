@@ -576,6 +576,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             supports_decisions = is_decision_model(
                 model_provider,
                 model_configuration.get("model"),
+                decision_only=judge_method is None,
                 openrouter_enabled=model_provider == "openrouter"
                 and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL),
             )
@@ -590,6 +591,19 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
+        if "evaluation_config" in data:
+            config = data["evaluation_config"]
+            if not isinstance(config, dict):
+                raise serializers.ValidationError({"evaluation_config": "Must be an object."})
+            if (
+                self.partial
+                and self.instance is not None
+                and evaluation_type == EvaluationType.LLM_JUDGE.value
+                and "judge_method" not in config
+                and "judge_method" in self.instance.evaluation_config
+            ):
+                # A prompt-only PATCH must not reset the saved routing choice.
+                data["evaluation_config"] = {"judge_method": self.instance.evaluation_config["judge_method"], **config}
         flag_key = {
             "numeric": NUMERIC_EVALUATIONS_FEATURE_FLAG,
             "categorical": CATEGORICAL_EVALUATIONS_FEATURE_FLAG,

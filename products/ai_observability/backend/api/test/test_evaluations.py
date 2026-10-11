@@ -120,6 +120,59 @@ class TestNumericEvaluationSerializer(SimpleTestCase):
 
 
 class TestModelConfigurationSerializer(SimpleTestCase):
+    @parameterized.expand([([],), ("invalid",), (1,), (True,), (None,)])
+    def test_patch_rejects_non_object_evaluation_config(self, config: object) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check the response."},
+            output_type="boolean",
+            output_config={},
+        )
+        serializer = EvaluationSerializer(instance=evaluation, data={"evaluation_config": config}, partial=True)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("evaluation_config", serializer.errors)
+
+    @parameterized.expand(
+        [
+            ("llm", {}, {"judge_method": "llm"}),
+            ("decision", {}, {"judge_method": "decision"}),
+            ("llm", {"judge_method": None}, {}),
+            ("decision", {"judge_method": "llm"}, {"judge_method": "llm"}),
+            (None, {}, {}),
+        ]
+    )
+    def test_prompt_patch_preserves_method_unless_explicitly_changed(
+        self, method: str | None, patch_config: dict[str, object], expected_method: dict[str, str]
+    ) -> None:
+        stored_config = {"prompt": "Check the response.", **({"judge_method": method} if method else {})}
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config=stored_config.copy(),
+            output_type="boolean",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="openrouter", model="example/dual-model"),
+        )
+        serializer = EvaluationSerializer(
+            instance=evaluation,
+            data={"evaluation_config": {"prompt": "Check clarity.", **patch_config}},
+            partial=True,
+            context={"get_team": lambda: Mock(id=1)},
+        )
+        with (
+            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True),
+            patch(
+                "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
+                return_value={"example/dual-model": ["text", "decisions"]},
+            ) as catalogue,
+        ):
+            self.assertTrue(serializer.is_valid(), serializer.errors)
+        if not patch_config:
+            catalogue.assert_not_called()
+        self.assertEqual(
+            serializer.validated_data["evaluation_config"], {"prompt": "Check clarity.", **expected_method}
+        )
+        self.assertEqual(evaluation.evaluation_config, stored_config)
+
     @parameterized.expand([("llm",), ("decision",)])
     def test_explicit_judge_method_requires_a_model_for_a_legacy_evaluation(self, method: str) -> None:
         evaluation = Evaluation(
@@ -136,7 +189,8 @@ class TestModelConfigurationSerializer(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("legacy", None, "openrouter", ["text", "decisions"], True),
+            ("legacy_dual", None, "openrouter", ["text", "decisions"], False),
+            ("legacy_decision", None, "openrouter", ["decisions"], True),
             ("dual_chat", "llm", "openrouter", ["text", "decisions"], False),
             ("dual_decision", "decision", "openrouter", ["text", "decisions"], True),
             ("chat_only", "llm", "openai", ["text"], False),
@@ -546,6 +600,22 @@ class TestEvaluationConfigsApi(APIBaseTest):
         )
         self.assertEqual(renamed.status_code, status.HTTP_200_OK)
         self.assertEqual(renamed.data["evaluation_config"], config)
+        updated = self.client.patch(
+            f"/api/environments/{self.team.id}/evaluations/{evaluation_config.id}/",
+            {"evaluation_config": {"prompt": "Check clarity."}},
+            format="json",
+        )
+        self.assertEqual(updated.status_code, status.HTTP_200_OK)
+        evaluation_config.refresh_from_db()
+        self.assertEqual(evaluation_config.evaluation_config, {**config, "prompt": "Check clarity."})
+        if provider == "openai" and judge_method is None:
+            malformed = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{evaluation_config.id}/",
+                {"evaluation_config": []},
+                format="json",
+            )
+            self.assertEqual(malformed.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(malformed.data["attr"], "evaluation_config")
         self.assertEqual(evaluation_config.output_type, "boolean")
         self.assertEqual(evaluation_config.output_config, {"allows_na": False, "true_is_failure": False})
         self.assertEqual(len(evaluation_config.conditions), 1)

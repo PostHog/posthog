@@ -355,7 +355,11 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
     decide.assert_not_called()
 
 
-def test_explicit_llm_method_uses_chat_for_a_dual_capability_model() -> None:
+@pytest.mark.parametrize("flag", [True, False, None])
+@pytest.mark.parametrize("judge_method", [None, "llm"])
+def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
+    flag: bool | None, judge_method: str | None
+) -> None:
     key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
@@ -363,7 +367,7 @@ def test_explicit_llm_method_uses_chat_for_a_dual_capability_model() -> None:
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"example/dual-model": ["text", "decisions"]},
         ),
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
     ):
@@ -374,7 +378,13 @@ def test_explicit_llm_method_uses_chat_for_a_dual_capability_model() -> None:
             parsed=BooleanEvalResult(verdict=True, reasoning="Meets the criteria."), usage=None
         )
         result = call_llm_judge(
-            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Check the response.", "judge_method": "llm"}},
+            evaluation={
+                "team_id": 1,
+                "evaluation_config": {
+                    "prompt": "Check the response.",
+                    **({"judge_method": judge_method} if judge_method else {}),
+                },
+            },
             system_prompt="Check the response.",
             user_prompt="Example response.",
             allows_na=False,

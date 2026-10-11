@@ -1564,7 +1564,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                 model.id === config.model &&
                                 toLLMProvider(model.provider) === 'openrouter' &&
                                 (!config.provider_key_id || model.providerKeyId === config.provider_key_id) &&
-                                model.supportsDecisions
+                                model.supportsDecisions &&
+                                !model.supportsChat
                         ))
                     ? 'decision'
                     : 'llm'
