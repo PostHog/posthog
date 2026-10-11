@@ -23,6 +23,7 @@ try {
         'src/generated/feature-flags/archive.ts',
         'dist/generated/feature-flags/archive.d.ts',
         'dist/cli.js',
+        'dist/agent-help.md',
         'dist/generated/handlers.mjs',
         'src/generated/notebooks/notebooks-create-markdown.ts',
     ]) {
@@ -50,6 +51,9 @@ assert.equal((await notebooks.notebooks.notebooksCreateMarkdown({ title: 'Sample
     run(process.execPath, ['smoke.mjs'])
     const list = run(process.execPath, ['node_modules/@posthog/sdk/dist/cli.js', 'list', '--json'])
     assert.ok(JSON.parse(list).tools.some(({ method }) => method === 'queries.sql'))
+    const guide = run('npx', ['@posthog/sdk', '--agent-help'])
+    assert.match(guide, /^# PostHog SDK guide for agents/)
+    assert.match(guide, /`client\.queries\.sql`/)
     const consumer = `
 import client, { type FeatureFlagsArchiveOutput, type QueriesTrendsInput } from '@posthog/sdk'
 import type { FeatureFlagsArchiveInput } from '@posthog/sdk/feature-flags'

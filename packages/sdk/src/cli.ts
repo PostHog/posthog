@@ -4,9 +4,13 @@ import { fileURLToPath } from 'node:url'
 
 import { catalog, describeTool, searchTools } from './discovery.js'
 
-const usage = 'Usage: posthog-sdk list [--json] | search <words> [--json] | describe <method-or-tool> [--json]'
+const usage =
+    'Usage: posthog-sdk --agent-help | list [--json] | search <words> [--json] | describe <method-or-tool> [--json]\n\nAgents: run npx @posthog/sdk --agent-help before starting a PostHog task.'
 
 export function runCli(args: string[]): string {
+    if (args.length === 1 && args[0] === '--agent-help') {
+        return readFileSync(new URL('./agent-help.md', import.meta.url), 'utf8').trim()
+    }
     const json = args.includes('--json')
     const [command, ...rest] = args.filter((value) => value !== '--json')
     if (!command || command === '--help' || command === 'help') {
