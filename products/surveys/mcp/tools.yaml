@@ -73,8 +73,12 @@ tools:
                     implementations.
             schedule:
                 description: >
-                    Survey scheduling behavior. Omit this to use the default once behavior. Use recurring only when the
-                    user explicitly asks for a repeated schedule.
+                    How often a person can see the survey. Omit this to use the default once behavior. Use recurring
+                    only when the user explicitly asks for a repeated schedule, and set iteration_count and
+                    iteration_frequency_days with it. Use always when the user wants the survey to show every time its
+                    display conditions are met, also after the person responds or dismisses it. The survey editor calls
+                    this "Every time the display conditions are met". An always popover without display conditions or a
+                    wait period shows again and again, so suggest a URL condition or seenSurveyWaitPeriodInDays.
             questions:
                 description: >
                     Complete survey question list. Prefer 1-3 questions unless the user explicitly asks for a longer
@@ -242,6 +246,14 @@ tools:
                     the survey first and preserve existing appearance fields. whiteLabel=true requires the organization
                     to have the white-labelling entitlement (Enterprise); leave it unset unless requested and available.
                     surveyPopupDelaySeconds must be non-negative.
+            schedule:
+                description: >
+                    How often a person can see the survey: once, recurring, or always. Use always when the user wants
+                    the survey to show every time its display conditions are met, also after the person responds or
+                    dismisses it. The survey editor calls this "Every time the display conditions are met". When you
+                    change away from recurring, the iteration fields are cleared. An always popover without display
+                    conditions or a wait period shows again and again, so suggest a URL condition or
+                    seenSurveyWaitPeriodInDays.
             questions:
                 description: >
                     Complete replacement question list. Existing question IDs are tied to response data and must be

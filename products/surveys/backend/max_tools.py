@@ -20,7 +20,7 @@ from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.api.survey import SurveySerializerCreateUpdateOnly
-from products.surveys.backend.models import Survey
+from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey
 from products.surveys.backend.summarization.fetch import fetch_responses
 
 from ee.hogai.tool import MaxTool
@@ -227,7 +227,76 @@ def _build_targeting_conditions(
     return conditions
 
 
-SURVEY_CREATION_TOOL_DESCRIPTION = dedent("""
+SCHEDULE_OPTION = Literal["once", "recurring", "always"]
+
+# Same defaults the survey editor applies when a user picks "Repeat on a schedule"
+DEFAULT_ITERATION_COUNT = 2
+DEFAULT_ITERATION_FREQUENCY_DAYS = 90
+
+SCHEDULE_DESCRIPTION = (
+    "How often a person can see the survey. "
+    "'once' (default): show it one time per person. "
+    "'recurring': show it again on a fixed schedule, set with iteration_count and iteration_frequency_days. "
+    "'always': show it every time the display conditions are met, also after the person responds or dismisses it. "
+    "In the survey editor, 'always' is the 'Every time the display conditions are met' option "
+    "in the 'Completion conditions' section."
+)
+
+SCHEDULE_PROMPT = """
+    # Schedule (how often a person sees the survey)
+    Use the schedule field. The survey editor shows it in the "Completion conditions" section as
+    "How often should we show this survey to a person?". These are the only options:
+    - "once" (default) -> "Once": a person sees the survey one time
+    - "recurring" -> "Repeat on a schedule": the survey shows up to iteration_count times, once every
+      iteration_frequency_days days (defaults: 2 times, every 90 days)
+    - "always" -> "Every time the display conditions are met": the survey shows again each time the
+      display conditions match, also after the person responds or dismisses it
+    Do not invent other options or labels. When a user asks to show a survey every time or keep showing it,
+    use "always". An "always" popover with no display conditions (URL, wait period) appears again and again,
+    so suggest a URL target or wait_period_days.
+"""
+
+
+def _build_schedule_fields(
+    schedule: str | None,
+    iteration_count: int | None,
+    iteration_frequency_days: int | None,
+) -> dict[str, Any]:
+    if schedule is None:
+        return {}
+    if schedule == Survey.Schedule.RECURRING:
+        return {
+            "schedule": schedule,
+            "iteration_count": min(iteration_count or DEFAULT_ITERATION_COUNT, MAX_ITERATION_COUNT),
+            "iteration_frequency_days": iteration_frequency_days or DEFAULT_ITERATION_FREQUENCY_DAYS,
+        }
+    # The iteration columns drive repeats on their own, so clear them for non-recurring schedules
+    return {"schedule": schedule, "iteration_count": None, "iteration_frequency_days": None}
+
+
+def _always_schedule_warning(survey_type: str, schedule: str | None, conditions: dict[str, Any] | None) -> str:
+    if schedule != Survey.Schedule.ALWAYS or survey_type != Survey.SurveyType.POPOVER:
+        return ""
+    conditions = conditions or {}
+    has_display_conditions = bool(
+        conditions.get("url")
+        or conditions.get("selector")
+        or (conditions.get("events") or {}).get("values")
+        or conditions.get("deviceTypes")
+        or conditions.get("seenSurveyWaitPeriodInDays")
+    )
+    if has_display_conditions:
+        return (
+            " Note: this popover shows again every time its display conditions are met, "
+            "so people can see it very often. Add a wait period to limit this."
+        )
+    return (
+        " Warning: this popover has no display conditions, so it shows again and again. "
+        "Add a URL target or a wait period to limit this."
+    )
+
+
+SURVEY_CREATION_TOOL_DESCRIPTION = dedent(f"""
     Create and optionally launch a survey.
 
     # When to use
@@ -258,7 +327,7 @@ SURVEY_CREATION_TOOL_DESCRIPTION = dedent("""
     - "single_choice": pick one from choices
     - "multiple_choice": pick many from choices
     - "link": call-to-action link
-
+    {SCHEDULE_PROMPT}
     # After creation
     Always share the survey link with the user so they can view and configure it.
     The link is included in the tool response.
@@ -285,6 +354,14 @@ class CreateSurveyToolArgs(BaseModel):
         default=None, description="Days to wait after user has seen any survey before showing this one"
     )
     responses_limit: int | None = Field(default=None, description="Maximum number of responses to collect")
+    schedule: SCHEDULE_OPTION | None = Field(default=None, description=SCHEDULE_DESCRIPTION)
+    iteration_count: int | None = Field(
+        default=None,
+        description="With schedule='recurring': how many times in total to show the survey (default 2, max 500)",
+    )
+    iteration_frequency_days: int | None = Field(
+        default=None, description="With schedule='recurring': days between repeats (default 90)"
+    )
 
 
 class CreateSurveyTool(MaxTool):
@@ -317,6 +394,9 @@ class CreateSurveyTool(MaxTool):
         linked_flag_variant: str | None,
         wait_period_days: int | None,
         responses_limit: int | None,
+        schedule: str | None = None,
+        iteration_count: int | None = None,
+        iteration_frequency_days: int | None = None,
     ) -> dict[str, Any]:
         survey_data: dict[str, Any] = {
             "name": name,
@@ -343,6 +423,8 @@ class CreateSurveyTool(MaxTool):
             if conditions:
                 survey_data["conditions"] = conditions
 
+            survey_data.update(_build_schedule_fields(schedule, iteration_count, iteration_frequency_days))
+
         if self.context.get("insight_id"):
             survey_data["linked_insight_id"] = self.context["insight_id"]
 
@@ -361,6 +443,9 @@ class CreateSurveyTool(MaxTool):
         linked_flag_variant: str | None = None,
         wait_period_days: int | None = None,
         responses_limit: int | None = None,
+        schedule: str | None = None,
+        iteration_count: int | None = None,
+        iteration_frequency_days: int | None = None,
     ) -> tuple[str, dict[str, Any]]:
         try:
             if not questions:
@@ -383,6 +468,9 @@ class CreateSurveyTool(MaxTool):
                 linked_flag_variant=linked_flag_variant,
                 wait_period_days=wait_period_days,
                 responses_limit=responses_limit,
+                schedule=schedule,
+                iteration_count=iteration_count,
+                iteration_frequency_days=iteration_frequency_days,
             )
             survey_data["questions"] = _validate_and_sanitize_questions(survey_data["questions"])
 
@@ -407,6 +495,7 @@ class CreateSurveyTool(MaxTool):
                     else "Launch it to activate its public shareable link, which you'll find on the survey page."
                 )
                 message = f"{message} {share_hint}"
+            message += _always_schedule_warning(survey_type, survey_data.get("schedule"), survey_data.get("conditions"))
 
             return message, {
                 "survey_id": created_survey.id,
@@ -425,7 +514,7 @@ class CreateSurveyTool(MaxTool):
             return f"Failed to create survey: {str(e)}", {"error": "creation_failed", "details": str(e)}
 
 
-SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
+SURVEY_EDIT_TOOL_DESCRIPTION = dedent(f"""
     Edit an existing survey.
 
     # When to use
@@ -446,7 +535,7 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
     - Set remove_linked_flag=true to remove linked feature flag targeting
     - Set remove_linked_flag_variant=true to remove only feature flag variant targeting
     - Set remove_wait_period=true to remove the survey wait period
-
+    {SCHEDULE_PROMPT}
     # Question identity
     - When updating questions, use read_data(kind="survey") first to see the current questions
     - Each question is shown with a number (1, 2, 3, ...) — pass that number (or the question's real UUID) as the question's `id` to preserve its identity and historical response data
@@ -483,6 +572,14 @@ class EditSurveyToolArgs(BaseModel):
     )
     remove_wait_period: bool = Field(default=False, description="Remove the survey wait period")
     responses_limit: int | None = Field(default=None, description="Maximum number of responses")
+    schedule: SCHEDULE_OPTION | None = Field(default=None, description=SCHEDULE_DESCRIPTION)
+    iteration_count: int | None = Field(
+        default=None,
+        description="With schedule='recurring': how many times in total to show the survey (max 500)",
+    )
+    iteration_frequency_days: int | None = Field(
+        default=None, description="With schedule='recurring': days between repeats"
+    )
     launch: bool | None = Field(default=None, description="Set to true to launch the survey")
     stop: bool | None = Field(default=None, description="Set to true to stop the survey")
     archive: bool | None = Field(default=None, description="Set to true to archive the survey")
@@ -575,6 +672,9 @@ class EditSurveyTool(MaxTool):
         remove_linked_flag_variant: bool = False,
         remove_wait_period: bool = False,
         responses_limit: int | None = None,
+        schedule: str | None = None,
+        iteration_count: int | None = None,
+        iteration_frequency_days: int | None = None,
         launch: bool | None = None,
         stop: bool | None = None,
         archive: bool | None = None,
@@ -626,6 +726,13 @@ class EditSurveyTool(MaxTool):
             if updated_conditions != existing_conditions:
                 update_data["conditions"] = updated_conditions
 
+            if schedule is None and (iteration_count is not None or iteration_frequency_days is not None):
+                schedule = Survey.Schedule.RECURRING
+            if schedule == Survey.Schedule.RECURRING:
+                iteration_count = iteration_count or survey.iteration_count
+                iteration_frequency_days = iteration_frequency_days or survey.iteration_frequency_days
+            update_data.update(_build_schedule_fields(schedule, iteration_count, iteration_frequency_days))
+
             # Lifecycle bools
             lifecycle_actions = []
             if launch is True:
@@ -655,6 +762,8 @@ class EditSurveyTool(MaxTool):
             else:
                 fields_str = ", ".join(update_data.keys())
                 message = f"Survey '{survey.name}' updated successfully! Modified fields: {fields_str}"
+            if schedule is not None:
+                message += _always_schedule_warning(survey.type, survey.schedule, survey.conditions)
 
             return message, {
                 "survey_id": str(survey.id),

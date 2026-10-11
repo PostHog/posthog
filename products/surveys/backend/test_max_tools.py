@@ -374,6 +374,49 @@ class TestSurveyCreatorTool(BaseTest):
         assert survey.conditions["url"] == "/pricing"
         assert survey.conditions["urlMatchType"] == "icontains"
 
+    @parameterized.expand(
+        [
+            ("always_without_conditions", {"schedule": "always"}, "always", None, None, "no display conditions"),
+            (
+                "always_with_url",
+                {"schedule": "always", "target_url": "/pricing"},
+                "always",
+                None,
+                None,
+                "every time its display conditions are met",
+            ),
+            ("recurring_defaults", {"schedule": "recurring"}, "recurring", 2, 90, None),
+            (
+                "recurring_custom",
+                {"schedule": "recurring", "iteration_count": 4, "iteration_frequency_days": 30},
+                "recurring",
+                4,
+                30,
+                None,
+            ),
+            ("unset", {}, "once", None, None, None),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_survey_schedule(
+        self, _name, kwargs, expected_schedule, expected_count, expected_frequency, expected_warning
+    ):
+        tool = self._setup_tool()
+
+        content, artifact = await tool._arun_impl(
+            name="Feedback", questions=[SimpleSurveyQuestion(type="open", question="Any feedback?")], **kwargs
+        )
+
+        survey = await sync_to_async(Survey.objects.get)(id=artifact["survey_id"])
+        assert survey.schedule == expected_schedule
+        assert survey.iteration_count == expected_count
+        assert survey.iteration_frequency_days == expected_frequency
+        if expected_warning:
+            assert expected_warning in content
+        else:
+            assert "display conditions" not in content
+
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_create_external_survey(self):
@@ -984,6 +1027,26 @@ class TestEditSurveyTool(BaseTest):
         assert is_dangerous is True
         assert "Remove URL targeting" in preview
         assert "Remove linked feature flag targeting" in preview
+
+    @parameterized.expand(
+        [
+            ("recurring_to_always", {"schedule": "always"}, "always", None, None),
+            ("recurring_to_once", {"schedule": "once"}, "once", None, None),
+            ("change_count_only", {"iteration_count": 5}, "recurring", 5, 30),
+        ]
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_schedule(self, _name, kwargs, expected_schedule, expected_count, expected_frequency):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(schedule="recurring", iteration_count=3, iteration_frequency_days=30)
+
+        await tool._arun_impl(survey_id=str(survey.id), **kwargs)
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.schedule == expected_schedule
+        assert updated_survey.iteration_count == expected_count
+        assert updated_survey.iteration_frequency_days == expected_frequency
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
