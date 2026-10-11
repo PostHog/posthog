@@ -409,6 +409,37 @@ describe('sceneLogic', () => {
         }
     )
 
+    it("shows the project access denied scene, not onboarding, when the user's own project is not onboarded", async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            logic.unmount()
+            initKeaTests(
+                true,
+                {
+                    ...MOCK_DEFAULT_TEAM,
+                    ingested_event: false,
+                    completed_snippet_onboarding: false,
+                    has_completed_onboarding_for: {},
+                },
+                MOCK_DEFAULT_PROJECT,
+                { ...MOCK_DEFAULT_ORGANIZATION, teams: [MOCK_DEFAULT_TEAM] } as OrganizationType
+            )
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            window.POSTHOG_APP_CONTEXT = { ...window.POSTHOG_APP_CONTEXT, project_access_denied: '12345' } as AppContext
+            const refusedLink = `/project/12345${removeProjectIdIfPresent(urls.eventDefinitions())}`
+            router.actions.push(refusedLink)
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            await expectLogic(logic).delay(1)
+
+            expect(router.values.location.pathname).toEqual(refusedLink)
+            expect(logic.values.activeSceneId).toEqual(Scene.ErrorProjectAccessDenied)
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
+    })
+
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {
             id: 'homepage-dashboard-42',
