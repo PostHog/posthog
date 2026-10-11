@@ -114866,6 +114866,23 @@ export namespace Schemas {
     }
 
     /**
+     * Event attributes. Keys are whatever the instrumentation set.
+     */
+    export type _SpanEventAttributes = {[key: string]: string};
+
+    export interface _SpanEvent {
+      /** Event name, for example `exception`. */
+      name: string;
+      /**
+         * When the event occurred. Null when the SDK did not set a time.
+         * @nullable
+         */
+      timestamp: string | null;
+      /** Event attributes. Keys are whatever the instrumentation set. */
+      attributes: _SpanEventAttributes;
+    }
+
+    /**
      * * `exact` - exact
      * * `is_not` - is_not
      * * `icontains` - icontains
@@ -115109,7 +115126,7 @@ export namespace Schemas {
     export type _TraceSpanResourceAttributes = {[key: string]: string};
 
     /**
-     * A span in a single trace. The trace action adds self time, which the list does not compute.
+     * A span in a single trace. The trace action adds self time and span events, which the list does not return.
      */
     export interface _TraceSpan {
       /** Span's own UUID. */
@@ -115148,6 +115165,8 @@ export namespace Schemas {
       resource_attributes: _TraceSpanResourceAttributes;
       /** Span duration minus the time spent in its children, in nanoseconds. */
       self_time_nano: number;
+      /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
     }
 
     export interface _TracingAggregationQueryBody {
@@ -115639,7 +115658,7 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Omit it to search all retained spans for this trace. */
       dateRange?: _TracingDateRange;
-      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
       /**
          * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.

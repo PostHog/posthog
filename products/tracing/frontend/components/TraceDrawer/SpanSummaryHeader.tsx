@@ -9,7 +9,7 @@ import { dayjs } from 'lib/dayjs'
 
 import { TRACING_DATE_FORMAT, TRACING_DISPLAY_TIMEZONE, TRACING_TIME_FORMAT } from '../../dateFormats'
 import { deriveSpanSummary } from '../../spanSummary'
-import { formatDuration } from '../../TraceWaterfallView'
+import { formatDuration } from '../../spanTime'
 import type { Span } from '../../types'
 
 // A service indicator (not an error indicator — error state is the status badge's job). Colored

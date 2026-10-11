@@ -1,10 +1,11 @@
 import { PropertyFilterType } from '~/types'
 
 import { isAiEventSpan } from '../../aiEventSpans'
-import { formatDuration } from '../../TraceWaterfallView'
+import { formatDuration } from '../../spanTime'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
 import { SpanAttributes } from './SpanAttributes'
+import { SpanEvents } from './SpanEvents'
 
 export interface ExpandedSpanContentProps {
     span: Span
@@ -54,6 +55,9 @@ export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanCo
                     emptyLabel="No resource attributes on this span"
                     propertyType={PropertyFilterType.SpanResourceAttribute}
                 />
+            )}
+            {span.events && span.events.length > 0 && (
+                <SpanEvents events={span.events} spanTimestamp={span.timestamp} />
             )}
             {showDetails && <SpanAttributes title="Span details" attributes={details} showFilterActions={false} />}
         </div>
