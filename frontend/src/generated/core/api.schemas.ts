@@ -5236,6 +5236,8 @@ export interface PaginatedEnterprisePropertyDefinitionListApi {
     /** @nullable */
     previous?: string | null
     results: EnterprisePropertyDefinitionApi[]
+    /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. */
+    count_is_capped?: boolean
 }
 
 /**

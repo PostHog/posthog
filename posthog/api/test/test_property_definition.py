@@ -4,12 +4,14 @@ from typing import Any, Optional, Union, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
+from posthog.taxonomy import definition_search
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
     PropertyDefinitionViewSet,
@@ -253,6 +255,73 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             db_results = self._exclude_virtual(response.json()["results"])
             assert len(db_results) == (100 if i < 2 else 10)
             assert response.json()["results"][0]["name"] == f"z_property_{property_checkpoints[i]}"
+
+    @parameterized.expand(
+        [
+            ("without_event_names", "", [None, None, None]),
+            ("with_event_names", '&event_names=["$pageview"]', [True, False, False]),
+        ]
+    )
+    def test_large_type_pages_by_name_with_a_capped_count(
+        self, _name: str, query_string: str, expected_seen: list[Optional[bool]]
+    ) -> None:
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch("posthog.taxonomy.property_definition_api.LARGE_PROJECT_COUNT_CAP", 3),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?limit=3{query_string}")
+
+        body = response.json()
+        assert response.status_code == status.HTTP_200_OK, body
+        assert [(r["name"], r["is_seen_on_filtered_events"]) for r in body["results"]] == list(
+            zip(["$browser", "$browser_version", "$current_url"], expected_seen)
+        )
+        assert body["count_is_capped"] is True
+        assert body["next"] is not None
+
+    def test_capped_pages_return_each_row_once_and_virtual_properties_last(self) -> None:
+        cache.clear()
+        pages: list[dict[str, Any]] = []
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch("posthog.taxonomy.property_definition_api.LARGE_PROJECT_COUNT_CAP", 3),
+        ):
+            url: Optional[str] = f"/api/projects/{self.team.pk}/property_definitions/?limit=3"
+            while url is not None and len(pages) <= len(self.EXPECTED_PROPERTY_DEFINITIONS):
+                page = self.client.get(url).json()
+                pages.append(page)
+                url = page["next"]
+
+        assert url is None
+        assert pages[0]["count_is_capped"] is True
+        assert not any(r["name"].startswith("$virt_") for page in pages[:-1] for r in page["results"])
+        assert any(r["name"].startswith("$virt_") for r in pages[-1]["results"])
+        db_names = [r["name"] for page in pages for r in self._exclude_virtual(page["results"])]
+        assert db_names == sorted(str(p["name"]) for p in self.EXPECTED_PROPERTY_DEFINITIONS)
+
+    @parameterized.expand(
+        [
+            ("search", {"search": "firs"}),
+            ("filter_by_event_names", {"event_names": '["$pageview"]', "filter_by_event_names": "true"}),
+            ("properties", {"properties": "plan,purchase"}),
+            ("is_numerical", {"is_numerical": "true"}),
+            ("small_type_in_a_large_project", {"type": "person"}),
+        ]
+    )
+    def test_large_project_sparse_requests_count_exactly(self, _name: str, query: dict[str, str]) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="email", type=PropertyDefinition.Type.PERSON)
+        cache.clear()
+        with (
+            patch.object(definition_search, "PROJECT_SCAN_MAX_DEFINITIONS", 2),
+            patch("posthog.taxonomy.property_definition_api.LARGE_PROJECT_COUNT_CAP", 1),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/", data=query)
+
+        body = response.json()
+        assert response.status_code == status.HTTP_200_OK, body
+        assert body["count_is_capped"] is False
+        assert body["count"] == len(body["results"]) > 1
 
     def test_cant_see_property_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")
