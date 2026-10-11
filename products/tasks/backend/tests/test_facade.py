@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
@@ -201,6 +201,50 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
         self.task.refresh_from_db()
         self.assertEqual(self.task.title, "Updated title")
         self.assertEqual(self.task.created_by_id, self.recipient.id)
+
+
+class TestUpsertInternalSandboxEnvConcurrency(TransactionTestCase):
+    def setUp(self) -> None:
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    def test_concurrent_upsert_reuses_the_row_another_caller_created(self) -> None:
+        results: list[UUID] = []
+        errors: list[BaseException] = []
+        finished = threading.Event()
+
+        def upsert() -> None:
+            close_old_connections()
+            try:
+                results.append(
+                    facade.upsert_internal_sandbox_env(
+                        self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+                    )
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                finished.set()
+                close_old_connections()
+
+        with transaction.atomic():
+            first_id = facade.upsert_internal_sandbox_env(
+                self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED
+            )
+            thread = threading.Thread(target=upsert)
+            thread.start()
+            self.assertFalse(finished.wait(timeout=1))
+        thread.join(timeout=10)
+
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(results, [first_id])
+        self.assertEqual(
+            list(
+                SandboxEnvironment.objects.filter(team_id=self.team.id, name="SIGNALS_X").values_list("id", flat=True)
+            ),
+            [first_id],
+        )
 
 
 class TestBootstrapTaskRun(TestCase):
