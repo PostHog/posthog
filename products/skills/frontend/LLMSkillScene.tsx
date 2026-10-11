@@ -112,6 +112,7 @@ export function LLMSkillScene(): JSX.Element {
         selectedVersion,
         isSkillAccessDenied,
         hasSkillLoadError,
+        skillLoadError,
         renamingSkill,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
@@ -169,6 +170,17 @@ export function LLMSkillScene(): JSX.Element {
                             This link points to version {selectedVersion}.{' '}
                             <Link to={urls.skill(skillName)}>Try the latest version</Link>, or{' '}
                             <Link to={urls.skills()}>browse all skills</Link>.
+                        </>
+                    ) : skillLoadError?.suggestions.length ? (
+                        <>
+                            Did you mean{' '}
+                            {skillLoadError.suggestions.map((name, index) => (
+                                <Fragment key={name}>
+                                    {index > 0 ? ', ' : null}
+                                    <Link to={urls.skill(name)}>{name}</Link>
+                                </Fragment>
+                            ))}
+                            ? You can also <Link to={urls.skills()}>browse all skills</Link>.
                         </>
                     ) : (
                         <>

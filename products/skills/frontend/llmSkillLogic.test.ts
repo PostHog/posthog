@@ -413,5 +413,32 @@ describe('llmSkillLogic', () => {
             expect(logic.values.isSkillAccessDenied).toBe(false)
             expect(logic.values.hasSkillLoadError).toBe(false)
         })
+
+        it('keeps the near-miss names a 404 offers', async () => {
+            mockResolve.mockRejectedValue(
+                new ApiError('Not found', 404, undefined, { suggestions: ['cs-my-test-skill'] })
+            )
+
+            logic = llmSkillLogic({ skillName: 'my-test-skill' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSkillFailure'])
+
+            expect(logic.values.isSkillMissing).toBe(true)
+            expect(logic.values.skillLoadError?.suggestions).toEqual(['cs-my-test-skill'])
+        })
+
+        it.each([['my-test-skill.'], ['my-test-skill),']])(
+            'redirects %s to the name without trailing punctuation',
+            async (skillName) => {
+                router.actions.push(`/skills/${skillName}`, { version: 2 })
+
+                logic = llmSkillLogic({ skillName })
+                logic.mount()
+
+                expect(router.values.location.pathname).toMatch(/\/skills\/my-test-skill$/)
+                expect(router.values.searchParams).toEqual({ version: 2 })
+                expect(mockResolve).not.toHaveBeenCalled()
+            }
+        )
     })
 })
