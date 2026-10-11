@@ -16,9 +16,9 @@ import { FingerprintRecordPartDisplay } from '../FingerprintRecordPartDisplay'
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
 import { formatFunctionName, getInstructionAddress } from '../utils'
 import { FrameDropDownMenu } from './FrameDropDownMenu'
+import { SYMBOL_SETS_DOC_LINK } from './FrameUnavailablePanel'
 
 const UNKNOWN_FRAME_LABEL = 'Unknown frame'
-const SYMBOL_SETS_DOC_LINK = 'https://posthog.com/docs/error-tracking/upload-source-maps'
 
 export function CollapsibleFrameHeader({
     frame,
@@ -68,7 +68,6 @@ export function CollapsibleFrameHeader({
                 className={cn('collapsible-frame-header grow max-w-[calc(100%-30px)]', {
                     'cursor-progress': recordLoading,
                 })}
-                disabled={!hasRecordContext && !recordLoading}
             >
                 {functionName && (
                     <span ref={functionRef} className="font-medium frame-function" title={functionName}>
