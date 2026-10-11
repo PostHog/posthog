@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.db.models import Q
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -19,6 +19,14 @@ class WebAnalyticsAchievementProgress(TeamScopedRootMixin, UUIDModel):
     state = models.JSONField(default=dict)
     last_computed_at = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @classmethod
+    def clear_filter_retry(cls, team_id: int) -> None:
+        with transaction.atomic():
+            for progress in cls.objects.for_team(team_id, canonical=True).filter(user__isnull=True).select_for_update():
+                if "retry_after" in progress.state:
+                    progress.state.pop("retry_after")
+                    progress.save(update_fields=["state"])
 
     class Meta:
         db_table = "posthog_webanalyticsachievementprogress"
