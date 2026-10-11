@@ -283,8 +283,7 @@ def _is_self_triggered_branch(event_type: str, payload: dict[str, Any]) -> bool:
 
 def _trigger_filters_match(trigger: LoopTrigger, action: str | None, payload: dict[str, Any]) -> bool:
     """JSON `filters` evaluated last, after the DB query already matched the promoted
-    `(github_integration_id, repository, event_types)` columns (see LOOPS.md "GitHub event
-    triggers: infrastructure changes")."""
+    `(github_integration_id, repository, event_types)` columns."""
     config = trigger.config if isinstance(trigger.config, dict) else {}
     filters = config.get("filters")
     return _filters_match(filters if isinstance(filters, dict) else {}, action, payload)

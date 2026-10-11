@@ -3,11 +3,16 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.db import OperationalError
+
 import structlog.testing
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.destination_health import TRANSIENT_DELIVERY_ERROR
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataDestination,
+    ExternalDataSchemaDestination,
+    ExternalDataSourceDestination,
     get_or_create_warehouse_destination,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -19,8 +24,15 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.regis
     snapshot_registered_writers,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load import delivery
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.builtin_writers import (
+    ensure_builtin_destination_writers_registered,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (
     destination_table_name,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DESTINATION_CONFIGURATION_ERROR_MARKER,
+    DestinationConfigurationError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 
@@ -30,6 +42,7 @@ class RecordingWriter:
     runs_post_load = False
     calls: list[tuple[str, str, int]] = []
     fail_for: set[str] = set()
+    configuration_error_for: set[str] = set()
 
     def __init__(self, ctx) -> None:
         self._ctx = ctx
@@ -40,6 +53,8 @@ class RecordingWriter:
     async def write_batch(self, batches, batch_ctx) -> BatchWriteOutcome:
         if self._ctx.destination_name in RecordingWriter.fail_for:
             raise RuntimeError("destination unreachable")
+        if self._ctx.destination_name in RecordingWriter.configuration_error_for:
+            raise DestinationConfigurationError(self._ctx.destination_name, "The host name does not exist.")
         RecordingWriter.calls.append(("write", self._ctx.destination_name, batch_ctx.batch_index))
         return BatchWriteOutcome(rows_written=1)
 
@@ -55,7 +70,11 @@ class DeliveryTestCase(BaseTest):
         super().setUp()
         RecordingWriter.calls = []
         RecordingWriter.fail_for = set()
+        RecordingWriter.configuration_error_for = set()
 
+        # Registered before the snapshot, so the first delivery in the process cannot replace the
+        # fakes below, and the cleanup puts the real writers back.
+        ensure_builtin_destination_writers_registered()
         # The registry is process-global, so these fakes have to come back out or every later
         # test sees destination types this deployment cannot really write.
         self.addCleanup(restore_registered_writers, snapshot_registered_writers())
@@ -190,18 +209,31 @@ class TestDelivery(DeliveryTestCase):
 
         RecordingWriter.calls = []
         RecordingWriter.fail_for = set()
+        RecordingWriter.configuration_error_for = set()
         delivery.deliver_batch_to_destinations(signal)
 
         assert self._writes() == [last.name]
 
-    def test_the_error_names_the_destination_that_stopped_the_sync(self) -> None:
+    @parameterized.expand(
+        [
+            ("transient", "fail_for", "customer redshift: destination unreachable"),
+            (
+                "configuration",
+                "configuration_error_for",
+                f"customer redshift: {DESTINATION_CONFIGURATION_ERROR_MARKER}. The host name does not exist.",
+            ),
+        ]
+    )
+    def test_the_error_names_the_destination_that_stopped_the_sync(
+        self, _name: str, failure_attribute: str, expected_message: str
+    ) -> None:
         a = self._destination("customer redshift")
-        RecordingWriter.fail_for = {"customer redshift"}
+        setattr(RecordingWriter, failure_attribute, {"customer redshift"})
 
         with self.assertRaises(delivery.DestinationDeliveryError) as caught:
             delivery.deliver_batch_to_destinations(self._signal([str(a.id)]))
 
-        assert "customer redshift" in str(caught.exception)
+        assert str(caught.exception) == expected_message
 
     def test_the_final_batch_publishes_each_destination(self) -> None:
         a = self._destination("warehouse a")
@@ -250,6 +282,36 @@ class TestDelivery(DeliveryTestCase):
             delivery.deliver_batch_to_destinations(self._signal([str(a.id), str(b.id)]))
 
         assert not self._writes()
+
+
+class TestAbortDestinations(DeliveryTestCase):
+    @parameterized.expand(
+        [
+            ("no_reason", "", ["Prod", "My Prod"]),
+            ("unrelated_failure", "max retries exceeded: Prod: destination unreachable", ["Prod", "My Prod"]),
+            ("configuration_error_of_one", f"Prod: {DESTINATION_CONFIGURATION_ERROR_MARKER}. Bad host.", ["My Prod"]),
+            (
+                "configuration_error_of_the_other",
+                f"My Prod: {DESTINATION_CONFIGURATION_ERROR_MARKER}. Bad host.",
+                ["Prod"],
+            ),
+            (
+                "wrapped_configuration_error",
+                f"permanent apply error: Prod: {DESTINATION_CONFIGURATION_ERROR_MARKER}. Bad host.",
+                ["My Prod"],
+            ),
+        ]
+    )
+    def test_skips_only_the_destination_that_failed_on_its_configuration(
+        self, _name: str, failure_reason: str, expected_aborted: list[str]
+    ) -> None:
+        a = self._destination("Prod")
+        b = self._destination("My Prod", ExternalDataDestination.Type.SNOWFLAKE)
+
+        delivery.abort_destinations(self._signal([str(a.id), str(b.id)]), failure_reason=failure_reason)
+
+        aborted = [name for kind, name, _ in RecordingWriter.calls if kind == "abort"]
+        assert sorted(aborted) == sorted(expected_aborted)
 
 
 class TestDestinationTableName(DeliveryTestCase):
@@ -320,3 +382,133 @@ class TestWarehousePresence(DeliveryTestCase):
         a = self._destination("warehouse a")
 
         assert delivery.warehouse_is_a_destination(self._signal([str(a.id)])) is False
+
+
+class TestDestinationHealth(DeliveryTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team, source_id="src", connection_id="conn", status="Running", source_type="Stripe"
+        )
+        self.schema = ExternalDataSchema.objects.create(team=self.team, source=self.source, name="charges")
+        # destination_health imports this lazily (inside _record_failure) to avoid a circular
+        # import with posthog.tasks.email, so the patch target is the task's home module, not
+        # destination_health itself.
+        email_patch = mock.patch("posthog.tasks.email.send_warehouse_destination_paused")
+        self.paused_email = email_patch.start()
+        self.addCleanup(email_patch.stop)
+
+    def _deliver(self, destination: ExternalDataDestination) -> Exception | None:
+        try:
+            with self.captureOnCommitCallbacks(execute=True):
+                delivery.deliver_batch_to_destinations(self._signal([str(destination.id)]))
+        except delivery.DestinationDeliveryError as e:
+            return e
+        return None
+
+    def _set_health(self, destination: ExternalDataDestination, status: str, failures: int) -> None:
+        ExternalDataDestination.objects.for_team(self.team.pk).filter(id=destination.id).update(
+            status=status, consecutive_configuration_failures=failures
+        )
+        destination.refresh_from_db()
+
+    @parameterized.expand(
+        [
+            ("configuration_error", "configuration_error_for", "The host name does not exist.", 2),
+            ("transient_error", "fail_for", TRANSIENT_DELIVERY_ERROR, 1),
+        ]
+    )
+    def test_a_failed_delivery_records_the_error_on_the_destination(
+        self, _name: str, failure_attribute: str, expected_error: str, expected_failures: int
+    ) -> None:
+        destination = self._destination("customer redshift")
+        self._set_health(destination, ExternalDataDestination.Status.HEALTHY, 1)
+        setattr(RecordingWriter, failure_attribute, {"customer redshift"})
+
+        assert self._deliver(destination) is not None
+
+        destination.refresh_from_db()
+        assert destination.status == ExternalDataDestination.Status.FAILING
+        assert destination.latest_error == expected_error
+        assert destination.latest_error_at is not None
+        assert destination.consecutive_configuration_failures == expected_failures
+        self.paused_email.delay.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("failing_is_reset", ExternalDataDestination.Status.FAILING, 2, ExternalDataDestination.Status.HEALTHY, 0),
+            ("paused_stays_paused", ExternalDataDestination.Status.PAUSED, 3, ExternalDataDestination.Status.PAUSED, 3),
+        ]
+    )
+    def test_a_successful_delivery_resets_a_failing_destination(
+        self, _name: str, status: str, failures: int, expected_status: str, expected_failures: int
+    ) -> None:
+        destination = self._destination("customer redshift")
+        self._set_health(destination, status, failures)
+
+        assert self._deliver(destination) is None
+
+        destination.refresh_from_db()
+        assert destination.status == expected_status
+        assert destination.consecutive_configuration_failures == expected_failures
+
+    def test_repeated_configuration_errors_pause_only_the_links_to_that_destination(self) -> None:
+        broken = self._destination("customer redshift")
+        working = self._destination("customer snowflake", ExternalDataDestination.Type.SNOWFLAKE)
+        links = ExternalDataSourceDestination.objects.for_team(self.team.pk)
+        broken_source_link = links.create(team_id=self.team.pk, source=self.source, destination=broken)
+        working_source_link = links.create(team_id=self.team.pk, source=self.source, destination=working)
+        broken_schema_link = ExternalDataSchemaDestination.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, schema=self.schema, destination=broken
+        )
+        RecordingWriter.configuration_error_for = {"customer redshift"}
+
+        statuses = []
+        with self.settings(DATA_WAREHOUSE_DESTINATION_PAUSE_AFTER_CONFIGURATION_FAILURES=2):
+            # The third delivery is a run that started before the pause, so it still reaches the destination.
+            for _ in range(3):
+                self._deliver(broken)
+                broken.refresh_from_db()
+                statuses.append(broken.status)
+
+        assert statuses == [
+            ExternalDataDestination.Status.FAILING,
+            ExternalDataDestination.Status.PAUSED,
+            ExternalDataDestination.Status.PAUSED,
+        ]
+        for link in (broken_source_link, working_source_link, broken_schema_link):
+            link.refresh_from_db()
+        assert (broken_source_link.enabled, broken_schema_link.enabled, working_source_link.enabled) == (
+            False,
+            False,
+            True,
+        )
+        self.schema.refresh_from_db()
+        assert self.schema.should_sync is True
+        self.paused_email.delay.assert_called_once_with(
+            self.team.pk, str(broken.id), "customer redshift", "The host name does not exist.", mock.ANY
+        )
+
+    @parameterized.expand(
+        [
+            ("failure", "configuration_error_for", DestinationConfigurationError),
+            ("success", None, None),
+        ]
+    )
+    def test_a_health_write_that_fails_does_not_change_the_delivery_outcome(
+        self, _name: str, failure_attribute: str | None, expected_error: type[Exception] | None
+    ) -> None:
+        destination = self._destination("customer redshift")
+        destination.status = ExternalDataDestination.Status.FAILING
+        if failure_attribute:
+            setattr(RecordingWriter, failure_attribute, {"customer redshift"})
+        signal = self._signal([str(destination.id)])
+
+        with mock.patch.object(
+            ExternalDataDestination.objects, "for_team", side_effect=OperationalError("database unavailable")
+        ):
+            if expected_error:
+                with self.assertRaises(expected_error):
+                    delivery.deliver_batch_to_destinations(signal, destinations=[destination])
+            else:
+                assert delivery.deliver_batch_to_destinations(signal, destinations=[destination]) == 1

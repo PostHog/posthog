@@ -1,7 +1,10 @@
+import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
+import { MetricsQuery, NodeKind, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, ProductManifest } from '~/types'
+
+import type { MetricsSceneActiveTab } from './frontend/metricsSceneLogic'
 
 export const manifest: ProductManifest = {
     name: 'Metrics',
@@ -22,10 +25,23 @@ export const manifest: ProductManifest = {
     },
     redirects: {},
     urls: {
-        metrics: (): string => '/metrics',
+        metrics: (activeTab?: MetricsSceneActiveTab): string =>
+            activeTab ? `/metrics?activeTab=${activeTab}` : '/metrics',
     },
     fileSystemTypes: {},
-    treeItemsNew: [],
+    treeItemsNew: [
+        {
+            path: `Insight/Metrics`,
+            type: 'insight',
+            href: urls.insightNew({
+                query: { kind: NodeKind.MetricsQuery, clauses: [], dateRange: { date_from: '-1h' } } as MetricsQuery,
+            }),
+            flag: FEATURE_FLAGS.METRICS_INSIGHT_BUILDER,
+            iconType: 'metrics',
+            visualOrder: INSIGHT_VISUAL_ORDER.metrics,
+            sceneKeys: ['Insight'],
+        },
+    ],
     treeItemsProducts: [
         {
             path: 'Metrics',
@@ -37,6 +53,11 @@ export const manifest: ProductManifest = {
                 'var(--color-product-metrics-dark)',
             ] as FileSystemIconColor,
             href: urls.metrics(),
+            searchKeywords: ['time series', 'counters', 'gauges'],
+            searchTabs: [
+                { name: 'Viewer', href: urls.metrics('viewer') },
+                { name: 'SQL', href: urls.metrics('sql') },
+            ],
             // Open alpha: the nav item is visible to everyone; the scene gate offers the
             // feature preview toggle to visitors who have not enrolled yet.
             tags: ['alpha'],

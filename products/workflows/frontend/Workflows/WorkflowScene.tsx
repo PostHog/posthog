@@ -22,6 +22,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
+import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
@@ -67,12 +68,18 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
-    const triggerPrefill = searchParams[TRIGGER_PREFILL_PARAM] as string | undefined
+    const rawTriggerPrefill = searchParams[TRIGGER_PREFILL_PARAM]
+    const triggerPrefill =
+        rawTriggerPrefill && typeof rawTriggerPrefill !== 'string'
+            ? JSON.stringify(rawTriggerPrefill)
+            : rawTriggerPrefill
+    const entrySource = searchParams[SOURCE_PREFILL_PARAM]
     const workflowProps: WorkflowLogicProps = {
         id: workflowSceneProps.id,
         templateId,
         editTemplateId,
         triggerPrefill,
+        entrySource: typeof entrySource === 'string' ? entrySource : undefined,
     }
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })

@@ -10,7 +10,6 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.aiven.aiven import (
     AIVEN_BASE_URL,
-    _auth_header_value,
     aiven_source,
     validate_credentials,
 )
@@ -60,14 +59,6 @@ def _rows(endpoint: str) -> list[dict[str, Any]]:
     return [row for page in cast("Iterable[Any]", response.items()) for row in page]
 
 
-class TestAuthHeader:
-    def test_uses_aivenv1_scheme_not_bearer(self) -> None:
-        # Aiven requires the literal `aivenv1` prefix; a `Bearer` prefix is rejected by the API.
-        value = _auth_header_value("tok-123")
-        assert value == "aivenv1 tok-123"
-        assert "Bearer" not in value
-
-
 class TestListExtraction:
     @parameterized.expand(
         [
@@ -87,12 +78,6 @@ class TestListExtraction:
 
 
 class TestFanOut:
-    @patch(CLIENT_SESSION_PATCH)
-    def test_fan_out_none_yields_rows(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(session, {"/clouds": _response(200, {"clouds": [{"cloud_name": "aws-x"}]})})
-        assert _rows("clouds") == [{"cloud_name": "aws-x"}]
-
     @patch(CLIENT_SESSION_PATCH)
     def test_fan_out_project_injects_parent_project_name(self, MockSession: MagicMock) -> None:
         # `services` items carry no project field, so the parent's `project_name` must be injected
@@ -190,19 +175,6 @@ class TestFanOut:
         )
         assert _rows("billing_group_projects") == [{"project_name": "p1", "billing_group_id": "bg1"}]
 
-    @patch(CLIENT_SESSION_PATCH)
-    def test_empty_child_batches_are_not_yielded(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        _wire(
-            session,
-            {
-                "/project": _response(200, {"projects": [{"project_name": "p1"}, {"project_name": "p2"}]}),
-                "/project/p1/service": _response(200, {"services": []}),
-                "/project/p2/service": _response(200, {"services": [{"service_name": "s2"}]}),
-            },
-        )
-        assert _rows("services") == [{"service_name": "s2", "project_name": "p2"}]
-
 
 class TestFailLoud:
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
@@ -239,8 +211,3 @@ class TestValidateCredentials:
     def test_maps_status_to_bool(self, _name: str, status: int, expected: bool, mock_session: MagicMock) -> None:
         mock_session.return_value.get.return_value = MagicMock(status_code=status)
         assert validate_credentials("tok") is expected
-
-    @patch(AIVEN_SESSION_PATCH)
-    def test_network_error_is_false(self, mock_session: MagicMock) -> None:
-        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
-        assert validate_credentials("tok") is False

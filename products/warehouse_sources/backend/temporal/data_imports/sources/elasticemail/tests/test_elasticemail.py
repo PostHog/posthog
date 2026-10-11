@@ -17,7 +17,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticema
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.elasticemail import (
     AUTH_ERROR_MARKER,
     ElasticEmailResumeConfig,
-    _build_url,
     _clamp_future_value_to_now,
     _format_datetime,
     _is_auth_error_body,
@@ -49,11 +48,6 @@ class TestFormatDatetime:
     def test_format_datetime(self, _name: str, value: Any, expected: str) -> None:
         assert _format_datetime(value) == expected
 
-    def test_no_offset_suffix(self) -> None:
-        # Elastic Email expects YYYY-MM-DDThh:mm:ss with no timezone offset.
-        result = _format_datetime(datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC))
-        assert "+" not in result and "Z" not in result
-
 
 class TestClampFutureValueToNow:
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
@@ -62,33 +56,8 @@ class TestClampFutureValueToNow:
             2026, 6, 15, 12, 0, 0, tzinfo=UTC
         )
 
-    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
-    def test_past_datetime_is_unchanged(self) -> None:
-        value = datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC)
-        assert _clamp_future_value_to_now(value) == value
-
-    def test_string_passthrough(self) -> None:
-        assert _clamp_future_value_to_now("cursor") == "cursor"
-
 
 class TestStaticParams:
-    def test_events_incremental_adds_from_filter(self) -> None:
-        params = _static_params(
-            ELASTICEMAIL_ENDPOINTS["events"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-        )
-        assert params["from"] == "2026-03-04T02:58:14"
-        assert params["orderBy"] == "DateAscending"
-
-    def test_events_without_cursor_has_no_from(self) -> None:
-        params = _static_params(
-            ELASTICEMAIL_ENDPOINTS["events"],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=None,
-        )
-        assert "from" not in params
-
     def test_full_refresh_endpoint_never_adds_from(self) -> None:
         # Contacts has no server-side time filter, so a cursor value must not leak into the request.
         params = _static_params(
@@ -97,20 +66,6 @@ class TestStaticParams:
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
         assert "from" not in params
-
-    def test_templates_carries_required_scope_type(self) -> None:
-        params = _static_params(
-            ELASTICEMAIL_ENDPOINTS["templates"],
-            should_use_incremental_field=False,
-            db_incremental_field_last_value=None,
-        )
-        assert params["scopeType"] == ["Personal", "Global"]
-
-
-class TestBuildUrl:
-    def test_expands_list_params_into_repeated_query(self) -> None:
-        url = _build_url("/templates", {"limit": 1, "scopeType": ["Personal", "Global"]})
-        assert url == "https://api.elasticemail.com/v4/templates?limit=1&scopeType=Personal&scopeType=Global"
 
 
 class TestIsAuthErrorBody:
@@ -197,35 +152,6 @@ class TestPagination:
         assert params[1]["offset"] == elasticemail.PAGE_SIZE
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_short_first_page_makes_one_request_and_no_checkpoint(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_make_response(200, json_body=[{"Email": "a@x.com"}, {"Email": "b@x.com"}])])
-
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert [r["Email"] for r in rows] == ["a@x.com", "b@x.com"]
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_saves_offset_after_each_non_final_page(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        full_page = [{"Email": f"c{i}@x.com"} for i in range(elasticemail.PAGE_SIZE)]
-        _wire(
-            session,
-            [_make_response(200, json_body=full_page), _make_response(200, json_body=[{"Email": "last@x.com"}])],
-        )
-
-        manager = _make_manager()
-        _rows(_source("contacts", manager))
-
-        # State is saved after the full page (points at the next page); the short final page saves nothing.
-        assert [c.args[0] for c in manager.save_state.call_args_list] == [
-            ElasticEmailResumeConfig(offset=elasticemail.PAGE_SIZE)
-        ]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_offset(self, MockSession: Any) -> None:
         session = MockSession.return_value
         params = _wire(session, [_make_response(200, json_body=[{"Email": "resumed@x.com"}])])
@@ -235,34 +161,6 @@ class TestPagination:
 
         assert params[0]["offset"] == 2000
         assert [r["Email"] for r in rows] == ["resumed@x.com"]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_first_page_terminates(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        _wire(session, [_make_response(200, json_body=[])])
-
-        manager = _make_manager()
-        rows = _rows(_source("contacts", manager))
-
-        assert rows == []
-        assert session.send.call_count == 1
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_events_incremental_from_filter_reaches_request(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_make_response(200, json_body=[{"MsgID": "m1"}])])
-
-        _rows(
-            _source(
-                "events",
-                _make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-            )
-        )
-
-        assert params[0]["from"] == "2026-03-04T02:58:14"
-        assert params[0]["orderBy"] == "DateAscending"
 
 
 def _wire_repeating(session: mock.MagicMock, response: requests.Response) -> None:

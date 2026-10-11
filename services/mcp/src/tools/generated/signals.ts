@@ -365,6 +365,27 @@ const inboxReportsClaim = (): ToolBase<
     },
 })
 
+const InboxReportsLeaveReviewersSchema = () => {
+    const SignalsReportsReviewersMeDestroyParams = orvalSchemas.SignalsReportsReviewersMeDestroyParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['report_id'] }),
+        SignalsReportsReviewersMeDestroyParams.omit({ project_id: true })
+    )
+}
+
+const inboxReportsLeaveReviewers = (): ToolBase<ReturnType<typeof InboxReportsLeaveReviewersSchema>, unknown> => ({
+    name: 'inbox-reports-leave-reviewers',
+    schema: InboxReportsLeaveReviewersSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsLeaveReviewersSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/reviewers/me/`,
+        })
+        return result
+    },
+})
+
 const InboxReportsListSchema = () => {
     const SignalsReportsListQueryParams = orvalSchemas.SignalsReportsListQueryParams()
     return SignalsReportsListQueryParams
@@ -426,6 +447,8 @@ const inboxReportsList = (): ToolBase<
                     'already_addressed',
                     'dismissal_reason',
                     'dismissal_note',
+                    'suppression_source',
+                    'suppression_explanation',
                     'signal_count',
                     'total_weight',
                     'source_products',
@@ -829,6 +852,18 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
+        if (params.allowed_mcp_tools !== undefined) {
+            body['allowed_mcp_tools'] = params.allowed_mcp_tools
+        }
+        if (params.tool_preset !== undefined) {
+            body['tool_preset'] = params.tool_preset
+        }
+        if (params.precheck_query !== undefined) {
+            body['precheck_query'] = params.precheck_query
+        }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
         }
@@ -905,6 +940,35 @@ const scoutConfigList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/inbox')
+    },
+})
+
+const ScoutConfigPrecheckTestSchema = () => {
+    const SignalsScoutConfigPrecheckTestBody = orvalSchemas.SignalsScoutConfigPrecheckTestBody()
+    const SignalsScoutConfigPrecheckTestParams = orvalSchemas.SignalsScoutConfigPrecheckTestParams()
+    return SignalsScoutConfigPrecheckTestParams.omit({ project_id: true }).extend(
+        SignalsScoutConfigPrecheckTestBody.shape
+    )
+}
+
+const scoutConfigPrecheckTest = (): ToolBase<
+    ReturnType<typeof ScoutConfigPrecheckTestSchema>,
+    Schemas.SignalScoutPrecheckTest
+> => ({
+    name: 'scout-config-precheck-test',
+    schema: ScoutConfigPrecheckTestSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutConfigPrecheckTestSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.precheck_query !== undefined) {
+            body['precheck_query'] = params.precheck_query
+        }
+        const result = await context.api.request<Schemas.SignalScoutPrecheckTest>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/precheck_test/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -989,8 +1053,23 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.precheck_query !== undefined) {
+            body['precheck_query'] = params.precheck_query
+        }
+        if (params.precheck_disabled !== undefined) {
+            body['precheck_disabled'] = params.precheck_disabled
+        }
         if (params.suggestion_id !== undefined) {
             body['suggestion_id'] = params.suggestion_id
+        }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
+        if (params.allowed_mcp_tools !== undefined) {
+            body['allowed_mcp_tools'] = params.allowed_mcp_tools
+        }
+        if (params.tool_preset !== undefined) {
+            body['tool_preset'] = params.tool_preset
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -1565,6 +1644,134 @@ const scoutReportChecksList = (): ToolBase<
     },
 })
 
+const ScoutRubricGenerateSchema = () => {
+    const SignalsScoutRubricsGenerateBody = orvalSchemas.SignalsScoutRubricsGenerateBody()
+    const SignalsScoutRubricsGenerateParams = orvalSchemas.SignalsScoutRubricsGenerateParams()
+    return SignalsScoutRubricsGenerateParams.omit({ project_id: true }).extend(SignalsScoutRubricsGenerateBody.shape)
+}
+
+const scoutRubricGenerate = (): ToolBase<ReturnType<typeof ScoutRubricGenerateSchema>, unknown> => ({
+    name: 'scout-rubric-generate',
+    schema: ScoutRubricGenerateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRubricGenerateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.context !== undefined) {
+            body['context'] = params.context
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/rubrics/${encodeURIComponent(String(params.id))}/generate/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ScoutRubricGetSchema = () => {
+    const SignalsScoutRubricsRetrieveParams = orvalSchemas.SignalsScoutRubricsRetrieveParams()
+    return SignalsScoutRubricsRetrieveParams.omit({ project_id: true }).extend({
+        fields: z
+            .array(
+                z.enum([
+                    'config_id',
+                    'skill_name',
+                    'revision',
+                    'criteria',
+                    'generation',
+                    'reference_context',
+                    'reference_generation_id',
+                    'generation.id',
+                    'generation.status',
+                    'generation.error',
+                    'generation.summary',
+                    'generation.suggestions',
+                    'generation.reference_context',
+                    'generation.reference_context.instructions',
+                    'generation.reference_context.report_disposition_instructions',
+                    'generation.reference_context.reference_texts',
+                    'reference_context.instructions',
+                    'reference_context.report_disposition_instructions',
+                    'reference_context.reference_texts',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
+}
+
+const scoutRubricGet = (): ToolBase<ReturnType<typeof ScoutRubricGetSchema>, Schemas.ScoutRubricDocument> => ({
+    name: 'scout-rubric-get',
+    schema: ScoutRubricGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRubricGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutRubricDocument>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/rubrics/${encodeURIComponent(String(params.id))}/`,
+        })
+        const filtered = pickResponseFields(
+            result,
+            params.fields?.length
+                ? params.fields
+                : [
+                      'config_id',
+                      'skill_name',
+                      'revision',
+                      'criteria',
+                      'generation',
+                      'reference_context',
+                      'reference_generation_id',
+                      'generation.id',
+                      'generation.status',
+                      'generation.error',
+                      'generation.summary',
+                      'generation.suggestions',
+                      'generation.reference_context',
+                      'generation.reference_context.instructions',
+                      'generation.reference_context.report_disposition_instructions',
+                      'generation.reference_context.reference_texts',
+                      'reference_context.instructions',
+                      'reference_context.report_disposition_instructions',
+                      'reference_context.reference_texts',
+                  ]
+        ) as typeof result
+        return filtered
+    },
+})
+
+const ScoutRubricSaveSchema = () => {
+    const SignalsScoutRubricsUpdateBody = orvalSchemas.SignalsScoutRubricsUpdateBody()
+    const SignalsScoutRubricsUpdateParams = orvalSchemas.SignalsScoutRubricsUpdateParams()
+    return SignalsScoutRubricsUpdateParams.omit({ project_id: true }).extend(SignalsScoutRubricsUpdateBody.shape)
+}
+
+const scoutRubricSave = (): ToolBase<ReturnType<typeof ScoutRubricSaveSchema>, Schemas.ScoutRubricDocument> => ({
+    name: 'scout-rubric-save',
+    schema: ScoutRubricSaveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRubricSaveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision !== undefined) {
+            body['revision'] = params.revision
+        }
+        if (params.criteria !== undefined) {
+            body['criteria'] = params.criteria
+        }
+        if (params.adopt_generation_id !== undefined) {
+            body['adopt_generation_id'] = params.adopt_generation_id
+        }
+        const result = await context.api.request<Schemas.ScoutRubricDocument>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/rubrics/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutRunNowSchema = () => {
     const SignalsScoutConfigRunBody = orvalSchemas.SignalsScoutConfigRunBody()
     const SignalsScoutConfigRunParams = orvalSchemas.SignalsScoutConfigRunParams()
@@ -1795,6 +2002,42 @@ const scoutScratchpadSearch = (): ToolBase<
     },
 })
 
+const ScoutTrialArchiveSchema = () => {
+    const SignalsScoutConfigTrialComparisonArchiveBody = orvalSchemas.SignalsScoutConfigTrialComparisonArchiveBody()
+    const SignalsScoutConfigTrialComparisonArchiveParams = orvalSchemas.SignalsScoutConfigTrialComparisonArchiveParams()
+    return SignalsScoutConfigTrialComparisonArchiveParams.omit({ project_id: true }).extend(
+        SignalsScoutConfigTrialComparisonArchiveBody.shape
+    )
+}
+
+const scoutTrialArchive = (): ToolBase<ReturnType<typeof ScoutTrialArchiveSchema>, Schemas.ScoutTrialComparison> => ({
+    name: 'scout-trial-archive',
+    schema: ScoutTrialArchiveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutTrialArchiveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.comparison_id !== undefined) {
+            body['comparison_id'] = params.comparison_id
+        }
+        if (params.archived !== undefined) {
+            body['archived'] = params.archived
+        }
+        const result = await context.api.request<Schemas.ScoutTrialComparison>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial_comparison_archive/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'comparison_id',
+            'config_id',
+            'status',
+            'archived',
+            'error',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const ScoutTrialCreateSchema = () => {
     const SignalsScoutConfigTrialBody = orvalSchemas.SignalsScoutConfigTrialBody()
     const SignalsScoutConfigTrialParams = orvalSchemas.SignalsScoutConfigTrialParams()
@@ -1861,6 +2104,213 @@ const scoutTrialGet = (): ToolBase<ReturnType<typeof ScoutTrialGetSchema>, Schem
     },
 })
 
+const ScoutTrialListSchema = () => {
+    const SignalsScoutConfigTrialComparisonHistoryParams = orvalSchemas.SignalsScoutConfigTrialComparisonHistoryParams()
+    const SignalsScoutConfigTrialComparisonHistoryQueryParams =
+        orvalSchemas.SignalsScoutConfigTrialComparisonHistoryQueryParams()
+    return SignalsScoutConfigTrialComparisonHistoryParams.omit({ project_id: true }).extend(
+        SignalsScoutConfigTrialComparisonHistoryQueryParams.shape
+    )
+}
+
+const scoutTrialList = (): ToolBase<ReturnType<typeof ScoutTrialListSchema>, Schemas.ScoutTrialComparisonHistory> => ({
+    name: 'scout-trial-list',
+    schema: ScoutTrialListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutTrialListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutTrialComparisonHistory>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial_comparison_history/`,
+            query: {
+                cursor: params.cursor,
+                include_archived: params.include_archived,
+                limit: params.limit,
+            },
+        })
+        return result
+    },
+})
+
+const ScoutTrialReportSchema = () => {
+    const SignalsScoutConfigTrialComparisonRetrieveParams =
+        orvalSchemas.SignalsScoutConfigTrialComparisonRetrieveParams()
+    const SignalsScoutConfigTrialComparisonRetrieveQueryParams =
+        orvalSchemas.SignalsScoutConfigTrialComparisonRetrieveQueryParams()
+    return SignalsScoutConfigTrialComparisonRetrieveParams.omit({ project_id: true })
+        .extend(SignalsScoutConfigTrialComparisonRetrieveQueryParams.shape)
+        .extend({
+            fields: z
+                .array(
+                    z.enum([
+                        'comparison_id',
+                        'config_id',
+                        'context_id',
+                        'created_at',
+                        'baseline_variant_id',
+                        'rubric_revision',
+                        'variants',
+                        'status',
+                        'archived',
+                        'error',
+                        'evaluation',
+                        'evaluation.status',
+                        'evaluation.error',
+                        'evaluation.report',
+                        'evaluation.report.summary',
+                        'evaluation.report.outcome',
+                        'evaluation.report.variants',
+                        'evaluation.report.runs',
+                        'evaluation.report.evidence',
+                        'evaluation.report.criteria',
+                        'evaluation.report.rubric_reference_context',
+                        'evaluation.report.limitations',
+                    ])
+                )
+                .min(1)
+                .optional()
+                .describe(
+                    'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+                ),
+        })
+}
+
+const scoutTrialReport = (): ToolBase<ReturnType<typeof ScoutTrialReportSchema>, Schemas.ScoutTrialComparison> => ({
+    name: 'scout-trial-report',
+    schema: ScoutTrialReportSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutTrialReportSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutTrialComparison>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial_comparison_result/`,
+            query: {
+                comparison_id: params.comparison_id,
+            },
+        })
+        const filtered = pickResponseFields(
+            result,
+            params.fields?.length
+                ? params.fields
+                : [
+                      'comparison_id',
+                      'config_id',
+                      'context_id',
+                      'created_at',
+                      'baseline_variant_id',
+                      'rubric_revision',
+                      'variants',
+                      'status',
+                      'archived',
+                      'error',
+                      'evaluation',
+                      'evaluation.status',
+                      'evaluation.error',
+                      'evaluation.report',
+                      'evaluation.report.summary',
+                      'evaluation.report.outcome',
+                      'evaluation.report.variants',
+                      'evaluation.report.runs',
+                      'evaluation.report.evidence',
+                      'evaluation.report.criteria',
+                      'evaluation.report.rubric_reference_context',
+                      'evaluation.report.limitations',
+                  ]
+        ) as typeof result
+        return filtered
+    },
+})
+
+const ScoutTrialResumeSchema = () => {
+    const SignalsScoutConfigTrialComparisonResumeBody = orvalSchemas.SignalsScoutConfigTrialComparisonResumeBody()
+    const SignalsScoutConfigTrialComparisonResumeParams = orvalSchemas.SignalsScoutConfigTrialComparisonResumeParams()
+    return SignalsScoutConfigTrialComparisonResumeParams.omit({ project_id: true }).extend(
+        SignalsScoutConfigTrialComparisonResumeBody.shape
+    )
+}
+
+const scoutTrialResume = (): ToolBase<ReturnType<typeof ScoutTrialResumeSchema>, unknown> => ({
+    name: 'scout-trial-resume',
+    schema: ScoutTrialResumeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutTrialResumeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.comparison_id !== undefined) {
+            body['comparison_id'] = params.comparison_id
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial_comparison_resume/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ScoutTrialSetupSchema = () => {
+    const SignalsScoutConfigTrialSetupParams = orvalSchemas.SignalsScoutConfigTrialSetupParams()
+    const SignalsScoutConfigTrialSetupQueryParams = orvalSchemas.SignalsScoutConfigTrialSetupQueryParams()
+    return SignalsScoutConfigTrialSetupParams.omit({ project_id: true }).extend(
+        SignalsScoutConfigTrialSetupQueryParams.shape
+    )
+}
+
+const scoutTrialSetup = (): ToolBase<ReturnType<typeof ScoutTrialSetupSchema>, Schemas.ScoutTrialSetup> => ({
+    name: 'scout-trial-setup',
+    schema: ScoutTrialSetupSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutTrialSetupSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutTrialSetup>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial_setup/`,
+            query: {
+                context_id: params.context_id,
+            },
+        })
+        return result
+    },
+})
+
+const ScoutTrialStartSchema = () => {
+    const SignalsScoutConfigTrialComparisonCreateBody = orvalSchemas.SignalsScoutConfigTrialComparisonCreateBody()
+    const SignalsScoutConfigTrialComparisonCreateParams = orvalSchemas.SignalsScoutConfigTrialComparisonCreateParams()
+    return SignalsScoutConfigTrialComparisonCreateParams.omit({ project_id: true })
+        .extend(SignalsScoutConfigTrialComparisonCreateBody.shape)
+        .extend({
+            note: SignalsScoutConfigTrialComparisonCreateBody.shape['note'].describe(
+                'Steering instructions shared by every run in this trial, matching the trial UI\'s "Instructions for every run" field. Up to 1000 characters. Does not edit the saved scout\'s instructions.'
+            ),
+        })
+}
+
+const scoutTrialStart = (): ToolBase<ReturnType<typeof ScoutTrialStartSchema>, unknown> => ({
+    name: 'scout-trial-start',
+    schema: ScoutTrialStartSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutTrialStartSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.comparison_id !== undefined) {
+            body['comparison_id'] = params.comparison_id
+        }
+        if (params.baseline_variant_id !== undefined) {
+            body['baseline_variant_id'] = params.baseline_variant_id
+        }
+        if (params.variants !== undefined) {
+            body['variants'] = params.variants
+        }
+        if (params.note !== undefined) {
+            body['note'] = params.note
+        }
+        if (params.expected_skill_version !== undefined) {
+            body['expected_skill_version'] = params.expected_skill_version
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/trial_comparison/`,
+            body,
+        })
+        return result
+    },
+})
+
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -1892,6 +2342,18 @@ const signalsScoutConfigCreate = (): ToolBase<
         }
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
+        }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
+        if (params.allowed_mcp_tools !== undefined) {
+            body['allowed_mcp_tools'] = params.allowed_mcp_tools
+        }
+        if (params.tool_preset !== undefined) {
+            body['tool_preset'] = params.tool_preset
+        }
+        if (params.precheck_query !== undefined) {
+            body['precheck_query'] = params.precheck_query
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
@@ -2053,8 +2515,23 @@ const signalsScoutConfigUpdate = (): ToolBase<
         if (params.write_scopes !== undefined) {
             body['write_scopes'] = params.write_scopes
         }
+        if (params.precheck_query !== undefined) {
+            body['precheck_query'] = params.precheck_query
+        }
+        if (params.precheck_disabled !== undefined) {
+            body['precheck_disabled'] = params.precheck_disabled
+        }
         if (params.suggestion_id !== undefined) {
             body['suggestion_id'] = params.suggestion_id
+        }
+        if (params.lifecycle_locked !== undefined) {
+            body['lifecycle_locked'] = params.lifecycle_locked
+        }
+        if (params.allowed_mcp_tools !== undefined) {
+            body['allowed_mcp_tools'] = params.allowed_mcp_tools
+        }
+        if (params.tool_preset !== undefined) {
+            body['tool_preset'] = params.tool_preset
         }
         const result = await context.api.request<Schemas.SignalScoutConfig>({
             method: 'PATCH',
@@ -2564,6 +3041,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-checks-retrieve': inboxReportChecksRetrieve,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
+    'inbox-reports-leave-reviewers': inboxReportsLeaveReviewers,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-merge': inboxReportsMerge,
     'inbox-reports-retrieve': inboxReportsRetrieve,
@@ -2578,6 +3056,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,
     'scout-config-list': scoutConfigList,
+    'scout-config-precheck-test': scoutConfigPrecheckTest,
     'scout-config-sync': scoutConfigSync,
     'scout-config-update': scoutConfigUpdate,
     'scout-create': scoutCreate,
@@ -2596,6 +3075,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-report-check-create': scoutReportCheckCreate,
     'scout-report-check-list': scoutReportCheckList,
     'scout-report-checks-list': scoutReportChecksList,
+    'scout-rubric-generate': scoutRubricGenerate,
+    'scout-rubric-get': scoutRubricGet,
+    'scout-rubric-save': scoutRubricSave,
     'scout-run-now': scoutRunNow,
     'scout-runs-emission-reports': scoutRunsEmissionReports,
     'scout-runs-emissions-list': scoutRunsEmissionsList,
@@ -2605,8 +3087,14 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,
+    'scout-trial-archive': scoutTrialArchive,
     'scout-trial-create': scoutTrialCreate,
     'scout-trial-get': scoutTrialGet,
+    'scout-trial-list': scoutTrialList,
+    'scout-trial-report': scoutTrialReport,
+    'scout-trial-resume': scoutTrialResume,
+    'scout-trial-setup': scoutTrialSetup,
+    'scout-trial-start': scoutTrialStart,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,

@@ -28,7 +28,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.api.cohort import CohortSerializer, get_active_flags_using_cohort
+from posthog.api.cohort import ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY, CohortSerializer, get_active_flags_using_cohort
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import EventSource, report_user_action
@@ -40,7 +40,7 @@ from posthog.exceptions import (
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
-from posthog.models.filters.filter import Filter
+from posthog.models.entity.entity import Entity, parse_entities
 from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
@@ -51,6 +51,11 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models import EventDefinition, effective_project_id_expr
 from products.experiments.backend.facade.launch_signals import experiment_launched
 from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
+from products.experiments.backend.health.context import load_health_context
+from products.experiments.backend.health.registry import (
+    EXPERIMENT_HEALTH_CHECKS,
+    evaluate as evaluate_health,
+)
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
@@ -1365,6 +1370,8 @@ class ExperimentService:
         # Every path saves the launch before it reports it, so an analytics failure must not fail the request.
         try:
             flag_age = timezone.now() - experiment.feature_flag.created_at
+            # Every launch reports the findings it leaves open, also for a launcher who has no health findings.
+            findings = evaluate_health(load_health_context(experiment), EXPERIMENT_HEALTH_CHECKS)
             self._report_lifecycle_event(
                 experiment,
                 "experiment launched",
@@ -1374,6 +1381,13 @@ class ExperimentService:
                     "launch_date": experiment.start_date.isoformat() if experiment.start_date else None,
                     "launch_path": launch_path,
                     "flag_age_seconds": int(flag_age.total_seconds()),
+                    "health_finding_codes": [finding.code.value for finding in findings],
+                    # pinned: `code:subcode`, as on `experiment viewed`. The code prefix keeps a subcode
+                    # unambiguous when two codes use the same subcode.
+                    "health_finding_subcodes": [
+                        f"{finding.code.value}:{finding.subcode}" for finding in findings if finding.subcode
+                    ],
+                    "health_finding_count": len(findings),
                 },
             )
         except Exception:
@@ -2188,15 +2202,16 @@ class ExperimentService:
 
                 # 5. Persist the narrowed filters via the gated flag write.
                 #
-                # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate,
-                # but flag approval policies are intentionally field-level and scoped to `active`
-                # (enable/disable) and `rollout_percentage` changes only — see GATEABLE_FIELDS in
-                # products/approvals/backend/actions/feature_flags.py and posthog.com/docs/settings/approvals.
+                # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate.
+                # The `feature_flag.update` policy gates release condition changes on standalone flags
+                # only. An experiment owns this flag, so only `active` and `rollout_percentage` changes
+                # are gated here (see UpdateFeatureFlagAction in
+                # products/approvals/backend/actions/feature_flags.py).
                 # Freezing exposure only AND-s a cohort condition into each group's `properties` and stamps
                 # `description`; it changes neither `active` nor `rollout_percentage`, so the gate never
                 # matches and no change request is raised. We therefore don't special-case ApprovalRequired
-                # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
-                # cohort would then need to outlive a pending change request rather than be cleaned up below.
+                # here. If approvals ever gate property/cohort changes on experiment flags, revisit this: the
+                # snapshot cohort would then need to outlive a pending change request rather than be cleaned up below.
                 # Mark the write as freeze-driven so the flag's log entry does not read as
                 # a manual targeting edit.
                 locked_flag._activity_trigger = self._exposure_freeze_trigger(experiment, frozen=True)
@@ -4132,9 +4147,9 @@ class ExperimentService:
             raise ValidationError("Experiment already has an exposure cohort")
 
         exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
-        exposure_filter = None
+        exposure_entities: list[Entity] = []
         if exposure_filter_data:
-            exposure_filter = Filter(data={**exposure_filter_data, "is_simplified": True}, team=experiment.team)
+            exposure_entities = parse_entities(exposure_filter_data)
 
         target_entity: int | str = "$feature_flag_called"
         target_entity_type = "events"
@@ -4147,8 +4162,8 @@ class ExperimentService:
             }
         ]
 
-        if exposure_filter:
-            entity = exposure_filter.entities[0]
+        if exposure_entities:
+            entity = exposure_entities[0]
             if entity.id:
                 target_entity_type = entity.type if entity.type in ["events", "actions"] else "events"
                 target_entity = entity.id
@@ -4166,7 +4181,7 @@ class ExperimentService:
 
         context = serializer_context or self._build_serializer_context()
         # CohortSerializer expects "team" directly in context
-        cohort_context = {**context, "team": self.team}
+        cohort_context = {**context, "team": self.team, ALLOW_HIDDEN_EVENT_CRITERIA_CONTEXT_KEY: True}
 
         cohort_serializer = CohortSerializer(
             data={
@@ -4360,7 +4375,7 @@ class ExperimentService:
 
         search = query_params.get("search")
         if search:
-            queryset = queryset.filter(Q(name__icontains=search))
+            queryset = queryset.filter(Q(name__icontains=search) | Q(feature_flag__key__icontains=search))
 
         order = query_params.get("order")
         if order:

@@ -73,7 +73,7 @@ SLACK_BLOCK_REJECTION_ERRORS = frozenset(
 )
 
 
-def send_slack_alert(context, client, channel: str, blocks: list, fallback_text: str) -> None:
+def send_slack_alert(context, client, channel: str, blocks: list, fallback_text: str) -> bool:
     """Post an alert, falling back to a plain-text message if the rich blocks are rejected.
 
     A block-formatting or size error (e.g. an oversized error field exceeding Slack's 3000-char
@@ -84,24 +84,26 @@ def send_slack_alert(context, client, channel: str, blocks: list, fallback_text:
     try:
         client.chat_postMessage(channel=channel, blocks=blocks, text=fallback_text)
         context.log.info(f"Sent Slack notification to {channel}")
-        return
+        return True
     except SlackApiError as e:
         error_code = e.response.get("error") if e.response is not None else None
         if error_code not in SLACK_BLOCK_REJECTION_ERRORS:
             # The message may have posted (rate limit, transient read error, ...) — don't duplicate it.
             context.log.exception(f"Failed to send Slack notification to {channel}: {str(e)}")
-            return
+            return False
         context.log.warning(f"Slack rejected blocks ({error_code}) for {channel}, retrying text-only")
     except Exception as e:
         # Non-API failure: the outcome is ambiguous, so log and stop rather than risk a duplicate.
         context.log.exception(f"Failed to send Slack notification to {channel}: {str(e)}")
-        return
+        return False
 
     try:
         client.chat_postMessage(channel=channel, text=fallback_text)
         context.log.info(f"Sent text-only Slack fallback to {channel}")
+        return True
     except Exception as e:
         context.log.exception(f"Failed to send text-only Slack fallback to {channel}: {str(e)}")
+        return False
 
 
 # A manually materialized or backfilled asset runs under Dagster's implicit `__ASSET_JOB`, whose

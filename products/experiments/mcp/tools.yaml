@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product experiments
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product experiments
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Experiments
 feature: experiments
 url_prefix: /experiments
@@ -73,6 +71,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-calculate-running-time:
         operation: experiments_calculate_running_time_create
         enabled: true
@@ -409,6 +410,9 @@ tools:
                 aliases:
                     - experimentId
                     - experiment_id
+        response:
+            exclude:
+                - health
     experiment-end:
         operation: experiments_end_create
         enabled: true
@@ -465,6 +469,9 @@ tools:
                     or the team's only connected repository. When several repositories are connected and no default is
                     set, the cleanup is skipped unless this is provided.
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-freeze-exposure:
         operation: experiments_freeze_exposure_create
         enabled: true
@@ -519,6 +526,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-get:
         operation: experiments_retrieve
         enabled: true
@@ -552,6 +562,10 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - saved_metrics.*.effective_query
+                - health
     experiment-holdouts-create:
         operation: experiment_holdouts_create
         enabled: true
@@ -676,9 +690,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-    experiment-holdouts-update:
-        operation: experiment_holdouts_update
-        enabled: false
     experiment-launch:
         operation: experiments_launch_create
         enabled: true
@@ -749,10 +760,10 @@ tools:
 
             Supports filtering by status ("draft", "running", "paused", "exposure_frozen", "stopped", "complete" which
             maps to stopped, or "all"), archived state (defaults to non-archived), feature_flag_id, created_by_id, tags
-            / excluded_tags (JSON-encoded lists of tag names), and free-text search on name. Supports ordering by an
-            allowlisted set of fields (model fields plus computed "duration" and "status"). Returns paginated results
-            with each experiment's status, dates, feature flag key, and metrics summary. Use the returned ID for
-            get/update/lifecycle tools.
+            / excluded_tags (JSON-encoded lists of tag names), and free-text search on name and feature flag key.
+            Supports ordering by an allowlisted set of fields (model fields plus computed "duration" and "status").
+            Returns paginated results with each experiment's status, dates, feature flag key, and metrics summary. Use
+            the returned ID for get/update/lifecycle tools.
         param_overrides:
             status:
                 description: >
@@ -835,7 +846,7 @@ tools:
         description: >
             The default way to read an experiment's current results. Requires an experiment ID. If you don't have the
             ID, load the finding-experiments skill to resolve the user's reference first. To interpret what the numbers
-            mean, load the diagnosing-experiment-results skill.
+            mean, load the diagnosing-experiment-health skill.
 
 
             Returns the most recent completed metrics run for the experiment: a results array with one entry per metric,
@@ -968,6 +979,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-pause:
         operation: experiments_pause_create
         enabled: true
@@ -1002,6 +1016,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-prompt-templates:
         operation: experiments_prompt_templates_retrieve
         enabled: true
@@ -1051,6 +1068,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-resume:
         operation: experiments_resume_create
         enabled: true
@@ -1084,6 +1104,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-saved-metrics-create:
         operation: experiment_saved_metrics_create
         enabled: true
@@ -1197,9 +1220,6 @@ tools:
         param_overrides:
             id:
                 cast: string-int
-    experiment-saved-metrics-update:
-        operation: experiment_saved_metrics_update
-        enabled: false
     experiment-setup-context:
         operation: experiments_setup_context_create
         enabled: true
@@ -1316,6 +1336,9 @@ tools:
                     or the team's only connected repository. When several repositories are connected and no default is
                     set, the cleanup is skipped unless this is provided.
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-stats:
         operation: experiments_stats_retrieve
         enabled: true
@@ -1403,6 +1426,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-unfreeze-exposure:
         operation: experiments_unfreeze_exposure_create
         enabled: true
@@ -1445,6 +1471,9 @@ tools:
                     - experimentId
                     - experiment_id
         ui_app: experiment
+        response:
+            exclude:
+                - health
     experiment-update:
         operation: experiments_partial_update
         enabled: true
@@ -1564,7 +1593,13 @@ tools:
                 - excluded_variants
                 - metrics
                 - metrics_secondary
-                - saved_metrics
+                - saved_metrics.*.id
+                - saved_metrics.*.experiment
+                - saved_metrics.*.saved_metric
+                - saved_metrics.*.metadata
+                - saved_metrics.*.created_at
+                - saved_metrics.*.query
+                - saved_metrics.*.name
                 - conclusion
                 - conclusion_comment
                 - tags
@@ -1582,30 +1617,6 @@ tools:
             Add, remove, or replace tags on multiple experiments in one call. Provide `ids` (up to 500), an `action`
             ('add', 'remove', or 'set'), and a list of tag names. Returns `updated` (per-experiment final tag list) and
             `skipped` (experiments missing or without edit permission, with reason).
-    experiments-create-exposure-cohort:
-        operation: experiments_create_exposure_cohort_for_experiment_create
-        enabled: false
-    experiments-flag-cleanup-target-retrieve:
-        operation: experiments_flag_cleanup_target_retrieve
-        enabled: false
-    experiments-in-session-exposure-retrieve:
-        operation: experiments_in_session_exposure_retrieve
-        enabled: false
-    experiments-matching-ids-retrieve:
-        operation: experiments_matching_ids_retrieve
-        enabled: false
-    experiments-recalculate-timeseries:
-        operation: experiments_recalculate_timeseries_create
-        enabled: false
-    experiments-session-buckets-create:
-        operation: experiments_session_buckets_create
-        enabled: false
-    experiments-session-context-retrieve:
-        operation: experiments_session_context_retrieve
-        enabled: false
-    experiments-session-contexts-create:
-        operation: experiments_session_contexts_create
-        enabled: false
     experiments-session-event-deltas-create:
         operation: experiments_session_event_deltas_create
         enabled: true
@@ -1655,6 +1666,3 @@ tools:
             informational_wrapper:
                 tag: experiment-watch-cards
                 purpose: Use it only to point the user at recordings worth watching for this experiment.
-    experiments-update:
-        operation: experiments_update
-        enabled: false

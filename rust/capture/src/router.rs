@@ -20,7 +20,7 @@ use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
 use crate::outputs::OutputRegistry;
 use crate::test_endpoint;
-use crate::v0_request::{AiLanePredicate, DataType};
+use crate::v0_request::DataType;
 use crate::{ai_endpoint, time::TimeSource, v0_endpoint};
 use common_ingestion_warnings::WarningEmitter;
 use common_redis::Client;
@@ -70,9 +70,6 @@ pub struct State {
     /// Largest AI-lane event this deployment accepts (`AI_MAX_EVENT_BYTES`).
     /// `0` disables the ceiling.
     pub ai_max_event_bytes: u64,
-    /// How this deployment decides an event name is on the AI lane
-    /// (`CAPTURE_AI_LANE_PREDICATE`).
-    pub ai_lane_predicate: AiLanePredicate,
     pub body_chunk_read_timeout: Option<Duration>,
     pub body_read_chunk_size_kb: usize,
     pub capture_v1_max_compressed_body_bytes: usize,
@@ -114,7 +111,7 @@ pub struct State {
     /// V1 sink router for the new capture analytics pipeline.
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
-    /// Whether the AI overflow valve is armed (`CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC` is
+    /// Whether the AI overflow valve is armed (`CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC` is
     /// set). Gates overflow stamping for the AI lane in both pipelines: when
     /// false, AI events never overflow (pre-overflow behavior).
     pub ai_events_overflow_enabled: bool,
@@ -189,7 +186,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
     ai_max_event_bytes: u64,
-    ai_lane_predicate: AiLanePredicate,
     body_chunk_read_timeout_ms: Option<u64>,
     body_read_chunk_size_kb: usize,
     capture_v1_max_compressed_body_bytes: usize,
@@ -221,7 +217,6 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
         ai_max_event_bytes,
-        ai_lane_predicate,
         body_chunk_read_timeout: body_chunk_read_timeout_ms.map(Duration::from_millis),
         body_read_chunk_size_kb,
         capture_v1_max_compressed_body_bytes,

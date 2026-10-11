@@ -184,7 +184,7 @@ pub fn test_kafka_config() -> crate::v1::sinks::kafka::config::Config {
     let mut cfg: crate::v1::sinks::kafka::config::Config =
         envconfig::Envconfig::init_from_hashmap(&env).unwrap();
     // Mirrors production, where setup injects the deployment-level
-    // CAPTURE_ANALYTICS_AI_EVENTS_TOPIC and CAPTURE_ANALYTICS_AI_EVENTS_OVERFLOW_TOPIC into every sink config
+    // CAPTURE_OUTPUT_AI_MAIN_TOPIC and CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC into every sink config
     // after env loading.
     cfg.topic_ai = "ai_events".to_string();
     cfg.topic_ai_overflow = Some("ai_events_overflow".to_string());
@@ -678,7 +678,6 @@ use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
 use crate::time::TimeSource;
-use crate::v0_request::AiLanePredicate;
 use crate::v1::sinks::kafka::mock::MockProducer;
 use crate::v1::sinks::kafka::sink::KafkaSink;
 use crate::v1::sinks::sink::Sink;
@@ -707,7 +706,6 @@ pub struct TestStateBuilder {
     ingestion_warning_emitter: Option<Arc<dyn common_ingestion_warnings::WarningEmitter>>,
     capture_mode: CaptureMode,
     ai_max_event_bytes: u64,
-    ai_lane_predicate: AiLanePredicate,
 }
 
 impl Default for TestStateBuilder {
@@ -733,7 +731,6 @@ impl TestStateBuilder {
             ingestion_warning_emitter: None,
             capture_mode: CaptureMode::Events,
             ai_max_event_bytes: 0,
-            ai_lane_predicate: AiLanePredicate::Allowlist,
         }
     }
 
@@ -834,11 +831,6 @@ impl TestStateBuilder {
         self
     }
 
-    pub fn with_ai_lane_predicate(mut self, predicate: AiLanePredicate) -> Self {
-        self.ai_lane_predicate = predicate;
-        self
-    }
-
     pub fn build(self) -> TestState {
         let mut manager = lifecycle::Manager::builder("test_state")
             .with_trap_signals(false)
@@ -870,7 +862,10 @@ impl TestStateBuilder {
         let cfg_env: HashMap<String, String> = [
             ("REDIS_URL", "redis://localhost:6379/"),
             ("CAPTURE_MODE", "events"),
-            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            (
+                "CAPTURE_OUTPUT_ANALYTICS_MAIN_TOPIC",
+                "events_plugin_ingestion",
+            ),
         ]
         .into_iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -949,7 +944,6 @@ impl TestStateBuilder {
             verbose_sample_percent: 0.0,
             ai_max_sum_of_parts_bytes: 100 * 1024 * 1024,
             ai_max_event_bytes: self.ai_max_event_bytes,
-            ai_lane_predicate: self.ai_lane_predicate,
             body_chunk_read_timeout: None,
             body_read_chunk_size_kb: 64,
             capture_v1_max_compressed_body_bytes: 2 * 1024 * 1024,

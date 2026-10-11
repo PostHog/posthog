@@ -38,6 +38,46 @@ class TestSignalScoutCreateAPI(APIBaseTest):
             ],
         }
 
+    @parameterized.expand(
+        [
+            ("read", {"allowed_mcp_tools": ["insight-get"]}, ["insight-get"], [], "custom"),
+            ("write", {"allowed_mcp_tools": ["dashboard-create"]}, ["dashboard-create"], ["dashboard:write"], "custom"),
+            ("empty", {"allowed_mcp_tools": []}, [], [], "custom"),
+        ]
+    )
+    def test_create_and_upsert_tool_grants(
+        self, _name: str, options: dict, tools: list[str], scopes: list[str], preset: str
+    ) -> None:
+        payload = {**self._payload(), "config": {"enabled": False, **options}}
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            for expected in (201, 200):
+                response = self.client.post(self._url(), payload, format="json")
+                assert response.status_code == expected, response.json()
+                config = response.json()["config"]
+                assert config["allowed_mcp_tools"] == tools
+                assert config["write_scopes"] == scopes
+                assert config["tool_preset"] == preset
+
+    def test_scout_create_upsert_cannot_add_tool_without_credential_scope(self) -> None:
+        payload = {**self._payload(), "config": {"enabled": False, "allowed_mcp_tools": ["dashboard-create"]}}
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(self._url(), payload, format="json")
+        assert response.status_code == 201, response.json()
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="scout settings",
+            user=self.user,
+            secure_value=hash_key_value(raw),
+            scopes=["signal_scout:write", "llm_skill:write"],
+        )
+        self.client.logout()
+        payload["config"]["allowed_mcp_tools"] = ["dashboard-update"]
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(self._url(), payload, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert response.status_code == 403, response.json()
+        config = SignalScoutConfig.objects.get(team=self.team, skill_name=payload["name"])
+        assert config.allowed_mcp_tools == ["dashboard-create"]
+
     def test_create_builds_runnable_scout_with_slack_destination(self) -> None:
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         payload = {

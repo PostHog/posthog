@@ -58,6 +58,7 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     ConcurrentS3Consumer,
     IntermittentUploadPartTimeoutError,
     PolicyStatement,
+    S3IntegrationNotFoundError,
     get_credentials_using_user_aws_role,
     get_s3_integration,
     s3_client,
@@ -67,6 +68,10 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    MISSING_INTEGRATION_DETAIL,
+    DestinationConfigurationError,
 )
 
 if TYPE_CHECKING:
@@ -94,10 +99,6 @@ MAX_RETRY_DELAY = ConcurrentS3Consumer.MAX_RETRY_DELAY
 EXPONENTIAL_BACKOFF_COEFFICIENT = ConcurrentS3Consumer.EXPONENTIAL_BACKOFF_COEFFICIENT
 
 RefreshCredentials = Callable[[], Awaitable[AWSCredentials]]
-
-
-class S3DestinationConfigurationError(ValueError):
-    """The destination's config cannot produce a valid S3 write."""
 
 
 @dataclass(frozen=False, kw_only=True)
@@ -270,19 +271,21 @@ class S3DestinationWriter:
         name = self._ctx.destination_name
 
         if not self._bucket:
-            raise S3DestinationConfigurationError(
-                f"Destination {name} has no bucket. Add a bucket to the destination, then run the sync again."
+            raise DestinationConfigurationError(
+                name, "The destination has no bucket. Add a bucket to the destination, then run the sync again."
             )
         if not self._region:
-            raise S3DestinationConfigurationError(
-                f"Destination {name} has no region. Set the region the bucket is in, for example 'us-east-1', "
-                "then run the sync again."
+            raise DestinationConfigurationError(
+                name,
+                "The destination has no region. Set the region the bucket is in, for example 'us-east-1', "
+                "then run the sync again.",
             )
         if self._compression not in SUPPORTED_COMPRESSIONS:
             supported = ", ".join(sorted(SUPPORTED_COMPRESSIONS))
-            raise S3DestinationConfigurationError(
-                f"Destination {name} uses the compression '{self._compression}', which parquet files cannot use. "
-                f"Pick one of: {supported}."
+            raise DestinationConfigurationError(
+                name,
+                f"The destination uses the compression '{self._compression}', which parquet files cannot use. "
+                f"Pick one of: {supported}.",
             )
 
     # --- keys -------------------------------------------------------------------------
@@ -306,9 +309,12 @@ class S3DestinationWriter:
         A writer is built per batch, so a client left open here leaks a session per batch.
         """
         if self._ctx.integration_id is None:
-            raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        try:
+            integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        except S3IntegrationNotFoundError as error:
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from error
 
         endpoint_url: str | None = None
         refresh_credentials: RefreshCredentials | None = None

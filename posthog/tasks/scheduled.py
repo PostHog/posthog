@@ -86,7 +86,7 @@ from products.approvals.backend.tasks import (
 )
 from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
-from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.maintenance import purge_deleted_tickets, wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
@@ -152,7 +152,8 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
-    poll_ses_account_reputation,
+    poll_ses_account_enforcement,
+    poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
@@ -498,9 +499,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/10"),
-        poll_ses_account_reputation.s(),
-        name="poll SES account reputation",
+        poll_ses_account_enforcement.s(),
+        name="poll SES account enforcement status",
         expires_seconds=10 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="20"),
+        poll_ses_reputation_findings.s(),
+        name="poll SES reputation findings",
+        expires_seconds=30 * 60,
     )
 
     # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
@@ -1087,6 +1096,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="15"),
+        purge_deleted_tickets.s(),
+        name="purge soft-deleted conversation tickets",
     )
 
     # Re-drive queued outbound support email replies (survives a multi-day email provider outage)

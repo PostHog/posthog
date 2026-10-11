@@ -97,9 +97,11 @@ from products.replay_vision.backend.impact import (
 )
 from products.replay_vision.backend.jev_watch_feed import (
     JEV_WATCHABLE_MIN,
+    JevWatchReason,
     load_watch_ranks,
     rank_watch_feed_by_jev,
-    watch_feed_ranker,
+    ranker_mode,
+    watch_feed_ranker_variant,
 )
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -1734,6 +1736,14 @@ class WatchFeedReasonSerializer(serializers.Serializer):
             "copy derived from the reason kind. Absent on observations scanned before notability shipped."
         ),
     )
+    watch_reason = serializers.ChoiceField(
+        choices=JevWatchReason.choices,
+        required=False,
+        help_text=(
+            "Why the decision model rated the session worth watching, picked from a fixed list, for "
+            "`jev_watchable`. Absent when no reason on the list fits, or on sessions judged before reasons shipped."
+        ),
+    )
     score = serializers.FloatField(
         required=False, allow_null=True, help_text="The observation's score, for `outlier_score`."
     )
@@ -1775,6 +1785,15 @@ class WatchFeedResponseSerializer(serializers.Serializer):
             "Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, "
             "`weighted-score` on the deterministic blend. The arm is decided server-side per team, so "
             "clients read it from here rather than evaluating the flag themselves."
+        ),
+    )
+    ranker_variant = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, "
+            "`jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from "
+            "control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, "
+            "which is the exposure the experiment counts."
         ),
     )
 
@@ -2323,6 +2342,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     # Same prompt, so the source's question still describes it.
                     prompt_question=source.prompt_question,
                     prompt_question_source=source.prompt_question_source,
+                    prompt_valence=source.prompt_valence,
                     query=source.query,
                     sampling_rate=source.sampling_rate,
                     sampling_mode=source.sampling_mode,
@@ -2476,10 +2496,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # The flag selects one of two independent rankers; nothing is blended between them. Shadow
         # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
         # the hourly sweep cached. Neither arm makes a model call here. The response names the
-        # ranker that ordered it, so the shadow arm reads as weighted-score to the client.
-        ranker = "jev" if watch_feed_ranker(self.team_id) == "jev" else "weighted-score"
+        # ranker that ordered it, so the shadow arm reads as weighted-score to the client, and the
+        # flag variant separately, which the client reports as the experiment's exposure.
+        variant = watch_feed_ranker_variant(self.team_id, self.team.uuid)
+        ranker = "jev" if ranker_mode(variant) == "jev" else "weighted-score"
         if ranker == "jev":
-            probabilities = load_watch_ranks(self.team_id, allowed_ids)
+            ranks = load_watch_ranks(self.team_id, allowed_ids)
+            probabilities = ranks.probabilities
             jev_rows = list(candidate_rows)
             # The recency slice above holds only each scanner's newest rows, which on a high-volume
             # scanner covers minutes. The sweep judged the whole window, so fetch the watchable rows
@@ -2511,7 +2534,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 )
                 jev_rows += fetched
                 needed -= len(fetched)
-            ranked = rank_watch_feed_by_jev(jev_rows, probabilities)[: params["limit"]]
+            ranked = rank_watch_feed_by_jev(jev_rows, probabilities, ranks.reasons)[: params["limit"]]
         else:
             ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
@@ -2534,7 +2557,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             for entry in ranked
             if entry.observation_id in rows
         ]
-        return Response({"results": results, "ranker": ranker})
+        return Response({"results": results, "ranker": ranker, "ranker_variant": variant})
 
     @extend_schema(
         request=ObserveRequestSerializer,

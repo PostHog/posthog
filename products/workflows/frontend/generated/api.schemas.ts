@@ -1249,9 +1249,32 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
+/**
+ * * `running` - Running
+ * * `paused_by_user` - Paused By User
+ * * `paused_by_system` - Paused By System
+ * * `not_running` - Not Running
+ */
+export type SuggestionsScoutStatusEnumApi =
+    (typeof SuggestionsScoutStatusEnumApi)[keyof typeof SuggestionsScoutStatusEnumApi]
+
+export const SuggestionsScoutStatusEnumApi = {
+    Running: 'running',
+    PausedByUser: 'paused_by_user',
+    PausedBySystem: 'paused_by_system',
+    NotRunning: 'not_running',
+} as const
+
 export interface HogFlowOptimizationApi {
     /** Whether PostHog may suggest changes to this workflow. */
     enabled: boolean
+    /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+     *
+     * * `running` - Running
+     * * `paused_by_user` - Paused By User
+     * * `paused_by_system` - Paused By System
+     * * `not_running` - Not Running */
+    readonly scout_status: SuggestionsScoutStatusEnumApi
 }
 
 /**
@@ -1314,6 +1337,8 @@ export interface WorkflowProposalApi {
      * @nullable
      */
     readonly applied_version: number | null
+    /** Why the person who rejected this suggestion rejected it, or empty when they gave no reason. */
+    readonly rejection_reason: string
 }
 
 export interface PaginatedWorkflowProposalListApi {
@@ -1458,6 +1483,14 @@ export interface WorkflowProposalOutcomeApi {
     change_ended_at_version: number | null
     /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
     unavailable_guardrails: string[]
+}
+
+export interface WorkflowProposalRejectRequestApi {
+    /**
+     * Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads it before suggesting again, so a reason stops the same idea coming back in other words.
+     * @maxLength 2000
+     */
+    reason?: string
 }
 
 export interface HogFlowPublishRequestApi {
@@ -1645,6 +1678,7 @@ export interface WorkflowEmailPauseStatusApi {
 export interface HogFlowRevisionBasicApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
+    /** When this version was published. */
     readonly created_at: string
     readonly created_by: UserBasicApi | null
 }
@@ -1661,6 +1695,7 @@ export interface PaginatedHogFlowRevisionBasicListApi {
 export interface HogFlowRevisionApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
+    /** When this version was published. */
     readonly created_at: string
     readonly created_by: UserBasicApi | null
     /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */

@@ -85,13 +85,16 @@ def comparison_evaluation_request(request: TrialComparisonRequest) -> TrialEvalu
     return request.evaluation_request()
 
 
-def list_comparison_history_keys(prefix: str, limit: int) -> list[str]:
+def list_comparison_history_keys(prefix: str, limit: int, *, start_after: str | None = None) -> list[str]:
     client = object_storage.object_storage_client()
     if not isinstance(client, object_storage.ObjectStorage):
         raise object_storage.ObjectStorageError("Comparison history storage is unavailable.")
     try:
         response: dict[str, object] = client.aws_client.list_objects_v2(
-            Bucket=settings.OBJECT_STORAGE_BUCKET, Prefix=prefix, MaxKeys=limit + 1
+            Bucket=settings.OBJECT_STORAGE_BUCKET,
+            Prefix=prefix,
+            MaxKeys=limit + 1,
+            **({"StartAfter": start_after} if start_after is not None else {}),
         )
         contents = response.get("Contents", [])
         if not isinstance(contents, list):
@@ -99,7 +102,11 @@ def list_comparison_history_keys(prefix: str, limit: int) -> list[str]:
         keys: list[str] = []
         for item in contents:
             key = item.get("Key") if isinstance(item, dict) else None
-            if not isinstance(key, str) or not key.startswith(prefix):
+            if (
+                not isinstance(key, str)
+                or not key.startswith(prefix)
+                or (start_after is not None and key <= start_after)
+            ):
                 raise ValueError("Invalid object key")
             keys.append(key)
         return keys
@@ -156,6 +163,11 @@ class ScoutTrialComparisons:
         service._assert_access(plan)
         return service
 
+    def assert_current_judge(self, plan: TrialComparisonPlan) -> None:
+        # A plan frozen with an older judge can never be scored, so starting its runs only spends budget.
+        if plan.judge_prompt_version != JUDGE_PROMPT_VERSION:
+            raise TrialEvaluationError("This evaluation uses an obsolete judge. Start a new trial to assess it.")
+
     def assert_can_start(self, *, launch_ids: Sequence[UUID] = ()) -> None:
         assert_trial_environment_ready()
         assert_trial_work_enabled(self.config.team)
@@ -180,12 +192,14 @@ class ScoutTrialComparisons:
     def _history_prefix(self) -> str:
         return f"signals/scout-trials/{self.config.team_id}/comparison-history/{self.user.id}/{self.config.id}/"
 
-    def _index(self, plan: TrialComparisonPlan) -> None:
+    def _history_key(self, plan: TrialComparisonPlan) -> str:
         # Newest first even when the object-store listing stops at its first page.
         reverse_time = 9_999_999_999_999_999_999 - int(plan.created_at.timestamp() * 1_000_000)
-        key = f"{self._history_prefix()}{reverse_time:019d}-{plan.comparison_id}.json"
+        return f"{self._history_prefix()}{reverse_time:019d}-{plan.comparison_id}.json"
+
+    def _index(self, plan: TrialComparisonPlan) -> None:
         _write_once(
-            key,
+            self._history_key(plan),
             TrialComparisonHistoryEntry(
                 team_id=plan.team_id,
                 config_id=plan.config_id,
@@ -248,7 +262,7 @@ class ScoutTrialComparisons:
                     config=self.config,
                     user=self.user,
                     launch_id=launch_id,
-                    context_id=context.id,
+                    saved_context=context,
                     model=variant.model,
                     reasoning_effort=variant.reasoning_effort,
                     skill_body=variant.skill_body,
@@ -309,6 +323,7 @@ class ScoutTrialComparisons:
         )
 
         self._assert_access(plan)
+        history_entry = _read_document(self._history_key(plan), TrialComparisonHistoryEntry)
         snapshot = self.evaluation(plan) if not history else None
         report = read_trial_evaluation_report(snapshot) if snapshot else None
         state: LiteralComparisonStatus = "completed" if report else "judging" if snapshot else "running"
@@ -337,6 +352,7 @@ class ScoutTrialComparisons:
             rubric_revision=cast(int, plan.rubric_document["revision"]),
             variants=plan.variants,
             status=state,
+            archived=history_entry.summary.archived if history_entry is not None else False,
             error=error,
             evaluation=TrialComparisonEvaluation(
                 request=snapshot.request,
@@ -351,37 +367,74 @@ class ScoutTrialComparisons:
         )
 
     @private_capture_context()
-    def history(self, limit: int) -> TrialComparisonHistory:
+    def set_archived(self, plan: TrialComparisonPlan, *, archived: bool) -> TrialComparisonResult:
+        result = self.result(plan)
+        if archived and result.status == "not_started":
+            # Temporal can expire a finished workflow while its trial history remains available.
+            progress = _read_document(
+                comparison_progress_key(plan.team_id, plan.comparison_id), TrialComparisonProgress
+            )
+            if progress is not None and progress.status == "failed":
+                result = result.model_copy(update={"status": "failed", "error": progress.error})
+        if archived and result.status not in {"completed", "failed"}:
+            raise TrialEvaluationError("Only completed or failed trials can be archived.")
+        key = self._history_key(plan)
+        entry = _read_document(key, TrialComparisonHistoryEntry)
+        if entry is None:
+            raise TrialEvaluationError("The saved trial history is unavailable.")
+        entry = entry.model_copy(update={"summary": entry.summary.model_copy(update={"archived": archived})})
+        object_storage.write(key, entry.model_dump_json(), extras={"ContentType": "application/json"})
+        return result.model_copy(update={"archived": archived})
+
+    @private_capture_context()
+    def history(
+        self, limit: int, *, include_archived: bool = False, cursor: str | None = None
+    ) -> TrialComparisonHistory:
         ScoutTrialInspection(self.config, self.user)._check_skill_access()
-        keys = sorted(list_comparison_history_keys(self._history_prefix(), limit))
         results: list[TrialComparisonResult] = []
-        for key in keys[: limit + 1]:
-            try:
-                entry = _read_document(key, TrialComparisonHistoryEntry)
-                if entry is None or entry.summary.config_id != entry.config_id:
-                    raise TrialEvaluationError("The saved comparison history is unavailable.")
-                _assert_context_access(entry, config=self.config, user=self.user)
-                progress = _read_document(
-                    comparison_progress_key(entry.team_id, entry.summary.comparison_id), TrialComparisonProgress
-                )
-                state = progress.status if progress else "not_started"
-                error = progress.error if progress else None
-                if state != "completed":
-                    snapshot = self.evaluation(self.read(entry.summary.comparison_id))
-                    if snapshot is not None and read_trial_evaluation_report(snapshot) is not None:
-                        state, error = "completed", None
-                results.append(
-                    entry.summary.model_copy(
-                        update={
-                            "status": state,
-                            "error": error,
-                            "evaluation": None,
-                        }
+        prefix = self._history_prefix()
+        start_after = f"{prefix}{cursor}" if cursor is not None else None
+        next_cursor: str | None = None
+        while len(results) <= limit:
+            keys = sorted(list_comparison_history_keys(prefix, limit, start_after=start_after))
+            for key in keys:
+                try:
+                    entry = _read_document(key, TrialComparisonHistoryEntry)
+                    if entry is None or entry.summary.config_id != entry.config_id:
+                        raise TrialEvaluationError("The saved comparison history is unavailable.")
+                    if entry.summary.archived and not include_archived:
+                        continue
+                    _assert_context_access(entry, config=self.config, user=self.user)
+                    progress = _read_document(
+                        comparison_progress_key(entry.team_id, entry.summary.comparison_id), TrialComparisonProgress
                     )
-                )
-            except (ValueError, TrialEvaluationError):
-                continue
-        return TrialComparisonHistory(results=results[:limit], has_more=len(keys) > limit)
+                    state = progress.status if progress else "not_started"
+                    error = progress.error if progress else None
+                    if state != "completed":
+                        snapshot = self.evaluation(self.read(entry.summary.comparison_id))
+                        if snapshot is not None and read_trial_evaluation_report(snapshot) is not None:
+                            state, error = "completed", None
+                    results.append(
+                        entry.summary.model_copy(
+                            update={
+                                "status": state,
+                                "error": error,
+                                "evaluation": None,
+                            }
+                        )
+                    )
+                    if len(results) > limit:
+                        break
+                    next_cursor = key.removeprefix(prefix)
+                except (ValueError, TrialEvaluationError):
+                    continue
+            if len(keys) <= limit:
+                break
+            start_after = keys[-1]
+        has_more = len(results) > limit
+        return TrialComparisonHistory(
+            results=results[:limit], has_more=has_more, next_cursor=next_cursor if has_more else None
+        )
 
 
 type LiteralComparisonStatus = Literal[
@@ -397,6 +450,7 @@ class _ScoutTrialRunner:
 
     def prepare(self) -> Sequence[UUID]:
         plan = self.service.read(self.comparison_id)
+        self.service.assert_current_judge(plan)
         launch_ids = [launch_id for variant in plan.request.variants for launch_id in variant.launch_ids]
         self.service.assert_can_start(launch_ids=launch_ids)
         save_comparison_progress(plan.team_id, self.comparison_id, TrialComparisonProgress(status="running"))

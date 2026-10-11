@@ -66,6 +66,7 @@ import type {
     WorkflowProposalApproveRequestApi,
     WorkflowProposalCreateApi,
     WorkflowProposalOutcomeApi,
+    WorkflowProposalRejectRequestApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
 
@@ -818,7 +819,7 @@ export const getHogFlowsOptimizationCreateUrl = (projectId: string, id: string) 
 export const hogFlowsOptimizationCreate = async (
     projectId: string,
     id: string,
-    hogFlowOptimizationApi: HogFlowOptimizationApi,
+    hogFlowOptimizationApi: NonReadonly<HogFlowOptimizationApi>,
     options?: RequestInit
 ): Promise<HogFlowOptimizationApi> => {
     return apiMutator<HogFlowOptimizationApi>(getHogFlowsOptimizationCreateUrl(projectId, id), {
@@ -955,11 +956,14 @@ export const hogFlowsProposalsRejectCreate = async (
     projectId: string,
     id: string,
     proposalId: string,
+    workflowProposalRejectRequestApi?: WorkflowProposalRejectRequestApi,
     options?: RequestInit
 ): Promise<WorkflowProposalApi> => {
     return apiMutator<WorkflowProposalApi>(getHogFlowsProposalsRejectCreateUrl(projectId, id, proposalId), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(workflowProposalRejectRequestApi),
     })
 }
 

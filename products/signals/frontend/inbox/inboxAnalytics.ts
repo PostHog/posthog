@@ -43,10 +43,14 @@ export const INBOX_EVENTS = {
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
     REPORT_ACTION_COMPLETED: 'Inbox report action completed',
     REPORT_FEEDBACK: 'Inbox report feedback',
+    REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
+    REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
     SETTINGS_CHANGED: 'Inbox settings changed',
     SOURCE_CONNECTED: 'Signal source connected',
     SOURCE_DISABLED: 'Signal source disabled',
+    SOURCE_TOGGLE_FAILED: 'Signal source toggle failed',
+    SOURCE_CONFIGS_LOAD_FAILED: 'Signal source configs load failed',
     SOURCE_INTEREST: 'signals source interest',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
@@ -129,9 +133,10 @@ export type InboxReportActionType =
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
- * written, `edited_suggestion` one the reader changed first, and `typed` one written from scratch.
+ * written, `edited_suggestion` one the reader changed first, `typed` one written from scratch, and
+ * `preset` a fixed question that a button sends, such as Today's Investigate with PostHog.
  */
-export type InboxQuestionSource = 'suggested' | 'edited_suggestion' | 'typed'
+export type InboxQuestionSource = 'suggested' | 'edited_suggestion' | 'typed' | 'preset'
 
 /**
  * Extra properties the `discuss` {@link captureInboxReportAction} carries. Without them the event
@@ -225,6 +230,7 @@ export type ScoutActionType =
     | 'sort_roster'
     | 'choose_create_path'
     | 'switch_create_path'
+    | 'test_precheck'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -519,6 +525,99 @@ export function captureInboxReportAction(params: {
 }
 
 /**
+ * What the Today home knows about a report it shows. A briefing item carries less than the Inbox's
+ * `SignalReport`, so the fields it cannot fill stay null on the event.
+ */
+export interface TodayReportSnapshot {
+    reportId: string
+    priority: string | null
+    hasPr: boolean
+    signalCount: number | null
+    sourceProducts: string[]
+}
+
+/**
+ * The Today list a report shows in. `briefing` is the top list, which the briefing and the sidebar
+ * both show. `sidebar_more` is the list that "Show more reports" loads.
+ */
+export type TodayReportList = 'briefing' | 'sidebar_more'
+
+function todayReportProperties(report: TodayReportSnapshot): Record<string, unknown> {
+    return {
+        report_id: report.reportId,
+        priority: report.priority,
+        actionability: null,
+        has_pr: report.hasPr,
+        signal_count: report.signalCount,
+        source_products: report.sourceProducts,
+    }
+}
+
+/**
+ * The Today home version of {@link captureInboxReportsImpressed}. The ranking dataset reads both
+ * surfaces from one event, and `surface` and `list` keep them apart for position-bias work.
+ */
+export function captureTodayReportsImpressed(params: {
+    list: TodayReportList
+    /** Only the newly impressed reports, in list order. */
+    reports: TodayReportSnapshot[]
+    /** 1-based rank of each impressed report in its list, parallel to `reports`. */
+    ranks: number[]
+    listSize: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORTS_IMPRESSED, {
+        surface: 'today' satisfies InboxReportActionSurface,
+        list: params.list,
+        list_size: params.listSize,
+        impression_count: params.reports.length,
+        impressions: params.reports.map((report, index) => ({
+            ...todayReportProperties(report),
+            rank: params.ranks[index],
+        })),
+    })
+}
+
+/** The Today home version of {@link captureInboxReportOpened}. `source` is the control the person clicked. */
+export function captureTodayReportOpened(params: {
+    report: TodayReportSnapshot
+    list: TodayReportList
+    rank: number | null
+    listSize: number | null
+    source: string
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_OPENED, {
+        ...todayReportProperties(params.report),
+        surface: 'today' satisfies InboxReportActionSurface,
+        open_method: 'click' satisfies InboxReportOpenMethod,
+        list: params.list,
+        rank: params.rank,
+        list_size: params.listSize,
+        source: params.source,
+    })
+}
+
+/**
+ * A report action from the Today home, where only the report id is at hand. `today_surface` is the
+ * Today control the person used.
+ */
+export function captureTodayReportAction(params: {
+    reportId: string
+    actionType: InboxReportActionType
+    todaySurface: string
+    extra?: Record<string, unknown>
+}): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_ACTION, {
+        report_id: params.reportId,
+        action_type: params.actionType,
+        surface: 'today' satisfies InboxReportActionSurface,
+        today_surface: params.todaySurface,
+        is_bulk: false,
+        bulk_size: 1,
+        ...params.extra,
+    })
+}
+
+/**
  * Feedback on a single report, fired from the thumbs at the end of the report body. Unlike a
  * dismiss, this is feedback-only: the report stays in the inbox. The sentiment is the label the
  * ranking work trains against, so it carries the same report classification as the impression and
@@ -541,6 +640,22 @@ export function captureInboxReportFeedback(params: {
         has_pr: reportPullRequests(params.report).length > 0,
         ...(params.note ? { note: params.note } : {}),
         surface: params.surface,
+    })
+}
+
+/** A report's product suggestion rendered under its evidence. */
+export function captureInboxReportSourceSuggestionShown(params: { report: SignalReport; product: string }): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_SOURCE_SUGGESTION_SHOWN, {
+        ...baseReportProperties(params.report),
+        product: params.product,
+    })
+}
+
+/** The suggestion's link to the product was followed. */
+export function captureInboxReportSourceSuggestionClicked(params: { report: SignalReport; product: string }): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_SOURCE_SUGGESTION_CLICKED, {
+        ...baseReportProperties(params.report),
+        product: params.product,
     })
 }
 
@@ -589,6 +704,34 @@ export function captureSignalSourceDisabled(params: { sourceProduct: string; sou
         source_product: params.sourceProduct,
         source_type: params.sourceType,
     })
+}
+
+/**
+ * Why a source switch did not save. `configs_unavailable` means the source list never loaded, so the
+ * switch could not tell an existing row from a new one and refused to write.
+ */
+export type SignalSourceToggleFailureReason = 'configs_unavailable' | 'request_failed'
+
+/** A source switch that did not save. Without it, a lost toggle leaves no trace next to the connections. */
+export function captureSignalSourceToggleFailed(params: {
+    sourceProduct: string
+    sourceType: string
+    enabled: boolean
+    reason: SignalSourceToggleFailureReason
+    errorMessage: string
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_TOGGLE_FAILED, {
+        source_product: params.sourceProduct,
+        source_type: params.sourceType,
+        enabled: params.enabled,
+        reason: params.reason,
+        error_message: params.errorMessage,
+    })
+}
+
+/** The source list failed to load, which blocks every switch that reads it. */
+export function captureSignalSourceConfigsLoadFailed(errorMessage: string): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CONFIGS_LOAD_FAILED, { error_message: errorMessage })
 }
 
 export function captureSignalSourceInterest(source: string): void {

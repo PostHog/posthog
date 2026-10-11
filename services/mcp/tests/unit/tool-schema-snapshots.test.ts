@@ -96,11 +96,12 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         loops: true,
         'dashboard-widgets': true,
         'agent-platform': true,
-        'billing-alerts': true,
         'experiment-setup-context': true,
         'scout-trials': true,
         'signals-report-checks-replace': true,
         'ai-observability-offline-evaluations': true,
+        'warehouse-suggestions': true,
+        'scouts-tool-access': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)

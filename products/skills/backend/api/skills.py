@@ -76,6 +76,7 @@ from ..marketplace.packaging import (
 )
 from ..models.community_skills import CommunitySkillKind
 from ..models.skills import SCOUT_SKILL_CATEGORY, LLMSkill, LLMSkillFile
+from .archive_guards import SkillArchiveRefused
 from .community_publish_services import (
     CommunitySkillPublishError,
     CommunitySkillPublishNotConfiguredError,
@@ -706,7 +707,9 @@ class LLMSkillViewSet(
             return None
         if token.sandbox_task_id is None:
             raise PermissionDenied()
-        trial_skill = get_scout_trial_skill_override(team_id=self.team.id, task_id=token.sandbox_task_id)
+        trial_skill = get_scout_trial_skill_override(
+            team_id=self.team.id, task_id=token.sandbox_task_id, token_id=token.pk
+        )
         if trial_skill is None:
             raise PermissionDenied()
         return trial_skill
@@ -1623,7 +1626,15 @@ class LLMSkillViewSet(
         result = self._marketplace_command_payload(request, issued.key, issued.token, issued.status)
         return Response(LLMSkillMarketplaceCommandSerializer(result).data)
 
-    @extend_schema(request=None, responses={204: None})
+    @extend_schema(
+        request=None,
+        responses={
+            204: None,
+            403: OpenApiResponse(
+                description="Another product owns what this skill runs and refuses this caller's archive."
+            ),
+        },
+    )
     @action(
         methods=["POST"],
         detail=False,
@@ -1642,7 +1653,10 @@ class LLMSkillViewSet(
             return access_error
 
         try:
-            skill_versions = archive_skill(self.team, skill_name)
+            skill_versions = archive_skill(self.team, skill_name, acting_user=cast(User, request.user))
+        except SkillArchiveRefused as err:
+            # A sibling product owns what this skill runs and says this caller may not remove it.
+            return Response({"detail": str(err)}, status=status.HTTP_403_FORBIDDEN)
         except LLMSkillNotFoundError:
             return self._skill_not_found_response(skill_name)
 

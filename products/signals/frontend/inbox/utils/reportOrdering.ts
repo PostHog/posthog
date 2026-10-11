@@ -1,4 +1,4 @@
-import { isRankingSortField, RANKING_SORT_HEADS } from '../filterOptions'
+import { isRankingSortField, rankingScoreForField } from '../filterOptions'
 import type { InboxRankingSortField, InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../types'
 
@@ -47,9 +47,12 @@ function timestampKey(value: string): string {
     return value.includes('.') ? value : value.replace(/(Z|[+-]\d\d:?\d\d)$/, '.000000$1')
 }
 
-/** The served probability a model sort orders by, or null when the report has no score for that head. */
+/** The served probability a model sort orders by, or null when the report has no score for that head or the score is stale. */
 export function rankingSortScore(report: SignalReport, field: InboxRankingSortField): number | null {
-    const score = report.ranking?.scores[RANKING_SORT_HEADS[field].head]
+    if (report.ranking?.stale) {
+        return null
+    }
+    const score = report.ranking?.scores[rankingScoreForField(field).head]
     return typeof score === 'number' ? score : null
 }
 

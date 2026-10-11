@@ -1,7 +1,6 @@
 import asyncio
 import datetime as dt
 import dataclasses
-from collections.abc import Callable
 from contextlib import ExitStack
 
 import pytest
@@ -12,7 +11,6 @@ from temporalio.exceptions import CancelledError, ChildWorkflowError, WorkflowAl
 
 from posthog.temporal.data_modeling.activities import (
     FailMaterializationInputs,
-    ManagedWarehouseShadowEligibilityInputs,
     ManagedWarehouseShadowResult,
     MaterializeViewResult,
     PrepareQueryableTableResult,
@@ -22,10 +20,6 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import (
-    ACCOUNT_PROPERTY_S3_SYNC_PATCH,
-    ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH,
-    QUALITY_BLOCK_SUITE_RUN_ID_PATCH,
-    TRINO_SHADOW_EXECUTION_PATCH,
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
     _StagedAuditVerdict,
@@ -63,12 +57,13 @@ class TestQualityGateBranching:
         activity_results: list,
         child_result: dict | Exception,
         *,
-        patched: bool | Callable[[str], bool] = True,
         shadow_handle: AsyncMock | None = None,
         start_child: AsyncMock | None = None,
         inputs: MaterializeViewWorkflowInputs | None = None,
+        execute_activity: AsyncMock | None = None,
+        patched: bool = True,
     ) -> tuple:
-        execute_activity = AsyncMock(side_effect=activity_results)
+        execute_activity = execute_activity or AsyncMock(side_effect=activity_results)
         child = (
             AsyncMock(side_effect=child_result)
             if isinstance(child_result, Exception)
@@ -82,15 +77,10 @@ class TestQualityGateBranching:
             stack.enter_context(
                 patch.object(temporalio.workflow, "start_child_workflow", new=start_child or AsyncMock())
             )
-            patched_mock = (
-                patch.object(temporalio.workflow, "patched", side_effect=patched)
-                if callable(patched)
-                else patch.object(temporalio.workflow, "patched", return_value=patched)
-            )
-            stack.enter_context(patched_mock)
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
             stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
             stack.enter_context(patch.object(temporalio.workflow, "logger"))
+            stack.enter_context(patch.object(temporalio.workflow, "patched", return_value=patched))
             stack.enter_context(patch(f"{WORKFLOW_MODULE}.capture_exception"))
             if shadow_handle is not None:
                 stack.enter_context(patch.object(temporalio.workflow, "start_activity", return_value=shadow_handle))
@@ -113,7 +103,7 @@ class TestQualityGateBranching:
         return result, execute_activity
 
     @pytest.mark.parametrize("shadow_error,blocked", [(None, False), ("Upstream write failed", False), (None, True)])
-    async def test_shadow_outcome_is_independent_of_clickhouse_success(
+    async def test_a_history_without_the_patch_replays_the_in_workflow_shadow(
         self, shadow_error: str | None, blocked: bool
     ) -> None:
         shadow = asyncio.get_running_loop().create_future()
@@ -138,7 +128,9 @@ class TestQualityGateBranching:
         if blocked:
             activity_results.pop(1)
         with patch.object(temporalio.workflow, "start_activity", return_value=shadow) as start_shadow:
-            result, _ = await self._run(activity_results, {}, inputs=dataclasses.replace(_inputs(), skip_trino=blocked))
+            result, _ = await self._run(
+                activity_results, {}, inputs=dataclasses.replace(_inputs(), skip_trino=blocked), patched=False
+            )
         assert start_shadow.called is not blocked
         assert result.job_id == "job-1"
         assert result.rows_materialized == 10
@@ -169,9 +161,35 @@ class TestQualityGateBranching:
                 assert result.trino_materialized is True
                 assert result.job_id == "shadow-job"
 
+    async def test_a_clickhouse_run_does_not_wait_for_a_slow_trino_shadow(self) -> None:
+        results = {
+            "check_managed_warehouse_shadow_eligibility_activity": True,
+            "create_data_modeling_job_activity": "job-1",
+            "materialize_view_activity": _materialize_result("skip"),
+            "prepare_queryable_table_activity": PrepareQueryableTableResult(
+                storage_delta_mib=None, total_storage_mib=None
+            ),
+        }
+        never_finishes = asyncio.get_running_loop().create_future()
+
+        async def execute_activity(activity, *args, **kwargs):
+            return results.get(activity.__name__)
+
+        with patch.object(temporalio.workflow, "start_activity", return_value=never_finishes) as start_shadow:
+            result, executed = await asyncio.wait_for(
+                self._run([], {}, execute_activity=AsyncMock(side_effect=execute_activity)), timeout=5
+            )
+
+        assert result.job_id == "job-1"
+        assert result.rows_materialized == 10
+        assert result.trino_materialized is None
+        start_shadow.assert_not_called()
+        started = [call.args[0].__name__ for call in executed.await_args_list]
+        assert started.count("create_data_modeling_job_activity") == 1
+        assert "check_managed_warehouse_shadow_eligibility_activity" not in started
+
     async def test_blocking_failures_stop_the_publish(self):
         activity_results = [
-            False,  # managed warehouse shadow check
             "job-1",  # create job
             _materialize_result("gate"),
             StageQueryableFilesResult(staged_folder_path="staged_1"),
@@ -190,33 +208,6 @@ class TestQualityGateBranching:
         assert "succeed_materialization_activity" not in started
         block_inputs = execute_activity.await_args_list[-1].args[1]
         assert block_inputs.suite_run_id == "suite-1"
-        assert execute_activity.await_args_list[0].args[1] == ManagedWarehouseShadowEligibilityInputs(
-            team_id=7,
-            dag_id="dag-1",
-            node_id="node-1",
-        )
-        assert (
-            execute_activity.await_args_list[0].args[0].__name__
-            == "check_managed_warehouse_shadow_eligibility_activity"
-        )
-
-    async def test_legacy_history_passes_no_suite_run_id_to_the_quality_block_activity(self):
-        activity_results = [
-            False,
-            "job-1",
-            _materialize_result("gate"),
-            StageQueryableFilesResult(staged_folder_path="staged_1"),
-            None,
-        ]
-
-        _, execute_activity = await self._run(
-            activity_results,
-            {"suite_run_id": "suite-1", "checks_failed_blocking": 2},
-            patched=lambda change_id: change_id != QUALITY_BLOCK_SUITE_RUN_ID_PATCH,
-        )
-
-        block_inputs = execute_activity.await_args_list[-1].args[1]
-        assert block_inputs.suite_run_id is None
 
     async def test_account_staging_starts_an_isolated_child_workflow(self):
         materialize_result = dataclasses.replace(
@@ -225,7 +216,6 @@ class TestQualityGateBranching:
             delta_version=5,
         )
         activity_results = [
-            False,
             "job-1",
             materialize_result,
             PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
@@ -244,70 +234,8 @@ class TestQualityGateBranching:
         assert staging_call.args[1].delta_version == 5
         assert staging_call.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
 
-    async def test_a_legacy_history_replays_the_inline_dispatch_command(self):
-        # A history recorded under ACCOUNT_PROPERTY_S3_SYNC_PATCH holds the old dispatch activity
-        # command and no delta_version. Replaying it with only that marker present must re-emit the
-        # dispatch command, not the staging child, or the execution fails as nondeterministic.
-        materialize_result = dataclasses.replace(
-            _materialize_result("skip"),
-            account_property_sync_enabled=True,
-        )
-        activity_results = [
-            False,
-            "job-1",
-            materialize_result,
-            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
-            None,
-            None,
-        ]
-        start_child = AsyncMock()
-
-        _, execute_activity = await self._run(
-            activity_results,
-            {},
-            patched=lambda change_id: change_id == ACCOUNT_PROPERTY_S3_SYNC_PATCH,
-            start_child=start_child,
-        )
-
-        assert any(
-            call.args[0] == "dispatch-warehouse-account-property-sync" for call in execute_activity.await_args_list
-        )
-        assert not [
-            call for call in start_child.await_args_list if call.args[0] == "stage-warehouse-account-properties"
-        ]
-
-    async def test_the_isolated_staging_child_wins_when_both_markers_are_present(self):
-        materialize_result = dataclasses.replace(
-            _materialize_result("skip"),
-            account_property_sync_enabled=True,
-            delta_version=5,
-        )
-        activity_results = [
-            False,
-            "job-1",
-            materialize_result,
-            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
-            None,
-        ]
-        start_child = AsyncMock()
-
-        _, execute_activity = await self._run(
-            activity_results,
-            {},
-            patched=lambda change_id: (
-                change_id in (ACCOUNT_PROPERTY_STAGING_WORKFLOW_PATCH, ACCOUNT_PROPERTY_S3_SYNC_PATCH)
-            ),
-            start_child=start_child,
-        )
-
-        assert any(call.args[0] == "stage-warehouse-account-properties" for call in start_child.await_args_list)
-        assert not any(
-            call.args[0] == "dispatch-warehouse-account-property-sync" for call in execute_activity.await_args_list
-        )
-
     async def test_a_passing_audit_publishes_and_succeeds(self):
         activity_results = [
-            False,
             "job-1",
             _materialize_result("gate"),
             StageQueryableFilesResult(staged_folder_path="staged_1"),
@@ -322,39 +250,10 @@ class TestQualityGateBranching:
         assert "publish_queryable_table_activity" in started
         assert "succeed_materialization_activity" in started
 
-    @pytest.mark.parametrize("mode", ["gate", "warn"])
-    async def test_a_history_without_the_patch_marker_adds_no_command(self, mode):
-        # A rolling deploy pairs an old workflow worker with a new activity worker, and the SDK
-        # drops the fields the old dataclass lacks. So a mode can reach a history that recorded
-        # only the prepare command, and replaying it here has to emit exactly that.
-        activity_results = [
-            False,
-            "job-1",
-            _materialize_result(mode),
-            PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),  # prepare
-            None,  # succeed
-        ]
-        start_child = AsyncMock()
-
-        result, execute_activity = await self._run(
-            activity_results, {"checks_failed_blocking": 2}, patched=False, start_child=start_child
-        )
-
-        started = [call.args[0].__name__ for call in execute_activity.await_args_list]
-        assert "prepare_queryable_table_activity" in started
-        assert "stage_queryable_files_activity" not in started
-        assert "quality_block_materialization_activity" not in started
-        start_child.assert_not_awaited()
-        assert result.quality_blocking_failures is None
-        assert result.quality_audited is False
-        assert execute_activity.await_args_list[0].args[1] == 7
-        assert execute_activity.await_args_list[0].args[0].__name__ == "check_managed_warehouse_shadow_enabled_activity"
-
     async def test_an_audit_that_reached_no_verdict_leaves_the_node_to_the_sweep(self):
         # Returning zero here would publish and also claim the node was audited, so the DAG's
         # fallback sweep would skip the one node whose checks never ran.
         activity_results = [
-            False,
             "job-1",
             _materialize_result("gate"),
             StageQueryableFilesResult(staged_folder_path="staged_1"),
@@ -381,7 +280,6 @@ class TestQualityGateBranching:
         self, start_child, expected_audited
     ) -> None:
         activity_results = [
-            False,
             "job-1",
             _materialize_result("warn"),
             PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),  # prepare
@@ -393,10 +291,9 @@ class TestQualityGateBranching:
         assert result.quality_audited is expected_audited
         assert result.quality_blocking_failures is None
 
-    @pytest.mark.parametrize("trino_patch", [False, True])
-    async def test_a_blocked_publish_still_settles_the_managed_warehouse_shadow(self, trino_patch: bool):
-        # The blocked branch returns early. Leaving the shadow activity unawaited holds the parent
-        # DAG's concurrency slot and orphans the shadow job.
+    async def test_a_replayed_blocked_publish_still_settles_the_managed_warehouse_shadow(self):
+        # In a history recorded before the patch, the blocked branch returns early. Leaving the
+        # shadow activity unawaited there orphans the shadow job.
         shadow_handle = AsyncMock()
         shadow_handle.__await__ = lambda self=None: iter([])
         activity_results = [
@@ -412,19 +309,12 @@ class TestQualityGateBranching:
             patch.object(MaterializeViewWorkflow, "_collect_shadow_comparison", new=AsyncMock()) as collect,
             patch.object(temporalio.workflow, "start_activity", return_value=shadow_handle) as start_shadow,
         ):
-            result, execute_activity = await self._run(
-                activity_results,
-                {"checks_failed_blocking": 1},
-                patched=lambda name: trino_patch if name == TRINO_SHADOW_EXECUTION_PATCH else True,
-            )
+            result, execute_activity = await self._run(activity_results, {"checks_failed_blocking": 1}, patched=False)
 
         assert result.quality_blocking_failures == 1
         assert execute_activity.await_args_list[1].args[1].engine == DataModelingJobEngine.MANAGED_WAREHOUSE
         collect.assert_awaited_once()
-        assert start_shadow.call_args.args[1].use_trino is trino_patch
-        assert start_shadow.call_args.kwargs["start_to_close_timeout"] == dt.timedelta(
-            minutes=35 if trino_patch else 20
-        )
+        assert start_shadow.call_args.args[1].use_trino is True
 
 
 def _cancelled_child_error() -> ChildWorkflowError:
@@ -707,7 +597,6 @@ class TestCDPProducerHandoff(TestQualityGateBranching):
     async def test_the_producer_starts_after_a_successful_publish(self):
         start_child = AsyncMock()
         activity_results = [
-            False,
             "job-1",
             self._result(should_trigger=True),
             PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
@@ -722,7 +611,6 @@ class TestCDPProducerHandoff(TestQualityGateBranching):
     async def test_no_producer_starts_when_nothing_subscribes(self):
         start_child = AsyncMock()
         activity_results = [
-            False,
             "job-1",
             self._result(should_trigger=False),
             PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
@@ -739,7 +627,6 @@ class TestCDPProducerHandoff(TestQualityGateBranching):
         # clear reaches them.
         start_child = AsyncMock(side_effect=RuntimeError("task queue is gone"))
         activity_results = [
-            False,
             "job-1",
             self._result(should_trigger=True),
             PrepareQueryableTableResult(storage_delta_mib=None, total_storage_mib=None),
@@ -757,7 +644,6 @@ class TestCDPProducerHandoff(TestQualityGateBranching):
         # clear will ever reach them.
         start_child = AsyncMock()
         activity_results = [
-            False,
             "job-1",
             self._result(should_trigger=True, quality_audit="gate"),
             StageQueryableFilesResult(staged_folder_path="staged_1"),
