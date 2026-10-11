@@ -213,12 +213,6 @@
             "declaration": "dist/generated/visual-review/visual-review-runs-quarantine-lifts-list.d.ts"
         },
         {
-            "name": "VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape33",
-            "importPath": "@posthog/sdk/visual-review",
-            "source": "src/generated/visual-review/visual-review-runs-quarantine-lifts-list.ts",
-            "declaration": "dist/generated/visual-review/visual-review-runs-quarantine-lifts-list.d.ts"
-        },
-        {
             "name": "VisualReviewVisualReviewRunsQuarantineLiftsListData",
             "importPath": "@posthog/sdk/visual-review",
             "source": "src/generated/visual-review/visual-review-runs-quarantine-lifts-list.ts",
