@@ -182,7 +182,7 @@ export function inferVisualizationType(data: unknown): VisualizationType | null 
     if (kind === 'PathsQuery') {
         return 'paths'
     }
-    if (kind === 'HogQLQuery') {
+    if (kind === 'HogQLQuery' || kind === 'WebStatsTableQuery' || kind === 'WebOverviewQuery') {
         return 'table'
     }
 
