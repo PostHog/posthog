@@ -111,7 +111,7 @@ WHERE event = '$ai_generation'
 GROUP BY unit_id
 """
 
-# Unparsable or truncated judge responses can succeed on a later run, so they do not count
+# Unparsable or truncated judge responses and DNS failures can succeed on a later run, so they do not count
 # as evaluated. A trace that errored, a prompt over the context window, or a
 # content-filter refusal skips again.
 # Reads the shared events table rather than ai_events: the verdict rows must stay visible past the
@@ -125,7 +125,7 @@ WHERE event = '$ai_evaluation'
   AND timestamp >= {window_start}
   AND timestamp < {verdict_end}
   AND (isNull(properties.$ai_evaluation_skip_reason)
-       OR properties.$ai_evaluation_skip_reason NOT IN ('unparsable_response', 'output_limit_exceeded'))
+       OR properties.$ai_evaluation_skip_reason NOT IN ('unparsable_response', 'output_limit_exceeded', 'host_unresolved'))
 """
 
 

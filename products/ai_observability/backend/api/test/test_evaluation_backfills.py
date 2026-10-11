@@ -297,7 +297,7 @@ class TestEvaluationBackfillsApi(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         stale.refresh_from_db()
-        assert stale.status == EvaluationBackfillStatus.CANCELLED
+        assert stale.status == EvaluationBackfillStatus.INTERRUPTED
         assert stale.finished_at is not None
         finished = [
             call.kwargs["properties"]
@@ -355,9 +355,9 @@ class TestEvaluationBackfillsApi(APIBaseTest):
         response = self.client.get(f"{self.url}/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["results"][0]["status"] == EvaluationBackfillStatus.CANCELLED
+        assert response.json()["results"][0]["status"] == EvaluationBackfillStatus.INTERRUPTED
         stale.refresh_from_db()
-        assert stale.status == EvaluationBackfillStatus.CANCELLED
+        assert stale.status == EvaluationBackfillStatus.INTERRUPTED
 
     @patch(f"{API_MODULE}.count_backfill_candidates", return_value=_scope(7))
     @patch(f"{API_MODULE}.sync_connect", side_effect=RuntimeError("temporal down"))

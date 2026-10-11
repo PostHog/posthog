@@ -8,6 +8,7 @@ class EvaluationBackfillStatus(models.TextChoices):
     RUNNING = "running", "Running"
     COMPLETED = "completed", "Completed"
     CANCELLED = "cancelled", "Cancelled"
+    INTERRUPTED = "interrupted", "Interrupted"
 
 
 ACTIVE_BACKFILL_STATUSES = (EvaluationBackfillStatus.RUNNING,)
@@ -29,6 +30,7 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
     status = models.CharField(
         max_length=16, choices=EvaluationBackfillStatus.choices, default=EvaluationBackfillStatus.RUNNING
     )
+    status_reason = models.CharField(max_length=64, blank=True, default="", db_default="")
 
     # Frozen at creation so an edit to the evaluation mid-run does not change what the walk matches.
     target = models.CharField(max_length=20, help_text="Evaluation target frozen at creation.")
@@ -48,23 +50,27 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
         help_text="Units matched at creation. Units that land in the window later can take the run past it."
     )
     dispatched_count = models.PositiveIntegerField(default=0)
+    completed_count = models.PositiveIntegerField(
+        null=True, blank=True, default=None, help_text="Evaluations that finished with a verdict. Null for legacy runs."
+    )
+    evaluation_skipped_count = models.PositiveIntegerField(
+        default=0, db_default=0, help_text="Evaluations that finished with a recorded skip instead of a verdict."
+    )
     skipped_count = models.PositiveIntegerField(
         default=0, help_text="Units whose child workflow already existed, so the live path had them."
     )
     failed_count = models.PositiveIntegerField(
         default=0,
         db_default=0,
-        help_text="Units whose evaluation failed to start. They stay without a result and count as remaining.",
+        help_text="Units whose evaluation failed to start or finish. Legacy runs only counted start failures.",
     )
     remaining_count = models.PositiveIntegerField(
         null=True,
         blank=True,
         default=None,
         help_text=(
-            "Units the run finished without a result for, counted when it ended rather than "
-            "inferred, and discounting the evaluations it had just started. A run leaves one "
-            "behind when its evaluation could not start or came back unusable, and running the "
-            "backfill again picks it up. Null means nothing counted the window."
+            "Units that failed to produce a result when the run ended. Legacy runs estimate this "
+            "by counting missing results and discounting dispatched work. Null means unknown."
         ),
     )
 

@@ -6,6 +6,7 @@ import pytest
 import time_machine
 
 from temporalio import activity
+from temporalio.api.enums.v1 import EventType
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -389,8 +390,7 @@ class TestRunAggregateEvaluationWorkflow:
                 ],
                 workflow_runner=UnsandboxedWorkflowRunner(),
             ):
-                start = await env.get_current_time()
-                result = await env.client.execute_workflow(
+                handle = await env.client.start_workflow(
                     RunAggregateEvaluationWorkflow.run,
                     _workflow_inputs(
                         {"strategy": "fixed_window", "window_seconds": 1800},
@@ -400,7 +400,8 @@ class TestRunAggregateEvaluationWorkflow:
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
                 )
-                elapsed = (await env.get_current_time()) - start
+                result = await handle.result()
+                history = await handle.fetch_history()
 
         assert calls == ["fetch", "execute", "emit", "telemetry"]
         assert result["verdict"] is True
@@ -410,9 +411,7 @@ class TestRunAggregateEvaluationWorkflow:
         assert window_ends == [
             (datetime.fromisoformat(anchor) + timedelta(seconds=1800 + INGESTION_LAG_MARGIN_SECONDS)).isoformat()
         ]
-        # Far below the 1800s window, so the settle sleep cannot have run. The slack absorbs the
-        # test environment skipping an idle activity timeout.
-        assert elapsed < timedelta(seconds=900)
+        assert EventType.EVENT_TYPE_TIMER_STARTED not in {event.event_type for event in history.events}
 
     @pytest.mark.asyncio
     async def test_a_backfilled_inactivity_unit_reads_to_its_quiet_point(self):

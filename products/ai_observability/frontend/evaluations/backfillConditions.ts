@@ -32,6 +32,9 @@ export function backfillLateArrivalCount(backfill: EvaluationBackfillApi): numbe
 
 export function backfillCoveredCount(backfill: EvaluationBackfillApi): number {
     const total = backfillTotalCount(backfill)
+    if (backfill.completed_count != null) {
+        return clamp(backfill.completed_count + backfill.evaluation_skipped_count + backfill.skipped_count, 0, total)
+    }
     const covered =
         backfill.status === 'completed' && backfill.remaining_count !== null
             ? total - backfill.remaining_count

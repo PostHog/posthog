@@ -24,6 +24,7 @@ posthog/session_recordings/queries
 posthog/clickhouse/test
 ee/clickhouse
 products/ai_observability/backend/tests/logic/traces
+products/ai_observability/backend/test/test_backfill_candidates.py
 products/cohorts
 products/customer_analytics/backend/hogql_queries
 products/error_tracking/backend/hogql_queries

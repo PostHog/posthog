@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
@@ -9,20 +10,25 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.conf import settings
 from django.test import override_settings
 
+import temporalio
 from asgiref.sync import async_to_sync
+from temporalio.client import WorkflowFailureError
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import ActivityError, CancelledError, WorkflowAlreadyStartedError
-from temporalio.testing import ActivityEnvironment
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError, WorkflowAlreadyStartedError
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.models import Organization, Team
 from posthog.temporal.ai_observability.evaluation_backfill import (
     ACTIVITY_RETRY_POLICY,
+    BACKFILL_FAILURE_PAUSES,
     BACKFILL_MAX_CONSECUTIVE_FAILURES,
     MAX_BACKFILL_BATCH_SIZE,
     AdvanceCursorInputs,
     AdvanceCursorOutput,
     CandidatePayload,
+    ChildOutcome,
     EvaluationBackfillInputs,
     EvaluationBackfillWorkflow,
     FindCandidatesInputs,
@@ -30,18 +36,28 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     MeasureRemainderInputs,
     PrepareTickOutput,
     TickAction,
+    _child_outcome,
     advance_evaluation_backfill_cursor_activity,
     child_workflow_name_and_id,
+    existing_backfill_child_outcome_activity,
     fail_evaluation_backfill_activity,
     find_evaluation_backfill_candidates_activity,
     measure_evaluation_backfill_remainder_activity,
     prepare_evaluation_backfill_tick_activity,
 )
+from posthog.temporal.ai_observability.evaluation_llm_judge import _is_last_judge_attempt
+from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
+    LocalEvaluationOutcome,
     RunEvaluationInputs,
+    RunLocalEvaluationInputs,
     backfill_verdict_timestamp,
 )
-from posthog.temporal.ai_observability.run_aggregate_evaluation import RunAggregateEvaluationInputs
+from posthog.temporal.ai_observability.run_aggregate_evaluation import (
+    RunAggregateEvaluationInputs,
+    RunAggregateEvaluationWorkflow,
+)
+from posthog.temporal.ai_observability.run_evaluation import RunEvaluationWorkflow, WorkflowResult
 
 from products.ai_observability.backend.backfill_candidates import BackfillCandidate, BackfillScope, CandidatePage
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill, EvaluationBackfillStatus
@@ -59,10 +75,16 @@ class _BackfillMocks:
         *,
         activity_results: dict | None = None,
         child_errors_for_ids: dict[str, Exception] | None = None,
+        child_results_for_ids: dict[str, WorkflowResult | Exception] | None = None,
     ) -> None:
         self.activity_results = activity_results or {}
         self.child_errors_for_ids = child_errors_for_ids or {}
+        self.child_results_for_ids = child_results_for_ids or {}
+        self.active_children = 0
+        self.peak_children = 0
+        self.active_at_advance: list[int] = []
         self.activity_calls: list[tuple] = []
+        self.sleep = AsyncMock()
         self.child_calls: list[dict] = []
 
     async def execute_activity(self, activity_fn, activity_input, **_) -> object:
@@ -71,17 +93,34 @@ class _BackfillMocks:
         if isinstance(result, Exception):
             raise result
         if activity_fn is advance_evaluation_backfill_cursor_activity and activity_fn not in self.activity_results:
-            return AdvanceCursorOutput(finished=False)
+            self.active_at_advance.append(self.active_children)
+            return AdvanceCursorOutput(finished=activity_input.exhausted or activity_input.stop_reason is not None)
         return result
 
     async def start_child_workflow(self, *args, **kwargs) -> object:
-        wid = kwargs.get("id")
+        wid = str(kwargs["id"])
         self.child_calls.append(
             {"name": args[0], "id": wid, "inputs": args[1] if len(args) > 1 else None, "kwargs": kwargs}
         )
-        if wid is not None and wid in self.child_errors_for_ids:
+        if (
+            wid is not None
+            and wid in self.child_errors_for_ids
+            and kwargs.get("id_reuse_policy") != WorkflowIDReusePolicy.ALLOW_DUPLICATE
+        ):
             raise self.child_errors_for_ids[wid]
-        return object()
+
+        async def complete() -> WorkflowResult:
+            self.active_children += 1
+            self.peak_children = max(self.peak_children, self.active_children)
+            await asyncio.sleep(0)
+            self.active_children -= 1
+            default_result: WorkflowResult = {"evaluation_id": "E", "evaluation_type": "hog", "skipped": False}
+            result = self.child_results_for_ids.get(wid, default_result)
+            if isinstance(result, Exception):
+                raise result
+            return result
+
+        return asyncio.create_task(complete())
 
 
 def _inputs() -> EvaluationBackfillInputs:
@@ -113,7 +152,7 @@ def _found(candidates: list[CandidatePayload], *, exhausted: bool = False) -> Fi
     )
 
 
-async def _run(mocks: _BackfillMocks, inputs: EvaluationBackfillInputs | None = None):
+async def _run(mocks: _BackfillMocks, inputs: EvaluationBackfillInputs | None = None, *, bounded: bool = False):
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
     noop = staticmethod(lambda *_a, **_kw: None)
     fake_logger = type("Logger", (), {"exception": noop, "warning": noop})()
@@ -122,7 +161,8 @@ async def _run(mocks: _BackfillMocks, inputs: EvaluationBackfillInputs | None = 
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
         patch("temporalio.workflow.continue_as_new") as continue_as_new,
-        patch("temporalio.workflow.sleep", new=AsyncMock()),
+        patch("temporalio.workflow.sleep", new=mocks.sleep),
+        patch("temporalio.workflow.patched", return_value=bounded),
     ):
         await EvaluationBackfillWorkflow().run(inputs or _inputs())
     return continue_as_new
@@ -137,6 +177,300 @@ def _advance_input(mocks: _BackfillMocks) -> AdvanceCursorInputs:
 
 
 class TestEvaluationBackfillWorkflow:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("target", ["generation", "trace", "session"])
+    @pytest.mark.parametrize(
+        "is_backfill,legacy,persistent",
+        [(False, False, False), (True, False, False), (True, True, False), (True, False, True)],
+    )
+    @pytest.mark.parametrize("failure_kind", ["capacity", "dns"])
+    async def test_transient_judge_failures_recover_for_backfills(
+        self,
+        target: str,
+        is_backfill: bool,
+        legacy: bool,
+        persistent: bool,
+        failure_kind: str,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level("INFO", logger="temporalio.workflow")
+        caplog.set_level("INFO", logger="temporalio.activity")
+        attempts: list[int] = []
+        emitted: list[dict[str, Any]] = []
+        recovers = is_backfill and not legacy
+        evaluation = {
+            "id": "E",
+            "team_id": 42,
+            "evaluation_type": "llm_judge",
+            "output_type": "boolean",
+            "enabled": True,
+            "deleted": False,
+        }
+
+        @temporalio.activity.defn(name="run_local_evaluation_activity")
+        async def local(_: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            return LocalEvaluationOutcome(evaluation=evaluation, result=None, emitted=False)
+
+        @temporalio.activity.defn(name="fetch_evaluation_activity")
+        async def fetch(_: RunEvaluationInputs) -> dict[str, Any]:
+            return evaluation
+
+        @temporalio.activity.defn(
+            name={
+                "generation": "execute_llm_judge_activity",
+                "trace": "execute_trace_llm_judge_activity",
+                "session": "execute_session_llm_judge_activity",
+            }[target]
+        )
+        async def judge(payload: dict[str, Any]) -> EvaluationActivityResult:
+            info = temporalio.activity.info()
+            attempt = info.attempt
+            if recovers:
+                assert info.schedule_to_close_timeout == timedelta(minutes=15 if target == "session" else 10)
+            attempts.append(attempt)
+            if attempt <= 4 or persistent:
+                if failure_kind == "dns" and _is_last_judge_attempt(payload.get("backfill_id") is not None):
+                    return {
+                        "result_type": "boolean",
+                        "skipped": True,
+                        "skip_reason": "host_unresolved",
+                        "reasoning": "Example endpoint could not resolve",
+                        "allows_na": False,
+                    }
+                raise ApplicationError("Query capacity is temporarily unavailable", type="ConcurrencyLimitExceeded")
+            return {"result_type": "boolean", "verdict": True, "reasoning": "ok", "allows_na": False}
+
+        @temporalio.activity.defn(
+            name="emit_evaluation_event_activity" if target == "generation" else "emit_trace_evaluation_event_activity"
+        )
+        async def emit(payload: dict[str, Any]) -> None:
+            emitted.append(payload)
+
+        @temporalio.activity.defn(name="emit_internal_telemetry_activity")
+        async def telemetry(_: dict[str, Any]) -> None:
+            return
+
+        inputs: RunEvaluationInputs | RunAggregateEvaluationInputs
+        backfill_id = "B" if is_backfill else None
+        if target == "generation":
+            inputs = RunEvaluationInputs(evaluation_id="E", event_data={"team_id": 42}, backfill_id=backfill_id)
+            workflow_name = "run-evaluation"
+        else:
+            inputs = RunAggregateEvaluationInputs(
+                evaluation_id="E",
+                team_id=42,
+                trace_id="example-trace",
+                distinct_id="example-user",
+                ai_session_id="example-session" if target == "session" else None,
+                target=target,
+                settle={"strategy": "fixed_window", "window_seconds": 10},
+                anchor_timestamp=UNIT_TIMESTAMP.isoformat() if is_backfill else None,
+                backfill_id=backfill_id,
+            )
+            workflow_name = "run-aggregate-evaluation"
+
+        task_queue = str(uuid.uuid4())
+        original_patched = temporalio.workflow.patched
+
+        def patched(patch_id: str) -> bool:
+            if legacy and patch_id == "evaluation-backfill-extended-retries":
+                return False
+            return original_patched(patch_id)
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow, RunAggregateEvaluationWorkflow],
+                activities=[local, fetch, judge, emit, telemetry],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                with patch("temporalio.workflow.patched", side_effect=patched):
+                    handle = await env.client.start_workflow(
+                        workflow_name,
+                        inputs,
+                        id=str(uuid.uuid4()),
+                        task_queue=task_queue,
+                        execution_timeout=timedelta(minutes=40),
+                    )
+                    if persistent or (not recovers and failure_kind == "capacity"):
+                        with pytest.raises(WorkflowFailureError):
+                            await handle.result()
+                    elif recovers:
+                        result = await handle.result()
+                        assert result["verdict"] is True
+                    else:
+                        result = await handle.result()
+                        assert result["skip_reason"] == "host_unresolved"
+                    history = await handle.fetch_history()
+
+        if persistent:
+            assert len(attempts) > 4
+            assert emitted == []
+        else:
+            assert attempts == ([1, 2, 3, 4, 5] if recovers else [1, 2, 3])
+            assert len(emitted) == int(recovers or failure_kind == "dns")
+        await Replayer(
+            workflows=[RunEvaluationWorkflow, RunAggregateEvaluationWorkflow],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ).replay_workflow(history)
+
+    @pytest.mark.parametrize(
+        "reason,outcome",
+        [
+            ("parse_error", ChildOutcome.RETRYABLE),
+            ("unparsable_response", ChildOutcome.RETRYABLE),
+            ("output_limit_exceeded", ChildOutcome.RETRYABLE),
+            ("host_unresolved", ChildOutcome.RETRYABLE),
+            ("content_filtered", ChildOutcome.SKIPPED),
+            ("request_rejected", ChildOutcome.SKIPPED),
+        ],
+    )
+    def test_unusable_responses_are_retryable_but_terminal_skips_are_preserved(
+        self, reason: str, outcome: ChildOutcome
+    ) -> None:
+        assert (
+            _child_outcome(
+                {"evaluation_id": "E", "evaluation_type": "llm_judge", "skipped": True, "skip_reason": reason}
+            )
+            == outcome
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("max_in_flight,peak", [(0, 16), (4, 4)])
+    async def test_batch_dispatch_waits_for_outcomes_before_advancing(self, max_in_flight: int, peak: int) -> None:
+        found = dataclasses.replace(
+            _found([_candidate(f"u{i}") for i in range(19)], exhausted=True),
+            next_cursor_timestamp=(UNIT_TIMESTAMP - timedelta(hours=1)).isoformat(),
+            next_cursor_unit_id="filtered-out-unit",
+        )
+        mocks = _BackfillMocks(
+            activity_results={
+                prepare_evaluation_backfill_tick_activity: _tick(max_in_flight=max_in_flight),
+                find_evaluation_backfill_candidates_activity: found,
+            }
+        )
+
+        await _run(mocks, bounded=True)
+
+        advances = [value for fn, value in mocks.activity_calls if fn is advance_evaluation_backfill_cursor_activity]
+        assert mocks.peak_children == peak
+        assert mocks.active_at_advance == [0]
+        assert len(advances) == 1
+        assert advances[0].completed_delta == 19
+        assert advances[0].exhausted
+        assert (advances[0].expected_cursor_timestamp, advances[0].expected_cursor_unit_id) == (
+            found.started_from_cursor_timestamp,
+            found.started_from_cursor_unit_id,
+        )
+        assert (advances[0].new_cursor_timestamp, advances[0].new_cursor_unit_id) == (
+            found.next_cursor_timestamp,
+            found.next_cursor_unit_id,
+        )
+
+    @pytest.mark.asyncio
+    async def test_bounded_dispatch_records_execution_failures_and_skips(self) -> None:
+        mocks = _BackfillMocks(
+            activity_results={
+                prepare_evaluation_backfill_tick_activity: _tick(),
+                find_evaluation_backfill_candidates_activity: _found(
+                    [_candidate(f"u{i}") for i in range(4)], exhausted=True
+                ),
+            },
+            child_results_for_ids={
+                "llma-hog-eval-E-u1-ingestion": RuntimeError("worker unavailable"),
+                "llma-hog-eval-E-u2-ingestion": {
+                    "evaluation_id": "E",
+                    "evaluation_type": "hog",
+                    "skipped": True,
+                    "skip_reason": "request_rejected",
+                },
+                "llma-hog-eval-E-u3-ingestion": {
+                    "evaluation_id": "E",
+                    "evaluation_type": "hog",
+                    "skipped": True,
+                    "skip_reason": "key_invalid",
+                },
+            },
+        )
+
+        await _run(mocks, bounded=True)
+
+        result = _advance_input(mocks)
+        assert (
+            result.dispatched_delta,
+            result.completed_delta,
+            result.evaluation_skipped_delta,
+            result.failed_delta,
+        ) == (4, 1, 1, 2)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "outcome,restarted",
+        [(ChildOutcome.EVALUATED, False), (ChildOutcome.SKIPPED, False), (ChildOutcome.RETRYABLE, True)],
+    )
+    async def test_only_unfinished_existing_evaluations_are_restarted(
+        self, outcome: ChildOutcome, restarted: bool
+    ) -> None:
+        workflow_id = "llma-hog-eval-E-u1-ingestion"
+        mocks = _BackfillMocks(
+            activity_results={
+                prepare_evaluation_backfill_tick_activity: _tick(),
+                find_evaluation_backfill_candidates_activity: _found([_candidate("u1")], exhausted=True),
+                existing_backfill_child_outcome_activity: outcome,
+            },
+            child_errors_for_ids={workflow_id: WorkflowAlreadyStartedError(workflow_id, "run-evaluation")},
+        )
+
+        await _run(mocks, bounded=True)
+
+        assert len(mocks.child_calls) == (2 if restarted else 1)
+        assert _advance_input(mocks).completed_delta == int(restarted)
+        assert _advance_input(mocks).skipped_delta == int(not restarted)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failing,disabling,started,pauses,stop_reason",
+        [
+            pytest.param(
+                set(range(70)), None, 60, list(BACKFILL_FAILURE_PAUSES), "execution_failed", id="persistent_outage"
+            ),
+            pytest.param({i for i in range(70) if i % 10}, None, 70, [], None, id="scattered_failures"),
+            pytest.param(set(), 1, 2, [], "evaluation_disabled", id="evaluation_disabled"),
+        ],
+    )
+    async def test_failures_pause_and_stop_the_backfill(
+        self, failing: set[int], disabling: int | None, started: int, pauses: list[timedelta], stop_reason: str | None
+    ) -> None:
+        results: dict[str, WorkflowResult | Exception] = {
+            f"llma-hog-eval-E-u{i}-ingestion": RuntimeError("judge unavailable") for i in failing
+        }
+        if disabling is not None:
+            results[f"llma-hog-eval-E-u{disabling}-ingestion"] = {
+                "evaluation_id": "E",
+                "evaluation_type": "hog",
+                "skipped": True,
+                "skip_reason": "key_invalid",
+            }
+        mocks = _BackfillMocks(
+            activity_results={
+                prepare_evaluation_backfill_tick_activity: _tick(max_in_flight=1),
+                find_evaluation_backfill_candidates_activity: _found(
+                    [_candidate(f"u{i}") for i in range(70)], exhausted=True
+                ),
+            },
+            child_results_for_ids=results,
+        )
+
+        await _run(mocks, bounded=True)
+
+        advance = _advance_input(mocks)
+        assert len(mocks.child_calls) == advance.dispatched_delta == started
+        assert [call.args[0] for call in mocks.sleep.call_args_list] == pauses
+        assert advance.stop_reason == stop_reason
+        assert advance.exhausted == (stop_reason is None)
+        assert (advance.new_cursor_timestamp is None) == (stop_reason is not None)
+
     @pytest.mark.asyncio
     async def test_finished_tick_returns_without_dispatch(self) -> None:
         mocks = _BackfillMocks(
@@ -464,6 +798,8 @@ def _advance(
     dispatched_delta: int = 1,
     skipped_delta: int = 0,
     failed_delta: int = 0,
+    completed_delta: int | None = None,
+    evaluation_skipped_delta: int = 0,
     exhausted: bool = False,
 ) -> AdvanceCursorInputs:
     return AdvanceCursorInputs(
@@ -476,6 +812,8 @@ def _advance(
         dispatched_delta=dispatched_delta,
         skipped_delta=skipped_delta,
         failed_delta=failed_delta,
+        completed_delta=completed_delta,
+        evaluation_skipped_delta=evaluation_skipped_delta,
         exhausted=exhausted,
     )
 
@@ -558,6 +896,8 @@ class TestEvaluationBackfillActivities:
             "failed_count": 1,
             "remaining_count": 1,
             "billed_evaluations": 6,
+            "completed_count": None,
+            "evaluation_skipped_count": 0,
             "duration_seconds": 300.0,
             "stop_reason": None,
         }
@@ -602,7 +942,7 @@ class TestEvaluationBackfillActivities:
             async_to_sync(fail_evaluation_backfill_activity)(_activity_inputs(backfill_data))
 
         backfill_data["backfill"].refresh_from_db()
-        assert backfill_data["backfill"].status == EvaluationBackfillStatus.CANCELLED
+        assert backfill_data["backfill"].status == EvaluationBackfillStatus.INTERRUPTED
 
     @pytest.mark.parametrize("status", [EvaluationBackfillStatus.COMPLETED, EvaluationBackfillStatus.CANCELLED, None])
     def test_prepare_returns_finished_for_missing_or_terminal_row(self, backfill_data, status) -> None:
@@ -636,18 +976,18 @@ class TestEvaluationBackfillActivities:
 
         assert result.action == TickAction.FINISHED
         backfill_data["backfill"].refresh_from_db()
-        assert backfill_data["backfill"].status == EvaluationBackfillStatus.CANCELLED
+        assert backfill_data["backfill"].status == EvaluationBackfillStatus.INTERRUPTED
         assert backfill_data["backfill"].finished_at is not None
         assert [(event["status"], event["stop_reason"]) for event in _finished_events(capture)] == [
             ("stopped", stop_reason)
         ]
 
     @pytest.mark.parametrize(
-        "configured,expected",
-        [(7, 7), (0, 1), (-5, 1), (MAX_BACKFILL_BATCH_SIZE * 10, MAX_BACKFILL_BATCH_SIZE)],
+        "configured,expected,in_flight",
+        [(7, 7, 7), (0, 1, 1), (-5, 1, 1), (MAX_BACKFILL_BATCH_SIZE * 10, MAX_BACKFILL_BATCH_SIZE, 10000)],
     )
-    def test_prepare_dispatches_with_a_clamped_batch_size(self, backfill_data, configured, expected) -> None:
-        with override_settings(LLMA_EVAL_BACKFILL_BATCH_SIZE=configured):
+    def test_prepare_dispatches_with_a_clamped_batch_size(self, backfill_data, configured, expected, in_flight) -> None:
+        with override_settings(LLMA_EVAL_BACKFILL_BATCH_SIZE=configured, LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT=configured):
             result = async_to_sync(prepare_evaluation_backfill_tick_activity)(_activity_inputs(backfill_data))
 
         assert result == PrepareTickOutput(
@@ -659,6 +999,7 @@ class TestEvaluationBackfillActivities:
             settle={},
             rerun_existing=False,
             batch_size=expected,
+            max_in_flight=in_flight,
         )
 
     def test_find_serializes_candidates_and_cursor(self, backfill_data) -> None:
@@ -706,20 +1047,37 @@ class TestEvaluationBackfillActivities:
         )
         assert result.exhausted
 
-    def test_advance_is_idempotent_on_retry(self, backfill_data) -> None:
-        advance = _advance(backfill_data, dispatched_delta=3, skipped_delta=1, failed_delta=2)
+    @pytest.mark.parametrize("stop_reason", [None, "execution_failed"])
+    def test_advance_is_idempotent_on_retry(self, backfill_data, stop_reason: str | None) -> None:
+        advance = _advance(
+            backfill_data,
+            dispatched_delta=5,
+            skipped_delta=1,
+            failed_delta=2,
+            completed_delta=2,
+            evaluation_skipped_delta=1,
+        )
+        if stop_reason:
+            advance = dataclasses.replace(
+                advance, new_cursor_timestamp=None, new_cursor_unit_id="", stop_reason=stop_reason
+            )
 
         first = async_to_sync(advance_evaluation_backfill_cursor_activity)(advance)
         second = async_to_sync(advance_evaluation_backfill_cursor_activity)(advance)
 
         backfill_data["backfill"].refresh_from_db()
         row = backfill_data["backfill"]
-        assert (row.dispatched_count, row.skipped_count, row.failed_count) == (3, 1, 2)
-        assert backfill_data["backfill"].cursor_unit_id == "u3"
-        assert not first.finished
-        # The second call matched nothing because the first already moved the cursor. Reading that
-        # as finished would end the loop with the row still RUNNING and the window half walked.
-        assert not second.finished
+        assert (row.dispatched_count, row.skipped_count, row.failed_count) == (5, 1, 2)
+        assert (row.completed_count, row.evaluation_skipped_count) == (2, 1)
+        assert (row.status, row.status_reason) == (
+            (EvaluationBackfillStatus.INTERRUPTED, stop_reason)
+            if stop_reason
+            else (EvaluationBackfillStatus.RUNNING, "")
+        )
+        assert row.cursor_unit_id == ("" if stop_reason else "u3")
+        # The second call matched nothing because the first already moved the cursor or ended the
+        # row. Reading a moved cursor as finished would end the loop with the window half walked.
+        assert first.finished == second.finished == bool(stop_reason)
 
     def test_advance_marks_completed_when_exhausted(self, backfill_data) -> None:
         result = async_to_sync(advance_evaluation_backfill_cursor_activity)(_advance(backfill_data, exhausted=True))
@@ -728,6 +1086,22 @@ class TestEvaluationBackfillActivities:
         backfill_data["backfill"].refresh_from_db()
         assert backfill_data["backfill"].status == EvaluationBackfillStatus.COMPLETED
         assert backfill_data["backfill"].finished_at is not None
+
+    def test_resuming_legacy_backfill_does_not_claim_partial_outcomes_are_totals(self, backfill_data) -> None:
+        _update_backfill(backfill_data, dispatched_count=3, cursor_timestamp=UNIT_TIMESTAMP, cursor_unit_id="u0")
+        advance = dataclasses.replace(
+            _advance(backfill_data, dispatched_delta=2, completed_delta=2, exhausted=True),
+            expected_cursor_timestamp=UNIT_TIMESTAMP.isoformat(),
+            expected_cursor_unit_id="u0",
+        )
+
+        async_to_sync(advance_evaluation_backfill_cursor_activity)(advance)
+
+        row = backfill_data["backfill"]
+        row.refresh_from_db()
+        assert row.dispatched_count == 5
+        assert row.completed_count is None
+        assert row.remaining_count is None
 
     def test_advance_loses_to_concurrent_cancel(self, backfill_data) -> None:
         _update_backfill(backfill_data, status=EvaluationBackfillStatus.CANCELLED)
@@ -738,3 +1112,70 @@ class TestEvaluationBackfillActivities:
         backfill_data["backfill"].refresh_from_db()
         assert backfill_data["backfill"].status == EvaluationBackfillStatus.CANCELLED
         assert backfill_data["backfill"].dispatched_count == 0
+
+
+@temporalio.workflow.defn(name="run-evaluation")
+class BackfillRecoveryTestJudge:
+    @temporalio.workflow.run
+    async def run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
+        skipped = inputs.backfill_id == "original"
+        return {
+            "evaluation_id": inputs.evaluation_id,
+            "evaluation_type": "hog",
+            "skipped": skipped,
+            "skip_reason": "key_invalid" if skipped else "",
+        }
+
+
+@pytest.mark.asyncio
+async def test_temporal_recovers_a_skipped_workflow_and_preserves_the_verdict(caplog) -> None:
+    caplog.set_level("INFO", logger="temporalio.workflow")
+    caplog.set_level("INFO", logger="temporalio.activity")
+    advances: list[AdvanceCursorInputs] = []
+
+    @temporalio.activity.defn(name="prepare_evaluation_backfill_tick_activity")
+    async def prepare(inputs: EvaluationBackfillInputs) -> PrepareTickOutput:
+        return _tick()
+
+    @temporalio.activity.defn(name="find_evaluation_backfill_candidates_activity")
+    async def find(inputs: FindCandidatesInputs) -> FindCandidatesOutput:
+        return _found([_candidate("u1")], exhausted=True)
+
+    @temporalio.activity.defn(name="advance_evaluation_backfill_cursor_activity")
+    async def advance(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput:
+        advances.append(inputs)
+        return AdvanceCursorOutput(finished=True)
+
+    @temporalio.activity.defn(name="measure_evaluation_backfill_remainder_activity")
+    async def measure(inputs: MeasureRemainderInputs) -> None:
+        return None
+
+    task_queue = f"backfill-recovery-{uuid.uuid4()}"
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        with (
+            override_settings(LLMA_EVALS_TASK_QUEUE=task_queue),
+            patch(f"{BACKFILL_MODULE}.async_connect", new=AsyncMock(return_value=env.client)),
+        ):
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[EvaluationBackfillWorkflow, BackfillRecoveryTestJudge],
+                activities=[prepare, find, advance, measure, existing_backfill_child_outcome_activity],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    BackfillRecoveryTestJudge.run,
+                    RunEvaluationInputs(evaluation_id="E", event_data={"team_id": 42}, backfill_id="original"),
+                    id="llma-hog-eval-E-u1-ingestion",
+                    task_queue=task_queue,
+                    execution_timeout=timedelta(seconds=30),
+                )
+                for _ in range(2):
+                    await env.client.execute_workflow(
+                        EvaluationBackfillWorkflow.run,
+                        _inputs(),
+                        id=f"test-backfill-{uuid.uuid4()}",
+                        task_queue=task_queue,
+                        execution_timeout=timedelta(seconds=60),
+                    )
+    assert [(item.completed_delta, item.skipped_delta) for item in advances] == [(1, 0), (0, 1)]

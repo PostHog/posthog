@@ -122,7 +122,7 @@ class DecisionClient:
         try:
             verdict = validate_url_and_pin_ips(base_url)
             if not verdict.allowed:
-                if path == "decisions" and verdict.reason == UNRESOLVED_HOST_REASON:
+                if verdict.reason == UNRESOLVED_HOST_REASON:
                     raise ProviderHostUnresolvedError()
                 raise SSRFBlockedError(verdict.reason)
             headers = dict(OPENROUTER_HEADERS) if path == "decisions" else {}

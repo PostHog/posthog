@@ -139,6 +139,7 @@ Evaluation events retain model, usage, latency, and error telemetry.
 If retries fail, the run fails and the evaluation stays enabled.
 Blocked System One endpoints and redirects disable the evaluation and mark the connection for revalidation, without recording model usage.
 DNS failures and redirects at OpenRouter's fixed decision endpoint retry without disabling the evaluation or marking its key as failing. Redirects are never followed.
+DNS failures at custom System One endpoints also retry without disabling the evaluation or its key.
 Requests rejected because of an individual input skip that run without changing the shared connection.
 Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.
@@ -153,6 +154,26 @@ Users do not need to include items that already have a result to retry them.
 
 A provider rejection of an invalid token setting does not count as a truncated reply.
 The playground keeps the provider's explanation so users can correct the setting before trying again.
+
+## Backfill recovery
+
+Backfills read a page of units (500 by default, bounded between 1 and 1,000) and wait for every outcome before advancing progress.
+A backfill runs at most 16 evaluations at once (`LLMA_EVAL_BACKFILL_MAX_IN_FLIGHT`).
+A run holds one of the shared ClickHouse slots only while it reads its unit, and spends most of its time waiting on the judge.
+Lower the setting if backfills crowd out live evaluations.
+Backfill activities retry temporary database, DNS, connection, and rate-limit failures up to 5 times within 10 minutes, or within the live time limit when that is longer, with backoff from 10 seconds to one minute.
+A backfill run never treats its last attempt as permanent, so a DNS failure fails the run instead of disabling the evaluation.
+After 10 failed runs in a row, the backfill pauses for 1, 2, 5, 10, then 30 minutes, and a success resets that sequence.
+When the pauses run out, or a run reports an error that disables the evaluation, the backfill stops as **Interrupted** and keeps its cursor.
+Its stop reason says whether the evaluation was disabled or the runs kept failing.
+Live evaluation retry budgets remain unchanged.
+Authentication, quota, blocked-endpoint, and permanent request errors retain their existing handling.
+Result emission has a separate retry budget, so retrying emission does not repeat a completed judge call.
+
+An interrupted backfill preserves completed results.
+**Retry remaining** creates a new backfill with the original date range and filters, using the current evaluation settings.
+It preserves usable existing results and retries units without usable results, including recorded DNS failures.
+Persistent failures can still interrupt a backfill after its recovery budget; recovery does not guarantee a verdict for invalid or permanently rejected inputs.
 
 ## Result encoding
 
