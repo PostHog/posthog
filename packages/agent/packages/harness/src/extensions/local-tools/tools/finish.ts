@@ -11,6 +11,9 @@ import {
 
 export const FINISH_TOOL_NAME = "finish";
 
+// Matches the cap the event relay puts on a turn's final message.
+const FINISH_REPORT_MAX_CHARS = 20_000;
+
 export const finishSchema = {
   status: z
     .enum(["completed", "failed"])
@@ -28,6 +31,17 @@ export const finishSchema = {
       "Short note on why you're stopping — recorded on the run. Required-in- " +
         "spirit for 'failed': say what blocked you so a human can pick it up.",
     ),
+  report: z
+    .string()
+    .max(FINISH_REPORT_MAX_CHARS)
+    .optional()
+    .describe(
+      "Your final report for this run, in full: the outcome first, then " +
+        "anything that needs human attention. It becomes the run's final " +
+        "message, which is what a workflow's next step or a loop's email " +
+        "receives. Text you wrote earlier in this turn is not kept, so do not " +
+        "refer back to it.",
+    ),
 };
 
 const FINISH_TOOL_DESCRIPTION =
@@ -38,7 +52,9 @@ const FINISH_TOOL_DESCRIPTION =
   "or checks you were waiting on have settled, and you've delivered whatever " +
   "your instructions asked for (or deliberately skipped delivery per those " +
   "instructions). Do NOT call it while you're still working or still waiting on " +
-  "something to finish. After it returns, stop — the run is over.";
+  "something to finish. Pass your final report in `report`: the run ends before " +
+  "this turn does, so `report` is the only place it is saved. After it returns, " +
+  "stop — the run is over.";
 
 /**
  * Lets the model end its own background run. The handler calls back into the
@@ -64,7 +80,7 @@ function resolveRequestFinish(
   if (!client) {
     return undefined;
   }
-  return async (status, message) => {
+  return async (status, message, report) => {
     await withReportDeadline(
       (signal) =>
         client.updateTaskRun(
@@ -75,6 +91,7 @@ function resolveRequestFinish(
             ...(status === "failed" && message
               ? { error_message: message }
               : {}),
+            ...(report ? { output: { final_message: report } } : {}),
           },
           signal,
         ),
@@ -119,7 +136,7 @@ export const finishTool = defineLocalTool({
         isError: true,
       };
     }
-    await requestFinish(args.status, args.reason);
+    await requestFinish(args.status, args.reason, args.report?.trim());
     return {
       content: [
         {
