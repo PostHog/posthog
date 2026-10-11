@@ -325,6 +325,31 @@ class TestPlaygroundModelEnforcement(APIBaseTest):
         assert returned_ids == PLAYGROUND_MODEL_IDS
 
     @parameterized.expand([(True,), (False,)])
+    def test_openai_decision_models_use_the_existing_key(self, flag: bool) -> None:
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="OpenAI",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "example-token"},
+            created_by=self.user,
+        )
+        with (
+            patch("products.ai_observability.backend.api.proxy.Client.list_models", return_value=["gpt-5-mini"]),
+            patch("products.ai_observability.backend.api.proxy.decision_evaluations_enabled", return_value=flag),
+        ):
+            response = self.client.get("/api/llm_proxy/models/", {"provider_key_id": str(key.id)})
+        assert response.status_code == 200
+        models = {model["id"]: model for model in response.json()}
+        assert models["gpt-5-mini"]["supports_decisions"] is False
+        assert models["gpt-5-mini"]["supports_chat"] is True
+        assert ("gpt-6-luna" in models) is flag
+        if flag:
+            assert models["gpt-6-luna"]["supports_decisions"] is True
+            assert models["gpt-6-luna"]["supports_chat"] is True
+            assert models["gpt-6-luna"]["provider"] == "OpenAI"
+
+    @parameterized.expand([(True,), (False,)])
     def test_openrouter_decision_models_use_the_existing_key(self, flag: bool) -> None:
         key = LLMProviderKey.objects.create(
             team=self.team,
