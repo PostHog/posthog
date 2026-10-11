@@ -39,12 +39,22 @@ export class CloudTaskPrompt {
     return `Continue working on the existing PR branch. If it is not already checked out, check it out with \`gh pr checkout ${prUrl}\`. Do not check it out again when it is already active.`;
   }
 
+  // A revision can come from a different origin than the run that opened the PR, so the
+  // footer the PR already carries is the record of where the work came from. The report can
+  // belong to another project than this run, so the report URL comes from the Origin section.
+  // Anyone can write a PR body, so only a URL on this PostHog host for the marker's report is copied.
+  private buildExistingPrFooterInstruction(): string {
+    const webUrl = this.options.apiUrl.replace(/\/$/, "");
+    return `When you update the PR description, keep its existing footer. Do not remove an inbox report link from it. You can add a link to this run's Slack thread after the report link. If the footer has no inbox report link and the PR body has a \`<!-- posthog-self-driving-origin:<report_id> -->\` Origin section, copy the URL from the \`Inbox report\` line of that section into the footer. Copy it only when it has the form \`${webUrl}/project/<project_id>/inbox/reports/<report_id>\`, with the same \`<report_id>\` as the marker. Otherwise, do not add a report link. Do not build the report URL yourself.`;
+  }
+
   buildDetectedPrContext(prUrl: string): string {
     if (!this.options.shouldAutoPublish) {
       return (
         `An open pull request already exists: ${prUrl}\n` +
         `Use that PR as context if it is helpful, but stop with local changes ready for review.\n` +
-        `Do NOT create commits, push to the PR branch, update the pull request, create a new branch, or create a new pull request unless the user explicitly asks.`
+        `Do NOT create commits, push to the PR branch, update the pull request, create a new branch, or create a new pull request unless the user explicitly asks.\n` +
+        this.buildExistingPrFooterInstruction()
       );
     }
 
@@ -54,6 +64,7 @@ export class CloudTaskPrompt {
       `Unless the user explicitly asks for a new branch or separate PR, you MUST:\n` +
       `1. ${this.buildExistingPrCheckoutInstruction(prUrl)}\n` +
       `2. Make changes, commit, and push to that branch\n` +
+      `${this.buildExistingPrFooterInstruction()}\n` +
       `By default, do not create a new branch, close the existing PR, or create a new PR — continue on the existing PR. If the user explicitly asks you to create a new branch or a separate PR, follow their instruction instead.`
     );
   }
@@ -312,11 +323,15 @@ The answer is the work of this run, so the run still needs a summary. Call the \
       : this.options.isAutomatedOrigin
         ? "Created with [PostHog](https://posthog.com?ref=pr)"
         : "Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr)";
-    const prFooter = slackThreadUrl
-      ? `*${createdWith} from a [Slack thread](${slackThreadUrl})*`
-      : inboxReportUrl
-        ? `*${createdWith} from an [inbox report](${inboxReportUrl})*`
-        : `*${createdWith}*`;
+    // The report holds the evidence and history of the PR, so it leads when both exist.
+    const prFooter =
+      inboxReportUrl && slackThreadUrl
+        ? `*${createdWith} from an [inbox report](${inboxReportUrl}) via a [Slack thread](${slackThreadUrl})*`
+        : inboxReportUrl
+          ? `*${createdWith} from an [inbox report](${inboxReportUrl})*`
+          : slackThreadUrl
+            ? `*${createdWith} from a [Slack thread](${slackThreadUrl})*`
+            : `*${createdWith}*`;
     const repositoryWorkspaceInstructions =
       this.options.taskRepositories.length > 1
         ? `The task workspace contains these repositories:
@@ -337,6 +352,7 @@ Do the requested work, but stop with local changes ready for review.
 Important:
 - Do NOT create new commits, push to the branch, or update the pull request unless the user explicitly asks.
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
+- If the user explicitly asks you to update the pull request: ${this.buildExistingPrFooterInstruction()}
 ${commonInstructions}
 `;
       }
@@ -358,6 +374,7 @@ After completing the requested changes:
 Important:
 - Do NOT create a new branch or a new pull request unless the user explicitly asks.
 - Do NOT push fixes for review comments without replying to and resolving each related thread.
+- ${this.buildExistingPrFooterInstruction()}
 ${commonInstructions}
 `;
     }
@@ -388,6 +405,7 @@ ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
+- ${this.buildExistingPrFooterInstruction()}
 - Always create the PR as a draft. Do not ask for confirmation before publishing completed code changes`
             : `
 When the user explicitly asks for code changes in a GitHub repository:
@@ -397,6 +415,7 @@ ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
+- ${this.buildExistingPrFooterInstruction()}
 - Do NOT create branches, commits, push changes, or open pull requests unless the user explicitly asks for that`;
 
       return `${identityInstructions}
@@ -439,6 +458,7 @@ ${whyContextInstruction.trimStart()}
 ${publicRepoSafetyInstruction.trimStart()}
 ${prMentionSafetyInstruction.trimStart()}
 - End the PR description with a horizontal rule followed by this footer line: ${prFooter}
+- ${this.buildExistingPrFooterInstruction()}
 - Always create the PR as a draft.
 ${commonInstructions}
 `;
@@ -449,7 +469,7 @@ ${commonInstructions}
 
 ${repositoryWorkspaceInstructions}
 
-If the work you are being asked to do already has an open pull request — for example, the inbox report you fetched links an implementation PR (its \`implementation_pr_url\`), or this same thread already produced a PR that you are now being asked to revise — do NOT open a second PR. Check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to it with the \`git_signed_commit\` tool (if the branch is behind its base, call \`git_signed_merge\` first). A PR is only the one to continue if it is for this same request; if the thread merely mentions an unrelated or older PR, ignore it. Only open a new, separate PR when the change is genuinely distinct from the existing one.
+If the work you are being asked to do already has an open pull request — for example, the inbox report you fetched links an implementation PR (its \`implementation_pr_url\`), or this same thread already produced a PR that you are now being asked to revise — do NOT open a second PR. Check that PR out with \`gh pr checkout <url>\`, continue on its branch, and commit your changes to it with the \`git_signed_commit\` tool (if the branch is behind its base, call \`git_signed_merge\` first). A PR is only the one to continue if it is for this same request; if the thread merely mentions an unrelated or older PR, ignore it. Only open a new, separate PR when the change is genuinely distinct from the existing one. ${this.buildExistingPrFooterInstruction()}
 
 Otherwise, after completing the requested changes:
 1. Pick a new branch name prefixed with \`posthog/\` (e.g. \`posthog/fix-login-redirect\`)

@@ -2199,10 +2199,10 @@ export class AgentServer {
 
     // Web backlink to the inbox report that spawned this task, so the
     // auto-generated PR can point back at it. Built from the same pieces as the
-    // report's `_posthogUrl`: <apiUrl>/project/<projectId>/inbox/<reportId>.
+    // web app's report route: <apiUrl>/project/<projectId>/inbox/reports/<reportId>.
     const signalReportId = preTask?.signal_report;
     const inboxReportUrl = signalReportId
-      ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/${signalReportId}`
+      ? `${this.config.apiUrl.replace(/\/$/, "")}/project/${this.config.projectId}/inbox/reports/${signalReportId}`
       : null;
 
     // Before the prompt: its skills-store section counts the stubs on disk.

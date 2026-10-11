@@ -7766,10 +7766,10 @@ describe("AgentServer HTTP Mode", () => {
           ).buildCloudSystemPrompt(
             null,
             null,
-            "http://localhost:8000/project/1/inbox/rep_1",
+            "http://localhost:8000/project/1/inbox/reports/rep_1",
           );
           expect(prompt).toContain(
-            "*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](http://localhost:8000/project/1/inbox/rep_1)*",
+            "*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](http://localhost:8000/project/1/inbox/reports/rep_1)*",
           );
           expect(prompt).not.toContain("from a [Slack thread]");
         } finally {
@@ -7777,7 +7777,7 @@ describe("AgentServer HTTP Mode", () => {
         }
       });
 
-      it("prefers the Slack thread link over the inbox report link when both are present", () => {
+      it("links the inbox report first and the Slack thread second when both are present", () => {
         process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
         try {
           const prompt = (
@@ -7785,14 +7785,70 @@ describe("AgentServer HTTP Mode", () => {
           ).buildCloudSystemPrompt(
             null,
             "https://posthog.slack.com/archives/C123/p456",
-            "http://localhost:8000/project/1/inbox/rep_1",
+            "http://localhost:8000/project/1/inbox/reports/rep_1",
           );
-          expect(prompt).toContain("from a [Slack thread]");
-          expect(prompt).not.toContain("from an [inbox report]");
+          expect(prompt).toContain(
+            "*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](http://localhost:8000/project/1/inbox/reports/rep_1) via a [Slack thread](https://posthog.slack.com/archives/C123/p456)*",
+          );
         } finally {
           delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
         }
       });
+
+      it.each([
+        ["system prompt", "prompt", "slack", {}],
+        ["detected PR context", "detected", "slack", {}],
+        ["review-first detected PR context", "detected", undefined, {}],
+        ["review-first system prompt", "prompt", undefined, {}],
+        ["review-first, no PR", "new", undefined, {}],
+        [
+          "no repository, auto-publish",
+          "new",
+          "slack",
+          { repositoryPath: undefined },
+        ],
+        [
+          "no repository, review-first",
+          "new",
+          undefined,
+          { repositoryPath: undefined },
+        ],
+      ])(
+        "tells a revision of an existing PR to keep its report footer (%s)",
+        (_label, surface, origin, config) => {
+          if (origin) {
+            process.env.POSTHOG_CODE_INTERACTION_ORIGIN = origin;
+          } else {
+            delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+          }
+          try {
+            const s = createServer(config) as unknown as TestableServer;
+            const prUrl = "https://github.com/org/repo/pull/1";
+            const text =
+              surface === "prompt"
+                ? s.buildCloudSystemPrompt(
+                    prUrl,
+                    "https://posthog.slack.com/archives/C123/p456",
+                  )
+                : surface === "new"
+                  ? s.buildCloudSystemPrompt()
+                  : s.buildDetectedPrContext(prUrl);
+            expect(text).toContain("keep its existing footer");
+            expect(text).toContain(
+              "Do not remove an inbox report link from it",
+            );
+            expect(text).toContain(
+              "copy the URL from the `Inbox report` line of that section",
+            );
+            expect(text).toContain(
+              "`http://localhost:8000/project/<project_id>/inbox/reports/<report_id>`, with the same `<report_id>` as the marker",
+            );
+            expect(text).not.toContain("/project/1/inbox/reports/");
+          } finally {
+            delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+          }
+        },
+      );
 
       it("instructs Why, brevity, and the plain footer on the non-Slack no-repository path", () => {
         delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
