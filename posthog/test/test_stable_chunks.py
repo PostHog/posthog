@@ -117,6 +117,13 @@ class TestStableChunks(SimpleTestCase):
         fallbacks_after = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", fallback_labels) or 0
         assert fallbacks_after - fallbacks_before == (1 if query == "?stable_chunks=fallback" else 0)
 
+    def test_a_failing_logged_out_flag_check_serves_the_hashed_build(self) -> None:
+        request = RequestFactory().get("/")
+        request.user = AnonymousUser()
+
+        with patch("posthoganalytics.feature_enabled", side_effect=RuntimeError("flag definitions unavailable")):
+            assert stable_chunks_choice(request, None) is False
+
     @parameterized.expand(
         [
             ("param on stores the choice for 30 days", "?stable_chunks=1", "1", 60 * 60 * 24 * 30),

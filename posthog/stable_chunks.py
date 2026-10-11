@@ -137,15 +137,21 @@ def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[s
 
 
 def _flag_enabled_for_logged_out_requests() -> bool:
-    return (
-        posthoganalytics.feature_enabled(
-            STABLE_CHUNKS_FLAG,
-            LOGGED_OUT_FLAG_DISTINCT_ID,
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
+    # Every logged-out app page runs this check, so a failure serves the hashed build instead of an error.
+    try:
+        return (
+            posthoganalytics.feature_enabled(
+                STABLE_CHUNKS_FLAG,
+                LOGGED_OUT_FLAG_DISTINCT_ID,
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+            is True
         )
-        is True
-    )
+    except Exception as e:
+        logger.warning("stable_chunks_logged_out_flag_check_failed", error=str(e))
+        capture_exception(e)
+        return False
 
 
 def stable_chunks_for_request(
