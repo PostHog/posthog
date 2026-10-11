@@ -57,6 +57,11 @@ export function ScoutPrecheckSection({
     const { testRun, testRunLoading, testRunFailed } = useValues(logic)
     const { testPrecheck } = useActions(logic)
     const saved = config.precheck_query ?? null
+    // The default the scout's skill ships, when it applies to this project and no query of its own replaces it.
+    const inherited =
+        config.precheck_query_source === 'skill_default' ? (config.effective_precheck_query ?? null) : null
+    const turnedOff = config.precheck_disabled
+    const baseline = saved ?? inherited ?? ''
     // Null until something is typed, so an untouched editor follows the saved query.
     const [draft, setDraft] = useState<string | null>(null)
     // The query the last save or turn-off sent, held until the request settles. The draft clears
@@ -71,9 +76,9 @@ export function ScoutPrecheckSection({
         }
         setSubmitted(null)
     }, [updating, submitted, saved])
-    const text = draft ?? saved ?? ''
+    const text = draft ?? baseline
     const query = text.trim()
-    const changed = query !== (saved ?? '')
+    const changed = query !== baseline
     const unsaved = draft !== null && (changed || submitted !== null)
     useEffect(() => {
         onUnsavedChange?.(unsaved)
@@ -85,7 +90,11 @@ export function ScoutPrecheckSection({
     const disabledReason = updating ? 'Saving scout settings' : undefined
     const saveDisabledReason =
         disabledReason ??
-        (query && changed ? undefined : !query && saved ? 'To remove the query, use Turn off' : 'No changes to save')
+        (query && (changed || turnedOff)
+            ? undefined
+            : !query && baseline
+              ? 'To stop the pre-check, use Turn off'
+              : 'No changes to save')
 
     return (
         <div className="border-t border-primary pt-2">
@@ -99,9 +108,15 @@ export function ScoutPrecheckSection({
                         header: (
                             <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
                                 <span className="shrink-0 text-xs text-default">Run only when</span>
-                                {saved ? (
+                                {turnedOff ? (
+                                    <span className="text-[11.5px] text-muted">Turned off</span>
+                                ) : saved ? (
                                     <LemonTag size="small" type="option">
                                         Query set
+                                    </LemonTag>
+                                ) : inherited ? (
+                                    <LemonTag size="small" type="option">
+                                        Default query
                                     </LemonTag>
                                 ) : (
                                     <span className="text-[11.5px] text-muted">Always run</span>
@@ -114,10 +129,22 @@ export function ScoutPrecheckSection({
                                     A HogQL query that each scheduled run checks first. When it returns no rows, or a
                                     single false value such as a count of 0, the scout skips the run, so a quiet scout
                                     costs nothing. Otherwise the run starts with the rows the query found. Use{' '}
-                                    {'{since}'} for the start of the last run and {'{now}'} for the current time. To run
-                                    at least once a week, add {'OR {since} < {now} - INTERVAL 7 DAY'}. A manual run
-                                    always starts.
+                                    {'{since}'} for the start of the last run, {'{now}'} for the current time, and{' '}
+                                    {'{interval_minutes}'} for the minutes between scheduled runs. To run at least once
+                                    a week, add {'OR {since} < {now} - INTERVAL 7 DAY'}. A manual run always starts.
                                 </span>
+                                {inherited && !turnedOff ? (
+                                    <span className="text-[11.5px] text-muted">
+                                        This scout uses the default query its skill ships. Save a change to use your own
+                                        query instead.
+                                    </span>
+                                ) : null}
+                                {turnedOff ? (
+                                    <span className="text-[11.5px] text-muted">
+                                        The pre-check is off, so every scheduled run starts. Turn it on to use the query
+                                        below again.
+                                    </span>
+                                ) : null}
                                 <LemonTextArea
                                     value={text}
                                     placeholder={QUERY_PLACEHOLDER}
@@ -147,7 +174,8 @@ export function ScoutPrecheckSection({
                                             <span className="text-[11.5px] text-danger">{result.error}</span>
                                         ) : null}
                                         <span className="text-[11.5px] text-muted">
-                                            {'{since}'} is {humanFriendlyDetailedTime(result.since)}.
+                                            {'{since}'} is {humanFriendlyDetailedTime(result.since)}.{' '}
+                                            {'{interval_minutes}'} is {result.interval_minutes}.
                                         </span>
                                         {result.rows_text ? (
                                             <pre className="m-0 max-h-40 overflow-auto rounded border border-primary bg-surface-secondary p-2 font-mono text-[11px] whitespace-pre-wrap break-all">
@@ -157,7 +185,18 @@ export function ScoutPrecheckSection({
                                     </div>
                                 ) : null}
                                 <div className="flex flex-wrap items-center justify-end gap-2">
-                                    {saved ? (
+                                    {turnedOff ? (
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            className="mr-auto"
+                                            disabledReason={disabledReason}
+                                            onClick={() => onUpdate(config.id, { precheck_disabled: false })}
+                                            data-attr="scout-precheck-turn-on"
+                                        >
+                                            Turn on
+                                        </LemonButton>
+                                    ) : baseline ? (
                                         <LemonButton
                                             size="small"
                                             type="secondary"
@@ -166,15 +205,15 @@ export function ScoutPrecheckSection({
                                             disabledReason={disabledReason}
                                             onClick={() =>
                                                 LemonDialog.open({
-                                                    title: 'Remove the pre-check?',
+                                                    title: 'Turn off the pre-check?',
                                                     description:
-                                                        'Every scheduled run starts again. You can add a query again later.',
+                                                        'Every scheduled run starts again. You can turn it on again later.',
                                                     primaryButton: {
                                                         children: 'Turn off',
                                                         status: 'danger',
                                                         onClick: () => {
-                                                            onUpdate(config.id, { precheck_query: null })
-                                                            setSubmitted({ query: null })
+                                                            onUpdate(config.id, { precheck_disabled: true })
+                                                            setDraft(null)
                                                         },
                                                         'data-attr': 'scout-precheck-clear',
                                                     },
@@ -218,7 +257,7 @@ export function ScoutPrecheckSection({
                                         loading={updating}
                                         disabledReason={saveDisabledReason}
                                         onClick={() => {
-                                            onUpdate(config.id, { precheck_query: query })
+                                            onUpdate(config.id, { precheck_query: query, precheck_disabled: false })
                                             setSubmitted({ query })
                                         }}
                                         data-attr="scout-precheck-save"

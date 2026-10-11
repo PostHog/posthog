@@ -1056,6 +1056,9 @@ const scoutConfigUpdate = (): ToolBase<
         if (params.precheck_query !== undefined) {
             body['precheck_query'] = params.precheck_query
         }
+        if (params.precheck_disabled !== undefined) {
+            body['precheck_disabled'] = params.precheck_disabled
+        }
         if (params.suggestion_id !== undefined) {
             body['suggestion_id'] = params.suggestion_id
         }
@@ -2143,6 +2146,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.precheck_query !== undefined) {
             body['precheck_query'] = params.precheck_query
+        }
+        if (params.precheck_disabled !== undefined) {
+            body['precheck_disabled'] = params.precheck_disabled
         }
         if (params.suggestion_id !== undefined) {
             body['suggestion_id'] = params.suggestion_id
