@@ -3,7 +3,7 @@ import { Liquid, Output, Template } from 'liquidjs'
 
 const LIQUID_REGEX = /\{\{(.*?)\}\}|{%(.*?)%}/g
 
-// NOTE: This should be moved to common package but currently is a copy of nodejs/src/cdp/utils/liquid.ts
+// NOTE: This should be moved to common package but currently is a copy of plugin-server/src/cdp/utils/liquid.ts
 export class LiquidRenderer {
     private static _liquid: Liquid | null = null
 

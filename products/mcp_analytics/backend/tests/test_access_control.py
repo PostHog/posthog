@@ -19,7 +19,7 @@ from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixi
 
 # Guards that "mcp_analytics" being registered in ACCESS_CONTROL_RESOURCES is actually enforced
 # end-to-end through a real viewset - generic level-comparison and org-admin-bypass mechanics are
-# already covered by products/access_control/backend/tests/test_user_access_control_pbt.py for every registered resource.
+# already covered by posthog/rbac/test/test_user_access_control_pbt.py for every registered resource.
 @pytest.mark.ee
 class TestMCPAnalyticsAccessControl(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     def setUp(self) -> None:

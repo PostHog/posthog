@@ -20,23 +20,23 @@ eval needs to import from.
 # Usage
 
     # Full eval (~3-6 min — most cost is the agent runs)
-    python posthog/temporal/ai/slack_app/eval_slack_repo_selection.py --team-id 1 --user-id 1
+    python posthog/temporal/ai/eval_slack_repo_selection.py --team-id 1 --user-id 1
 
     # Iterate fast on cascade-only changes (no LLM at all)
-    python posthog/temporal/ai/slack_app/eval_slack_repo_selection.py --team-id 1 --user-id 1 --skip-llm
+    python posthog/temporal/ai/eval_slack_repo_selection.py --team-id 1 --user-id 1 --skip-llm
 
     # Iterate on Haiku changes without paying for agent runs
-    python posthog/temporal/ai/slack_app/eval_slack_repo_selection.py --team-id 1 --user-id 1 --skip-agent
+    python posthog/temporal/ai/eval_slack_repo_selection.py --team-id 1 --user-id 1 --skip-agent
 
     # Single case
-    python posthog/temporal/ai/slack_app/eval_slack_repo_selection.py --team-id 1 --user-id 1 --case vague_code_bug
+    python posthog/temporal/ai/eval_slack_repo_selection.py --team-id 1 --user-id 1 --case vague_code_bug
 
     # See what the Slack picker message renders on each failure mode
-    python posthog/temporal/ai/slack_app/eval_slack_repo_selection.py --team-id 1 --user-id 1 --case vague_code_bug \\
+    python posthog/temporal/ai/eval_slack_repo_selection.py --team-id 1 --user-id 1 --case vague_code_bug \\
         --show-picker-guidance
 
     # See the case catalogue without running anything
-    python posthog/temporal/ai/slack_app/eval_slack_repo_selection.py --list-cases
+    python posthog/temporal/ai/eval_slack_repo_selection.py --list-cases
 
 # Reading the output
 
@@ -675,7 +675,7 @@ class Command:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="python posthog/temporal/ai/slack_app/eval_slack_repo_selection.py",
+        prog="python posthog/temporal/ai/eval_slack_repo_selection.py",
         description="Eval the Slack repo selection flow (cascade → Haiku gate → agent) on a real team.",
     )
     cmd = Command()

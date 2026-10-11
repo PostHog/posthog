@@ -3434,7 +3434,7 @@ class UserBlastRadiusResponseSerializer(serializers.Serializer):
 # HYPERCACHE CONTRACT: This serializer defines the JSON schema that the Rust feature-flags
 # service deserializes. Field changes (renames, removals, type changes) must follow the
 # expand-and-contract pattern. Run the contract tests to verify compatibility:
-#   pytest products/feature_flags/backend/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
+#   pytest posthog/models/feature_flag/test/test_flags_cache.py -k "test_serializer_output_matches_fixture_schema"
 # See also: rust/feature-flags/src/flags/flag_models.rs (FeatureFlag struct)
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
@@ -3902,7 +3902,7 @@ class FlagRolloutWriteRequest(FlagLifecycleWriteRequest):
 # that already tag their queries. If you add a new ClickHouse query reachable from an
 # action on this viewset, wrap it with tag_queries(product=Product.FEATURE_FLAGS,
 # feature=Feature.QUERY, team_id=self.team_id) so query_log attribution stays correct.
-# See products/feature_flags/backend/user_blast_radius.py for the pattern.
+# See posthog/models/feature_flag/user_blast_radius.py for the pattern.
 @extend_schema(extensions={"x-product": ProductKey.FEATURE_FLAGS})
 class FeatureFlagViewSet(
     ApprovalHandlingMixin,

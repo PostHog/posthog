@@ -1,7 +1,7 @@
 import { PluginConfigChoice, PluginConfigSchema } from '~/legacy-plugin-scaffold'
 import { PluginType } from '~/types'
 
-// Keep this in sync with: products/cdp/backend/api/plugin.py
+// Keep this in sync with: posthog/api/plugin.py
 export const SECRET_FIELD_VALUE = '**************** POSTHOG SECRET FIELD ****************'
 
 export function getConfigSchemaArray(

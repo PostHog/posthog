@@ -1,6 +1,6 @@
 // Leveled logger + wide-event RequestLogger for the agent-proxy.
 //
-// Backed by pino, the PostHog Node house logger (see nodejs/src/common/utils/logger.ts).
+// Backed by pino, the PostHog Node house logger (see nodejs/src/utils/logger.ts).
 // The logger never constructs a pino transport: dev and prod both run the esbuild
 // bundle, and a transport would spawn a worker needing lib/worker.js + __dirname,
 // neither of which exists in a single-file ESM bundle. Instead:

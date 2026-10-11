@@ -8,7 +8,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.permissions import IsStaffUser
 from posthog.utils import relative_date_parse
 
-# keep in sync with frontend/src/scenes/instance/DeadLetterQueue/MetricsTab.tsx
+# keep in sync with posthog/frontend/src/scenes/instance/DeadLetterQueue/MetricsTab.tsx
 ROWS_LIMIT = 10
 
 DEAD_LETTER_QUEUE_METRICS = {

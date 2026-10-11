@@ -1,11 +1,12 @@
 // Tests for SSE framing and streamTaskRunEvents generator.
 //
 // Wire-protocol invariant: SSE output must be byte-identical to the Python
-// format_sse_event. Django and this
+// format_sse_event in products/tasks/backend/stream/sse.py. Django and this
 // Node service read/write the SAME Redis stream during the cutover window.
 //
-// Coverage includes the timing paths (keepalive cadence, wait-for-stream timeout)
-// that are hard to exercise in Python without mocking.
+// Coverage mirrors products/tasks/backend/stream/tests/test_sse.py plus the
+// timing paths (keepalive cadence, wait-for-stream timeout) that are hard to
+// exercise in Python without mocking.
 
 import type { Redis } from 'ioredis'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

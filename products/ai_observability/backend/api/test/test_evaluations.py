@@ -2293,7 +2293,7 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
 
 class TestEvaluationsAccessControl(APIBaseTest):
     # Evaluations have their own access control resource (see ACCESS_CONTROL_RESOURCES in
-    # products/access_control/backend/facade/user_access_control.py). They used to inherit from `llm_analytics`.
+    # posthog/rbac/user_access_control.py). They used to inherit from `llm_analytics`.
     def setUp(self) -> None:
         super().setUp()
         self.organization.available_product_features = [

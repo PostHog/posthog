@@ -27,7 +27,7 @@ def _run_mode() -> RunMode:
     return derive_run_mode(settings.CLOUD_DEPLOYMENT, settings.DEBUG)
 
 
-# Keep this in sync with isCloud() in nodejs/src/common/utils/env-utils.ts.
+# Keep this in sync with isCloud() in nodejs/src/utils/env-utils.ts.
 # "dev" refers to the hosted development environment, not local development (which is "local").
 def is_cloud() -> bool:
     return _run_mode().is_cloud

@@ -26,12 +26,12 @@ import type { WarehouseStatusResponseApi } from 'products/data_warehouse/fronten
 import type { WarehouseStatusResponseStateEnumApi } from '../../../generated/api.schemas'
 
 // The warehouse name becomes the connection's SNI subdomain (a DNS-1123 label), so it
-// mirrors the backend validator in products/managed_warehouse/backend/presentation/views.py:
+// mirrors the backend validator in products/data_warehouse/backend/api/managed_warehouse.py:
 // 3-63 chars, lowercase alphanumerics and hyphens, starting/ending alphanumeric (no underscores).
 const WAREHOUSE_NAME_REGEX = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/
 
 // DNS zone the connection host lives under, selected by deployment region. Mirrors
-// _MANAGED_WAREHOUSE_DOMAINS in products/managed_warehouse/backend/presentation/views.py.
+// _MANAGED_WAREHOUSE_DOMAINS in products/data_warehouse/backend/api/managed_warehouse.py.
 const MANAGED_WAREHOUSE_DOMAINS: Partial<Record<Region, string>> = {
     [Region.US]: 'us.postwh.com',
     [Region.EU]: 'eu.postwh.com',

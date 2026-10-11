@@ -142,7 +142,7 @@ class TestUtils(BaseTest):
             assert query == "(id = ANY (%(named_key)s::uuid[]))"
             assert ids == ordered_expected_ids
 
-    # keep in sync with nodejs/tests/utils.test.ts::safeClickhouseString
+    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
     def test_safe_clickhouse_string_valid_strings(self):
         valid_strings = [
             "$autocapture",
@@ -168,20 +168,21 @@ class TestUtils(BaseTest):
         for s in valid_strings:
             self.assertEqual(safe_clickhouse_string(s), s)
 
-    # keep in sync with nodejs/tests/utils.test.ts::safeClickhouseString
+    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
     def test_safe_clickhouse_string_surrogates(self):
         # flake8: noqa
         self.assertEqual(safe_clickhouse_string("foo \ud83d\ bar"), "foo \\ud83d\\ bar")
         self.assertEqual(safe_clickhouse_string("\ud83d\ bar"), "\\ud83d\\ bar")
         self.assertEqual(safe_clickhouse_string("\ud800\ \ud803\ "), "\\ud800\\ \\ud803\\ ")
 
-    # keep in sync with nodejs/tests/utils.test.ts::safeClickhouseString
+    # keep in sync with posthog/plugin-server/tests/utils.test.ts::safeClickhouseString
     def test_safe_clickhouse_string_unicode_non_surrogates(self):
         self.assertEqual(safe_clickhouse_string("✨"), "✨")
         self.assertEqual(safe_clickhouse_string("foo \u2728\ bar"), "foo \u2728\ bar")
         self.assertEqual(safe_clickhouse_string("💜 \u1f49c\ 💜"), "💜 \u1f49c\ 💜")
 
     def test_raise_if_user_provided_url_unsafe(self):
+        # Sync test cases with plugin-server/src/utils/fetch.test.ts
         raise_if_user_provided_url_unsafe("https://google.com?q=20")  # Safe
         raise_if_user_provided_url_unsafe("https://posthog.com")  # Safe
         raise_if_user_provided_url_unsafe("https://posthog.com/foo/bar")  # Safe, with path

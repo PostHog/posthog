@@ -51,7 +51,7 @@ __all__ = [
 ]
 
 # Loop CRUD MCP tools must never be reachable from inside a loop-fired run, regardless of the
-# loop's configured connector scope: a
+# loop's configured connector scope (products/tasks/docs/LOOPS.md, Connectors section): a
 # triggered run has no legitimate reason to create/edit/delete loops, and this closes the
 # injected-instructions plant-a-persistent-loop path. loop:read stays granted.
 LOOP_FIRED_RUN_EXCLUDED_SCOPES = frozenset({"loop:write"})
