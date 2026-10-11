@@ -15,6 +15,13 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: experiments
+scout-precheck-query: |
+  SELECT id, start_date, end_date, archived, updated_at
+  FROM system.experiments
+  WHERE (start_date IS NOT NULL AND end_date IS NULL AND archived = 0)
+     OR updated_at > {now} - INTERVAL 30 DAY
+  ORDER BY updated_at DESC
+  LIMIT 20
 ---
 
 # Signals scout: experiments
@@ -37,6 +44,8 @@ Activity history is optional. Use the reader guidance supplied by MCP only when 
 If a history reader is unavailable or access is denied, stop using that reader for the rest of this run. Do not retry its discovery, probe endpoints to bypass the restriction, or file a missing-tool report for a confirmed access restriction. Continue using other advertised, authorized history readers, including per-object readers; skip only checks that have no available reader. Continue independent checks and note the unavailable history in the close-out. Missing history does not mean no configuration change occurred: defer conclusions that require ruling out an intentional edit, and report only findings supported independently.
 
 ## Quick close-out: are experiments even active?
+
+A scheduled run can start with a `<precheck_result>` block. Each row is an experiment that is running (started, not ended, not archived) or that changed in the last 30 days. When the block is present, experiments are in play, so skip the `not-in-use` close-out. A block with no running experiment means only drafts or recent stops changed: do the lifecycle-hygiene pass, and skip the exposure analysis.
 
 Read `recent_experiments` off `scout-project-profile-get`. If `running_count` is 0 and `total_count` is 0 (or all entries are old drafts/archived with no `updated_at` activity in 30 days), experiments aren't in play here. Write one scratchpad entry:
 
