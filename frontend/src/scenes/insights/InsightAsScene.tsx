@@ -15,6 +15,7 @@ import { containsHogQLQuery, isBIVisualizationNode, isDataVisualizationNode, isI
 import { InsightShortId, ItemMode } from '~/types'
 
 import { InsightHomeGuide } from 'products/product_analytics/frontend/insights/home/InsightHomeGuide'
+import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
 
 import { teamLogic } from '../teamLogic'
 import { InsightRetentionBanner } from './dataRetention/InsightRetentionBanner'
@@ -101,6 +102,8 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                 <InsightFlagCalledBanner insightProps={insightProps} />
 
                 {!isBIVisualizationNode(query) && <InsightQueryScanBanner insightProps={insightProps} />}
+
+                {!isEditing && !!insight.id && <SubscriptionSummaries insightId={insight.id} />}
 
                 <SqlInsightFilters query={query} setQuery={setQuery}>
                     {isDataVisualizationNode(query) && insightLoading ? (

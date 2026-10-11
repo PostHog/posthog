@@ -7662,6 +7662,10 @@ snapshots:
         hash: v1.k794b7964.9d825454b80602e3cca17fa872553832e01b929728eb3b554b98a7f0d63b01be.Amp7jiLWQltIcWNKpEimC7DjTEsQ4cc1mtxoGU_hEFs
     products-subscriptions-subscription-delivery-history--with-expanded-summary--light:
         hash: v1.k794b7964.e8ea5acdf82c72e927990f4672e1615f9b8269abc31a3feb639fa9b993babad0.5j1v9u_2-7CyIDaD0INwHMOAarvZot8UsqYDMVc0UAE
+    products-subscriptions-subscription-summaries--latest-with-history--dark:
+        hash: v1.k794b7964.ab7fe8ed1abc82363e5556a5763ba8b9a1435435ce5c1c99a5c9ffcec1cb6e2c.gSbe3wTfT9dCWPXmvAwSiC5S1u_jhopOyMJe9-3K6Z0
+    products-subscriptions-subscription-summaries--latest-with-history--light:
+        hash: v1.k794b7964.c37aee47b31cc88c18a4a1c4ef1b505ccd556ea29422494a9784fef5fb9996ed.uQ_7p_CWLKe15Heyq0mmOsiiAd7L6A5tVRTIxup-DTA
     products-subscriptions-subscriptions-modal--dashboard-with-subscriptions--dark:
         hash: v1.k794b7964.c40534e6ed4ad299ed4b0317035ef2867ce1fa1dd9400dc05f63b58fafa2f3a8.uhuetA6HfBqWc8E72Mnwihnwg71M7zKnXlzl9FEAJmY
     products-subscriptions-subscriptions-modal--dashboard-with-subscriptions--light:

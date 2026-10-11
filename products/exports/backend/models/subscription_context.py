@@ -8,6 +8,10 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 
+def context_ref(kind: str, target_id: int) -> str:
+    return f"{kind}:{target_id}"
+
+
 class SubscriptionContext(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     subscription = models.ForeignKey("Subscription", on_delete=models.CASCADE, related_name="contexts")
@@ -24,6 +28,14 @@ class SubscriptionContext(TeamScopedRootMixin, UUIDModel):
         related_name="+",
     )
     created_at = models.DateTimeField(auto_now_add=True)
+
+    @property
+    def ref(self) -> str:
+        if self.dashboard_id is not None:
+            return context_ref("dashboard", self.dashboard_id)
+        if self.insight_id is not None:
+            return context_ref("insight", self.insight_id)
+        raise ValueError("A subscription context needs a dashboard or an insight.")
 
     def has_target_for_team(self, team_id: int, *, include_deleted: bool) -> bool:
         if self.dashboard_id is not None:

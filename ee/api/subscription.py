@@ -5,9 +5,25 @@ from typing import Any, ClassVar, Optional
 
 from django.conf import settings
 from django.contrib.postgres.expressions import ArraySubquery
+from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import CharField, Manager, Prefetch, Q, QuerySet, Value
+from django.db.models import (
+    BigIntegerField,
+    BooleanField,
+    CharField,
+    F,
+    Func,
+    JSONField,
+    Manager,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    TextField,
+    Value,
+)
 from django.db.models.functions import Cast, Concat
 from django.http import HttpRequest, JsonResponse
 from django.shortcuts import get_object_or_404
@@ -60,7 +76,7 @@ from products.exports.backend.models.subscription import (
     attribute_subscription_saves,
     unsubscribe_using_token,
 )
-from products.exports.backend.models.subscription_context import SubscriptionContext
+from products.exports.backend.models.subscription_context import SubscriptionContext, context_ref
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
@@ -141,6 +157,7 @@ class _TargetLookups:
     live_context_insight_lookup: str
     live_context_dashboard_lookup: str
     snapshot_context_ref_overlap: str | None
+    rendered_snapshot: str | None
     exported_insights: str
     no_selection: str
     insights: Manager
@@ -154,6 +171,7 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     live_context_insight_lookup="contexts__insight_id__in",
     live_context_dashboard_lookup="contexts__dashboard_id__in",
     snapshot_context_ref_overlap=None,
+    rendered_snapshot=None,
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
@@ -168,6 +186,7 @@ _DELIVERY_TARGETS = _TargetLookups(
     live_context_insight_lookup="subscription__contexts__insight_id__in",
     live_context_dashboard_lookup="subscription__contexts__dashboard_id__in",
     snapshot_context_ref_overlap="context_refs__overlap",
+    rendered_snapshot="content_snapshot",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
@@ -1183,7 +1202,7 @@ class SubscriptionWriteSerializer(serializers.ModelSerializer):
 
     @staticmethod
     def _context_refs(identifiers: set[tuple[str, int]]) -> list[str]:
-        return sorted(f"{kind}:{identifier}" for kind, identifier in identifiers)
+        return sorted(context_ref(kind, identifier) for kind, identifier in identifiers)
 
     @staticmethod
     def _replace_contexts(instance: Subscription, contexts: list[dict[str, Insight | Dashboard]]) -> None:
@@ -1486,6 +1505,26 @@ def _context_ref_subquery(kind: str, blocked_ids: QuerySet, *, id_field: str = "
     return ArraySubquery(references)
 
 
+def _snapshot_renders_any_of(snapshot_field: str, json_path: str, target_ids: QuerySet) -> Func:
+    return Func(
+        F(snapshot_field),
+        Func(Value(json_path), template="%(expressions)s::jsonpath", output_field=CharField()),
+        Func(
+            Cast(Value("ids"), output_field=TextField()),
+            # An empty target set compiles to a bare NULL, which Postgres cannot type without the cast.
+            Func(
+                Cast(ArraySubquery(target_ids), output_field=ArrayField(BigIntegerField())),
+                function="to_jsonb",
+                output_field=JSONField(),
+            ),
+            function="jsonb_build_object",
+            output_field=JSONField(),
+        ),
+        function="jsonb_path_exists",
+        output_field=BooleanField(),
+    )
+
+
 def _viewable_subscription_filter(user_access_control: UserAccessControl, team_id: int) -> Q:
     return _target_filter(user_access_control, team_id, _SUBSCRIPTION_TARGETS)
 
@@ -1539,12 +1578,20 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
             }
         )
 
+    # The subscription can point somewhere else now, so also check what the delivery rendered.
+    rendered_a_blocked_target = Q()
+    if targets.rendered_snapshot is not None:
+        rendered_a_blocked_target = _snapshot_renders_any_of(
+            targets.rendered_snapshot, "$.insights[*] ? (@.id == $ids[*])", blocked_insights
+        ) | _snapshot_renders_any_of(targets.rendered_snapshot, "$.dashboard ? (@.id == $ids[*])", blocked_dashboards)
+
     return ~(
         targets_a_blocked_insight
         | targets_a_blocked_dashboard
         | exports_a_blocked_insight
         | renders_a_blocked_tile
         | references_a_blocked_context
+        | rendered_a_blocked_target
     )
 
 
@@ -1591,6 +1638,66 @@ class StableOrderingFilter(filters.OrderingFilter):
         if not ordering:
             return ordering
         return [*ordering, "-id" if ordering[-1].startswith("-") else "id"]
+
+
+class SubscriptionSummariesQuerySerializer(serializers.Serializer):
+    insight = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Insight ID. Returns summaries from the subscriptions on this insight. Set either insight or dashboard.",
+    )
+    dashboard = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Dashboard ID. Returns summaries from the subscriptions on this dashboard. Set either dashboard or insight.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if ("insight" in attrs) == ("dashboard" in attrs):
+            raise ValidationError("Set exactly one of insight or dashboard.")
+        return attrs
+
+
+class SubscriptionSummarySerializer(serializers.ModelSerializer):
+    subscription_title = serializers.CharField(
+        source="subscription.title",
+        allow_null=True,
+        read_only=True,
+        help_text="Title of the subscription that generated this summary. Null when the subscription has no title.",
+    )
+    period_start = serializers.DateTimeField(
+        allow_null=True,
+        read_only=True,
+        help_text=(
+            "Start of the period this summary covers: the time of the previous completed delivery of the same "
+            "subscription. Null for the first delivery, which has no earlier data to compare with."
+        ),
+    )
+
+    class Meta:
+        model = SubscriptionDelivery
+        fields = [
+            "id",
+            "subscription",
+            "subscription_title",
+            "target_type",
+            "change_summary",
+            "period_start",
+            "created_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "id": {"help_text": "ID of the delivery that included this summary."},
+            "subscription": {"help_text": "ID of the subscription that generated this summary."},
+            "target_type": {"help_text": "Channel the summary was sent to: email, slack, or teams."},
+            "change_summary": {"help_text": "AI-generated summary text included in the delivery."},
+            "created_at": {"help_text": "When the delivery started. This is also the end of the covered period."},
+        }
+
+
+class SubscriptionSummaryCursorPagination(CursorPagination):
+    page_size = 20
+    ordering = "-created_at"
 
 
 @extend_schema_view(
@@ -1874,6 +1981,81 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         }
         cache.set(cache_key, payload, SUMMARY_QUOTA_CACHE_TTL_SECONDS)
         return Response(payload)
+
+    @extend_schema(
+        extensions={"x-product": "subscriptions"},
+        summary="List AI summaries for an insight or dashboard",
+        description=(
+            "Completed deliveries that include an AI summary, across every active subscription on one insight or "
+            "dashboard, newest first. Requires viewer access to the insight or dashboard."
+        ),
+        parameters=[SubscriptionSummariesQuerySerializer],
+        responses={200: SubscriptionSummarySerializer(many=True)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="summaries",
+        required_scopes=["subscription:read"],
+        pagination_class=SubscriptionSummaryCursorPagination,
+        filter_backends=[],
+    )
+    def summaries(self, request, **kwargs):
+        query = SubscriptionSummariesQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        if "insight" in query.validated_data:
+            live_insights = [
+                insight
+                for insight in insights_including_soft_deleted_for_team(
+                    team_id=self.team_id, insight_ids=[query.validated_data["insight"]]
+                )
+                if not insight.deleted
+            ]
+            if not live_insights:
+                raise exceptions.NotFound()
+            source: Insight | Dashboard = live_insights[0]
+            # A subscription can change its source, so also match the source in the delivery snapshot.
+            source_filter = Q(subscription__insight_id=source.pk, content_snapshot__insights__0__id=source.pk)
+        else:
+            source = get_object_or_404(
+                Dashboard.objects.filter(team_id=self.team_id), pk=query.validated_data["dashboard"]
+            )
+            source_filter = Q(subscription__dashboard_id=source.pk, content_snapshot__dashboard__id=source.pk)
+        if not self.user_access_control.check_access_level_for_object(source, "viewer"):
+            raise exceptions.PermissionDenied("You do not have access to this resource.")
+
+        previous_delivery_at = (
+            SubscriptionDelivery.objects.filter(
+                subscription_id=OuterRef("subscription_id"),
+                status=SubscriptionDelivery.Status.COMPLETED,
+                content_snapshot__isnull=False,
+                created_at__lt=OuterRef("created_at"),
+            )
+            .order_by("-created_at")
+            .values("created_at")[:1]
+        )
+        visible_ids = (
+            SubscriptionDelivery.objects.filter(
+                source_filter,
+                team_id=self.team_id,
+                subscription__deleted=False,
+                status=SubscriptionDelivery.Status.COMPLETED,
+                change_summary__isnull=False,
+            )
+            .exclude(change_summary="")
+            .filter(_viewable_delivery_filter(self.user_access_control, self.team_id))
+            .values("id")
+        )
+        # An id subquery instead of DISTINCT lets Postgres compute period_start only for the rows on the page.
+        deliveries = (
+            SubscriptionDelivery.objects.filter(team_id=self.team_id, id__in=visible_ids)
+            .select_related("subscription")
+            # content_snapshot holds full query results, so load only the fields the serializer returns.
+            .only("id", "subscription_id", "subscription__title", "target_type", "change_summary", "created_at")
+            .annotate(period_start=Subquery(previous_delivery_at))
+        )
+        page = self.paginate_queryset(deliveries)
+        return self.get_paginated_response(SubscriptionSummarySerializer(page, many=True).data)
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},

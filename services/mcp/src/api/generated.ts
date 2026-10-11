@@ -73559,6 +73559,40 @@ export namespace Schemas {
       results: Subscription[];
     }
 
+    export interface SubscriptionSummary {
+      /** ID of the delivery that included this summary. */
+      readonly id: string;
+      /** ID of the subscription that generated this summary. */
+      readonly subscription: number;
+      /**
+         * Title of the subscription that generated this summary. Null when the subscription has no title.
+         * @nullable
+         */
+      readonly subscription_title: string | null;
+      /** Channel the summary was sent to: email, slack, or teams. */
+      readonly target_type: string;
+      /**
+         * AI-generated summary text included in the delivery.
+         * @nullable
+         */
+      readonly change_summary: string | null;
+      /**
+         * Start of the period this summary covers: the time of the previous completed delivery of the same subscription. Null for the first delivery, which has no earlier data to compare with.
+         * @nullable
+         */
+      readonly period_start: string | null;
+      /** When the delivery started. This is also the end of the covered period. */
+      readonly created_at: string;
+    }
+
+    export interface PaginatedSubscriptionSummaryList {
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SubscriptionSummary[];
+    }
+
     /**
      * * `popover` - popover
      * * `widget` - widget
@@ -127985,6 +128019,23 @@ export namespace Schemas {
       Skipped: 'skipped',
       Starting: 'starting',
     } as const;
+
+    export type SubscriptionsSummariesListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string;
+    /**
+     * Dashboard ID. Returns summaries from the subscriptions on this dashboard. Set either dashboard or insight.
+     * @minimum 1
+     */
+    dashboard?: number;
+    /**
+     * Insight ID. Returns summaries from the subscriptions on this insight. Set either insight or dashboard.
+     * @minimum 1
+     */
+    insight?: number;
+    };
 
     export type SubscriptionsSummaryQuotaRetrieve200 = {
       active_count: number;
