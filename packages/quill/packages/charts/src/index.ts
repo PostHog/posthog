@@ -120,6 +120,8 @@ export type { ProportionBarConfig, ProportionBarProps } from './charts/Proportio
 // Bar list
 export { BarList } from './charts/BarList/BarList'
 export type { BarListConfig, BarListProps } from './charts/BarList/BarList'
+export { StackedBarList } from './charts/BarList/StackedBarList'
+export type { StackedBarListConfig, StackedBarListProps } from './charts/BarList/StackedBarList'
 
 // Sankey
 export { SankeyChart } from './charts/SankeyChart/SankeyChart'
