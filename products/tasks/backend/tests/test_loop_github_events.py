@@ -464,7 +464,7 @@ class TestHandleGithubEventForLoops(TestCase):
 
         with patch.object(
             Integration.objects,
-            "filter",
+            "using",
             side_effect=OperationalError("canceling statement due to statement timeout"),
         ):
             handle_github_event_for_loops("push", payload, delivery_id="del-timeout")
