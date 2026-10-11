@@ -42179,6 +42179,8 @@ export namespace Schemas {
          * @minLength 1
          */
       prompt: string;
+      /** Judge method. Omit to preserve automatic routing for existing evaluations. */
+      judge_method?: 'llm' | 'decision';
     } | {
       /**
          * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.
@@ -80200,6 +80202,8 @@ export namespace Schemas {
          * @minLength 1
          */
       prompt: string;
+      /** Judge method. Omit to preserve automatic routing for existing evaluations. */
+      judge_method?: 'llm' | 'decision';
     } | {
       /**
          * Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.

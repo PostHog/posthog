@@ -564,6 +564,10 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .optional()
+                        .describe('Judge method. Omit to preserve automatic routing for existing evaluations.'),
                 }),
                 zod.object({
                     source: zod
@@ -949,6 +953,10 @@ export const EvaluationsUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .optional()
+                        .describe('Judge method. Omit to preserve automatic routing for existing evaluations.'),
                 }),
                 zod.object({
                     source: zod
@@ -1237,6 +1245,10 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod
                         .string()
                         .min(1)
                         .describe('Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.'),
+                    judge_method: zod
+                        .enum(['llm', 'decision'])
+                        .optional()
+                        .describe('Judge method. Omit to preserve automatic routing for existing evaluations.'),
                 }),
                 zod.object({
                     source: zod
