@@ -9,7 +9,14 @@ from django.utils import timezone
 
 import pydantic
 import posthoganalytics
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, OpenApiTypes, extend_schema, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    OpenApiTypes,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from pydantic import (
     Field as PydanticField,
     RootModel,
@@ -32,7 +39,6 @@ from posthog.schema import (
     TrendsAlertConfig,
 )
 
-from posthog.api.documentation import extend_schema_field
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField

@@ -2,13 +2,14 @@ import uuid
 from typing import cast
 
 import posthoganalytics
+from drf_spectacular.utils import extend_schema
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from rest_framework import status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.documentation import _FallbackSerializer, extend_schema
+from posthog.api.documentation.autoschema import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 

@@ -4,13 +4,13 @@ from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db.models import Model
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api.documentation import extend_schema
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership

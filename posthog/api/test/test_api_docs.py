@@ -7,13 +7,12 @@ from unittest import mock
 from django.urls import URLPattern, path
 
 from drf_spectacular.generators import SchemaGenerator
+from drf_spectacular.utils import extend_schema
 from parameterized import parameterized
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
-
-from posthog.api.documentation import extend_schema
 
 
 class _XInternalMarkerSerializer(serializers.Serializer):

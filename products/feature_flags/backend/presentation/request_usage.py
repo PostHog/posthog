@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Literal, cast
 
-from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -9,7 +9,6 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.schema import ProductKey
 
-from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User

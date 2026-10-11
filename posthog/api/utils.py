@@ -15,7 +15,7 @@ from django.db.models import QuerySet
 from django.http import HttpRequest
 
 import structlog
-from drf_spectacular.utils import empty
+from drf_spectacular.utils import empty, extend_schema
 from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
@@ -28,7 +28,6 @@ from urllib3 import HTTPConnectionPool, HTTPSConnectionPool, PoolManager
 
 from posthog.schema import QueryTiming
 
-from posthog.api.documentation import extend_schema
 from posthog.constants import LIMIT, OFFSET
 from posthog.dataclasses import frozen
 from posthog.exceptions import (
@@ -167,7 +166,7 @@ def get_data(request):
         data = load_data_from_request(request)
     except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
         statsd.incr("capture_endpoint_invalid_payload")
-        logger.exception(f"Invalid payload", error=error)
+        logger.exception("Invalid payload", error=error)
         return (
             None,
             cors_response(
