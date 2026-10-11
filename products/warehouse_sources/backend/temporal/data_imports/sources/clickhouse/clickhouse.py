@@ -16,7 +16,7 @@ import structlog
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import httputil
 from clickhouse_connect.driver.client import Client as ClickHouseClient
-from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError
+from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError, StreamFailureError
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 from urllib3 import PoolManager
@@ -1590,6 +1590,12 @@ def _native_block_to_record_batch(
     )
 
 
+_NATIVE_STREAM_TRUNCATED_MESSAGE = (
+    "The ClickHouse stream ended unexpectedly while reading the table. "
+    "The connection dropped or the server stopped the query before it sent all rows."
+)
+
+
 def _stream_record_batches(
     client: ClickHouseClient,
     query: str,
@@ -1619,9 +1625,18 @@ def _stream_record_batches(
         column_formats: dict[str, str | dict[str, str]] = {
             column.name: "int" for column, precision in zip(columns, datetime64_precisions) if precision is not None
         }
-        with client.query_column_block_stream(query, parameters=parameters, column_formats=column_formats) as blocks:
-            for block in blocks:
-                yield _native_block_to_record_batch(block, schema, datetime64_precisions)
+        try:
+            with client.query_column_block_stream(
+                query, parameters=parameters, column_formats=column_formats
+            ) as blocks:
+                for block in blocks:
+                    yield _native_block_to_record_batch(block, schema, datetime64_precisions)
+        except StreamFailureError as e:
+            # clickhouse-connect builds this message from the last HTTP chunk. Without a server error in
+            # that chunk, the message is raw column bytes, so replace it with a message a person can read.
+            if "Code: " in str(e):
+                raise
+            raise StreamFailureError(_NATIVE_STREAM_TRUNCATED_MESSAGE) from e
         return
 
     with arrow_stream as batches:
