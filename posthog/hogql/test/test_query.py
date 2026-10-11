@@ -22,6 +22,7 @@ from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
+import orjson
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -2396,6 +2397,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 execute_hogql_query("SELECT 1", team=self.team)
 
         self.assertEqual(mock_sync_execute.call_count, 2)
+
+    def test_invalid_utf8_strings_are_decoded_to_serializable_text(self):
+        response = execute_hogql_query(
+            "SELECT unhex('41FF'), [unhex('42FF')], map('key', unhex('43FF'))", team=self.team
+        )
+
+        self.assertEqual(response.results, [("A\ufffd", ["B\ufffd"], {"key": "C\ufffd"})])
+        orjson.dumps(response.model_dump(mode="json"))
+
+    def test_unreadable_aggregate_state_column_is_a_query_error(self):
+        with self.assertRaises(QueryError) as error:
+            execute_hogql_query("SELECT argMinState(event, timestamp) FROM events", team=self.team)
+
+        self.assertIn("AggregateFunction(argMin", str(error.exception))
+        self.assertIn("argMinMerge", str(error.exception))
 
     def test_non_transient_errors_are_not_retried(self):
         with (
