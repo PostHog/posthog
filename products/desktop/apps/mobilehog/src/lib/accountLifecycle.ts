@@ -10,6 +10,7 @@ import { useComposer } from "@/lib/composer";
 import { resetEngine } from "@/lib/engine";
 import { resetMcpClient } from "@/lib/mcp/client";
 import { useRepo } from "@/lib/repo";
+import { useReportScope } from "@/lib/reportScope";
 import { resetUnstartedReportTasks } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
 
@@ -41,6 +42,7 @@ useAuth.subscribe((state, previous) => {
   resetMcpClient();
   useComposer.getState().reset();
   useRepo.setState({ repository: undefined });
+  useReportScope.setState({ scope: "for-you" });
   resetUnstartedReportTasks();
 });
 
