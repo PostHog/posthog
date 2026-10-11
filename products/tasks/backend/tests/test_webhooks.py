@@ -31,7 +31,7 @@ from products.signals.backend.models import (
     SignalReportTask,
 )
 from products.tasks.backend.facade.api import find_signal_implementation_run
-from products.tasks.backend.models import Loop, Task, TaskRun, TaskThreadMessage
+from products.tasks.backend.models import Task, TaskRun, TaskThreadMessage
 from products.tasks.backend.webhooks import _task_run_scope_team_ids, find_task_run
 
 
@@ -590,51 +590,6 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(mock_delay.call_count, expected_enqueues)
         if expected_enqueues:
             mock_delay.assert_called_once_with(str(run.id), pr_url, merged=merged)
-
-    @parameterized.expand(
-        [
-            ("opened", "opened", False, True, "pr_created"),
-            ("merged", "closed", True, True, "pr_merged"),
-            ("closed", "closed", False, True, "pr_closed"),
-            ("closed_outside_a_loop", "closed", False, False, None),
-        ]
-    )
-    @patch("posthog.ingress.github.provider.get_instance_setting")
-    @patch("posthog.github.pull_request_events.posthoganalytics.capture")
-    def test_pr_event_on_loop_run_queues_loop_notification(
-        self, _name, action, merged, in_loop, expected_event, _mock_capture, mock_get_secret
-    ):
-        mock_get_secret.return_value = self.webhook_secret
-        pr_url = "https://github.com/posthog/posthog/pull/795"
-        loop = Loop(team=self.team, created_by=self.user, name="Nightly", instructions="i", runtime_adapter="claude")
-        loop.save()
-        task = Task.objects.create(
-            team=self.team,
-            created_by=self.user,
-            title="Loop task",
-            description="",
-            origin_product=Task.OriginProduct.LOOP if in_loop else Task.OriginProduct.USER_CREATED,
-            repository="posthog/posthog",
-            loop=loop if in_loop else None,
-        )
-        run = TaskRun.objects.create(
-            task=task,
-            team=self.team,
-            status=TaskRun.Status.COMPLETED,
-            state={"verified_pr_urls": [pr_url]},
-            output={"pr_url": pr_url},
-        )
-        payload = {"action": action, "pull_request": {"html_url": pr_url, "merged": merged}}
-
-        with patch("products.tasks.backend.tasks.tasks.dispatch_loop_pr_notification_task.delay") as mock_delay:
-            with self.captureOnCommitCallbacks(execute=True):
-                response = self._make_webhook_request(payload)
-
-        self.assertEqual(response.status_code, 202)
-        if expected_event:
-            mock_delay.assert_called_once_with(str(run.id), expected_event, pr_url)
-        else:
-            mock_delay.assert_not_called()
 
     @patch("posthog.ingress.github.provider.get_instance_setting")
     @patch("posthog.github.pull_request_events.posthoganalytics.capture")
@@ -2568,20 +2523,20 @@ class TestGitHubWebhookFanout(TestCase):
             "installation": {"id": 77777},
             "repository": {"full_name": "myorg/myrepo"},
         }
-        loops_handler = "products.tasks.backend.loop_github_events.handle_github_event_for_loops"
+        push_handler = "products.workflows.backend.facade.api.accept_github_event"
 
-        with patch(loops_handler, side_effect=RuntimeError("boom")):
+        with patch(push_handler, side_effect=RuntimeError("boom")):
             first = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
         self.assertEqual(first.status_code, 202)
 
-        with patch(loops_handler) as mock_loops:
+        with patch(push_handler) as mock_handler:
             second = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
             self.assertEqual(second.status_code, 202)
-            mock_loops.assert_called_once()
+            mock_handler.assert_called_once()
 
             third = self._make_request(payload, event_type="push", url="/webhooks/github/", delivery_id="del-retry")
             self.assertEqual(third.status_code, 202)
-            mock_loops.assert_called_once()
+            mock_handler.assert_called_once()
 
     @patch("posthog.ingress.github.provider.get_instance_setting")
     def test_unified_url_bad_signature_returns_403(self, mock_secret):

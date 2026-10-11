@@ -3,12 +3,41 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from posthog.models.team.util import (
+    RETIRED_LOOP_TABLES,
     _delete_group_type_mappings_for_teams,
     _delete_groups_for_teams,
     _delete_hash_key_overrides_for_teams,
+    _delete_retired_loops_for_teams,
 )
 
 _CLIENT_PATCH = "posthog.personhog_client.client.get_personhog_client"
+
+
+class TestDeleteRetiredLoopsForTeams(SimpleTestCase):
+    @patch("posthog.models.team.util.connections")
+    def test_deletes_existing_tables_child_first(self, mock_connections):
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.side_effect = [(table,) for table in RETIRED_LOOP_TABLES]
+        cursor.rowcount = 0
+        mock_connections.__getitem__.return_value.cursor.return_value = cursor
+
+        _delete_retired_loops_for_teams([1, 2])
+
+        delete_statements = [call.args for call in cursor.execute.call_args_list if call.args[0].startswith("DELETE")]
+        assert [args[0].split('"')[1] for args in delete_statements] == list(RETIRED_LOOP_TABLES)
+        assert all(args[1] == [[1, 2], 10000] for args in delete_statements)
+
+    @patch("posthog.models.team.util.connections")
+    def test_skips_tables_that_no_longer_exist(self, mock_connections):
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.side_effect = [(None,) for _ in RETIRED_LOOP_TABLES]
+        mock_connections.__getitem__.return_value.cursor.return_value = cursor
+
+        _delete_retired_loops_for_teams([1])
+
+        assert not any(call.args[0].startswith("DELETE") for call in cursor.execute.call_args_list)
 
 
 class TestDeleteGroupsForTeams(SimpleTestCase):

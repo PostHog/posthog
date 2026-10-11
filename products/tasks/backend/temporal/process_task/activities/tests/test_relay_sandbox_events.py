@@ -1830,7 +1830,7 @@ class TestFlushPendingText:
 class TestShouldSignalWorkflowHeartbeat:
     @parameterized.expand(
         [
-            # Loop runs carry a 2-minute idle window; a quiet in-flight turn past that
+            # Workflow runs carry a 2-minute idle window; a quiet in-flight turn past that
             # window must still keep the workflow alive (the mid-turn teardown bug).
             ("mid_turn_quiet_past_short_run_window", True, 300.0, 120.0, set(), True),
             # Leave the workflow's short inactivity timer enough time to expire at
@@ -1843,7 +1843,7 @@ class TestShouldSignalWorkflowHeartbeat:
                 set(),
                 False,
             ),
-            # Idle after end_of_turn: the short loop window applies and the run winds down.
+            # Idle after end_of_turn: the short window applies and the run winds down.
             ("idle_agent_stale_events", False, 300.0, 120.0, set(), False),
             ("mid_turn_fresh_events", True, 30.0, 120.0, set(), True),
             # With no tool call in flight, the default and longer windows rely on the

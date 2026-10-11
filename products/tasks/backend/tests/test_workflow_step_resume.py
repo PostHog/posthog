@@ -197,7 +197,6 @@ class TestResumeWorkflowStepForRun(BaseTest):
             patch(_RESUME) as resume,
             patch(_SEND_TASK, side_effect=[RuntimeError("broker down"), None]) as send_task,
             patch("products.tasks.backend.facade.api.signal_workflow_completion"),
-            patch("products.tasks.backend.logic.services.loop_runs.handle_loop_run_terminal") as bookkeeping,
         ):
             with pytest.raises(RuntimeError, match="broker down"):
                 update_task_run(
@@ -223,7 +222,6 @@ class TestResumeWorkflowStepForRun(BaseTest):
                     caller_is_agent=True,
                 )
             assert send_task.call_count == 2
-            bookkeeping.assert_called_once()
             resume.assert_not_called()
             _persist_final_message(str(run.id), "Current turn")
             assert resume.call_args.kwargs["result"]["final_message"] == "Current turn"
