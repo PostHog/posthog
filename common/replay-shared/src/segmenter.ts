@@ -2,7 +2,7 @@ import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-ty
 
 import { RecordingSegment, RecordingSnapshot } from './types'
 
-// nodejs/src/session-recording/segmentation.ts has a cut-down version of this
+// nodejs/src/ingestion/pipelines/sessionreplay/segmentation.ts has a cut-down version of this
 // for computing activeMilliseconds during ingestion. It intentionally differs:
 // no window tracking, no gap filling, different isActiveEvent rules.
 
