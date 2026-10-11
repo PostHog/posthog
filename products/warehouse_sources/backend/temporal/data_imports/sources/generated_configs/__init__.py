@@ -14,7 +14,8 @@ def _config_module_name(source: ExternalDataSourceType) -> str:
     source_module = source_module_path(source)
     if source_module is not None and source_module.startswith(f"{TOP_LEVEL_SOURCES_PACKAGE}."):
         return f"{source_module.removesuffix('.source')}._config"
-    return f"{__package__}.{source.name.lower()}"
+    name = source.name if isinstance(source, ExternalDataSourceType) else source  # DEMO (warehouse source plugins)
+    return f"{__package__}.{name.lower()}"
 
 
 def get_config_for_source(source: ExternalDataSourceType) -> type[Config]:
@@ -28,4 +29,5 @@ def get_config_for_source(source: ExternalDataSourceType) -> type[Config]:
     StripeSourceConfig`).
     """
     module = importlib.import_module(_config_module_name(source))
-    return getattr(module, f"{source.value}SourceConfig")
+    # DEMO (warehouse source plugins): `str()` is the member's value, and the plugin string itself.
+    return getattr(module, f"{source}SourceConfig")

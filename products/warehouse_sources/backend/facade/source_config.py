@@ -11,7 +11,16 @@ Field names stay camelCase because they cross the wire to the frontend unchanged
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PlainSerializer,
+    RootModel,
+    ValidationError,
+    ValidatorFunctionWrapHandler,
+    WrapValidator,
+)
 from pydantic.json_schema import WithJsonSchema
 
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -280,12 +289,31 @@ SourceFieldSelectConfig.model_rebuild()
 SourceFieldSwitchGroupConfig.model_rebuild()
 
 
+def _keep_plugin_source_key(value: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+    # DEMO (warehouse source plugins): a plugin source names itself with a string that has no
+    # enum member. Keep that string instead of rejecting it.
+    try:
+        return handler(value)
+    except ValidationError:
+        if isinstance(value, str):
+            return value
+        raise
+
+
+def _serialize_source_key(value: ExternalDataSourceType) -> str:
+    # DEMO (warehouse source plugins): returns the member or the plugin string as is, so a
+    # plugin string does not raise the "expected enum" serializer warning.
+    return value
+
+
 # Pydantic publishes an enum as its own schema component, which would put a second copy
 # of the source type list next to the one the DRF serializers already publish. Emitting
 # the values inline instead lets drf-spectacular's enum post-processing match them by
 # hash and point both at the single `ExternalDataSourceTypeEnum` component.
 InlinedExternalDataSourceType = Annotated[
     ExternalDataSourceType,
+    WrapValidator(_keep_plugin_source_key),  # DEMO (warehouse source plugins)
+    PlainSerializer(_serialize_source_key),  # DEMO (warehouse source plugins)
     WithJsonSchema({"type": "string", "enum": ExternalDataSourceType.values}),
 ]
 
