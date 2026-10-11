@@ -1,0 +1,4 @@
+1
+outer catch: outer
+caught: after locals
+caught: after lambda, mapped: [2, 4]

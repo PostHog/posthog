@@ -33,6 +33,25 @@ MISSING_ARGUMENT_SOURCE = """
 return jsonParse()
 """
 
+# A `return` inside `try` used to leave the handler active, so the later uncaught throw jumped into
+# the catch block of `parse` after it returned and raised IndexError from the VM.
+THROW_AFTER_RETURN_IN_TRY_SOURCE = """
+fun parse(text) {
+    try {
+        return jsonParse(text)
+    } catch (e) {
+        return null
+    }
+}
+fun fail(reason) {
+    throw Error(reason)
+}
+let parsed := parse('{"score": 1}')
+let score := parsed.score
+let threshold := 2
+return fail('score below threshold')
+"""
+
 EVALUATION = {"id": "01890000-0000-0000-0000-000000000000", "team_id": 1}
 
 
@@ -199,12 +218,18 @@ class TestHogInputErrorClassification:
         assert result["verdict"] is False
 
     # A source that fails on every unit must not be classified as an input error, or it skips
-    # forever while blaming the customer's data. A wrong-arity builtin is a broken source: the VM
-    # raises HogVMException, which is neither an input error nor our bug. finalize_hog_eval_result
-    # turns it into a terminal hog_error that disables the evaluation and tells the user, instead of
-    # paging us once per unit.
-    def test_wrong_arity_builtin_is_a_broken_source(self) -> None:
-        result = run_source(MISSING_ARGUMENT_SOURCE)
+    # forever while blaming the customer's data. A wrong-arity builtin or an uncaught throw is a
+    # broken source: the VM raises HogVMException, which is neither an input error nor our bug.
+    # finalize_hog_eval_result turns it into a terminal hog_error that disables the evaluation and
+    # tells the user, instead of paging us once per unit.
+    @parameterized.expand(
+        [
+            ("wrong_arity_builtin", MISSING_ARGUMENT_SOURCE),
+            ("throw_after_return_in_try", THROW_AFTER_RETURN_IN_TRY_SOURCE),
+        ]
+    )
+    def test_broken_source_disables_the_evaluation(self, _name: str, source: str) -> None:
+        result = run_source(source)
 
         assert result["error"] is not None
         assert "user_input_error" not in result
