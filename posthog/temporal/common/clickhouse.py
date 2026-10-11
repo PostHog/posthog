@@ -17,6 +17,7 @@ from django.conf import settings
 
 import aiohttp
 import pyarrow as pa
+from clickhouse_driver.errors import ServerException
 from structlog import get_logger
 from temporalio import activity
 
@@ -26,6 +27,7 @@ import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
+from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.security.outbound_proxy import internal_requests_session
 
 if typing.TYPE_CHECKING:
@@ -170,12 +172,17 @@ class ClickHouseClientNotConnected(Exception):
         super().__init__("ClickHouseClient is not connected. Are you running in a context manager?")
 
 
+_CLICKHOUSE_ERROR_CODE_PATTERN = re.compile(r"\bCode:\s*(\d+)\b")
+
+
 class ClickHouseError(Exception):
     """Base Exception representing anything going wrong with ClickHouse."""
 
-    def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
+    def __init__(self, error_message: str, query: str | None = None, query_id: str | None = None):
         self.query = query
         self.query_id = query_id
+        code_match = _CLICKHOUSE_ERROR_CODE_PATTERN.search(error_message)
+        self.code = int(code_match.group(1)) if code_match else None
         super().__init__(error_message)
 
 
@@ -240,6 +247,14 @@ class ClickHouseTooManySimultaneousQueriesError(ClickHouseError):
 
     def __init__(self, error_message, query: str | None = None, query_id: str | None = None):
         super().__init__(error_message, query, query_id)
+
+
+class ClickHouseQueryPlanningError(ClickHouseError):
+    """Exception raised when a DESCRIBE probe cannot plan a rewritten query."""
+
+
+class ClickHouseUserQueryError(ClickHouseError):
+    """Exception raised when ClickHouse rejects a permanently invalid user query."""
 
 
 class ClickHouseCheckQueryStatusError(ClickHouseError):
@@ -458,6 +473,13 @@ class ClickHouseClient:
         for error_code, exc_class in ERROR_CODE_TO_EXCEPTION.items():
             if error_code in error_message:
                 raise exc_class(error_message, query=query, query_id=query_id)
+
+        code_match = _CLICKHOUSE_ERROR_CODE_PATTERN.search(error_message)
+        if code_match:
+            code = int(code_match.group(1))
+            server_error = ServerException(error_message, code=code)
+            if classify_query_error(server_error) == QueryErrorCategory.USER_ERROR:
+                raise ClickHouseUserQueryError(error_message, query=query, query_id=query_id)
         raise ClickHouseError(error_message, query=query, query_id=query_id)
 
     async def acheck_response(self, response, query) -> None:

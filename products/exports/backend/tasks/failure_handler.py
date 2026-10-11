@@ -6,39 +6,12 @@ from django.db import OperationalError
 
 from billiard.exceptions import SoftTimeLimitExceeded
 from clickhouse_driver.errors import SocketTimeoutError
-from rest_framework.exceptions import ValidationError
 from urllib3.exceptions import MaxRetryError, ProtocolError, ReadTimeoutError
 
-from posthog.hogql.errors import (
-    QueryError,
-    ResolutionError,
-    SyntaxError as HogQLSyntaxError,
-)
-
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.errors import (
-    CH_TRANSIENT_ERRORS,
-    CHQueryErrorCannotParseUuid,
-    CHQueryErrorIllegalAggregation,
-    CHQueryErrorIllegalTypeOfArgument,
-    CHQueryErrorInvalidJoinOnExpression,
-    CHQueryErrorNoCommonType,
-    CHQueryErrorNotAnAggregate,
-    CHQueryErrorNumberOfArgumentsDoesntMatch,
-    CHQueryErrorTooManyBytes,
-    CHQueryErrorTypeMismatch,
-    CHQueryErrorUnknownFunction,
-    CHQueryErrorUnknownIdentifier,
-    CHQueryErrorUnknownTable,
-    CHQueryErrorUnsupportedMethod,
-)
-from posthog.exceptions import (
-    ClickHouseAtCapacity,
-    ClickHouseClusterMemoryLimitExceeded,
-    ClickHouseQueryMemoryLimitExceeded,
-    ClickHouseQuerySizeExceeded,
-    ClickHouseQueryTimeOut,
-)
+from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
+from posthog.hogql_queries.user_query_errors import USER_QUERY_ERRORS as COMMON_USER_QUERY_ERRORS
 from posthog.storage.object_storage import ObjectStorageError
 
 # =============================================================================
@@ -205,26 +178,7 @@ EXCEPTIONS_TO_RETRY = (
 )
 
 USER_QUERY_ERRORS = (
-    QueryError,
-    HogQLSyntaxError,
-    ValidationError,  # DRF validation of the user's query (e.g. a funnel with fewer than two steps)
-    ClickHouseQueryMemoryLimitExceeded,  # Users should reduce the date range on their query (or materialise)
-    ClickHouseQueryTimeOut,  # Users should switch to materialised queries if they run into this
-    CHQueryErrorIllegalTypeOfArgument,
-    CHQueryErrorNoCommonType,
-    CHQueryErrorNotAnAggregate,
-    CHQueryErrorUnknownFunction,
-    CHQueryErrorTypeMismatch,
-    CHQueryErrorIllegalAggregation,
-    CHQueryErrorNumberOfArgumentsDoesntMatch,
-    CHQueryErrorUnknownIdentifier,
-    CHQueryErrorTooManyBytes,
-    CHQueryErrorCannotParseUuid,
-    ClickHouseQuerySizeExceeded,
-    CHQueryErrorUnsupportedMethod,
-    ResolutionError,
-    CHQueryErrorInvalidJoinOnExpression,
-    CHQueryErrorUnknownTable,
+    *COMMON_USER_QUERY_ERRORS,
     ExcelColumnLimitExceeded,
     InvalidExportContext,
 )
@@ -275,10 +229,12 @@ def classify_failure_type(exception: Exception | str) -> str:
     if isinstance(exception, Exception):
         if isinstance(exception, TIMEOUT_ERRORS) or _is_playwright_timeout(exception):
             return FAILURE_TYPE_TIMEOUT_GENERATION
-        if isinstance(exception, USER_QUERY_ERRORS):
-            return FAILURE_TYPE_USER
+        # Some transient errors subclass a user-query error (a file change mid-read is an
+        # ExposedCHQueryError), so retryable types win, matching the name path below.
         if isinstance(exception, EXCEPTIONS_TO_RETRY):
             return FAILURE_TYPE_SYSTEM
+        if isinstance(exception, USER_QUERY_ERRORS):
+            return FAILURE_TYPE_USER
         return FAILURE_TYPE_UNKNOWN
 
     # Stored exception-class names (historical rows, backfill) only carry the name, so fall back to

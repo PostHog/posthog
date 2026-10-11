@@ -39,6 +39,7 @@ from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import (
     ClickHouseError,
+    ClickHouseQueryPlanningError,
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
@@ -157,15 +158,20 @@ async def _describe_columns(
 ) -> list[_DescribedColumn]:
     """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
     `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
-    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
-        async with client.apost_query(
-            query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
-            query_parameters=query_parameters,
-            query_id=str(uuid.uuid4()),
-            settings=query_settings,
-            external_tables=external_tables,
-        ) as ch_response:
-            table_describe_response = await ch_response.content.read()
+    try:
+        async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
+            async with client.apost_query(
+                query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
+                query_parameters=query_parameters,
+                query_id=str(uuid.uuid4()),
+                settings=query_settings,
+                external_tables=external_tables,
+            ) as ch_response:
+                table_describe_response = await ch_response.content.read()
+    except ClickHouseError as error:
+        if error.code != 8 or query_settings is None:
+            raise
+        raise ClickHouseQueryPlanningError(str(error), query=error.query, query_id=error.query_id) from error
     columns: list[_DescribedColumn] = []
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
@@ -680,7 +686,7 @@ async def hogql_table(
         described_columns = await _describe_columns(
             printed, context.values, DESCRIBE_QUERY_SETTINGS, list(context.external_tables.values())
         )
-    except ClickHouseError as error:
+    except ClickHouseQueryPlanningError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
         # aggregate function. The untouched query is the one that runs, so it always describes.
         await logger.awarning(
