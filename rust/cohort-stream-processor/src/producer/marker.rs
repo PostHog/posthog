@@ -11,7 +11,7 @@
 //! run open until a re-dispatch; added after them, it is not even consulted, and the run settles
 //! short on the markers that landed where nothing was watching.
 //!
-//! The key ([`reconcile_complete_key`]) carries the body partition, so a run's 64 certificates are
+//! The key ([`reconcile_marker_key`]) carries the body partition, so a run's 64 certificates are
 //! 64 distinct keys rather than one — what stops a compacting topic from keeping whichever arrived
 //! last and recording a completed backfill as short.
 
@@ -25,14 +25,11 @@ use rdkafka::producer::FutureProducer;
 
 use crate::producer::kafka::AlwaysHealthy;
 use crate::producer::merge::Capture;
-use crate::producer::ReconcileCompleteMarker;
+use crate::producer::ReconcileMarker;
 
 #[async_trait]
 pub trait ReconcileMarkerSink: Send + Sync {
-    async fn produce(
-        &self,
-        markers: Vec<ReconcileCompleteMarker>,
-    ) -> Vec<Result<(), KafkaProduceError>>;
+    async fn produce(&self, markers: Vec<ReconcileMarker>) -> Vec<Result<(), KafkaProduceError>>;
 }
 
 pub struct KafkaReconcileMarkerSink {
@@ -51,14 +48,11 @@ impl KafkaReconcileMarkerSink {
 
 #[async_trait]
 impl ReconcileMarkerSink for KafkaReconcileMarkerSink {
-    async fn produce(
-        &self,
-        markers: Vec<ReconcileCompleteMarker>,
-    ) -> Vec<Result<(), KafkaProduceError>> {
+    async fn produce(&self, markers: Vec<ReconcileMarker>) -> Vec<Result<(), KafkaProduceError>> {
         send_keyed_iter_to_kafka_with_headers(
             &self.producer,
             &self.topic,
-            reconcile_complete_key,
+            reconcile_marker_key,
             |_| None,
             markers,
         )
@@ -76,10 +70,7 @@ pub struct NoopReconcileMarkerSink;
 
 #[async_trait]
 impl ReconcileMarkerSink for NoopReconcileMarkerSink {
-    async fn produce(
-        &self,
-        markers: Vec<ReconcileCompleteMarker>,
-    ) -> Vec<Result<(), KafkaProduceError>> {
+    async fn produce(&self, markers: Vec<ReconcileMarker>) -> Vec<Result<(), KafkaProduceError>> {
         markers
             .into_iter()
             .map(|_| Err(KafkaProduceError::KafkaProduceCanceled))
@@ -88,7 +79,7 @@ impl ReconcileMarkerSink for NoopReconcileMarkerSink {
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct CaptureReconcileMarkerSink(Capture<ReconcileCompleteMarker>);
+pub struct CaptureReconcileMarkerSink(Capture<ReconcileMarker>);
 
 impl CaptureReconcileMarkerSink {
     pub fn new() -> Self {
@@ -99,17 +90,18 @@ impl CaptureReconcileMarkerSink {
         Self(Capture::failing_first(n))
     }
 
-    pub fn markers(&self) -> Vec<ReconcileCompleteMarker> {
+    pub fn markers(&self) -> Vec<ReconcileMarker> {
         self.0.recorded()
+    }
+
+    pub fn produce_calls(&self) -> usize {
+        self.0.produce_calls()
     }
 }
 
 #[async_trait]
 impl ReconcileMarkerSink for CaptureReconcileMarkerSink {
-    async fn produce(
-        &self,
-        markers: Vec<ReconcileCompleteMarker>,
-    ) -> Vec<Result<(), KafkaProduceError>> {
+    async fn produce(&self, markers: Vec<ReconcileMarker>) -> Vec<Result<(), KafkaProduceError>> {
         self.0.produce(markers)
     }
 }
@@ -117,7 +109,7 @@ impl ReconcileMarkerSink for CaptureReconcileMarkerSink {
 /// Unique per marker, not per run: the partition is what makes 64 distinct keys out of one dispatch,
 /// so no cleanup policy can collapse them. Nothing downstream reads the key and the ledger's fold is
 /// order-independent, so the grouping carries no meaning beyond that.
-fn reconcile_complete_key(marker: &ReconcileCompleteMarker) -> Option<String> {
+fn reconcile_marker_key(marker: &ReconcileMarker) -> Option<String> {
     Some(format!(
         "{}:{}:{}:{}",
         marker.team_id().0,
@@ -131,30 +123,31 @@ fn reconcile_complete_key(marker: &ReconcileCompleteMarker) -> Option<String> {
 mod tests {
     use super::*;
     use crate::filters::{CohortId, TeamId};
+    use crate::producer::ReconcileCompleteMarker;
     use cohort_core::seed::RunId;
     use uuid::Uuid;
 
     const TS: &str = "2026-05-26 12:34:56.789123";
 
-    fn marker(partition: u16) -> ReconcileCompleteMarker {
-        ReconcileCompleteMarker::new(
+    fn marker(partition: u16) -> ReconcileMarker {
+        ReconcileMarker::Complete(ReconcileCompleteMarker::new(
             TeamId(42),
             CohortId(91204),
             partition,
             RunId(Uuid::nil()),
             TS.to_string(),
-        )
+        ))
     }
 
     #[test]
-    fn reconcile_complete_key_is_unique_per_partition_marker() {
+    fn reconcile_marker_key_is_unique_per_partition_marker() {
         assert_eq!(
-            reconcile_complete_key(&marker(63)),
+            reconcile_marker_key(&marker(63)),
             Some("42:91204:00000000-0000-0000-0000-000000000000:63".to_string())
         );
         assert_ne!(
-            reconcile_complete_key(&marker(63)),
-            reconcile_complete_key(&marker(0)),
+            reconcile_marker_key(&marker(63)),
+            reconcile_marker_key(&marker(0)),
             "a shared key would let a compacting topic erase all but one marker of a run",
         );
     }

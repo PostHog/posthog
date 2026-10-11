@@ -43,12 +43,16 @@ mod tests {
     use uuid::Uuid;
 
     use cohort_core::filters::{CohortId, TeamId};
-    use cohort_core::seed::{BehavioralShapeHash, ReconcileScope, ReconcileTile, RunId};
+    use cohort_core::seed::{
+        BehavioralShapeHash, ReconcileScope, ReconcileTile, RunBoundaryMs, RunId,
+    };
 
     use crate::filters::{CatalogHandle, FilterCatalog};
     use crate::partitions::{OffsetTracker, PartitionRouter};
     use crate::producer::{CaptureSink, MembershipSink};
-    use crate::store::{CohortStore, OffloadConfig, OffloadMode, StoreConfig, StoreHandle};
+    use crate::store::{
+        CohortStore, OffloadConfig, OffloadMode, SliceCoverage, StoreConfig, StoreHandle,
+    };
     use crate::workers::reconcile::ReconcileQueue;
     use crate::workers::MergeWorkerDeps;
 
@@ -92,13 +96,20 @@ mod tests {
 
         let tracker = OffsetTracker::new();
         tracker.mark_dispatched(0, 6);
-        let mut queue = ReconcileQueue::new(0, backlog, handle, Arc::new(CatalogHandle::new()));
+        let mut queue = ReconcileQueue::new(
+            0,
+            backlog,
+            handle,
+            Arc::new(CatalogHandle::new()),
+            SliceCoverage::Complete,
+        );
         queue.enqueue(
             ReconcileTile::new(
                 TeamId(7),
                 CohortId(1),
                 ReconcileScope::Behavioral(BehavioralShapeHash::parse("shape-v1").unwrap()),
                 RunId(Uuid::nil()),
+                RunBoundaryMs(0),
             ),
             tracker.defer(0, 5),
         );

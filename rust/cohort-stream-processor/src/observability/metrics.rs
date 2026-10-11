@@ -76,6 +76,12 @@ pub const DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL: &str = "durable_restore_partiti
 /// from the committed offset (counter).
 pub const DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL: &str =
     "durable_restore_partitions_wiped_stale_total";
+/// Partitions adopted as complete by opening a store without coverage records (counter).
+pub const SLICES_ADOPTED_TOTAL: &str = "cohort_slices_adopted_total";
+/// Slices that began without earlier history (counter). Runs with an earlier boundary withhold.
+pub const SLICES_BEGUN_TOTAL: &str = "cohort_slices_begun_total";
+/// When each slice began, in epoch seconds, by `partition` (gauge). `0` if complete or unowned.
+pub const SLICE_COVERED_SINCE_SECONDS: &str = "cohort_slice_covered_since_seconds";
 /// `cf_behavioral` keys re-seeded into a worker's `EvictionQueue` on spawn during a durable restart,
 /// labelled by `partition` (counter). Re-fires a dormant person's `Left`.
 pub const EVICTION_QUEUE_REBUILT_KEYS_TOTAL: &str = "eviction_queue_rebuilt_keys_total";
@@ -655,7 +661,7 @@ pub const RECONCILE_JOBS_ENQUEUED_TOTAL: &str = "cohort_reconcile_jobs_enqueued_
 pub const RECONCILE_JOBS_COMPLETED_TOTAL: &str = "cohort_reconcile_jobs_completed_total";
 /// Queued jobs replaced by a higher Kafka offset for the same team, cohort, and `kind` (counter).
 pub const RECONCILE_JOBS_SUPERSEDED_TOTAL: &str = "cohort_reconcile_jobs_superseded_total";
-/// Reconcile jobs invalidated by a drain-time guard, labelled by bounded `reason` and `kind`
+/// Reconcile jobs withheld by the drain-time guard, labelled by bounded `reason` and `kind`
 /// (counter).
 pub const RECONCILE_JOBS_DISCARDED_TOTAL: &str = "cohort_reconcile_jobs_discarded_total";
 /// Reconcile jobs the guard would discard against a catalog snapshot older than the job, held until
@@ -699,11 +705,11 @@ pub const RECONCILE_PAGE_DURATION_SECONDS: &str = "cohort_reconcile_page_duratio
 pub const RECONCILE_ROWS_EMITTED_TOTAL: &str = "cohort_reconcile_rows_emitted_total";
 /// Stale Stage 2 bits durably fixed, labelled by `direction` (counter).
 pub const RECONCILE_BITS_FIXED_TOTAL: &str = "cohort_reconcile_bits_fixed_total";
-/// Reconcile completion markers acknowledged by Kafka, labelled by `kind` (counter).
+/// Reconcile markers acknowledged by Kafka, labelled by `kind` and `marker` (counter).
 pub const RECONCILE_MARKERS_EMITTED_TOTAL: &str = "cohort_reconcile_markers_emitted_total";
-/// Failed completion-marker produces, labelled by `kind` (counter). A permanently failing produce —
-/// a missing or mis-provisioned marker topic — otherwise only shows up as a seed offset that never
-/// advances.
+/// Failed reconcile-marker produce attempts, labelled by `kind` and `marker` (counter). A
+/// permanently failing produce — a missing or mis-provisioned marker topic — otherwise only shows
+/// up as a seed offset that never advances.
 pub const RECONCILE_MARKER_PRODUCE_ERRORS: &str = "cohort_reconcile_marker_produce_errors_total";
 /// Partition-local reconcile queue depth, labelled by `partition` (gauge).
 pub const RECONCILE_QUEUE_DEPTH: &str = "cohort_reconcile_queue_depth";
@@ -804,6 +810,13 @@ mod tests {
         assert_eq!(
             DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL,
             "durable_restore_pending_transfers_recovered_partitions_total",
+        );
+        // Alerts select on these.
+        assert_eq!(SLICES_ADOPTED_TOTAL, "cohort_slices_adopted_total");
+        assert_eq!(SLICES_BEGUN_TOTAL, "cohort_slices_begun_total");
+        assert_eq!(
+            SLICE_COVERED_SINCE_SECONDS,
+            "cohort_slice_covered_since_seconds"
         );
     }
 

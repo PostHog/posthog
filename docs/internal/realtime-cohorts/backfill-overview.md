@@ -108,6 +108,8 @@ It affects every behavioral leaf: a matching event in the gap is missing from th
 
 For a disaster-recovery run the operator must pin `B`, at the point where live coverage restarted after the store loss.
 Without it the run waits in `awaiting_boundary`.
+That point is the `covered_since` instant of the `reconcile_withheld` markers the lost partitions produce, which the seeder also records in each withheld participation's error.
+The processor applies the same rule to every run: a partition whose history begins after a run's `B` withholds that run.
 
 ### Rule 2: tiles are absolute counts, merged with max
 
@@ -197,7 +199,7 @@ Downstream, the membership consumer also uses the full snapshot to find and dele
 [Membership output and readers](membership-output-and-readers.md) explains that sweep.
 
 A reconcile request carries the pinned shape hash of the run's kind.
-A processor whose catalog holds a different hash for that kind discards the request without a marker, after a catalog refresh that began after the request arrived.
+A processor whose catalog holds a different hash for that kind withholds the request with a `reconcile_withheld` marker, after a catalog refresh that began after the request arrived.
 That hash is the processor's only check on the definition.
 The walk composes the cohort's current tree, so an edit that leaves this kind's hash alone does not stop it.
 The final guard against stamping a stale definition is Django's: supersession on edit, and the finalizer's hash and composition checks.
@@ -299,5 +301,5 @@ A backlog, a failure or a slow catalog refresh makes it longer.
 - A chunk is confirmed when Kafka acknowledges its seeds, not when the processor applies them.
   So reconcile is dispatched long before most seeds apply, and the ordering on each partition is what keeps a reconcile behind its run's held seeds.
 - Reconcile requests are not fenced.
-  A request that reaches a partition before the processor has loaded the cohort's current definition waits for the next catalog refresh, up to one refresh interval, and is discarded without a marker only if that refresh still disagrees.
+  A request that reaches a partition before the processor has loaded the cohort's current definition waits for the next catalog refresh, up to one refresh interval, and is withheld only if that refresh still disagrees.
 - Every chunk of every run is claimed oldest day first, so a small new cohort's recent days wait behind a large team run's older days.

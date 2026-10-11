@@ -182,6 +182,7 @@ If a cooperative rebalance hands the partition straight back, the cleanup is ski
 State never moves with a partition.
 Whoever owns the partition next, even the same pod later, starts from an empty slice at the last committed offset.
 It rebuilds no history, so every cohort on that partition is wrong until a backfill runs.
+The slice's coverage record goes with it, so the new slice withholds every reconcile whose run boundary is earlier than its start.
 That is why the processor runs as a single pod that owns every partition.
 Nothing moves state between pods, so more than one replica is unsupported, and running two would corrupt state without any error.
 
@@ -301,6 +302,9 @@ Three variations show the edges.
   Anything processed since the last commit replays on the next owner.
 - A held offset stays held for the rest of the partition's tenure.
   With one pod, that means until the next restart, and the symptom is growing lag on that topic and partition.
+- A created store withholds every reconcile whose run boundary predates its slices, because each slice begins when its partition is assigned.
+  In an environment that wipes the store at every start, that is every run created before the last boot, and `cohort_slices_begun_total` rises at every boot.
+  [Slice coverage](state-store-and-durability.md#slice-coverage) covers the records and their metrics.
 - A timer message does not spawn a worker.
   Without durable restore that costs nothing, because the store starts empty.
   With durable restore, boot spawns a worker for every owned partition, so overdue evictions run from boot.
