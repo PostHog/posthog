@@ -50,6 +50,29 @@ const parseUpdatedAttributeName = (attr: keyof TeamType | null): string => {
     return attr ? identifierToHuman(attr) : 'Project'
 }
 
+// `inverted` marks opt-out fields, where `true` means the feature is off
+const TOGGLE_SETTING_LABELS: Partial<Record<keyof TeamType, { label: string; inverted?: boolean }>> = {
+    feature_flag_confirmation_enabled: { label: 'Feature flag confirmation' },
+    default_evaluation_contexts_enabled: { label: 'Default evaluation contexts' },
+    require_evaluation_contexts: { label: 'Require evaluation contexts' },
+    session_recording_opt_in: { label: 'Session recording' },
+    autocapture_opt_out: { label: 'Autocapture', inverted: true },
+    capture_console_log_opt_in: { label: 'Console log capture' },
+    capture_performance_opt_in: { label: 'Network capture' },
+    autocapture_exceptions_opt_in: { label: 'Exception autocapture' },
+    autocapture_web_vitals_opt_in: { label: 'Web vitals autocapture' },
+    heatmaps_opt_in: { label: 'Heatmaps' },
+    surveys_opt_in: { label: 'Surveys' },
+}
+
+export const toggleSettingMessage = (attr: keyof TeamType | null, value: unknown): string | null => {
+    const setting = attr ? TOGGLE_SETTING_LABELS[attr] : undefined
+    if (!setting) {
+        return null
+    }
+    return `${setting.label} ${!!value !== !!setting.inverted ? 'enabled' : 'disabled'}`
+}
+
 /** Return whether the provided value is a full TeamType object that's only available when authenticated. */
 export function isAuthenticatedTeam(team: TeamType | TeamPublicType | undefined | null): team is TeamType {
     return !!team && 'api_token' in team
@@ -437,19 +460,13 @@ export const teamLogic = kea<teamLogicType>([
                     const updatedAttribute =
                         Object.keys(payload).length === 1 ? (Object.keys(payload)[0] as keyof TeamType) : null
 
+                    const toggleMessage = toggleSettingMessage(
+                        updatedAttribute,
+                        updatedAttribute ? payload[updatedAttribute] : undefined
+                    )
                     let message: string
-                    if (updatedAttribute === 'feature_flag_confirmation_enabled') {
-                        message = payload.feature_flag_confirmation_enabled
-                            ? 'Feature flag confirmation enabled'
-                            : 'Feature flag confirmation disabled'
-                    } else if (updatedAttribute === 'default_evaluation_contexts_enabled') {
-                        message = payload.default_evaluation_contexts_enabled
-                            ? 'Default evaluation contexts enabled'
-                            : 'Default evaluation contexts disabled'
-                    } else if (updatedAttribute === 'require_evaluation_contexts') {
-                        message = payload.require_evaluation_contexts
-                            ? 'Require evaluation contexts enabled'
-                            : 'Require evaluation contexts disabled'
+                    if (toggleMessage) {
+                        message = toggleMessage
                     } else if (
                         updatedAttribute === 'completed_snippet_onboarding' ||
                         updatedAttribute === 'has_completed_onboarding_for'
