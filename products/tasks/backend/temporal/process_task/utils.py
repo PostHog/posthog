@@ -1083,9 +1083,14 @@ def resolve_user_github_integration_for_task(
 def user_github_integration_is_usable(user_github_integration: UserGitHubIntegration | None) -> bool:
     if user_github_integration is None:
         return False
+    # A token without a recorded expiry never needs a refresh, so it is usable without a refresh token.
+    # This matches `UserGitHubIntegration.get_usable_user_access_token`.
+    can_refresh_or_needs_no_refresh = bool(user_github_integration.user_refresh_token) or not (
+        user_github_integration.integration.config or {}
+    ).get("user_access_token_expires_at")
     return (
         not user_github_integration.user_refresh_token_expired()
-        and bool(user_github_integration.user_refresh_token)
+        and can_refresh_or_needs_no_refresh
         and bool(user_github_integration.user_access_token)
     )
 

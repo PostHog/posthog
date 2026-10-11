@@ -58,6 +58,7 @@ from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
 from posthog.utils import absolute_uri
 
@@ -5818,13 +5819,15 @@ def user_has_usable_personal_github(user_id: int) -> bool:
     path rather than failing partway through it.
     """
     from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
-        get_user_github_integration,
         user_github_integration_is_usable,
     )
 
-    user = User.objects.filter(id=user_id).first()
-    integration = get_user_github_integration(user, allow_refresh=False)
-    return user_github_integration_is_usable(integration)
+    # Check every install, not only the oldest. A stale old install must not block a user who
+    # reconnected through a different GitHub account or organization.
+    return any(
+        user_github_integration_is_usable(UserGitHubIntegration(integration))
+        for integration in UserIntegration.objects.filter(user_id=user_id, kind=UserIntegration.IntegrationKind.GITHUB)
+    )
 
 
 def _ensure_task_team_github_integration(task: Task) -> bool:
