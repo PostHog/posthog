@@ -800,8 +800,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metaplane/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metorial/metorial.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/metorial/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mistral_ai/mistral_ai.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mistral_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixmax/mixmax.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixmax/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/mixpanel.py

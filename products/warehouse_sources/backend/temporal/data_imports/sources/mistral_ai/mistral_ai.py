@@ -39,7 +39,7 @@ class MistralAIUnexpectedResponseError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MistralAIResumeConfig:
     # Next 0-indexed page to fetch. Pages already yielded are persisted to staging before a crash,
     # so resuming mid-endpoint continues from here rather than restarting.

@@ -4,7 +4,7 @@ from typing import Literal, Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=False)
 class MistralAIEndpointConfig:
     name: str
     path: str
