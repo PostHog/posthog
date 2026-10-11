@@ -1,10 +1,10 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel
 
 
-class InsightAnomalyConfig(TeamScopedRootMixin, UUIDTModel):
+class InsightAnomalyConfig(TeamScopedRootMixin, UUIDModel):
     """Per-insight overrides for anomaly scoring. Sparse: a row exists only when a user
     changes something, and every null field falls back to the global default."""
 
@@ -23,7 +23,7 @@ class InsightAnomalyConfig(TeamScopedRootMixin, UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
 
-class InsightAnomalyState(TeamScopedRootMixin, UUIDTModel):
+class InsightAnomalyState(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     insight = models.OneToOneField("product_analytics.Insight", on_delete=models.CASCADE, related_name="anomaly_state")
 
