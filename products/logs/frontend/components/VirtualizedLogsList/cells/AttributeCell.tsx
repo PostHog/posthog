@@ -33,9 +33,8 @@ export interface AttributeCellProps {
      */
     cellKey?: string
     /**
-     * Which property the popover's filter actions target. Defaults to a log attribute; the Person
-     * and Session columns pass a resource-attribute filter when that is where the row's value came
-     * from, so the filter matches the row it was added from.
+     * Which property the popover's filter actions target. Defaults to a log attribute. Pass a resource-attribute
+     * filter when the row's value came from resource attributes, so the filter matches the row it was added from.
      */
     filterType?: PropertyFilterType
 }

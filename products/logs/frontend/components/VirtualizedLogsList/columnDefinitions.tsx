@@ -17,6 +17,7 @@ import {
     LogsColumnConfig,
     LogsColumnType,
     columnLabel,
+    customColumnFilterType,
 } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
@@ -402,6 +403,11 @@ export function createConfiguredColumn(params: {
                     <AttributeCell
                         attributeKey={semanticKey}
                         value={getBuiltInValue ? getBuiltInValue(log) : customColumnValue(log, alias)}
+                        filterType={
+                            config.type === 'custom'
+                                ? customColumnFilterType(config, log.attributes, log.resource_attributes)
+                                : undefined
+                        }
                         width={totalWidth}
                         timestamp={log.timestamp}
                     />
