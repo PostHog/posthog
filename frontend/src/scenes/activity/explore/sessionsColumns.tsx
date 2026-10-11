@@ -1,7 +1,9 @@
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { SessionDisplay } from 'scenes/sessions/SessionDisplay'
+import { urls } from 'scenes/urls'
 
 import { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode, SessionsQuery } from '~/queries/schema/schema-general'
@@ -39,11 +41,22 @@ const renderSessionId: QueryContextColumnComponent = ({ value, record, query }) 
     return <SessionDisplay sessionId={sessionId} isLive={isLive} noPopover />
 }
 
+const renderDistinctId: QueryContextColumnComponent = ({ value }) => {
+    if (!value) {
+        return null
+    }
+    const distinctId = String(value)
+    return <Link to={urls.personByDistinctId(distinctId)}>{distinctId}</Link>
+}
+
 export function getSessionsColumns(): QueryContext['columns'] {
     return {
         session_id: {
             title: 'Session ID',
             render: renderSessionId,
+        },
+        'session.distinct_id': {
+            render: renderDistinctId,
         },
         $start_timestamp: {
             title: 'Start time',

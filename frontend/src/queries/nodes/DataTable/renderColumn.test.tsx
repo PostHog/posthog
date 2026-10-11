@@ -4,6 +4,8 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { getSessionsColumns } from 'scenes/activity/explore/sessionsColumns'
+
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
@@ -15,6 +17,12 @@ const select = defaultDataTableColumns(NodeKind.EventsQuery)
 const eventsTable = setLatestVersionsOnQuery({
     kind: NodeKind.DataTableNode,
     source: { kind: NodeKind.EventsQuery, select },
+}) as DataTableNode
+
+const sessionsSelect = defaultDataTableColumns(NodeKind.SessionsQuery)
+const sessionsTable = setLatestVersionsOnQuery({
+    kind: NodeKind.DataTableNode,
+    source: { kind: NodeKind.SessionsQuery, select: sessionsSelect },
 }) as DataTableNode
 
 const personSelect = ['*', 'event', 'person', 'timestamp']
@@ -114,5 +122,27 @@ describe('renderColumn', () => {
 
         expect(screen.getByText('someone@example.com')).toBeInTheDocument()
         expect(screen.queryByText('Unknown')).toBeNull()
+    })
+
+    it('links the default sessions distinct ID column to the person', () => {
+        const distinctIdColumn = sessionsSelect.find((column) => column.startsWith('session.distinct_id'))
+        render(
+            <Provider>
+                {renderColumn(
+                    distinctIdColumn as string,
+                    'the-distinct-id',
+                    sessionsSelect.map(() => null),
+                    0,
+                    1,
+                    sessionsTable,
+                    undefined,
+                    { columns: getSessionsColumns() }
+                )}
+            </Provider>
+        )
+
+        expect(screen.getByText('the-distinct-id').closest('a')?.getAttribute('href')).toMatch(
+            /\/person\/the-distinct-id$/
+        )
     })
 })
