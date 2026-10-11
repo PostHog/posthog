@@ -775,10 +775,10 @@ export interface AssistantFunnelsExclusionEventsNode extends FunnelExclusionStep
 
 export interface AssistantFunnelsFilter {
     /**
-     * Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one.
+     * Defines the behavior of event matching between steps. Use the `ordered` default unless the steps must happen consecutively or in any order.
      * `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B.
      * `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between.
-     * `any` - order doesn't matter. Steps can be completed in any sequence.
+     * `unordered` - order doesn't matter. Steps can be completed in any sequence.
      * @default ordered
      */
     funnelOrderType?: FunnelsFilterLegacy['funnel_order_type']
