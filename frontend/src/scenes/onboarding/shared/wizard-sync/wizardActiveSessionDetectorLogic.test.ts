@@ -1,8 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
+import type { ProjectType } from '~/types'
 
 import { wizardSessionsLatestRetrieve } from 'products/wizard/frontend/generated/api'
 import type { WizardSessionDTOApi } from 'products/wizard/frontend/generated/api.schemas'
@@ -82,6 +84,46 @@ describe('wizardActiveSessionDetectorLogic', () => {
         })
             .toDispatchActions(['markActive'])
             .toMatchValues({ hasActiveSession: true, shouldStream: true })
+    })
+
+    it('does not start a second poll while the previous one is still pending', async () => {
+        let release: (value: null) => void = () => {}
+        mockLatestRetrieve.mockReturnValueOnce(new Promise((resolve) => (release = resolve)))
+
+        logic.actions.check()
+        logic.actions.check()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(1)
+
+        release(null)
+        await expectLogic(logic).toDispatchActions(['markInactive'])
+
+        mockLatestRetrieve.mockResolvedValue(null)
+        await expectLogic(logic, () => {
+            logic.actions.check()
+        }).toFinishAllListeners()
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+    })
+
+    it('keeps one pending poll per project across a project switch and back, and applies only its answer', async () => {
+        const originalProject = projectLogic.values.currentProject as ProjectType
+        let releaseOriginal: (value: WizardSessionDTOApi | null) => void = () => {}
+        let releaseOther: (value: WizardSessionDTOApi | null) => void = () => {}
+        mockLatestRetrieve
+            .mockReturnValueOnce(new Promise((resolve) => (releaseOriginal = resolve)))
+            .mockReturnValueOnce(new Promise((resolve) => (releaseOther = resolve)))
+
+        logic.actions.check()
+        projectLogic.actions.loadCurrentProjectSuccess({ ...originalProject, id: originalProject.id + 1 })
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+
+        projectLogic.actions.loadCurrentProjectSuccess(originalProject)
+        expect(mockLatestRetrieve).toHaveBeenCalledTimes(2)
+
+        releaseOther(makeSession({ run_phase: 'running', workflow_id: 'other-project-program' }))
+        releaseOriginal(makeSession({ run_phase: 'running' }))
+        await expectLogic(logic)
+            .toDispatchActions(['markActive'])
+            .toMatchValues({ activeWorkflowId: 'posthog-integration' })
     })
 
     it('stays inactive when the poll returns no session (204/null)', async () => {
