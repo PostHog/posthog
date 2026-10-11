@@ -457,6 +457,8 @@ python manage.py backfill_platform_alert_configurations
 ```
 
 Pass `--team-id` to copy one team's configurations only.
+Pass `--sample-percent` to copy a sample of teams. Logs samples whole teams, not alerts, because one query checks a cohort of a team's alerts, so a sample of alerts spread across every team costs nearly as many queries as copying all of them. The sample is chosen by team id, so a rerun copies the same teams and a larger percentage only adds teams.
+An alert the copy rejects is logged and counted as failed, and the run carries on.
 It is a seed, not a sync: the logs product keeps the control plane, and a later change to a logs alert reaches these tables only on the next run.
 A second run updates rather than duplicates, because `legacy_configuration_id` carries the row each copy came from.
 A second run of either backfill, logs or insight, leaves an enabled copy's `next_check_at` alone unless it has none yet or its cadence changed, because the platform owns its schedule once the row exists. The logs product parks its own next check at the end of quiet hours, while the platform checks through them and only mutes. A new or re-enabled copy still takes the source's due time, which spreads a large copy's first checks the way the source spreads them.
@@ -483,7 +485,7 @@ A full logs backfill hit ClickHouse's per-user concurrent query limit and had to
 4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size.
 5. Raise that cap from its default of 10 only while the daily count of refused queries, `exception_code = 202` in `query_log`, stays flat for both `alerts_platform_insight` and the user that production insight alerts query as. The first shows the parallel run's own contention. The second shows whether it reaches production through the server-wide limit. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
 
-To stop the parallel run, pass `--disable`, with `--team-id` to stop one team.
+To stop either parallel run, logs or insight, pass `--disable` to its backfill, with `--team-id` to stop one team.
 It switches the copies off and keeps their rows, state and history. Checks already running finish.
 Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
