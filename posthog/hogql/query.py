@@ -596,17 +596,25 @@ class HogQLQueryExecutor:
         return types
 
     def _column_formats(self) -> list[str | None] | None:
-        select = next(extract_select_queries(self.select_query), None)
-        if select is None or len(select.select) != len(self.print_columns):
+        if self.send_raw_query and self.connection_id is not None:
             return None
-        formats: list[str | None] = []
-        for expression in select.select:
+        select = next(extract_select_queries(self.select_query), None)
+        if select is None:
+            return None
+        formats: list[str | None] = [None] * len(self.print_columns)
+        column_positions = {name: index for index, name in enumerate(self.print_columns)}
+        for index, expression in enumerate(select.select):
+            alias = expression.alias if isinstance(expression, ast.Alias) else None
             if isinstance(expression, ast.Alias):
                 expression = expression.expr
             if isinstance(expression, ast.Field) and expression.chain[-1] == "$virt_mcp_harness":
-                formats.append("mcp_harness")
-            else:
-                formats.append(None)
+                if len(select.select) == len(self.print_columns):
+                    formats[index] = "mcp_harness"
+                else:
+                    column_name = alias or ".".join(expression.chain)
+                    column_position = column_positions.get(column_name)
+                    if column_position is not None:
+                        formats[column_position] = "mcp_harness"
         return formats if any(formats) else None
 
     def _detect_warehouse_sources(self) -> list[WarehouseSourceUsage]:
