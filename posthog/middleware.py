@@ -856,6 +856,14 @@ def per_request_logging_context_middleware(
             if mcp_conversation_id:
                 span.set_attribute("mcp.conversation_id", mcp_conversation_id)
 
+        # posthog-js `tracing_headers` sends the browser session on app API calls. The key is
+        # `sessionId` because the Logs and Tracing session links look for that key by default,
+        # and the PostHog SDKs use it on their own spans. Caller-asserted, like the MCP headers.
+        frontend_session_id = sanitize_header_value(request.headers.get("X-Posthog-Session-Id"))
+        if frontend_session_id:
+            structlog.contextvars.bind_contextvars(sessionId=frontend_session_id)
+            trace.get_current_span().set_attribute("sessionId", frontend_session_id)
+
         response: HttpResponse | None = None
         try:
             response = get_response(request)
@@ -916,14 +924,21 @@ def user_logging_context_middleware(
     get_response: Callable[[HttpRequest], HttpResponse],
 ) -> Callable[[HttpRequest], HttpResponse]:
     """
-    This middleware adds the team_id to the logging context if it exists. Note
-    that this should be added after we have performed authentication, as we
-    need the user to be authenticated to get the team_id.
+    This middleware adds the team_id and the user's distinct_id to the logging
+    context if they exist, and the distinct_id to the request span. Note that
+    this should be added after we have performed authentication, as we need
+    the user to be authenticated to get them.
     """
 
     def middleware(request: HttpRequest) -> HttpResponse:
         if request.user.is_authenticated:
             structlog.contextvars.bind_contextvars(team_id=request.user.current_team_id)
+            # `posthogDistinctId` is the key that the Logs and Tracing person links look for by default.
+            # The span gets no team_id here, because current_team_id can differ from the team in the URL.
+            # TeamAndOrgViewSetMixin tags the span with the team that the view resolves.
+            if distinct_id := request.user.distinct_id:
+                structlog.contextvars.bind_contextvars(posthogDistinctId=distinct_id)
+                trace.get_current_span().set_attribute("posthogDistinctId", distinct_id)
 
         return get_response(request)
 
