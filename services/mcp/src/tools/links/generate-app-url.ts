@@ -6,7 +6,7 @@ import appUrlManifest from './app-url-manifest.json'
 import type { AppUrlManifest } from './types'
 
 // Canonical route table generated from the frontend's `urls` registry (see
-// frontend/src/scenes/appUrlManifest.ts). The model must never hand-build entity links — slugs and
+// frontend/bin/build-app-url-manifest.mjs). The model must never hand-build entity links — slugs and
 // project/host prefixes are easy to get wrong (a person UUID lives at `/persons/<uuid>`, a distinct
 // id at `/person/<id>`) — so this tool resolves them from the same definitions the app ships.
 const MANIFEST = appUrlManifest as AppUrlManifest
