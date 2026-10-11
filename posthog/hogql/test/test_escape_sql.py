@@ -1,6 +1,9 @@
 from datetime import datetime
+from enum import Enum, IntEnum, StrEnum
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+
+from django.db.models import TextChoices
 
 from parameterized import parameterized
 
@@ -17,6 +20,27 @@ from posthog.hogql.parser import parse_expr
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.uuidt import UUIDT
+
+
+class _StrEnum(StrEnum):
+    VALUE = "it's"
+
+
+class _StrMixinEnum(str, Enum):
+    VALUE = "it's"
+
+
+class _TextChoices(TextChoices):
+    VALUE = "it's"
+
+
+class _IntEnum(IntEnum):
+    VALUE = 7
+
+
+class _IntMixinEnum(int, Enum):
+    VALUE = 7
+
 
 _ROUNDTRIP_IDENTIFIER_SAMPLES = [
     "back`tick",
@@ -187,6 +211,19 @@ class TestPrintString(BaseTest):
             escape_hogql_string(float("234732482374928374923")),
             "2.3473248237492837e+20",
         )
+
+    @parameterized.expand(
+        [
+            ("str_enum", _StrEnum.VALUE, "'it\\'s'"),
+            ("str_mixin_enum", _StrMixinEnum.VALUE, "'it\\'s'"),
+            ("text_choices", _TextChoices.VALUE, "'it\\'s'"),
+            ("int_enum", _IntEnum.VALUE, "7"),
+            ("int_mixin_enum", _IntMixinEnum.VALUE, "7"),
+        ]
+    )
+    def test_escape_str_and_int_subclasses(self, _name, value, expected):
+        self.assertEqual(escape_clickhouse_string(value), expected)
+        self.assertEqual(escape_hogql_string(value), expected)
 
     def test_escape_hogql_identifier_errors(self):
         with self.assertRaises(QueryError) as context:
