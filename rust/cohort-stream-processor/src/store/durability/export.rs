@@ -17,22 +17,18 @@ impl CheckpointExporter {
         Self { uploader }
     }
 
-    pub async fn export_checkpoint_with_plan(&self, plan: &CheckpointPlan) -> Result<()> {
-        self.export_checkpoint_with_plan_cancellable(plan, None, None)
-            .await
-    }
-
     /// Export a checkpoint with cancellation support. A cancellation returns an error early but is
-    /// recorded as a cancellation (not a failure) in metrics/logs. `cancel_cause` ("rebalance" /
-    /// "shutdown") labels that metric.
+    /// recorded as a cancellation (not a failure) in metrics/logs. `trigger` labels the upload
+    /// counter.
     pub async fn export_checkpoint_with_plan_cancellable(
         &self,
         plan: &CheckpointPlan,
         cancel_token: Option<&CancellationToken>,
-        cancel_cause: Option<&str>,
+        trigger: &'static str,
     ) -> Result<()> {
         if !self.is_available().await {
-            metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "unavailable").increment(1);
+            metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "unavailable", "trigger" => trigger)
+                .increment(1);
             warn!(
                 remote_metadata_path = plan.info.get_metadata_key(),
                 "Export failed: uploader not available"
@@ -55,7 +51,8 @@ impl CheckpointExporter {
 
                 metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_SECONDS, "result" => "success")
                     .record(upload_duration.as_secs_f64());
-                metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "success").increment(1);
+                metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "success", "trigger" => trigger)
+                    .increment(1);
 
                 info!(
                     remote_path = plan.info.get_metadata_key(),
@@ -73,20 +70,20 @@ impl CheckpointExporter {
             Err(e) => {
                 let upload_duration = upload_start.elapsed();
                 if e.downcast_ref::<UploadCancelledError>().is_some() {
-                    // Metrics labels must be 'static, so map the cause to a fixed string.
-                    let cause: &'static str = match cancel_cause {
-                        Some("rebalance") => "rebalance",
-                        Some("shutdown") => "shutdown",
-                        _ => "unknown",
-                    };
-                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_SECONDS, "result" => "cancelled", "cause" => cause)
+                    metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_SECONDS, "result" => "cancelled")
                         .record(upload_duration.as_secs_f64());
-                    metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "cancelled", "cause" => cause)
+                    metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "cancelled", "trigger" => trigger)
                         .increment(1);
+                    warn!(
+                        remote_path = plan.info.get_metadata_key(),
+                        elapsed_seconds = upload_duration.as_secs_f64(),
+                        "Export cancelled before its metadata.json; the previous upload stays the newest restorable one",
+                    );
                 } else {
                     metrics::histogram!(CHECKPOINT_UPLOAD_DURATION_SECONDS, "result" => "error")
                         .record(upload_duration.as_secs_f64());
-                    metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "error").increment(1);
+                    metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "error", "trigger" => trigger)
+                        .increment(1);
                     error!(
                         remote_path = plan.info.get_metadata_key(),
                         elapsed_seconds = upload_duration.as_secs_f64(),
@@ -112,6 +109,7 @@ mod tests {
     use crate::store::durability::{
         CheckpointInfo, CheckpointMetadata, PodOrdinal, UploadCancelledError,
     };
+    use crate::store::DbIdentity;
 
     #[derive(Debug)]
     struct MockUploader {
@@ -168,7 +166,11 @@ mod tests {
 
     fn create_test_plan() -> CheckpointPlan {
         let timestamp = Utc.with_ymd_and_hms(2025, 6, 15, 12, 0, 0).unwrap();
-        let metadata = CheckpointMetadata::new(PodOrdinal::STANDALONE, timestamp);
+        let metadata = CheckpointMetadata::new(
+            PodOrdinal::STANDALONE,
+            timestamp,
+            DbIdentity::for_test("db"),
+        );
         let info = CheckpointInfo::new(metadata, "checkpoints".to_string());
         CheckpointPlan {
             info,
@@ -183,7 +185,7 @@ mod tests {
         let plan = create_test_plan();
 
         let result = exporter
-            .export_checkpoint_with_plan_cancellable(&plan, None, None)
+            .export_checkpoint_with_plan_cancellable(&plan, None, "periodic")
             .await;
 
         assert!(result.is_ok());
@@ -196,7 +198,7 @@ mod tests {
         let plan = create_test_plan();
 
         let result = exporter
-            .export_checkpoint_with_plan_cancellable(&plan, None, Some("rebalance"))
+            .export_checkpoint_with_plan_cancellable(&plan, None, "final")
             .await;
 
         assert!(result.is_err());
@@ -214,7 +216,7 @@ mod tests {
         let plan = create_test_plan();
 
         let result = exporter
-            .export_checkpoint_with_plan_cancellable(&plan, None, None)
+            .export_checkpoint_with_plan_cancellable(&plan, None, "periodic")
             .await;
 
         assert!(result.is_err());

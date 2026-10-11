@@ -164,7 +164,7 @@ A local checkpoint is hard-linked there, SSTs only, with every other file copied
 A remote one is downloaded there, within `CHECKPOINT_IMPORT_TIMEOUT_SECS`.
 The stage must open read-only with this build's column families and schema, and RocksDB's open checks that every SST its MANIFEST names is present at the recorded size.
 The replay window is then checked again, because a download can outlast part of it.
-The restore writes the `restore.json` marker into the stage and renames the stage onto the store path.
+The restore rewrites `uploaded.json` for the restored store, writes the `restore.json` marker into the stage, and renames the stage onto the store path.
 A kill at any point leaves either the stage, which the next boot deletes, or a published store with its marker.
 
 The first candidate that publishes wins, and no older one is downloaded.
@@ -244,9 +244,19 @@ Checkpoints require durable restore, a bucket, and an absolute checkpoint direct
   The positions are read after a write-ahead-log flush and before the checkpoint.
   Every commit follows a flush of its own, so the checkpoint holds at least the state the positions cover.
 - **Incremental uploads.**
-  An upload sends only the files the previous upload of the same process lacks, so the first upload after every start is full.
+  An upload sends only the files its predecessor in the chain lacks.
+  A restarted process builds on the last upload, recorded locally in `uploaded.json`, only while the store's RocksDB DB id matches it, because a created store reuses SST file names.
+  A restored store also reuses the SST numbers written after its checkpoint, so a restore from object storage makes the restored checkpoint the baseline, and a local restore removes the baseline, which makes the next upload full.
+  Once a chain is older than `CHECKPOINT_FULL_UPLOAD_INTERVAL_SECS`, the next upload is full, which bounds the age of the oldest object a restore needs.
+- **Paced uploads.**
+  One upload reads at most `CHECKPOINT_UPLOAD_MAX_BYTES_PER_SEC` from the store's disk across all its files, so a full upload does not starve the live path.
+- **A final checkpoint.**
+  A graceful stop cancels a periodic upload in flight, takes one more checkpoint once every consumer has made its final commit, and uploads it.
+  The upload is cancelled after `CHECKPOINT_FINAL_UPLOAD_TIMEOUT_SECS`, but an S3 request in flight runs to its end, so the checkpoint component's shutdown window is the hard limit.
+  An upload stopped before its `metadata.json` is not restorable, so the last finished upload stays the newest restorable one.
 - **No expiry.**
-  Objects are not expired, because a chain of incremental uploads can reference an object of any age.
+  Objects are not expired.
+  An expiry, when one is set, must exceed the full-upload interval plus the import window.
 
 The uploader is built on the first upload, so an outage of object storage never stops a pod that has its store.
 A failed build counts `checkpoint_uploads_total{result="unavailable"}`, and the next upload tries again.
@@ -254,8 +264,8 @@ A failed build counts `checkpoint_uploads_total{result="unavailable"}`, and the 
 These metrics follow checkpoints:
 
 - `checkpoint_last_upload_timestamp_seconds` is the last successful upload, and starts at process start, so a staleness alert fires only once its threshold passes,
-- `checkpoint_last_capture_timestamp_seconds` is the last captured manifest,
-- `checkpoint_uploads_total{result}` counts uploads,
+- `checkpoint_last_capture_timestamp_seconds` and `checkpoint_last_full_upload_timestamp_seconds` are the last captured manifest and the start of the newest upload's chain,
+- `checkpoint_uploads_total{result, trigger}` and `checkpoint_uploaded_bytes_total{kind}` count uploads and the bytes they sent,
 - `checkpoint_capture_failures_total{reason}` counts ticks skipped before the checkpoint,
 - `checkpoint_restore_total{source}` counts where each boot's store came from: `reopened`, `pending`, `local`, `s3` or `created`,
 - `checkpoint_restore_candidates_total{verdict}` counts the candidates a restore tried,

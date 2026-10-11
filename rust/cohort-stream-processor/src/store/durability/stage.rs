@@ -41,9 +41,10 @@ pub fn staging_path(live: &Path) -> PathBuf {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RestoredFrom {
-    /// A local checkpoint.
+    /// A local checkpoint. Its `metadata.json` describes a plan that may never have been uploaded,
+    /// so it is no upload baseline.
     Local { checkpoint_id: String },
-    /// An uploaded checkpoint.
+    /// An uploaded checkpoint, which the next upload can build on.
     S3 { candidate: CheckpointMetadata },
 }
 
@@ -310,7 +311,7 @@ pub(super) fn parent_dir(path: &Path) -> &Path {
     }
 }
 
-fn sync_dir(dir: &Path) -> io::Result<()> {
+pub(super) fn sync_dir(dir: &Path) -> io::Result<()> {
     File::open(dir)?.sync_all()
 }
 

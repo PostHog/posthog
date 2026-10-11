@@ -26,13 +26,15 @@ use metrics::{counter, gauge, histogram};
 use rdkafka::error::KafkaError;
 use tracing::{error, info, warn};
 
+use super::checkpoint::UPLOADED_FILENAME;
 use super::import::{CheckpointImporter, ImportError};
 use super::lineage::CheckpointLineage;
 use super::manifest::{ManifestError, OffsetManifest};
 use super::metadata::{CheckpointMetadata, MetadataError, METADATA_FILENAME};
 use super::restore_plan::{ReplayWindow, RestorePlan};
 use super::stage::{
-    link_checkpoint, staging_path, PendingRestore, RestoredFrom, ResumeError, ValidatedStage,
+    link_checkpoint, parent_dir, staging_path, sync_dir, PendingRestore, RestoredFrom, ResumeError,
+    ValidatedStage,
 };
 use super::{DirCleanupGuard, S3Downloader};
 use crate::config::Config;
@@ -335,6 +337,7 @@ async fn prepare_store(
     let mut restore = Restore {
         live: &live,
         stage,
+        uploaded: local_dir.join(UPLOADED_FILENAME),
         lineage,
         window,
         partition_count: config.partition_count(),
@@ -404,6 +407,8 @@ struct LocalAttempt {
 struct Restore<'a, W> {
     live: &'a Path,
     stage: PathBuf,
+    /// The lineage's `uploaded.json`, which a publish rewrites.
+    uploaded: PathBuf,
     lineage: CheckpointLineage,
     window: &'a W,
     partition_count: u16,
@@ -576,6 +581,8 @@ impl<W: ReplayWindow> Restore<'_, W> {
             Admission::Replays(plan) => plan,
             Admission::Rejected(reason) => return Ok(Verdict::Unusable(reason)),
         };
+        self.reset_upload_baseline(staged.source())
+            .map_err(RestoreBlocked::Local)?;
         let pending = staged
             .publish(manifest, plan, self.live)
             .map_err(RestoreBlocked::Local)?;
@@ -587,6 +594,24 @@ impl<W: ReplayWindow> Restore<'_, W> {
             "checkpoint restore published",
         );
         Ok(Verdict::Published(pending))
+    }
+
+    /// A restored DB reuses the SST numbers written after its checkpoint, so an `uploaded.json` from
+    /// a later upload would name files it rewrites. An uploaded checkpoint becomes the baseline;
+    /// after a local one the next upload is full. The directory is synced before the publish, because
+    /// a crash could otherwise keep the published store beside the old baseline.
+    fn reset_upload_baseline(&self, source: &RestoredFrom) -> io::Result<()> {
+        match source {
+            RestoredFrom::S3 { candidate } => {
+                std::fs::create_dir_all(parent_dir(&self.uploaded))?;
+                candidate.save(&self.uploaded).map_err(io::Error::other)
+            }
+            RestoredFrom::Local { .. } => match std::fs::remove_file(&self.uploaded) {
+                Err(err) if err.kind() != io::ErrorKind::NotFound => Err(err),
+                _ => Ok(()),
+            },
+        }?;
+        sync_dir(parent_dir(&self.uploaded))
     }
 }
 
@@ -768,7 +793,11 @@ mod tests {
             })
             .unwrap();
             std::fs::create_dir_all(parent).unwrap();
-            let metadata = CheckpointMetadata::new(PodOrdinal::STANDALONE, Utc::now());
+            let metadata = CheckpointMetadata::new(
+                PodOrdinal::STANDALONE,
+                Utc::now(),
+                store.db_identity().unwrap(),
+            );
             let dir = parent.join(&metadata.id);
             store.create_checkpoint(&dir).unwrap();
             OffsetManifest::capture(
@@ -815,6 +844,7 @@ mod tests {
                 CheckpointMetadata::new(
                     PodOrdinal::STANDALONE,
                     metadata.attempt_timestamp + chrono::Duration::minutes(15),
+                    metadata.db_identity.clone(),
                 ),
                 "checkpoints".to_string(),
             );
@@ -830,6 +860,7 @@ mod tests {
             Restore {
                 live: Path::new(&self.config.store_path),
                 stage: staging_path(Path::new(&self.config.store_path)),
+                uploaded: self.lineage_dir().join(UPLOADED_FILENAME),
                 lineage: CheckpointLineage::new(PodOrdinal::STANDALONE),
                 window,
                 partition_count: 1,
@@ -929,6 +960,13 @@ mod tests {
         assert_eq!(pending.source().label(), "s3");
         assert_eq!(pending.source().checkpoint_id(), checkpoint_id);
         assert!(search.failed.is_empty(), "{:?}", search.failed);
+        assert_eq!(
+            CheckpointMetadata::load(&boot.lineage_dir().join(UPLOADED_FILENAME))
+                .unwrap()
+                .id,
+            checkpoint_id,
+            "the restored upload becomes the next upload's baseline",
+        );
     }
 
     #[tokio::test]

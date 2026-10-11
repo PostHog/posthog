@@ -249,7 +249,8 @@ impl FollowerGroup {
     }
 }
 
-/// Every enabled input, built once at startup and shared by the restore and the checkpoint sweeper.
+/// Every enabled input, built once at startup and shared by the restore, the checkpoint sweeper and
+/// the final checkpoint.
 pub struct InputGroups {
     events: GroupReader,
     followers: Vec<FollowerGroup>,
