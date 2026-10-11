@@ -468,10 +468,15 @@ describe('marketingAnalyticsLogic', () => {
                 joins: [],
             })
             logic.actions.setTileColumnSelection(MarketingAnalyticsColumnsSchemaNames.ReportedConversion)
-            for (const precomputed of [false, true]) {
+            for (const { costsFlag, warmedFlag, precomputed } of [
+                { costsFlag: false, warmedFlag: false, precomputed: false },
+                { costsFlag: true, warmedFlag: false, precomputed: false },
+                { costsFlag: true, warmedFlag: true, precomputed: true },
+            ]) {
                 featureFlagLogic.actions.setFeatureFlags([], {
                     [FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD]: true,
-                    [FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]: precomputed,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]: costsFlag,
+                    [FEATURE_FLAGS.MARKETING_ANALYTICS_PRECOMPUTATION]: warmedFlag,
                 })
                 logic.actions.setAdPerformanceConversionGoals(true)
                 expect(search.values.query.includePostHogConversions).toBe(true)
