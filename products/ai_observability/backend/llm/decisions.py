@@ -35,14 +35,22 @@ from products.ai_observability.backend.llm.errors import (
     is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+from products.ai_observability.backend.llm.providers.openai import OpenAIConfig
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_HEADERS, decision_model_ids
 
 
 def is_decision_model(
-    provider: str | None, model: str | None, *, openrouter_enabled: bool, decision_only: bool = False
+    provider: str | None,
+    model: str | None,
+    *,
+    openrouter_enabled: bool,
+    decision_only: bool = False,
+    openai_enabled: bool = False,
 ) -> bool:
     if provider == "system_one":
         return True
+    if provider == "openai":
+        return openai_enabled and model in OpenAIConfig.DECISION_MODELS
     # Disabled projects keep the chat path independent of catalogue availability.
     if provider != "openrouter" or not model or not openrouter_enabled:
         return False

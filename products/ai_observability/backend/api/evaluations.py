@@ -48,6 +48,7 @@ from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..llm.decisions import decision_evaluations_enabled, is_decision_model
 from ..llm.errors import ProviderConnectionError
+from ..llm.providers.openai import OPENAI_DECISIONS_BASE_URL, OpenAIConfig
 from ..llm.providers.openrouter import OPENROUTER_BASE_URL, is_non_chat_model
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
@@ -579,6 +580,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 decision_only=judge_method is None,
                 openrouter_enabled=model_provider == "openrouter"
                 and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENROUTER_BASE_URL),
+                openai_enabled=judge_method == "decision"
+                and model_provider == LLMProvider.OPENAI
+                and model_configuration.get("model") in OpenAIConfig.DECISION_MODELS
+                and decision_evaluations_enabled(self.context["get_team"]().id, base_url=OPENAI_DECISIONS_BASE_URL),
             )
         except ProviderConnectionError as e:
             raise serializers.ValidationError({"model_configuration": str(e)}) from e
@@ -687,6 +692,20 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 raise serializers.ValidationError(
                     {
                         "output_config": "Numeric evaluations with decision models require a minimum score below the maximum score."
+                    }
+                )
+
+        if uses_decision_model and output_type == "categorical":
+            model_configuration = self._effective_model_configuration(data) or {}
+            config = data.get("output_config", getattr(self.instance, "output_config", {}))
+            if (
+                model_configuration.get("provider") == LLMProvider.OPENAI
+                and config.get("selection_mode", "single") == "single"
+                and len(config.get("options", [])) < 2
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "output_config": "OpenAI decision models require at least two options for single-selection categories."
                     }
                 )
 

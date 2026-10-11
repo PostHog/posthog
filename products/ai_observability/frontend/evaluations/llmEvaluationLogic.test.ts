@@ -1673,33 +1673,38 @@ return result`,
             }
         )
 
-        it.each(['llm', 'decision'] as const)(
-            'keeps a dual-capability model and its key when selecting %s',
-            async (method) => {
+        it.each([
+            ['llm', 'openrouter', 'OpenRouter', 'key-3'],
+            ['decision', 'openrouter', 'OpenRouter', 'key-3'],
+            ['llm', 'openai', 'OpenAI', 'key-1'],
+            ['decision', 'openai', 'OpenAI', 'key-1'],
+        ] as const)(
+            'keeps a dual-capability model and its key when selecting %s for %s',
+            async (method, provider, displayName, keyId) => {
                 useMocks({
                     get: {
                         '/api/llm_proxy/models/': ({ request }) => [
                             200,
-                            new URL(request.url).searchParams.get('provider_key_id') === 'key-3'
+                            new URL(request.url).searchParams.get('provider_key_id') === keyId
                                 ? [
                                       {
                                           id: 'example/dual-model',
                                           name: 'example/dual-model',
-                                          provider: 'OpenRouter',
+                                          provider: displayName,
                                           supports_decisions: true,
                                           supports_chat: true,
                                       },
                                       {
                                           id: 'example/chat-model',
                                           name: 'example/chat-model',
-                                          provider: 'OpenRouter',
+                                          provider: displayName,
                                           supports_decisions: false,
                                           supports_chat: true,
                                       },
                                       {
                                           id: 'example/decision-model',
                                           name: 'example/decision-model',
-                                          provider: 'OpenRouter',
+                                          provider: displayName,
                                           supports_decisions: true,
                                           supports_chat: false,
                                       },
@@ -1710,13 +1715,13 @@ return result`,
                 })
                 await expectLogic(modelPickerLogic).toFinishAllListeners()
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-                logic.actions.selectModelFromPicker('example/dual-model', 'key-3')
+                logic.actions.selectModelFromPicker('example/dual-model', keyId)
                 logic.actions.setJudgeMethod(method)
                 expect(logic.values.judgeMethod).toBe(method)
                 expect(logic.values.evaluation?.model_configuration).toEqual({
-                    provider: 'openrouter',
+                    provider,
                     model: 'example/dual-model',
-                    provider_key_id: 'key-3',
+                    provider_key_id: keyId,
                 })
                 expect(logic.values.evaluation?.evaluation_config).toEqual({ prompt: '', judge_method: method })
                 expect(logic.values.judgeModelGroups.flatMap((group) => group.models.map((model) => model.id))).toEqual(

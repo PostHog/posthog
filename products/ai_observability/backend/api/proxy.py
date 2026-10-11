@@ -56,6 +56,7 @@ from products.ai_observability.backend.llm.errors import (
     ProviderHostUnresolvedError,
     UnsupportedProviderError,
 )
+from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL, OpenAIConfig
 from products.ai_observability.backend.llm.providers.openrouter import (
     OPENROUTER_BASE_URL,
     decision_model_ids,
@@ -513,6 +514,11 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 ):
                     decision_models = decision_model_ids() or frozenset()
                     non_chat_models = non_chat_model_ids() or frozenset()
+                    models = list(dict.fromkeys([*models, *sorted(decision_models)]))
+                elif provider_key.provider == LLMProvider.OPENAI and decision_evaluations_enabled(
+                    provider_key.team_id, base_url=OPENAI_DECISIONS_BASE_URL
+                ):
+                    decision_models = OpenAIConfig.DECISION_MODELS
                     models = list(dict.fromkeys([*models, *sorted(decision_models)]))
                 return Response(
                     [
