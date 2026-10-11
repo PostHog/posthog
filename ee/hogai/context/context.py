@@ -17,6 +17,9 @@ from posthog.schema import (
     ContextMessage,
     HumanMessage,
     MaxBillingContext,
+    MaxDashboardContext,
+    MaxErrorTrackingIssueContext,
+    MaxEvaluationContext,
     MaxInsightContext,
     MaxNotebookContext,
     MaxUIContext,
@@ -243,195 +246,13 @@ class AssistantContextManager(AssistantContextMixin):
         if not ui_context:
             return None
 
-        # Build dashboard contexts
-        dashboard_context = ""
-        if ui_context.dashboards:
-            dashboard_contexts = []
-            # Budget across ALL attached dashboards, not per dashboard, so several attached
-            # dashboards can't collectively overflow the window even if each one fits on its own.
-            remaining_char_budget = DASHBOARD_CONTEXT_CHAR_BUDGET
-            # Dashboard ids that overflowed the budget, keyed by fallback kind — emitted as one event below.
-            budget_fallbacks: dict[str, list[int]] = {"schema": [], "truncated": []}
-            for dashboard in ui_context.dashboards:
-                dashboard_filters = (
-                    dashboard.filters.model_dump(exclude_none=True)
-                    if hasattr(dashboard, "filters") and dashboard.filters
-                    else None
-                )
-
-                # Build DashboardInsightContext models for this dashboard
-                insights_data: list[DashboardInsightContext] = []
-                for insight in dashboard.insights:
-                    filters_override = (
-                        insight.filtersOverride.model_dump(mode="json") if insight.filtersOverride else None
-                    )
-                    variables_override = (
-                        {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
-                        if insight.variablesOverride
-                        else None
-                    )
-                    insights_data.append(
-                        DashboardInsightContext(
-                            query=insight.query,
-                            name=insight.name,
-                            description=insight.description,
-                            short_id=insight.id,
-                            filters_override=filters_override,
-                            variables_override=variables_override,
-                        )
-                    )
-
-                # Create DashboardContext and execute
-                dashboard_ctx = DashboardContext(
-                    team=self._team,
-                    insights_data=insights_data,
-                    user=self._user,
-                    name=dashboard.name or f"Dashboard {dashboard.id}",
-                    description=dashboard.description,
-                    dashboard_id=str(dashboard.id) if dashboard.id else None,
-                    dashboard_filters=dashboard_filters,
-                )
-
-                try:
-                    dashboard_text = await dashboard_ctx.execute_and_format()
-                    if len(dashboard_text) > remaining_char_budget:
-                        # Too large for the remaining window budget — drop to schema-only (insight
-                        # names + queries, no result tables) so it survives un-summarized; Max keeps
-                        # the read_data tool for specific numbers. format_schema runs no queries.
-                        dashboard_text = await dashboard_ctx.format_schema()
-                        fallback = "schema"
-                        if len(dashboard_text) > remaining_char_budget:
-                            fallback = "truncated"
-                            marker = "\n\n…(dashboard context truncated)"
-                            # No room for even the marker — stop here so the budget can't go negative.
-                            if remaining_char_budget <= len(marker):
-                                budget_fallbacks[fallback].append(dashboard.id)
-                                break
-                            dashboard_text = dashboard_text[: remaining_char_budget - len(marker)] + marker
-                        budget_fallbacks[fallback].append(dashboard.id)
-                    remaining_char_budget -= len(dashboard_text)
-                    dashboard_contexts.append(
-                        format_prompt_string(ROOT_DASHBOARD_CONTEXT_PROMPT, content=dashboard_text)
-                    )
-                except Exception as e:
-                    capture_exception(
-                        e,
-                        distinct_id=self._get_user_distinct_id(self._config),
-                        properties=self._get_debug_props(self._config),
-                    )
-                    continue
-
-            self._capture_dashboard_budget_exceeded(budget_fallbacks)
-
-            if dashboard_contexts:
-                joined_dashboards = "\n\n".join(dashboard_contexts)
-                dashboard_context = (
-                    PromptTemplate.from_template(ROOT_DASHBOARDS_CONTEXT_PROMPT, template_format="mustache")
-                    .format_prompt(dashboards=joined_dashboards)
-                    .to_string()
-                )
-
-        # Build standalone insights context
-        insights_context = ""
-        if ui_context.insights:
-            insight_contexts = [self._build_insight_context(insight) for insight in ui_context.insights]
-
-            # Execute all standalone insights in parallel
-            insight_tasks = [self._execute_and_format_insight(ctx) for ctx in insight_contexts]
-            insight_results = await asyncio.gather(*insight_tasks, return_exceptions=True)
-
-            # Filter out failed results
-            insights_results: list[str] = [
-                cast(str, result)
-                for result in insight_results
-                if result is not None and not isinstance(result, Exception) and result
-            ]
-
-            if insights_results:
-                joined_results = "\n\n".join(insights_results)
-                insights_context = (
-                    PromptTemplate.from_template(ROOT_INSIGHTS_CONTEXT_PROMPT, template_format="mustache")
-                    .format_prompt(insights=joined_results)
-                    .to_string()
-                )
-
-        # Format events and actions context
+        dashboard_context = await self._format_dashboards_context(ui_context.dashboards)
+        insights_context = await self._format_insights_context(ui_context.insights)
         events_context = self._format_entity_context(ui_context.events, "events", "Event")
         actions_context = self._format_entity_context(ui_context.actions, "actions", "Action")
-
-        # Format error tracking issues context
-        error_tracking_context = ""
-        if ui_context.error_tracking_issues:
-            issue_details = []
-            for issue in ui_context.error_tracking_issues:
-                name = issue.name or f"Issue {issue.id}"
-                issue_details.append(f'- Issue ID: "{issue.id}", Name: "{name}"')
-            if issue_details:
-                error_tracking_context = f"<error_tracking_context>Error tracking issues the user is referring to:\n{chr(10).join(issue_details)}\n</error_tracking_context>"
-
-        # Format notebooks context
-        notebooks_context = ""
-        if ui_context.notebooks:
-            from ee.hogai.context.notebook.context import NotebookContext
-
-            # Flag lookups read `user.organization`; keep them off the event loop and skip them
-            # when no notebook needs inline authoring guidance.
-            sql_v2_enabled = False
-            widgets_enabled = False
-            if any(nb.markdown_with_insertion_placeholder for nb in ui_context.notebooks):
-                sql_v2_enabled = await database_sync_to_async(notebooks_facade.is_sql_v2_enabled)(self._user)
-                widgets_enabled = await database_sync_to_async(notebooks_facade.is_notebook_widget_enabled)(self._user)
-            notebook_texts = []
-            reusable_catalog = (
-                await database_sync_to_async(reusable_widget_catalog_context)(team_id=self._team.id, user=self._user)
-                if widgets_enabled
-                else ""
-            )
-            if reusable_catalog:
-                notebook_texts.append(reusable_catalog)
-            for nb in ui_context.notebooks:
-                if nb.markdown_with_insertion_placeholder:
-                    notebook_texts.append(
-                        self._format_markdown_notebook_context(
-                            nb, sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled
-                        )
-                    )
-                    continue
-
-                ctx = await NotebookContext.from_short_id(self._team, nb.id)
-                if ctx:
-                    notebook_texts.append(ctx.format())
-            if notebook_texts:
-                joined_notebooks = "\n\n".join(notebook_texts)
-                notebooks_context = (
-                    PromptTemplate.from_template(ROOT_NOTEBOOKS_CONTEXT_PROMPT, template_format="mustache")
-                    .format_prompt(notebooks=joined_notebooks)
-                    .to_string()
-                )
-
-        # Format evaluations context
-        evaluations_context = ""
-        if ui_context.evaluations:
-            eval_details = []
-            for evaluation in ui_context.evaluations:
-                name = evaluation.name or f"Evaluation {evaluation.id}"
-                lines = [f"- Name: {name}"]
-                if evaluation.description:
-                    lines.append(f"  Description: {evaluation.description}")
-                lines.append(f"  Type: {evaluation.evaluation_type}")
-                if evaluation.hog_source:
-                    lines.append(f"  Current Hog source:\n```hog\n{evaluation.hog_source}\n```")
-                eval_details.append("\n".join(lines))
-
-            has_hog_eval = any(e.evaluation_type == "hog" for e in ui_context.evaluations)
-            hog_reference = f"\n{HOG_EVALUATION_REFERENCE}" if has_hog_eval else ""
-
-            evaluations_context = (
-                f"<evaluations_context>The user is editing the following LLM evaluation(s):\n"
-                f"{chr(10).join(eval_details)}"
-                f"{hog_reference}\n"
-                f"</evaluations_context>"
-            )
+        error_tracking_context = self._format_error_tracking_context(ui_context.error_tracking_issues)
+        notebooks_context = await self._format_notebooks_context(ui_context.notebooks)
+        evaluations_context = self._format_evaluations_context(ui_context.evaluations)
 
         if (
             dashboard_context
@@ -452,6 +273,193 @@ class AssistantContextManager(AssistantContextMixin):
                 evaluations_context,
             )
         return None
+
+    def _build_dashboard_context(self, dashboard: MaxDashboardContext) -> DashboardContext:
+        dashboard_filters = (
+            dashboard.filters.model_dump(exclude_none=True)
+            if hasattr(dashboard, "filters") and dashboard.filters
+            else None
+        )
+
+        insights_data: list[DashboardInsightContext] = []
+        for insight in dashboard.insights:
+            filters_override = insight.filtersOverride.model_dump(mode="json") if insight.filtersOverride else None
+            variables_override = (
+                {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
+                if insight.variablesOverride
+                else None
+            )
+            insights_data.append(
+                DashboardInsightContext(
+                    query=insight.query,
+                    name=insight.name,
+                    description=insight.description,
+                    short_id=insight.id,
+                    filters_override=filters_override,
+                    variables_override=variables_override,
+                )
+            )
+
+        return DashboardContext(
+            team=self._team,
+            insights_data=insights_data,
+            user=self._user,
+            name=dashboard.name or f"Dashboard {dashboard.id}",
+            description=dashboard.description,
+            dashboard_id=str(dashboard.id) if dashboard.id else None,
+            dashboard_filters=dashboard_filters,
+        )
+
+    async def _format_dashboards_context(self, dashboards: list[MaxDashboardContext] | None) -> str:
+        if not dashboards:
+            return ""
+
+        dashboard_contexts = []
+        # Budget across ALL attached dashboards, not per dashboard, so several attached
+        # dashboards can't collectively overflow the window even if each one fits on its own.
+        remaining_char_budget = DASHBOARD_CONTEXT_CHAR_BUDGET
+        # Dashboard ids that overflowed the budget, keyed by fallback kind — emitted as one event below.
+        budget_fallbacks: dict[str, list[int]] = {"schema": [], "truncated": []}
+        for dashboard in dashboards:
+            dashboard_ctx = self._build_dashboard_context(dashboard)
+            try:
+                dashboard_text = await dashboard_ctx.execute_and_format()
+                if len(dashboard_text) > remaining_char_budget:
+                    # Too large for the remaining window budget — drop to schema-only (insight
+                    # names + queries, no result tables) so it survives un-summarized; Max keeps
+                    # the read_data tool for specific numbers. format_schema runs no queries.
+                    dashboard_text = await dashboard_ctx.format_schema()
+                    fallback = "schema"
+                    if len(dashboard_text) > remaining_char_budget:
+                        fallback = "truncated"
+                        marker = "\n\n…(dashboard context truncated)"
+                        # No room for even the marker — stop here so the budget can't go negative.
+                        if remaining_char_budget <= len(marker):
+                            budget_fallbacks[fallback].append(dashboard.id)
+                            break
+                        dashboard_text = dashboard_text[: remaining_char_budget - len(marker)] + marker
+                    budget_fallbacks[fallback].append(dashboard.id)
+                remaining_char_budget -= len(dashboard_text)
+                dashboard_contexts.append(format_prompt_string(ROOT_DASHBOARD_CONTEXT_PROMPT, content=dashboard_text))
+            except Exception as e:
+                capture_exception(
+                    e,
+                    distinct_id=self._get_user_distinct_id(self._config),
+                    properties=self._get_debug_props(self._config),
+                )
+                continue
+
+        self._capture_dashboard_budget_exceeded(budget_fallbacks)
+
+        if not dashboard_contexts:
+            return ""
+        return (
+            PromptTemplate.from_template(ROOT_DASHBOARDS_CONTEXT_PROMPT, template_format="mustache")
+            .format_prompt(dashboards="\n\n".join(dashboard_contexts))
+            .to_string()
+        )
+
+    async def _format_insights_context(self, insights: list[MaxInsightContext] | None) -> str:
+        if not insights:
+            return ""
+
+        insight_contexts = [self._build_insight_context(insight) for insight in insights]
+
+        # Execute all standalone insights in parallel
+        insight_tasks = [self._execute_and_format_insight(ctx) for ctx in insight_contexts]
+        insight_results = await asyncio.gather(*insight_tasks, return_exceptions=True)
+
+        # Filter out failed results
+        insights_results: list[str] = [
+            cast(str, result)
+            for result in insight_results
+            if result is not None and not isinstance(result, Exception) and result
+        ]
+
+        if not insights_results:
+            return ""
+        return (
+            PromptTemplate.from_template(ROOT_INSIGHTS_CONTEXT_PROMPT, template_format="mustache")
+            .format_prompt(insights="\n\n".join(insights_results))
+            .to_string()
+        )
+
+    def _format_error_tracking_context(self, issues: list[MaxErrorTrackingIssueContext] | None) -> str:
+        if not issues:
+            return ""
+
+        issue_details = []
+        for issue in issues:
+            name = issue.name or f"Issue {issue.id}"
+            issue_details.append(f'- Issue ID: "{issue.id}", Name: "{name}"')
+        return f"<error_tracking_context>Error tracking issues the user is referring to:\n{chr(10).join(issue_details)}\n</error_tracking_context>"
+
+    async def _format_notebooks_context(self, notebooks: list[MaxNotebookContext] | None) -> str:
+        if not notebooks:
+            return ""
+
+        from ee.hogai.context.notebook.context import NotebookContext
+
+        # Flag lookups read `user.organization`; keep them off the event loop and skip them
+        # when no notebook needs inline authoring guidance.
+        sql_v2_enabled = False
+        widgets_enabled = False
+        if any(nb.markdown_with_insertion_placeholder for nb in notebooks):
+            sql_v2_enabled = await database_sync_to_async(notebooks_facade.is_sql_v2_enabled)(self._user)
+            widgets_enabled = await database_sync_to_async(notebooks_facade.is_notebook_widget_enabled)(self._user)
+        notebook_texts = []
+        reusable_catalog = (
+            await database_sync_to_async(reusable_widget_catalog_context)(team_id=self._team.id, user=self._user)
+            if widgets_enabled
+            else ""
+        )
+        if reusable_catalog:
+            notebook_texts.append(reusable_catalog)
+        for nb in notebooks:
+            if nb.markdown_with_insertion_placeholder:
+                notebook_texts.append(
+                    self._format_markdown_notebook_context(
+                        nb, sql_v2_enabled=sql_v2_enabled, widgets_enabled=widgets_enabled
+                    )
+                )
+                continue
+
+            ctx = await NotebookContext.from_short_id(self._team, nb.id)
+            if ctx:
+                notebook_texts.append(ctx.format())
+
+        if not notebook_texts:
+            return ""
+        return (
+            PromptTemplate.from_template(ROOT_NOTEBOOKS_CONTEXT_PROMPT, template_format="mustache")
+            .format_prompt(notebooks="\n\n".join(notebook_texts))
+            .to_string()
+        )
+
+    def _format_evaluations_context(self, evaluations: list[MaxEvaluationContext] | None) -> str:
+        if not evaluations:
+            return ""
+
+        eval_details = []
+        for evaluation in evaluations:
+            name = evaluation.name or f"Evaluation {evaluation.id}"
+            lines = [f"- Name: {name}"]
+            if evaluation.description:
+                lines.append(f"  Description: {evaluation.description}")
+            lines.append(f"  Type: {evaluation.evaluation_type}")
+            if evaluation.hog_source:
+                lines.append(f"  Current Hog source:\n```hog\n{evaluation.hog_source}\n```")
+            eval_details.append("\n".join(lines))
+
+        has_hog_eval = any(e.evaluation_type == "hog" for e in evaluations)
+        hog_reference = f"\n{HOG_EVALUATION_REFERENCE}" if has_hog_eval else ""
+
+        return (
+            f"<evaluations_context>The user is editing the following LLM evaluation(s):\n"
+            f"{chr(10).join(eval_details)}"
+            f"{hog_reference}\n"
+            f"</evaluations_context>"
+        )
 
     def _format_markdown_notebook_context(
         self, notebook: MaxNotebookContext, *, sql_v2_enabled: bool, widgets_enabled: bool
