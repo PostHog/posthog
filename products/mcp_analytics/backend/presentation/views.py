@@ -304,6 +304,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             properties=params["properties"],
             filter_test_accounts=params["filter_test_accounts"],
             user=cast(User, request.user),
+            summary_only=params["summary_only"],
         )
         return Response(MCPActivityOverviewSerializer(overview).data)
 

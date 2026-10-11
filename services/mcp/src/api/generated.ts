@@ -125668,6 +125668,10 @@ export namespace Schemas {
      * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
      */
     properties?: string;
+    /**
+     * When true, return only stats and top_tools. clients and recent_calls are empty lists, and the request runs fewer queries.
+     */
+    summary_only?: boolean;
     };
 
     export type McpGatewayAuditListParams = {
