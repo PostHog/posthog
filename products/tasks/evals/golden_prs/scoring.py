@@ -103,9 +103,15 @@ def score_diffs(candidate: str, golden: str) -> DiffScores:
 
 
 def _bounded(diff: str) -> str:
+    """Trim each file's section to an equal share, so a change late in a large diff is not cut entirely."""
     if len(diff) <= MAX_DIFF_CHARS_FOR_JUDGE:
         return diff
-    return diff[:MAX_DIFF_CHARS_FOR_JUDGE] + "\n[diff truncated for the judge]\n"
+    sections = re.split(r"(?=^diff --git a/)", diff, flags=re.MULTILINE)
+    share = max(MAX_DIFF_CHARS_FOR_JUDGE // max(len(sections), 1), 500)
+    return "".join(
+        section if len(section) <= share else section[:share] + "\n[file diff truncated for the judge]\n"
+        for section in sections
+    )
 
 
 def judge(

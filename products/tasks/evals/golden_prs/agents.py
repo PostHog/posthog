@@ -1,6 +1,8 @@
 import os
 import json
 import time
+import signal
+import tempfile
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -78,27 +80,46 @@ def agent_failure(run: AgentRun) -> str | None:
     return stderr_lines[-1] if stderr_lines else f"The agent exited with code {run.exit_code}."
 
 
+MAX_CAPTURED_OUTPUT_BYTES = 2_000_000
+
+
+def _tail(path: Path) -> str:
+    with path.open("rb") as handle:
+        size = handle.seek(0, os.SEEK_END)
+        handle.seek(max(0, size - MAX_CAPTURED_OUTPUT_BYTES))
+        return handle.read().decode(errors="replace")
+
+
 def run_agent(runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_seconds: int) -> AgentRun:
     # Read before the agent runs: a failing version probe after a completed run would otherwise
     # raise past the point where the caller collects the diff and log, discarding both.
     version = agent_version(runtime)
     started = time.monotonic()
     timed_out = False
-    try:
-        completed = subprocess.run(
-            agent_command(runtime, model),
-            cwd=workdir,
-            env=agent_environment(os.environ, runtime),
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
-        exit_code, stdout, stderr = completed.returncode, completed.stdout, completed.stderr
-    except subprocess.TimeoutExpired as expired:
-        timed_out = True
-        exit_code, stdout, stderr = -1, _decode(expired.stdout), _decode(expired.stderr)
+    # Output goes to files outside the checkout, so a verbose run cannot exhaust memory and only its tail is kept.
+    with tempfile.TemporaryDirectory(prefix="golden-agent-out-") as out_dir:
+        stdout_path, stderr_path = Path(out_dir, "stdout"), Path(out_dir, "stderr")
+        with stdout_path.open("wb") as stdout_file, stderr_path.open("wb") as stderr_file:
+            # Its own process group, so a timeout can stop the shell commands the agent started too.
+            process = subprocess.Popen(
+                agent_command(runtime, model),
+                cwd=workdir,
+                env=agent_environment(os.environ, runtime),
+                stdin=subprocess.PIPE,
+                stdout=stdout_file,
+                stderr=stderr_file,
+                text=True,
+                start_new_session=True,
+            )
+            try:
+                process.communicate(input=prompt, timeout=timeout_seconds)
+                exit_code = process.returncode
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                exit_code = -1
+            finally:
+                _kill_process_group(process)
+        stdout, stderr = _tail(stdout_path), _tail(stderr_path)
     return AgentRun(
         runtime=runtime,
         model=model,
@@ -111,7 +132,9 @@ def run_agent(runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_
     )
 
 
-def _decode(output: str | bytes | None) -> str:
-    if output is None:
-        return ""
-    return output.decode(errors="replace") if isinstance(output, bytes) else output
+def _kill_process_group(process: subprocess.Popen[str]) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()

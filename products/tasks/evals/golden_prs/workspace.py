@@ -71,7 +71,10 @@ def ensure_golden_commits(repo: Path, pr: GoldenPR) -> None:
 def _diff(cwd: Path, *args: str) -> str:
     # The scorer reads `a/` and `b/` from the diff headers, so a host `diff.mnemonicPrefix`
     # or `diff.noprefix` setting must not change them.
-    return _git(cwd, "diff", "--src-prefix=a/", "--dst-prefix=b/", *args).stdout
+    # No external diff driver or textconv, which the agent could configure in the checkout to run code.
+    return _git(
+        cwd, "diff", "--no-ext-diff", "--no-textconv", "--src-prefix=a/", "--dst-prefix=b/", *args, deny_secrets=True
+    ).stdout
 
 
 def golden_diff(repo: Path, pr: GoldenPR) -> str:

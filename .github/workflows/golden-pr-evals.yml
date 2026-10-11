@@ -37,9 +37,6 @@ on:
 permissions:
     contents: read
 
-env:
-    RESULTS_DIR: /tmp/golden-pr-results
-
 jobs:
     plan:
         name: Select golden PRs
@@ -47,6 +44,7 @@ jobs:
         timeout-minutes: 5
         outputs:
             prs: ${{ steps.select.outputs.prs }}
+            count: ${{ steps.select.outputs.count }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -65,6 +63,8 @@ jobs:
                   golden = [entry["number"] for entry in json.load(open("products/tasks/evals/golden_prs/golden_prs.json"))]
                   wanted = os.environ["PRS"].strip()
                   selected = golden if wanted == "all" else [int(n) for n in wanted.split(",") if n.strip()]
+                  if not selected:
+                      raise SystemExit("Select at least one golden PR, or pass 'all'.")
                   unknown = sorted(set(selected) - set(golden))
                   if unknown:
                       raise SystemExit(f"Not in the golden set: {unknown}")
@@ -72,6 +72,7 @@ jobs:
                   EOF
                   )
                   echo "prs=$prs" >> "$GITHUB_OUTPUT"
+                  echo "count=$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$prs")" >> "$GITHUB_OUTPUT"
 
     evaluate:
         name: PR ${{ matrix.pr }}
@@ -131,9 +132,9 @@ jobs:
                   RUNTIME: ${{ inputs.runtime }}
               run: |
                   if [ "$RUNTIME" = "codex" ]; then
-                      npm install -g @openai/codex
+                      npm install -g @openai/codex@0.162.1
                   else
-                      npm install -g @anthropic-ai/claude-code
+                      npm install -g @anthropic-ai/claude-code@2.1.296
                   fi
                   "$RUNTIME" --version
 
@@ -178,20 +179,20 @@ jobs:
                       ${MODEL:+--model "$MODEL"} \
                       --judge-model "$JUDGE_MODEL" \
                       --case-timeout "$((10#$CASE_TIMEOUT_MINUTES * 60))" \
-                      --results-dir "$RESULTS_DIR"
+                      --results-dir /tmp/golden-pr-results
 
             - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               # Keep the diff and agent log of a failed case too; they are what explains the failure.
               if: always() && steps.gate.outputs.enabled == 'true'
               with:
                   name: golden-pr-${{ matrix.pr }}
-                  path: ${{ env.RESULTS_DIR }}
+                  path: /tmp/golden-pr-results
                   if-no-files-found: warn
 
     report:
         name: Score summary
-        needs: evaluate
-        if: ${{ !cancelled() }}
+        needs: [plan, evaluate]
+        if: ${{ !cancelled() && needs.plan.outputs.prs != '[]' }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
@@ -212,23 +213,24 @@ jobs:
             - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
                   pattern: golden-pr-*
-                  path: ${{ env.RESULTS_DIR }}
+                  path: /tmp/golden-pr-results
                   merge-multiple: true
 
             - name: Publish the score table
               env:
                   RUNTIME: ${{ inputs.runtime }}
                   MODEL: ${{ inputs.model }}
+                  EXPECTED: ${{ needs.plan.outputs.count }}
               run: |
                   set -o pipefail
                   python3 -m pip install --quiet 'anthropic>=0.80,<1' 'pydantic>=2,<3'
                   {
                       echo "## Golden PR evals: $RUNTIME ${MODEL:-default model}"
                       echo ""
-                      python3 -m products.tasks.evals.golden_prs report --results-dir "$RESULTS_DIR"
+                      python3 -m products.tasks.evals.golden_prs report --results-dir /tmp/golden-pr-results --expected "$EXPECTED"
                   } | tee -a "$GITHUB_STEP_SUMMARY"
 
             - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
               with:
                   name: golden-pr-results
-                  path: ${{ env.RESULTS_DIR }}
+                  path: /tmp/golden-pr-results

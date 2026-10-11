@@ -31,6 +31,7 @@ class CaseResult:
     duration_seconds: float
     exit_code: int
     timed_out: bool
+    failure: str | None
     scores: DiffScores
     judge_score: float
     judge_reasoning: str
@@ -39,11 +40,18 @@ class CaseResult:
     candidate_files: list[str]
 
 
-def verdict_for(run: AgentRun, prompt: str, candidate: str, golden: str, judge_model: str) -> Verdict:
+def verdict_for(
+    run: AgentRun, prompt: str, candidate: str, golden: str, judge_model: str
+) -> tuple[Verdict, str | None]:
+    """The verdict, and the failure that makes it unreliable: the agent exiting non-zero or the judge raising."""
     failure = agent_failure(run)
     if failure and not candidate.strip():
-        return Verdict(score=0.0, reasoning=f"The agent failed before changing any file: {failure}")
-    return judge(prompt, candidate, golden, model=judge_model)
+        return Verdict(score=0.0, reasoning=f"The agent failed before changing any file: {failure}"), failure
+    try:
+        return judge(prompt, candidate, golden, model=judge_model), failure
+    except Exception as error:
+        # The agent run is already paid for; keep its diff and log rather than lose them to a judge outage.
+        return Verdict(score=0.0, reasoning="The judge request failed."), failure or f"The judge failed: {error}"
 
 
 def evaluate(
@@ -57,7 +65,7 @@ def evaluate(
         baseline_sha = baseline_commit(workdir)
         run = run_agent(runtime, model, prompt, workdir, timeout_seconds)
         candidate = candidate_diff(workdir, baseline_sha)
-    verdict = verdict_for(run, prompt, candidate, golden, judge_model)
+    verdict, failure = verdict_for(run, prompt, candidate, golden, judge_model)
     result = CaseResult(
         pr=pr.number,
         title=pr.title,
@@ -70,6 +78,7 @@ def evaluate(
         duration_seconds=run.duration_seconds,
         exit_code=run.exit_code,
         timed_out=run.timed_out,
+        failure=failure,
         scores=score_diffs(candidate, golden),
         judge_score=verdict.score,
         judge_reasoning=verdict.reasoning,
@@ -95,23 +104,35 @@ def _cost(usage: dict[str, float | int]) -> str:
     return f"{usage['total_cost_usd']:.2f}" if "total_cost_usd" in usage else "—"
 
 
-def report(results: list[dict]) -> str:
+def report(results: list[dict], expected: int | None = None) -> str:
     if not results:
         return "No results found.\n"
+    scored = [r for r in results if not r.get("failure")]
     header = "| PR | Title | Author | Agent | Files hit | Line F1 | Judge | Minutes | Cost $ |\n|---|---|---|---|---|---|---|---|---|\n"
     rows = [
         f"| #{r['pr']} | {r['title']} | {r['author']} | {r['runtime']} {r['model']} "
         f"| {r['scores']['file_recall']:.2f} | {r['scores']['added_line_f1']:.2f} | {r['judge_score']:.2f} "
-        f"| {r['duration_seconds'] / 60:.1f}{' (timed out)' if r['timed_out'] else ''} "
+        f"| {r['duration_seconds'] / 60:.1f}{' (timed out)' if r['timed_out'] else ''}{' (FAILED, not in mean)' if r.get('failure') else ''} "
         f"| {_cost(r['usage'])} |"
         for r in results
     ]
     means = (
-        f"| **Mean** | | | | {mean(r['scores']['file_recall'] for r in results):.2f} "
-        f"| {mean(r['scores']['added_line_f1'] for r in results):.2f} | {mean(r['judge_score'] for r in results):.2f} | | |"
+        f"| **Mean** | | | | {mean(r['scores']['file_recall'] for r in scored):.2f} "
+        f"| {mean(r['scores']['added_line_f1'] for r in scored):.2f} | {mean(r['judge_score'] for r in scored):.2f} | | |"
+        if scored
+        else "| **Mean** | | | | n/a | n/a | n/a | | |"
     )
-    reasoning = "\n".join(f"- **#{r['pr']}** ({r['judge_score']:.2f}): {r['judge_reasoning']}" for r in results)
-    return f"{header}{'\n'.join(rows)}\n{means}\n\n### Judge reasoning\n\n{reasoning}\n"
+    reasoning = "\n".join(
+        f"- **#{r['pr']}** ({r['judge_score']:.2f}): {r['judge_reasoning']}"
+        + (f" Failure: {r['failure']}" if r.get("failure") else "")
+        for r in results
+    )
+    warning = (
+        f"> **Incomplete:** {len(results)} of {expected} selected PRs produced a result.\n\n"
+        if expected is not None and len(results) < expected
+        else ""
+    )
+    return f"{warning}{header}{'\n'.join(rows)}\n{means}\n\n### Judge reasoning\n\n{reasoning}\n"
 
 
 def _positive_int(value: str) -> int:
@@ -135,6 +156,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     run.add_argument("--repo", type=Path, default=REPO_ROOT, help="A posthog checkout to fetch golden commits into.")
     show = commands.add_parser("report", help="Print a markdown summary of results.")
     show.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
+    show.add_argument(
+        "--expected", type=_positive_int, help="Number of PRs that were selected, to flag a partial report."
+    )
     return parser.parse_args(argv)
 
 
@@ -146,20 +170,29 @@ def main(argv: list[str]) -> int:
             print(f"#{pr.number}\t{pr.merged_at[:10]}\t{pr.author}\t{pr.title}")
         return 0
     if args.command == "report":
-        print(report(load_results(args.results_dir)))
+        print(report(load_results(args.results_dir), args.expected))
         return 0
     selected = select_golden_prs(golden_prs, args.pr) if args.pr else golden_prs
     model = args.model or DEFAULT_MODELS[args.runtime]
     results_dir = args.results_dir / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{args.runtime}-{uuid4().hex}"
     results_dir.mkdir(parents=True, exist_ok=False)
+    errored: list[int] = []
     for pr in selected:
         print(f"#{pr.number} {pr.title}: running {args.runtime} {model}", flush=True)
-        result, candidate, agent_log = evaluate(pr, args.runtime, model, args.judge_model, args.case_timeout, args.repo)
-        write_result(results_dir, result, candidate, agent_log)
+        try:
+            result, candidate, agent_log = evaluate(
+                pr, args.runtime, model, args.judge_model, args.case_timeout, args.repo
+            )
+            write_result(results_dir, result, candidate, agent_log)
+        except Exception as error:
+            # One broken case must not stop the rest of the batch.
+            errored.append(pr.number)
+            print(f"#{pr.number}: failed before producing a result: {error}", file=sys.stderr, flush=True)
+            continue
         print(f"#{pr.number}: judge {result.judge_score:.2f}, files hit {result.scores.file_recall:.2f}", flush=True)
     print(f"\nResults in {results_dir}\n")
-    print(report(load_results(results_dir)))
-    return 0
+    print(report(load_results(results_dir), len(selected)))
+    return 1 if errored else 0
 
 
 if __name__ == "__main__":

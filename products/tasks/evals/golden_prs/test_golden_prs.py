@@ -185,9 +185,17 @@ def test_agent_failure_explains_a_non_zero_exit(_name: str, run: AgentRun, expec
 
 
 def test_verdict_for_a_failed_agent_names_the_failure_instead_of_judging():
-    verdict = verdict_for(agent_run(exit_code=1, stderr="boom"), "task", "", GOLDEN, "judge-model")
+    verdict, failure = verdict_for(agent_run(exit_code=1, stderr="boom"), "task", "", GOLDEN, "judge-model")
     assert verdict.score == 0.0
     assert "boom" in verdict.reasoning
+    assert failure == "boom"
+
+
+def test_verdict_for_keeps_the_agent_result_when_the_judge_raises():
+    with patch("products.tasks.evals.golden_prs.__main__.judge", side_effect=RuntimeError("overloaded")):
+        verdict, failure = verdict_for(agent_run(), "task", "diff", GOLDEN, "judge-model")
+    assert verdict.score == 0.0
+    assert failure is not None and "overloaded" in failure
 
 
 @parameterized.expand([("mnemonic prefixes", "diff.mnemonicPrefix"), ("no prefixes", "diff.noprefix")])
@@ -265,12 +273,14 @@ def test_report_lists_each_case_and_the_mean():
             "judge_score": 0.0,
             "duration_seconds": 1800,
             "timed_out": True,
+            "failure": "The agent hit the case timeout.",
             "usage": {},
             "judge_reasoning": "Nothing.",
         },
     ]
-    rendered = report(results)
+    rendered = report(results, expected=3)
+    assert "**Incomplete:** 2 of 3" in rendered
     assert "| #1 | fix: a | pauldambra | claude m | 1.00 | 0.50 | 0.80 | 2.0 | 1.50 |" in rendered
-    assert "| 30.0 (timed out) | — |" in rendered
-    assert "| **Mean** | | | | 0.50 | 0.25 | 0.40 | | |" in rendered
+    assert "| 30.0 (timed out) (FAILED, not in mean) | — |" in rendered
+    assert "| **Mean** | | | | 1.00 | 0.50 | 0.80 | | |" in rendered
     assert report([]) == "No results found.\n"
