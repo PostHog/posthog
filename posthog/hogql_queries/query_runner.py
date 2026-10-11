@@ -329,8 +329,9 @@ class QueryRun:
 
     cache_key: str
     query_identity: QueryIdentity
-    # The query as the runner received it, serialized as the cache key serializes it (defaults
-    # and None dropped, tags removed), so the events can be queried by what was asked.
+    # A serialized copy of the query the runner received, the same copy the cache key uses.
+    # Serialization removes default and None values. The tags key is removed too.
+    # The query events carry it, so you can find the events by what was asked.
     query: dict[str, Any]
     query_id: Optional[str]
     execution_mode: ExecutionMode
