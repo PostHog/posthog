@@ -218,10 +218,10 @@ def _with_integration_keys(inputs_schema: Any, reference: Any) -> Any:
     """
     if not isinstance(inputs_schema, list) or not isinstance(reference, list):
         return inputs_schema
-    by_key = {item["key"]: item for item in reference if isinstance(item, dict) and item.get("key")}
+    by_key = {item["key"]: item for item in reference if isinstance(item, dict) and isinstance(item.get("key"), str)}
     restored = []
     for item in inputs_schema:
-        source = by_key.get(item.get("key")) if isinstance(item, dict) else None
+        source = by_key.get(item["key"]) if isinstance(item, dict) and isinstance(item.get("key"), str) else None
         if not source or source.get("type") != item.get("type"):
             restored.append(item)
             continue
@@ -237,11 +237,14 @@ def _mappings_with_integration_keys(mappings: Any, reference: Any) -> Any:
     by_name = {
         mapping["name"]: mapping.get("inputs_schema")
         for mapping in reference
-        if isinstance(mapping, dict) and mapping.get("name")
+        if isinstance(mapping, dict) and isinstance(mapping.get("name"), str)
     }
     return [
         {**mapping, "inputs_schema": _with_integration_keys(mapping["inputs_schema"], by_name[mapping["name"]])}
-        if isinstance(mapping, dict) and "inputs_schema" in mapping and mapping.get("name") in by_name
+        if isinstance(mapping, dict)
+        and "inputs_schema" in mapping
+        and isinstance(mapping.get("name"), str)
+        and mapping["name"] in by_name
         else mapping
         for mapping in mappings
     ]
