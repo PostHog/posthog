@@ -292,7 +292,7 @@ class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterProper
         required=True,
         help_text="Cohort property type required for in/not_in operators.",
     )
-    operator = serializers.ChoiceField(
+    operator = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=["in", "not_in"],
         required=True,
         help_text="Membership operator for cohort properties.",
@@ -304,12 +304,12 @@ class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterProper
 
 
 class FeatureFlagFilterPropertyFlagEvaluatesSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
-    type = serializers.ChoiceField(
+    type = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=["flag"],
         required=True,
         help_text="Flag property type required for flag dependency checks.",
     )
-    operator = serializers.ChoiceField(
+    operator = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         choices=["flag_evaluates_to"],
         required=True,
         help_text="Operator for feature flag dependency evaluation.",
@@ -519,7 +519,7 @@ All of the below are property aggregations, and require `math_property` to be se
 class FilterEventSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Name of the event to filter on. For example `$pageview` or `user sign up`.")
     properties = PropertySerializer(many=True, required=False)
-    math = serializers.ChoiceField(
+    math = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         help_text=math_help_text,
         choices=get_args(MathType),
         default="total",
@@ -530,7 +530,7 @@ class FilterEventSerializer(serializers.Serializer):
 class FilterActionSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="ID of the action to filter on. For example `2841`.")
     properties = PropertySerializer(many=True, required=False)
-    math = serializers.ChoiceField(
+    math = serializers.ChoiceField(  # nosemgrep: choices-need-a-class -- component names of these enums are part of the generated API
         help_text=math_help_text,
         choices=get_args(MathType),
         default="total",
