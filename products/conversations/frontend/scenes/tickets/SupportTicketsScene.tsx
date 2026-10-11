@@ -5,9 +5,12 @@ import { useEffect, useMemo, useRef } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { SceneExport } from 'scenes/sceneTypes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -46,13 +49,65 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
         selectedTicketIds,
         searchQuery,
         hasActiveFilters,
+        keyboardFocusedIndex,
     } = useValues(logic)
-    const { setCurrentPage, setSorting, setSelectedTicketIds, clearFiltersKeepingSearch } = useActions(logic)
+    const {
+        setCurrentPage,
+        setSorting,
+        setSelectedTicketIds,
+        clearFiltersKeepingSearch,
+        moveKeyboardFocus,
+        openKeyboardFocusedTicket,
+    } = useActions(logic)
     const { visibleColumns } = useValues(ticketColumnsLogic)
     const { push } = useActions(router)
     const { searchParams } = useValues(router)
     const { currentTeam } = useValues(teamLogic)
     const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
+    const { featureFlags } = useValues(featureFlagLogic)
+    // The embedded table shares its host page with other shortcuts, so only the scene gets them
+    const shortcutsDisabled = embedded || !featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_KEYBOARD_SHORTCUTS]
+
+    useShortcut({
+        name: 'support-tickets-next',
+        keybind: [['j']],
+        intent: 'Next ticket',
+        interaction: 'function',
+        scope: Scene.SupportTickets,
+        callback: () => moveKeyboardFocus(1),
+        disabled: shortcutsDisabled,
+        priority: 3,
+    })
+    useShortcut({
+        name: 'support-tickets-previous',
+        keybind: [['k']],
+        intent: 'Previous ticket',
+        interaction: 'function',
+        scope: Scene.SupportTickets,
+        callback: () => moveKeyboardFocus(-1),
+        disabled: shortcutsDisabled,
+        priority: 2,
+    })
+    useShortcut({
+        name: 'support-tickets-open',
+        keybind: [['enter'], ['o']],
+        intent: 'Open ticket',
+        interaction: 'function',
+        scope: Scene.SupportTickets,
+        callback: openKeyboardFocusedTicket,
+        // Enter stays with buttons and menus until the user picks a row with j or k
+        disabled: shortcutsDisabled || keyboardFocusedIndex === null,
+        priority: 1,
+    })
+
+    useEffect(() => {
+        if (keyboardFocusedIndex === null) {
+            return
+        }
+        document
+            .querySelector(`[data-support-ticket-row-index="${keyboardFocusedIndex}"]`)
+            ?.scrollIntoView({ block: 'nearest' })
+    }, [keyboardFocusedIndex])
 
     const getKey = useMemo(() => (t: Ticket) => t.id, [])
     const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
@@ -156,7 +211,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                         ? () => setCurrentPage(currentPage + 1)
                         : undefined,
             }}
-            onRow={(ticket) => {
+            onRow={(ticket, index) => {
                 // Carry the active filters / saved view (the list's query string) onto the
                 // ticket URL so the ticket's back arrow can return to this exact view. Skip it
                 // when embedded (e.g. the person side panel), where the host page's query
@@ -166,6 +221,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                     embedded ? {} : searchParams
                 ).url
                 return {
+                    'data-support-ticket-row-index': embedded ? undefined : index,
                     onClick: (e: React.MouseEvent) => {
                         if (e.metaKey || e.ctrlKey) {
                             e.preventDefault()
@@ -189,6 +245,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                     'bg-primary-alt-highlight': ticket.unread_team_count > 0,
                 })
             }
+            rowStatus={(_, index) => (index === keyboardFocusedIndex ? 'highlighted' : null)}
             columns={columns}
         />
     )
