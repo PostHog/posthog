@@ -144,6 +144,34 @@ class TestPagination:
         manager.save_state.assert_not_called()
 
 
+class TestLiveFeedEventsFanout:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fetches_events_per_live_feed_message_and_skips_missing_messages(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _resp({"results": [{"_id": "m1"}], "next": "cur2", "hasNext": True}),
+                _resp({"results": [{"_id": "e1", "type": "opened"}, {"_id": "e2", "type": "replied"}]}),
+                _resp({"results": [{"_id": "m2"}], "hasNext": False}),
+                _resp({}, status=404),
+            ],
+        )
+
+        rows = _run(session, "live_feed_events", _make_manager())
+
+        assert rows == [
+            {"_id": "e1", "type": "opened", "message_id": "m1"},
+            {"_id": "e2", "type": "replied", "message_id": "m1"},
+        ]
+        assert snaps == [
+            {"url": "https://api.mixmax.com/v1/livefeed", "params": {"limit": 100}},
+            {"url": "https://api.mixmax.com/v1/livefeed/events?messageId=m1", "params": {"wasSentViaMixmax": "true"}},
+            {"url": "https://api.mixmax.com/v1/livefeed?limit=100&next=cur2", "params": {}},
+            {"url": "https://api.mixmax.com/v1/livefeed/events?messageId=m2", "params": {"wasSentViaMixmax": "true"}},
+        ]
+
+
 class TestRetryClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     @mock.patch("tenacity.nap.time.sleep")

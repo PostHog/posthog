@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 # endpoint carries incremental fields.
 MIXMAX_INCREMENTAL_FIELDS: dict[str, list] = {}
 MIXMAX_DESCRIPTIONS = {name: config.description for name, config in MIXMAX_ENDPOINTS.items() if config.description}
+MIXMAX_SHOULD_SYNC_DEFAULT = {name: config.should_sync_default for name, config in MIXMAX_ENDPOINTS.items()}
 
 
 @SourceRegistry.register
@@ -105,6 +106,7 @@ API access requires a Growth+ or Enterprise plan with the API feature enabled on
             MIXMAX_INCREMENTAL_FIELDS,
             names,
             descriptions=MIXMAX_DESCRIPTIONS,
+            should_sync_default=MIXMAX_SHOULD_SYNC_DEFAULT,
         )
 
     def validate_credentials(
