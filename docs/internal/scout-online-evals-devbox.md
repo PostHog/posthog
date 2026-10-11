@@ -37,6 +37,19 @@ This setting also installs the private-trial analytics filter when backend and w
 Deploy the backend, scout orchestration worker and Tasks worker from the same code revision before enabling trials; use `TEMPORAL_DISABLE_HOT_RELOAD=1` during paid runs. The scout worker uses the video-export queue. The Tasks worker provisions the sandboxes. Removing the old Tasks validation does not change the ordinary judge path, but new scout launches require the updated Tasks worker.
 Revoke or expire private tokens before rolling the gateway back to a version without private capture support.
 
+## Run through MCP
+
+1. Find an existing scout with `scout-config-list`, or create an idea to test with `scout-create` and `config.enabled=false` so scheduling does not interfere.
+2. Call `scout-trial-setup` for readiness, source version, and supported model/effort choices.
+3. Read `scout-rubric-get`. If generation is needed, call `scout-rubric-generate` and poll `scout-rubric-get`; inspect the suggestions, summary, and captured `generation.reference_context`.
+4. Use `scout-rubric-save` with the latest `revision` and complete selected criteria, retaining all default IDs. Set `adopt_generation_id` to the current completed `generation.id` to adopt its reference; generation alone does not save or adopt it.
+5. Call `scout-trial-start` with a baseline and variants, stable comparison/variant/launch UUIDs, and `expected_skill_version`. Each variant can replace its `skill_body`; the optional `note` steers every run. Retain the exact request for retries.
+6. Poll `scout-trial-report` through execution and judging, then inspect criterion evidence, failures, coverage, and cost before drawing conclusions.
+
+`scout-trial-list` returns progress and IDs; fetch judgments with `scout-trial-report`. Use `scout-trial-resume` to recover an interrupted plan and `scout-trial-archive` to hide or restore finished trials.
+The lower-level `scout-trial-create` / `scout-trial-get` pair runs a single private scout without automatic judging. A trial does not apply a candidate or enable scheduling; agents can do that with `skill-update` and `scout-config-update` when part of the requested work.
+See the [scout authoring reference](../../products/signals/skills/authoring-scouts/references/lifecycle-and-testing.md#private-trials-with-a-saved-rubric) for selection, adoption, and comparison details.
+
 ## Run one trial
 
 1. Open `/project/2/inbox/scout-trials`, search for and select the scout, then select **New trial**. Resolve any setup blocker shown. The picker lists scouts by display name; the old `/project/2/scout-trials` address redirects here. Trials have a separate path so existing scout names remain valid.

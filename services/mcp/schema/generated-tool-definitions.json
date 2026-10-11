@@ -11496,6 +11496,48 @@
             "readOnlyHint": true
         }
     },
+    "scout-rubric-generate": {
+        "description": "Start background rubric generation for a scout. Optional context explains what you want to evaluate; suggestions still cover the scout's full assignment. Poll scout-rubric-get until generation finishes. Generation does not replace saved criteria or adopt the captured scout reference. Review the suggestions, summary, and generation.reference_context, then select criteria with scout-rubric-save. Requires access to scout rubrics and approved AI data processing.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Generate scout rubric suggestions",
+        "title": "Generate scout rubric suggestions",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-rubric-get": {
+        "description": "Read saved criteria, their revision and adopted scout reference, plus the latest generation's status, suggestions, summary, and captured reference. Use this to poll generation and review criteria before saving. A generation can finish without its reference being adopted. For a judged trial, save enabled criteria and adopt a complete reference with scout-rubric-save. Use fields to poll generation.status and generation.error or read criteria, suggestions, and reference sections separately. Omit fields for the full document. Requires access to scout rubrics.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Read a scout's rubric and suggestions",
+        "title": "Read a scout's rubric and suggestions",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "scout-rubric-save": {
+        "description": "Save the complete selected criterion set using the revision from scout-rubric-get; a stale revision returns 409, so reread before editing again. Keep all six default criteria and disable any that do not apply. Keep selected suggestions' identifiers and source; new custom criteria need custom- identifiers. At most 30 criteria are allowed. Pass adopt_generation_id to use the current completed generation's reviewed scout instructions and references for judging the whole rubric. Omit it to retain the saved reference across prompt iterations. This changes grading criteria, not the scout's instructions or schedule.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Save a scout's rubric",
+        "title": "Save a scout's rubric",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "scout-run-now": {
         "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Pass an optional `note` to steer this run alone (\"focus on the checkout regression\"): the agent reads it next to the scout's durable notes and weighs it the same way, and it is never read by another run — use it instead of `scout-notes-create`, which would also steer every later scheduled run. A run carrying a note needs `llm_skill:write` as well, since the agent reads the note verbatim while holding privileged tools. Returns the workflow id immediately — poll `scout-runs-list` for the resulting run and its findings.",
         "category": "Signals",
@@ -11622,12 +11664,27 @@
             "readOnlyHint": true
         }
     },
-    "scout-trial-create": {
-        "description": "Launch one prompt, model, or effort variant of an existing scout against live data. Memory changes and authored reports stay private to the run. The source scout is unchanged. Requires a deployment configured for private trial capture and skill editor access. Reuse launch_id only to retry the exact same request. Reuse the returned context_id for other variants and repetitions so their initial memory, notes, and source settings match. Poll scout-trial-get for results. Unsupported write actions invalidate the comparison.",
+    "scout-trial-archive": {
+        "description": "Set archived=true to hide a finished trial from history, or false to restore it. Results are retained and no scouts or judges are started. Use the source scout config id and the trial's comparison_id.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Run a private scout variant",
-        "title": "Run a private scout variant",
+        "summary": "Archive or restore a scout trial",
+        "title": "Archive or restore a scout trial",
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "scout-trials"
+    },
+    "scout-trial-create": {
+        "description": "Launch one unjudged prompt, model, or effort variant. For a full trial comparing variants with automatic rubric judging, use scout-trial-start instead. This tool runs against live data. Memory changes and authored reports stay private to the run. The source scout is unchanged. Requires a deployment configured for private trial capture and skill editor access. Reuse launch_id only to retry the exact same request. Reuse the returned context_id for other variants and repetitions so their initial memory, notes, and source settings match. Poll scout-trial-get for results. Unsupported write actions invalidate the comparison.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Run one private scout variant without judging",
+        "title": "Run one private scout variant without judging",
         "required_scopes": ["signal_scout:write", "llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
@@ -11638,17 +11695,92 @@
         "feature_flag": "scout-trials"
     },
     "scout-trial-get": {
-        "description": "Read an operator-owned trial's status, privately captured report payloads, proposed edits, and memory changes. These combine saved context with protected execution state and are available only through this API, not SQL. A null cost means unknown. Sandbox agents cannot use this tool to inspect trials. Use the returned task and run IDs with ordinary log tools.",
+        "description": "Read one operator-owned run's status, privately captured report payloads, proposed edits, and memory changes. These combine saved context with protected execution state and are available only through this API, not SQL. A null cost means unknown. Sandbox agents cannot use this tool to inspect trials. Use the returned task and run IDs with ordinary log tools. Use scout-trial-report for the judged comparison across variants.",
         "category": "Signals",
         "feature": "signals",
-        "summary": "Read a private scout result",
-        "title": "Read a private scout result",
+        "summary": "Read one private scout run's output",
+        "title": "Read one private scout run's output",
         "required_scopes": ["signal_scout:write", "llm_skill:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        },
+        "feature_flag": "scout-trials"
+    },
+    "scout-trial-list": {
+        "description": "List this operator's saved trials for one scout, including progress. Use scout-trial-report with a returned comparison_id to read its judge report. Pass include_archived=true to include archived trials. Preserve and pass next_cursor to read the next page; has_more indicates additional history. Reading history starts no scouts or judges.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List your scout trials",
+        "title": "List your scout trials",
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "scout-trials"
+    },
+    "scout-trial-report": {
+        "description": "Poll a trial started with scout-trial-start using its source scout config id and comparison_id. Returns progress and the saved evaluation, including per-variant results, run failures, and criterion verdicts with evidence. Read failures and unjudged criteria before claiming a winner; cost and speed are separate from rubric quality. Reading starts no scouts or judges. Only the operator who created the trial can read it; sandbox agents cannot inspect operator trials. Use fields for status polling or to read evaluation.report summary, outcome, variants, runs, and evidence separately. Omit fields for the full response.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Read a scout trial's progress and judge report",
+        "title": "Read a scout trial's progress and judge report",
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "scout-trials"
+    },
+    "scout-trial-resume": {
+        "description": "Resume the same saved trial without repeating saved scout runs or judge attempts. Read scout-trial-report first. This continues the saved plan; it does not create new variants or retry completed judge failures. Restore an archived trial before resuming. If the saved plan uses an outdated judge, start a new trial.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Resume an interrupted scout trial",
+        "title": "Resume an interrupted scout trial",
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "scout-trials"
+    },
+    "scout-trial-setup": {
+        "description": "Read the source scout's instructions and version, available models with their supported reasoning efforts, and runtime readiness or blocked_reason. Use the returned choices instead of guessing model identifiers. Read scout-rubric-get separately: runtime readiness does not mean a complete rubric reference is saved. Optional context_id inspects a previously captured starting context. This starts no runs.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Inspect scout trial readiness and model choices",
+        "title": "Inspect scout trial readiness and model choices",
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "scout-trials"
+    },
+    "scout-trial-start": {
+        "description": "Start a full private trial with automatic rubric judging. First read scout-trial-setup and save a complete rubric with scout-rubric-save. Supply up to 20 variants, each with its own model, supported reasoning_effort, optional replacement skill_body, and launch_ids for repetitions. Omit skill_body to use the source prompt. Generate UUIDs for comparison_id, every variant id, and every launch_id; baseline_variant_id must identify one supplied variant. Reuse these IDs only for an exact request retry. Pass expected_skill_version from setup to detect source edits. All variants share a captured starting context and fixed rubric; their reports and memory stay private, and the source scout is unchanged. Poll scout-trial-report through running and judging until it completes. Sandbox agents cannot start or inspect operator trials.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Run and judge scout variants",
+        "title": "Run and judge scout variants",
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         },
         "feature_flag": "scout-trials"
     },

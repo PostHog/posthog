@@ -920,8 +920,18 @@ describe('Tool Filtering - Feature Flags', () => {
     it.each([undefined, false, true])('gates private trial tools on scout-trials: %s', (enabled) => {
         const tools = getToolsForFeatures({ featureFlags: { 'scout-trials': enabled } })
         expect(tools).toContain('scout-runs-list')
-        expect(tools.includes('scout-trial-create')).toBe(enabled === true)
-        expect(tools.includes('scout-trial-get')).toBe(enabled === true)
+        for (const name of [
+            'scout-trial-create',
+            'scout-trial-get',
+            'scout-trial-setup',
+            'scout-trial-start',
+            'scout-trial-report',
+            'scout-trial-resume',
+            'scout-trial-list',
+            'scout-trial-archive',
+        ]) {
+            expect(tools.includes(name), name).toBe(enabled === true)
+        }
     })
 
     const baseAnnotations = {
