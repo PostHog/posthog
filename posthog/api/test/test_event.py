@@ -14,7 +14,7 @@ from posthog.test.base import (
     override_settings,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.utils import timezone
@@ -24,6 +24,7 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client.limit import CONCURRENCY_LIMIT_USER_MESSAGE, ConcurrencyLimitExceeded
 from posthog.models import Element, Organization, PropertyDefinition, User
 from posthog.models.event.legacy_events_query import _execute_events_list_query
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -1030,6 +1031,21 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=50000").json()
         assert len(response["results"]) == 2
+
+    def test_list_returns_429_without_internal_key_when_concurrency_limit_is_full(self):
+        raw = "Exceeded maximum concurrency limit: 3 for key: events_list:team-id-9 and task: abc"
+        with (
+            patch(
+                "posthog.models.event.legacy_events_query.get_events_list_rate_limiter",
+                return_value=MagicMock(run=MagicMock(side_effect=ConcurrencyLimitExceeded(raw))),
+            ),
+            patch("posthog.api.event.capture_exception") as mock_capture,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/")
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["detail"] == CONCURRENCY_LIMIT_USER_MESSAGE
+        mock_capture.assert_not_called()
 
     @patch("posthog.api.event.get_persons_mapped_by_distinct_id")
     def test_list_without_include_person_skips_person_lookup(self, mock_get_persons):
