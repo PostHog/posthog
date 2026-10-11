@@ -119,23 +119,17 @@ jobs:
                   # token with contents write; this needs only actions write (see
                   # the job comment). ref=main pins the gate to cloud-infra main's
                   # workflow definition and overrides.
-                  gh api "repos/$repo/actions/workflows/$workflow/dispatches" \
+                  run_id="$(gh api "repos/$repo/actions/workflows/$workflow/dispatches" \
                     -f ref=main \
                     -f "inputs[posthog_ref]=$POSTHOG_REF" \
                     -f "inputs[correlation_id]=$correlation_id" \
-                    -f "inputs[pr]=$PR_NUMBER"
+                    -f "inputs[pr]=$PR_NUMBER" \
+                    -F return_run_details=true \
+                    --jq '.workflow_run_id')"
                   echo "dispatched $workflow ref=$POSTHOG_REF correlation=$correlation_id"
 
-                  # The run-name echoes the correlation id; find our run, then wait it out.
-                  run_id=""
-                  for _ in $(seq 1 24); do  # up to ~2 min for the run to appear
-                    sleep 5
-                    run_id="$(gh api "repos/$repo/actions/workflows/$workflow/runs?event=workflow_dispatch&per_page=30" \
-                      --jq ".workflow_runs[] | select(.name | contains(\"$correlation_id\")) | .id" | head -1)"
-                    if [ -n "$run_id" ]; then break; fi
-                  done
                   if [ -z "$run_id" ]; then
-                    echo "::error::compose-gate run never appeared in $repo (correlation $correlation_id)"
+                    echo "::error::the dispatch to $repo returned no run id (correlation $correlation_id)"
                     exit 1
                   fi
                   run_url="https://github.com/$repo/actions/runs/$run_id"
