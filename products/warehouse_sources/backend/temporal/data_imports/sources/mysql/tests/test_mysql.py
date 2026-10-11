@@ -55,6 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_metadata_query_reset,
     _is_transient_no_available_tidb_instances,
     _is_transient_packet_sequence_error,
+    _is_transient_proxysql_hostgroup_unreachable,
     _is_transient_tablet_unavailable,
     _is_transient_tiproxy_unavailable,
     _is_transient_too_many_connections,
@@ -2092,6 +2093,33 @@ class TestIsTransientNoAvailableTidbInstances:
         )
 
 
+class TestIsTransientProxysqlHostgroupUnreachable:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Max connect timeout reached while reaching hostgroup 0 after 10000ms",
+            "Max connect timeout reached while reaching hostgroup 20 after 3000ms",
+        ],
+    )
+    def test_matches_hostgroup_unreachable(self, message):
+        assert _is_transient_proxysql_hostgroup_unreachable(pymysql.err.OperationalError(9001, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (1105, "Max connect timeout reached while reaching hostgroup 0 after 10000ms"),
+            (9001, "Some other ProxySQL error"),
+            (1105, "TiProxy fails to connect to TiDB, please make sure TiDB is available"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_errors(self, code, message):
+        assert not _is_transient_proxysql_hostgroup_unreachable(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_proxysql_hostgroup_unreachable(pymysql.err.OperationalError())
+
+
 class TestIsTransientMetadataQueryReset:
     def test_matches_connection_reset_mid_query(self):
         # A peer reset landing on an already-open connection while a metadata query (e.g.
@@ -2147,41 +2175,32 @@ class TestRetryOnTransientTabletUnavailable:
         assert operation.call_count == fail_count + 1
         assert [c.args[0] for c in sleep.call_args_list] == expected_sleeps
 
-    def test_retries_vitess_reparent_then_succeeds(self, mocker):
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pymysql.err.OperationalError(
+                1105,
+                "unknown: target: keyspace.-.primary: primary is not serving, "
+                "there may be a reparent operation in progress",
+            ),
+            pymysql.err.OperationalError(
+                2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
+            ),
+            # A vtgate dial timeout to a backend tablet (error 1815) can land on a metadata query
+            # against an already-open connection, not just at connect time — `connect()` succeeding
+            # doesn't retry it, so this wrapper must.
+            pymysql.err.OperationalError(
+                1815,
+                "internal connection error: dial tcp 10.0.0.1:8083: connect: connection timed out, "
+                "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
+            ),
+            pymysql.err.OperationalError(9001, "Max connect timeout reached while reaching hostgroup 0 after 10000ms"),
+        ],
+        ids=["vitess_reparent", "metadata_query_connection_reset", "vitess_dial_timeout", "proxysql_hostgroup"],
+    )
+    def test_retries_transient_error_then_succeeds(self, mocker, error):
         mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
-        reparent = pymysql.err.OperationalError(
-            1105,
-            "unknown: target: keyspace.-.primary: primary is not serving, "
-            "there may be a reparent operation in progress",
-        )
-        operation = MagicMock(side_effect=[reparent, "ok"])
-
-        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
-
-        assert operation.call_count == 2
-
-    def test_retries_metadata_query_connection_reset_then_succeeds(self, mocker):
-        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
-        reset = pymysql.err.OperationalError(
-            2013, "Lost connection to MySQL server during query ([Errno 104] Connection reset by peer)"
-        )
-        operation = MagicMock(side_effect=[reset, "ok"])
-
-        assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
-
-        assert operation.call_count == 2
-
-    def test_retries_vitess_dial_timeout_then_succeeds(self, mocker):
-        # A vtgate dial timeout to a backend tablet (error 1815) can land on a metadata query
-        # against an already-open connection, not just at connect time — `connect()` succeeding
-        # doesn't retry it, so this wrapper must.
-        mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
-        dial_timeout = pymysql.err.OperationalError(
-            1815,
-            "internal connection error: dial tcp 10.0.0.1:8083: connect: connection timed out, "
-            "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
-        )
-        operation = MagicMock(side_effect=[dial_timeout, "ok"])
+        operation = MagicMock(side_effect=[error, "ok"])
 
         assert _retry_on_transient_tablet_unavailable(operation, MagicMock()) == "ok"
 
@@ -2943,6 +2962,18 @@ class TestMySQLSourceNonRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"No-available-TiDB-instances error should be classified retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "OperationalError: (9001, 'Max connect timeout reached while reaching hostgroup 0 after 10000ms')",
+            "Max connect timeout reached while reaching hostgroup 0 after 10000ms",
+        ],
+    )
+    def test_proxysql_hostgroup_unreachable_is_classified_retryable(self, source, error_msg):
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"ProxySQL hostgroup-unreachable error should be classified retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
