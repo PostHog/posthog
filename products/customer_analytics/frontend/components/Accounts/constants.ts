@@ -58,6 +58,7 @@ export const AccountsEvents = {
     UsageIntervalChanged: 'customer analytics account usage interval changed',
     UsageSeriesToggled: 'customer analytics account usage series toggled',
     UsageSeriesBulkToggled: 'customer analytics account usage series bulk toggled',
+    BillingQueryStalled: 'customer analytics account billing query stalled',
     RelatedUserClicked: 'customer analytics account related user clicked',
     RelatedUsersSearched: 'customer analytics account related users searched',
     RelatedUsersFiltered: 'customer analytics account related users filtered',
