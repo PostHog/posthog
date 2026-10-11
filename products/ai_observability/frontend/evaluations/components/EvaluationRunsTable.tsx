@@ -10,7 +10,7 @@ import { EvaluationExplanation } from '../../components/EvaluationExplanation'
 import { EvaluationResultTag, compareEvaluationResults } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
 import { EvaluationRunTimestampCell } from '../../components/EvaluationRunTimestampCell'
-import { evaluationIsDetector } from '../constants'
+import { EVALUATION_RUNS_QUERY_LIMIT, evaluationIsDetector } from '../constants'
 import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun, SentimentEvaluationRunsFilter } from '../types'
@@ -49,8 +49,10 @@ export function EvaluationRunsTable(): JSX.Element {
         evaluationRunsLoading,
         runsDateRange,
         runsBackfillId,
+        evaluationRunsHasMore,
+        runsSummary,
     } = useValues(llmEvaluationLogic)
-    const { refreshEvaluationRuns, setRunsDates } = useActions(llmEvaluationLogic)
+    const { refreshEvaluationRuns, setRunsDates, loadOlderEvaluationRuns } = useActions(llmEvaluationLogic)
     const showOutcomeFilters =
         evaluation?.output_type === 'numeric' ||
         evaluation?.output_type === 'categorical' ||
@@ -195,6 +197,29 @@ export function EvaluationRunsTable(): JSX.Element {
                 }}
                 emptyState={emptyState}
             />
+
+            {(evaluationRunsHasMore || evaluationRuns.length > EVALUATION_RUNS_QUERY_LIMIT) && !evaluationRunsError && (
+                <div className="flex flex-wrap gap-2 justify-center items-center">
+                    <span className="text-muted text-sm">
+                        {!evaluationRunsHasMore
+                            ? `Showing all ${evaluationRuns.length.toLocaleString()} runs.`
+                            : runsSummary && runsSummary.total > evaluationRuns.length
+                              ? `Showing the latest ${evaluationRuns.length.toLocaleString()} of ${runsSummary.total.toLocaleString()} runs.`
+                              : `Showing the latest ${evaluationRuns.length.toLocaleString()} runs.`}
+                    </span>
+                    {evaluationRunsHasMore && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => loadOlderEvaluationRuns()}
+                            loading={evaluationRunsLoading}
+                            data-attr="llma-evaluation-runs-load-older"
+                        >
+                            Load older runs
+                        </LemonButton>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
