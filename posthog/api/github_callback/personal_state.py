@@ -35,9 +35,12 @@ class PersonalGitHubDiscovery:
 
 
 def _newest_personal_github_integration(user: User) -> UserIntegration | None:
+    # A row flagged for reauthorization holds no user tokens, so it is not a connection. It stays
+    # in place to carry the reason it stopped working, which a deleted row could not.
     return (
         UserIntegration.objects.filter(user=user, kind="github")
         .exclude(sensitive_config={})
+        .exclude(config__has_key="needs_reauthorization_at")
         .order_by("-created_at")
         .first()
     )

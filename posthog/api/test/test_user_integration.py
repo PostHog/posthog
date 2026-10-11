@@ -17,7 +17,9 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
+from structlog.testing import capture_logs
 
+from posthog.api.github_callback.personal_state import user_has_personal_github_integration
 from posthog.api.github_callback.state import (
     load_authorize_state,
     parse_github_authorize_state_param,
@@ -1140,26 +1142,42 @@ class TestUserGitHubIntegration(APIBaseTest):
         gh = self._make_integration()
         self.assertFalse(gh.user_access_token_expired())
 
+    @parameterized.expand(
+        [
+            ("github_returns_a_new_refresh_token", {"refresh_token": "ghr_new"}, "ghr_new", True),
+            ("github_returns_no_refresh_token", {}, "ghr_refresh", False),
+        ]
+    )
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.user_integration.requests.post")
-    def test_refresh_user_access_token_updates_credentials(self, mock_post):
+    def test_refresh_user_access_token_updates_credentials(
+        self,
+        _name: str,
+        refresh_token_field: dict[str, str],
+        expected_refresh_token: str,
+        expected_rotated: bool,
+        mock_post,
+    ):
         mock_response = MagicMock()
         mock_response.json.return_value = {
             "access_token": "gho_new",
-            "refresh_token": "ghr_new",
+            **refresh_token_field,
             "expires_in": 28800,
             "refresh_token_expires_in": 15897600,
         }
         mock_post.return_value = mock_response
 
         gh = self._make_integration(credential_version="synthetic-old-version", identity_verified_at=123)
-        gh.refresh_user_access_token()
+        with capture_logs() as logs, self.captureOnCommitCallbacks(execute=True):
+            gh.refresh_user_access_token()
 
         gh.integration.refresh_from_db()
         self.assertNotEqual(gh.integration.config["credential_version"], "synthetic-old-version")
         self.assertEqual(gh.integration.config["identity_verified_at"], 123)
         self.assertEqual(gh.user_access_token, "gho_new")
-        self.assertEqual(gh.user_refresh_token, "ghr_new")
+        self.assertEqual(gh.user_refresh_token, expected_refresh_token)
+        refreshed = next(entry for entry in logs if entry["event"] == "credential_refreshed")
+        self.assertIs(refreshed["refresh_token_rotated"], expected_rotated)
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.user_integration.requests.post")
@@ -1192,7 +1210,7 @@ class TestUserGitHubIntegration(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.user_integration.requests.post")
-    def test_refresh_discards_row_on_unrecoverable_error(self, mock_post):
+    def test_refresh_keeps_the_row_and_flags_it_on_unrecoverable_error(self, mock_post):
         mock_response = MagicMock()
         mock_response.json.return_value = {"error": "bad_refresh_token"}
         mock_post.return_value = mock_response
@@ -1200,7 +1218,12 @@ class TestUserGitHubIntegration(APIBaseTest):
         gh = self._make_integration()
         with self.assertRaises(ReauthorizationRequired):
             gh.refresh_user_access_token()
-        self.assertFalse(UserIntegration.objects.filter(user=self.user, kind="github").exists())
+
+        row = UserIntegration.objects.get(user=self.user, kind="github")
+        self.assertEqual(row.config["needs_reauthorization_reason"], "refresh rejected by GitHub: bad_refresh_token")
+        self.assertNotIn("user_access_token", row.sensitive_config)
+        self.assertNotIn("user_refresh_token", row.sensitive_config)
+        self.assertTrue(UserGitHubIntegration(row).needs_reauthorization)
 
     def test_get_usable_user_access_token_raises_when_refresh_token_expired(self):
         now = int(time.time())
@@ -1273,6 +1296,26 @@ class TestUserGitHubIntegrationFromInstallation(APIBaseTest):
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
         self.assertEqual(integration.sensitive_config["user_refresh_token"], "ghr_refresh")
         self.assertEqual(integration.config["identity_verified_at"], 123)
+
+    def test_reconnecting_clears_a_reauthorization_flag(self):
+        flagged = _create_user_integration(self.user)
+        UserGitHubIntegration(flagged)._discard("refresh rejected by GitHub: bad_refresh_token")
+
+        integration = user_github_integration_from_installation(
+            self.user,
+            GitHubInstallationAccess(
+                installation_id=flagged.integration_id,
+                installation_info={"account": {"type": "User", "login": "octocat"}},
+                access_token="ghs_install",
+                token_expires_at="2099-01-01T00:00:00Z",
+                repository_selection="selected",
+            ),
+            _authorization(),
+        )
+
+        self.assertFalse(UserGitHubIntegration(integration).needs_reauthorization)
+        self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
+        self.assertTrue(user_has_personal_github_integration(self.user))
 
     def test_different_installation_creates_second_integration(self):
         _create_user_integration(self.user)

@@ -300,11 +300,16 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             return False
         return time.time() > expires_at
 
+    @property
+    def needs_reauthorization(self) -> bool:
+        """Whether the stored user tokens were stripped and the person has to reconnect."""
+        return bool((self.integration.config or {}).get("needs_reauthorization_at"))
+
     def refresh_user_access_token(self) -> None:
         """Exchange the refresh token for a fresh user-to-server access token.
 
-        Deletes the integration row and raises :class:`ReauthorizationRequired`
-        when GitHub signals the refresh token can't produce a new access token.
+        Strips the stored tokens and raises :class:`ReauthorizationRequired` when GitHub
+        signals the refresh token can't produce a new access token.
         """
         client_id = settings.GITHUB_APP_CLIENT_ID
         client_secret = settings.GITHUB_APP_CLIENT_SECRET
@@ -343,8 +348,9 @@ class UserGitHubIntegration(GitHubIntegrationBase):
     def get_usable_user_access_token(self) -> str:
         """Return a non-expired user-to-server access token, refreshing on demand.
 
-        Raises :class:`ReauthorizationRequired` if the row lacks tokens, the
-        refresh token is expired, or GitHub rejects a refresh attempt.
+        Raises :class:`ReauthorizationRequired` if the row lacks tokens, the refresh token is
+        expired, or GitHub rejects a refresh attempt. The row is kept and flagged in those cases,
+        so the person still has a connection to reconnect rather than a vanished one.
         """
         if not self.user_access_token:
             self._discard("no user access token stored")
@@ -525,7 +531,8 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         """Write a fresh user token pair + expirations onto the integration row."""
         now = int(time.time())
         access_token = payload.get("access_token")
-        refresh_token = payload.get("refresh_token") or self.user_refresh_token
+        rotated_refresh_token = payload.get("refresh_token")
+        refresh_token = rotated_refresh_token or self.user_refresh_token
         access_expires_in = payload.get("expires_in")
         refresh_expires_in = payload.get("refresh_token_expires_in")
 
@@ -549,22 +556,59 @@ class UserGitHubIntegration(GitHubIntegrationBase):
             config.pop("user_refresh_token_expires_at", None)
         self.integration.config = config
         self.integration.save(update_fields=["sensitive_config", "config", "updated_at"])
-        GitHubAudit.personal(self.integration).record("credential_refreshed", after_commit=True, reason="oauth_refresh")
+        GitHubAudit.personal(self.integration).record(
+            "credential_refreshed",
+            after_commit=True,
+            reason="oauth_refresh",
+            refresh_token_rotated=bool(rotated_refresh_token),
+        )
+
+    def _user_token_age_seconds(self) -> int | None:
+        """Seconds since the stored user token pair was last written, or None when the row holds no
+        refresh timestamp. It tells a token GitHub invalidated moments ago from one that sat stale
+        for hours, which is the difference between a refresh race and a bad stored token.
+        """
+        refreshed_at = (self.integration.config or {}).get("user_token_refreshed_at")
+        if not isinstance(refreshed_at, (int, float)):
+            return None
+        return int(time.time()) - int(refreshed_at)
 
     def _discard(self, reason: str) -> None:
-        """Delete the integration when stored credentials are unusable.
+        """Strip the unusable tokens and flag the row for reconnection, keeping the row itself.
 
-        Deletion keeps the invariant that every integration row carries working tokens.
-        The user falls back to the Connect flow.
+        Every caller reaches this because the stored tokens cannot produce an access token, and
+        each one raises :class:`ReauthorizationRequired` straight after. Deleting the row as well
+        left the person with nothing to repair and no record of why their connection went, which
+        reads to them as never having connected. A real disconnection is a different path: the
+        views delete the row themselves.
         """
-        logger.info("UserGitHubIntegration: discarding integration", user_id=self.integration.user_id, reason=reason)
+        token_age_seconds = self._user_token_age_seconds()
+        logger.info(
+            "UserGitHubIntegration: marking integration for reauthorization",
+            user_id=self.integration.user_id,
+            reason=reason,
+        )
+        sensitive_config = dict(self.integration.sensitive_config or {})
+        sensitive_config.pop("user_access_token", None)
+        sensitive_config.pop("user_refresh_token", None)
+        self.integration.sensitive_config = sensitive_config
+        self.integration.config = {
+            **(self.integration.config or {}),
+            "needs_reauthorization_reason": reason,
+            "needs_reauthorization_at": int(time.time()),
+        }
         audit = GitHubAudit.personal(self.integration)
         try:
-            self.integration.delete()
-            audit.record("credential_deleted", after_commit=True, reason=reason)
+            self.integration.save(update_fields=["sensitive_config", "config", "updated_at"])
+            audit.record(
+                "credential_reauthorization_required",
+                after_commit=True,
+                reason=reason,
+                token_age_seconds=token_age_seconds,
+            )
         except Exception as exc:
-            audit.record("credential_delete_failed", failure_type=type(exc).__name__)
-            logger.warning("UserGitHubIntegration: failed to delete unusable integration", exc_info=True)
+            audit.record("credential_mark_failed", failure_type=type(exc).__name__)
+            logger.warning("UserGitHubIntegration: failed to mark integration for reauthorization", exc_info=True)
 
 
 def user_github_integration_from_installation(
