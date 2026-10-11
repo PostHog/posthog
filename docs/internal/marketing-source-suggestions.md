@@ -99,6 +99,15 @@ The view groups search distribution metrics by destination URL and currency, wit
 The connector uses `ConversionsQualified` because Microsoft deprecated `Conversions` for this report.
 Keyword reporting continues to use `keyword_performance_report`.
 
+## Source connection context
+
+Setup scan recommendations include a connection link with the suggested source kind, a project-scoped `returnUrl`, and `returnLabel=Marketing analytics`.
+The `entry_point` query parameter identifies the originating surface separately from the visible return label.
+Marketing links identify MCP (`marketing_analytics_mcp`), onboarding, Setup, the integration menu, search suggestions, and search detail.
+The connection flow preserves return URLs, labels, access mode, and origin metadata through OAuth.
+The `warehouse source connect completed` event records the originating entry point.
+Users complete platform authorization through the connection flow.
+
 ## Google Ads campaign trends
 
 Campaign trend charts accept both `campaign_overview_stats` and the legacy `campaign_stats` schema.
