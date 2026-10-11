@@ -505,7 +505,7 @@ export function ObservationDockCard({
             )}
 
             {(observation.status === 'pending' || observation.status === 'running') && (
-                <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
+                <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} />
             )}
         </div>
     )
