@@ -490,4 +490,4 @@ def test_get_config_for_source_resolves_every_registered_source():
     # source's module is missing/stale), resolution breaks for that source.
     for source_type in SourceRegistry.get_all_sources():
         config_cls = get_config_for_source(source_type)
-        assert config_cls.__name__ == f"{source_type.value}SourceConfig"
+        assert config_cls.__name__ == f"{source_type}SourceConfig"
