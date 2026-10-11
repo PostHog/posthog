@@ -22,6 +22,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mem0.setti
     EVENTS_ENDPOINT,
     MEM0_BASE_URL,
     MEMORIES_ENDPOINT,
+    MEMORY_HISTORY_ENDPOINT,
+    PROJECTS_ENDPOINT,
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -231,6 +233,71 @@ class TestEntitiesRows:
         )
 
         assert _query(prepared[0]) == expected_query
+
+
+class TestMemoryHistoryRows:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None, _MATCH_ALL_FILTER),
+            # The child takes no filters, so the watermark bounds the memories listing on
+            # `updated_at`, whichever history field the user picked as the cursor.
+            (
+                "incremental",
+                True,
+                datetime(2026, 7, 1, 12, 30, tzinfo=UTC),
+                {"AND": [_MATCH_ALL_FILTER, {"updated_at": {"gte": "2026-07-01"}}]},
+            ),
+        ]
+    )
+    def test_fans_out_over_every_memories_page(self, _name, incremental, last_value, expected_filters):
+        next_url = f"{MEM0_BASE_URL}/v3/memories/?page=2&page_size=100"
+        rows, prepared = _run(
+            MEMORY_HISTORY_ENDPOINT,
+            [
+                _response([{"id": "m1"}, {"id": "m2"}], next_url=next_url),
+                _raw_response([{"id": "h1", "memory_id": "m1", "event": "ADD"}]),
+                # A memory deleted between the listing and its history fetch.
+                _raw_response({"detail": "Not found"}, status=404),
+                _response([{"id": "m3"}], next_url=None),
+                _raw_response([{"id": "h3", "memory_id": "m3", "event": "UPDATE"}]),
+            ],
+            _manager(),
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=last_value,
+            incremental_field="created_at",
+        )
+
+        assert [row["id"] for row in rows] == ["h1", "h3"]
+        assert _body(prepared[0]) == {"filters": expected_filters}
+        assert [urlsplit(p.url).path for p in prepared[1:]] == [
+            "/v1/memories/m1/history/",
+            "/v1/memories/m2/history/",
+            "/v3/memories/",
+            "/v1/memories/m3/history/",
+        ]
+
+
+class TestProjectsRows:
+    def test_fans_out_over_organizations_and_tags_rows_with_the_org_id(self):
+        rows, prepared = _run(
+            PROJECTS_ENDPOINT,
+            [
+                _raw_response([{"org_id": "org_1", "name": "One"}, {"org_id": "org_2", "name": "Two"}]),
+                _raw_response([{"project_id": "proj_a", "name": "A"}]),
+                _raw_response([{"project_id": "proj_b", "name": "B"}]),
+            ],
+            _manager(),
+        )
+
+        assert rows == [
+            {"project_id": "proj_a", "name": "A", "org_id": "org_1"},
+            {"project_id": "proj_b", "name": "B", "org_id": "org_2"},
+        ]
+        assert [urlsplit(p.url).path for p in prepared] == [
+            "/api/v1/orgs/organizations/",
+            "/api/v1/orgs/organizations/org_1/projects/",
+            "/api/v1/orgs/organizations/org_2/projects/",
+        ]
 
 
 class TestEventsRows:
