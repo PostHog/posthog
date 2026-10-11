@@ -47,6 +47,7 @@ import {
 import { PostHogAPIClient } from "../posthog-api";
 import { createEventIdSource } from "../utils/event-id";
 import { resolveLlmGatewayUrl } from "../utils/gateway";
+import { splitLogBatches } from "../utils/log-batches";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
@@ -1232,18 +1233,21 @@ export class PiAgentServer {
         if (entries.length === 0) {
           return;
         }
-        try {
-          await this.posthogAPI.appendTaskRunLog(
-            this.config.taskId,
-            this.config.runId,
-            entries,
-          );
-        } catch (error) {
-          this.pendingLogEntries = [
-            ...entries,
-            ...this.pendingLogEntries,
-          ].slice(-MAX_PENDING_LOG_ENTRIES);
-          throw error;
+        const batches = splitLogBatches(entries);
+        for (const [index, batch] of batches.entries()) {
+          try {
+            await this.posthogAPI.appendTaskRunLog(
+              this.config.taskId,
+              this.config.runId,
+              batch.entries,
+            );
+          } catch (error) {
+            this.pendingLogEntries = [
+              ...batches.slice(index).flatMap((b) => b.entries),
+              ...this.pendingLogEntries,
+            ].slice(-MAX_PENDING_LOG_ENTRIES);
+            throw error;
+          }
         }
       } while (
         this.logFlushRequested ||
