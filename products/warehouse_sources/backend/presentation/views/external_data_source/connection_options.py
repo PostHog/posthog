@@ -34,7 +34,6 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
     SourceDestinationsSerializer,
     set_source_destinations,
 )
-from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
 
 from . import base, helpers
 
@@ -239,18 +238,18 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
     def direct_connection_options(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Source types the user can add as a direct connection, driven by the direct-SQL capability
         surface so the picker never drifts from the engines we actually support."""
+        options = []
         with tracer.start_as_current_span("warehouse_sources.direct_connection_options.catalog"):
-            direct_types = direct_capable_source_types_for_team(self.team)
-            configs = build_source_configs(include_tables=False)
-        options = [
-            {
-                "source_type": source_type,
-                "label": config.get("label") or source_type,
-                "icon_path": config.get("iconPath"),
-            }
-            for source_type, config in configs.items()
-            if source_type in direct_types
-        ]
+            # Look up each direct type on its own. The full catalog imports every source module,
+            # which costs seconds on each new web worker.
+            for source_type in direct_capable_source_types_for_team(self.team):
+                try:
+                    config = base.SourceRegistry.get_source(ExternalDataSourceType(source_type)).get_source_config
+                except ValueError:
+                    continue
+                options.append(
+                    {"source_type": source_type, "label": config.label or source_type, "icon_path": config.iconPath}
+                )
         options.sort(key=lambda option: str(option["label"]).lower())
 
         serializer = DirectConnectionSourceOptionSerializer(options, many=True)
