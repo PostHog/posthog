@@ -14,14 +14,15 @@ import structlog
 
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
-from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.user import User
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.facade.api import unknown_dashboard_ids
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.facade.api import (
+    DashboardRef,
+    create_dashboard_from_tiles,
+    dashboard_refs,
+    unknown_dashboard_ids,
+)
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import OBSERVATION_EVENT_NAME
@@ -81,29 +82,30 @@ def scanners_ready_for_dashboard(team_id: int, scanner_ids: Collection[UUID]) ->
     )
 
 
-def create_scanner_dashboard(scanner: ReplayScanner, user: User) -> tuple[Dashboard, bool]:
+def create_scanner_dashboard(scanner: ReplayScanner, user: User) -> tuple[DashboardRef, bool]:
     """Create the scanner's dashboard and link it, or return the live one already linked.
 
     Returns (dashboard, created). The scanner row lock serializes two clicks on the same scanner,
     so that one scanner never gets two dashboards.
     """
     # Built before the lock because it reads group types, which can call personhog.
-    template = build_scanner_dashboard_template(scanner)
+    tiles = build_scanner_dashboard_tiles(scanner)
     with transaction.atomic():
         locked = ReplayScanner.objects.select_for_update().get(pk=scanner.pk, team_id=scanner.team_id)
-        if locked.dashboard_id is not None:
-            # The default manager hides soft-deleted dashboards, so a deleted one falls through to a new dashboard.
-            existing = Dashboard.objects.filter(team_id=locked.team_id, pk=locked.dashboard_id).first()
-            if existing is not None:
-                return existing, False
-        dashboard = Dashboard.objects.create(
-            team_id=locked.team_id,
-            name=_dashboard_name(locked),
-            created_by=user,
-            creation_mode=Dashboard.CreationMode.TEMPLATE,
-        )
-        create_from_template(
-            dashboard, template, user, user_access_control=UserAccessControl(user=user, team=scanner.team)
+        existing_id = live_dashboard_ids(locked.team_id, [locked]).get(locked.id)
+        if existing_id is not None:
+            return dashboard_refs([existing_id])[0], False
+        dashboard = create_dashboard_from_tiles(
+            team=scanner.team,
+            user=user,
+            name=f"{DASHBOARD_NAME_PREFIX}{locked.name}"[:400],
+            description=(
+                f"What the '{locked.name}' scanner finds in your session recordings, and who it affects. "
+                "Charts count observations on the day the scanner ran, not the day of the recording."
+            ),
+            filters={"date_from": DASHBOARD_DATE_FROM},
+            tiles=tiles,
+            tags=["replay-vision"],
         )
         # A queryset update so that linking a dashboard is not logged or treated as a scanner config edit.
         ReplayScanner.objects.filter(pk=locked.pk).update(dashboard_id=dashboard.id)
@@ -111,25 +113,12 @@ def create_scanner_dashboard(scanner: ReplayScanner, user: User) -> tuple[Dashbo
     return dashboard, True
 
 
-def _dashboard_name(scanner: ReplayScanner) -> str:
-    return f"{DASHBOARD_NAME_PREFIX}{scanner.name}"[:400]
-
-
-def build_scanner_dashboard_template(scanner: ReplayScanner) -> DashboardTemplate:
+def build_scanner_dashboard_tiles(scanner: ReplayScanner) -> list[dict[str, Any]]:
     builder = _TileBuilder(scanner)
     builder.add_shared_tiles()
     builder.add_type_tiles()
     builder.add_latest_sessions_tile()
-    return DashboardTemplate(
-        template_name=_dashboard_name(scanner),
-        dashboard_description=(
-            f"What the '{scanner.name}' scanner finds in your session recordings, and who it affects. "
-            "Charts count observations on the day the scanner ran, not the day of the recording."
-        ),
-        dashboard_filters={"date_from": DASHBOARD_DATE_FROM},
-        tiles=builder.tiles,
-        tags=["replay-vision"],
-    )
+    return builder.tiles
 
 
 class _TileBuilder:

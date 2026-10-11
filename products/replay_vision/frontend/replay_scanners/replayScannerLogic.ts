@@ -698,6 +698,9 @@ export interface replayScannerLogicActions {
             windowDays: number
         }
     }
+    scannerDashboardLinked: (dashboardId: number) => {
+        dashboardId: number
+    }
     scannerSaved: (scanner: ScannerFormValues) => {
         scanner: ScannerFormValues
     }
@@ -845,9 +848,6 @@ export interface replayScannerLogicActions {
     ) => {
         scannerVersion: number
         updatedAt: string
-    }
-    scannerDashboardLinked: (dashboardId: number) => {
-        dashboardId: number
     }
 }
 

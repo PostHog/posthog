@@ -805,6 +805,8 @@ depends_on = [
     "products.alerts",
     "products.cdp",
     "products.cohorts",
+    # Facade-only: scanner dashboards are created and looked up through the dashboards facade.
+    "products.dashboards",
     "products.event_definitions",
     "products.experiments",
     "products.exports",

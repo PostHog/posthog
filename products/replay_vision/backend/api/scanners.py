@@ -3056,7 +3056,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "scanner_id": str(scanner.id),
                     "scanner_type": scanner.scanner_type,
                     "dashboard_id": dashboard.id,
-                    "tiles": dashboard.tiles.count(),
                 },
                 team=self.team,
                 request=request,

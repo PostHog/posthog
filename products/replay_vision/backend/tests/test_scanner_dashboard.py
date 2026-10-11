@@ -89,9 +89,9 @@ class TestScannerDashboardTiles(ClickhouseTestMixin, _ScannerDashboardTestCase):
             )
         flush_persons_and_events()
 
-        dashboard, _ = create_scanner_dashboard(scanner, self.user)
+        dashboard_ref, _ = create_scanner_dashboard(scanner, self.user)
 
-        tiles = list(dashboard.tiles.select_related("insight"))
+        tiles = list(Dashboard.objects.get(pk=dashboard_ref.id, team=self.team).tiles.select_related("insight"))
         self.assertGreater(len(tiles), 3)
         for tile in tiles:
             insight = tile.insight
