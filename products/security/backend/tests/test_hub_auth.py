@@ -1,20 +1,32 @@
 import time
 
+from unittest.mock import patch
+
 from django.test import SimpleTestCase, override_settings
 
 import jwt as pyjwt
 from parameterized import parameterized
 
-from products.security.backend.logic.hub_auth import claims_allow, mint_rules_token
+from products.security.backend.logic.hub_auth import (
+    MAX_TOKEN_LIFETIME_SECONDS,
+    MIN_MINT_MARGIN_SECONDS,
+    claims_allow,
+    mint_rules_token,
+)
 
 
 @override_settings(SECURITY_HUB_REGION="us", SECURITY_HUB_OUTBOUND_JWT_SECRETS=["new", "old"])
 class TestHubAuth(SimpleTestCase):
-    def test_rules_token_claims(self) -> None:
-        claims = pyjwt.decode(mint_rules_token(), "new", algorithms=["HS256"], audience="posthog:security_hub:rules")
+    @parameterized.expand([("no pause", 0), ("almost the whole margin", MIN_MINT_MARGIN_SECONDS - 1)])
+    def test_rules_token_claims(self, _name: str, pause: int) -> None:
+        # encode_jwt reads the clock again after mint_rules_token stamps iat, so an earlier iat
+        # stands in for a pause between the two reads.
+        with patch("products.security.backend.logic.hub_auth.time.time", return_value=time.time() - pause):
+            token = mint_rules_token()
+        claims = pyjwt.decode(token, "new", algorithms=["HS256"], audience="posthog:security_hub:rules")
         assert claims["region"] == "us"
         assert claims["op"] == "rules:read"
-        assert 0 < claims["exp"] - claims["iat"] <= 60
+        assert 0 < claims["exp"] - claims["iat"] <= MAX_TOKEN_LIFETIME_SECONDS
 
     @parameterized.expand(
         [

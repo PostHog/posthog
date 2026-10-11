@@ -12,8 +12,10 @@ from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 
 # The hub refuses a token that lives longer than this.
 MAX_TOKEN_LIFETIME_SECONDS = 60
-# Below the limit, because encode_jwt sets exp from its own clock read after iat.
-_MINT_TTL = timedelta(seconds=55)
+# encode_jwt sets exp from a clock read after mint_rules_token reads iat, so the hub measures
+# exp - iat as the TTL plus whatever pause fell between the two reads.
+MIN_MINT_MARGIN_SECONDS = 30
+_MINT_TTL = timedelta(seconds=MAX_TOKEN_LIFETIME_SECONDS - MIN_MINT_MARGIN_SECONDS)
 
 RULES_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.SECURITY_HUB_RULES,
