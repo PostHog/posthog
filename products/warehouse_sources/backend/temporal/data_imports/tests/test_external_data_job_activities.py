@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.matomo.source import MatomoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
 )
@@ -427,6 +428,20 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
             ExternalDataSourceType.APPLESEARCHADS,
             "503 Server Error: Service Temporarily Unavailable for url: https://api.up.railway.app/v1/things",
             TRANSIENT_VENDOR_UNAVAILABLE_MESSAGE,
+        ),
+        # A hand-rolled transport's own retryable marker, which no map names for this source.
+        (
+            "retryable_status_marker",
+            ExternalDataSourceType.HUBSPOT,
+            "Hubspot search error (retryable): status=500, url=https://api.example.com/v3/things/search",
+            TRANSIENT_SOURCE_ERROR_MESSAGE,
+        ),
+        # A source that names its vendor for the same marker keeps that copy over the generic one.
+        (
+            "retryable_status_marker_with_source_copy",
+            ExternalDataSourceType.MATOMO,
+            "Matomo API error (retryable): status=503, url=https://matomo.example.com/index.php",
+            MatomoSource().get_retry_exhausted_errors()["Matomo API error (retryable)"],
         ),
     ]
 )

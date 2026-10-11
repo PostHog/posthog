@@ -396,6 +396,12 @@ TRANSIENT_SOURCE_ERROR_MESSAGE = (
     "again on its next schedule."
 )
 
+# The marker hand-rolled source transports raise once their own backoff on a 429 or 5xx runs out:
+# "<Vendor> API error (retryable): status=<code>, url=<url>". Unlike `RESTClientRetryableError`
+# it reaches the finalizer as plain message text, which carries the vendor URL and, for a
+# self-hosted source, the customer's own host.
+RETRYABLE_STATUS_ERROR_MARKER = "(retryable): status="
+
 
 def _customer_facing_error(cause: BaseException | None) -> str:
     """`latest_error` text a customer reads, without the leaked internal exception class name.
@@ -642,13 +648,23 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
             # consulted first; the source's own exhaustion messages cover the classes it does not
             # name. Retryability is untouched: the schema is not disabled and the next scheduled
             # run still tries.
-            transient_message = _transient_error_message(internal_error_normalized) or next(
-                (
-                    message
-                    for error, message in source_cls.get_retry_exhausted_errors().items()
-                    if error_message_matches(internal_error_normalized, [error])
-                ),
-                None,
+            # The retryable-status marker comes last, so a source that names its own vendor in
+            # `get_retry_exhausted_errors` keeps that copy.
+            transient_message = (
+                _transient_error_message(internal_error_normalized)
+                or next(
+                    (
+                        message
+                        for error, message in source_cls.get_retry_exhausted_errors().items()
+                        if error_message_matches(internal_error_normalized, [error])
+                    ),
+                    None,
+                )
+                or (
+                    TRANSIENT_SOURCE_ERROR_MESSAGE
+                    if error_message_matches(internal_error_normalized, [RETRYABLE_STATUS_ERROR_MARKER])
+                    else None
+                )
             )
             if transient_message is not None:
                 inputs.latest_error = transient_message
