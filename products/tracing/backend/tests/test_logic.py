@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import PropertyOperator, SpanPropertyFilter, SpanPropertyFilterType
 
-from products.tracing.backend.logic import translate_span_filter
+from products.tracing.backend.logic import UnknownSpanFilterKeyError, translate_span_filter, validate_span_filter_key
 
 PROMPTS_DIR = Path(__file__).parents[2] / "mcp" / "prompts"
 
@@ -95,3 +95,27 @@ class TestTranslateSpanFilter(SimpleTestCase):
         translate_span_filter(span_filter)
         translate_span_filter(span_filter)
         self.assertEqual(span_filter.value, expected)
+
+
+class TestValidateSpanFilterKey(SimpleTestCase):
+    @parameterized.expand(
+        [("column", "service_name"), ("duration_alias", "duration"), ("duration_nano", "duration_nano")]
+    )
+    def test_accepts_span_columns(self, _name, key):
+        validate_span_filter_key(_span_filter(key, "x"))
+
+    @parameterized.expand(
+        [
+            ("invented_column", "span_name"),
+            ("dotted_attribute", "http.method"),
+            ("attribute_map", "attributes"),
+            ("team_id", "team_id"),
+        ]
+    )
+    def test_rejects_keys_that_are_not_span_columns(self, _name, key):
+        with self.assertRaises(UnknownSpanFilterKeyError) as caught:
+            validate_span_filter_key(_span_filter(key, "x"))
+        message = str(caught.exception)
+        self.assertIn(f"`{key}`", message)
+        self.assertIn("service_name", message)
+        self.assertIn("span_attribute", message)
