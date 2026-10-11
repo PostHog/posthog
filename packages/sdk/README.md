@@ -20,7 +20,7 @@ const output: FeatureFlagsListOutput = await client.featureFlags.list(input)
 console.log(output.data.results)
 ```
 
-`client` is also the default export. Importing it does not read credentials or make requests. Configuration is read on first use and retained for that client.
+`client` is also the default export. Importing it does not read credentials or make requests. Product modules and their operation schemas load on the first method call for that product. Reading a namespace such as `client.featureFlags` does not load its module. Loaded modules are reused, and configuration is read on first use and retained for that client.
 
 ## Discover methods without credentials
 

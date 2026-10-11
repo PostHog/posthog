@@ -82,8 +82,9 @@ test('configuration is lazy and explicit settings override environment defaults'
         },
     })
     process.env.POSTHOG_PROJECT_ID = '11'
-    await client.featureFlags.archive({ id: 17 })
+    const firstCall = client.featureFlags.archive({ id: 17 })
     process.env.POSTHOG_PROJECT_ID = '12'
+    await firstCall
     assert.equal((await client.context()).projectId, 11)
     assert.deepEqual(await createPostHogClient({ token: 'phx_explicit', projectId: 13 }).context(), {
         projectId: 13,

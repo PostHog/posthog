@@ -20,18 +20,16 @@ export interface PostHogClient extends GeneratedClient {
 
 export function createPostHogClient(options: PostHogClientOptions = {}): PostHogClient {
     const runtime = new Runtime(options)
-    return {
-        ...createNamespaces(runtime),
-        context: (requestOptions) => runtime.context(requestOptions),
-        project: (projectId) => {
+    return Object.assign(createNamespaces(runtime), {
+        context: (requestOptions?: RequestOptions) => runtime.context(requestOptions),
+        project: (projectId: number): PostHogProjectClient => {
             const scoped = runtime.scope(projectId)
-            return {
+            return Object.assign(createNamespaces(scoped), {
                 projectId,
-                ...createNamespaces(scoped),
-                context: (requestOptions) => scoped.context(requestOptions),
-            }
+                context: (requestOptions?: RequestOptions) => scoped.context(requestOptions),
+            })
         },
-    }
+    })
 }
 
 /** Configuration and credentials are read lazily; importing the package never makes a request. */
