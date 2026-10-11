@@ -770,7 +770,6 @@ export class PushNotificationService {
         }
 
         // Fails closed: without Valkey a pod cannot tell whether the fleet already refreshed this key.
-        // A pod that does not get the claim leaves both caches alone, so it never signs a token of its own.
         const claimed = await this.valkey.useClient({ name: 'apns-jwt-refresh', failOpen: true }, (client) =>
             client.set(`${APNS_JWT_REFRESH_PREFIX}${fingerprint}`, '1', 'EX', APNS_JWT_REFRESH_WINDOW_SECONDS, 'NX')
         )
