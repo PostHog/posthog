@@ -148,6 +148,13 @@ export interface SignalsInboxReportChecksListResponseShape2 {
      * * `errored` - Errored
      * * `inconclusive` - Inconclusive */
     last_outcome: null | 'failed' | 'inconclusive' | 'passed' | 'errored'
+    /** Why the most recent run could not settle the claim. Set only when `last_outcome` is `inconclusive`: `awaiting_data`, `unmeasurable`, `needs_manual_verification`, or `no_fix_to_measure`.
+     *
+     * * `awaiting_data` - Awaiting Data
+     * * `unmeasurable` - Unmeasurable
+     * * `needs_manual_verification` - Needs Manual Verification
+     * * `no_fix_to_measure` - No Fix To Measure */
+    last_outcome_reason: null | 'awaiting_data' | 'unmeasurable' | 'needs_manual_verification' | 'no_fix_to_measure'
     /** When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it. */
     dispatched_at: null | string
     /** Runs that could not be measured since the last clean one. */

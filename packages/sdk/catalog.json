@@ -1,8 +1,8 @@
 {
     "schemaVersion": 1,
     "packageVersion": "0.1.0",
-    "sourceRevision": "3ba731d9a0fbc000bd371a6ee46b1342cca0c7fb9b86cf8d800ff3b5d4061e8d",
-    "schemaHash": "74fd86e2ee5602f987997d2f00d2b32414d27cc116f8f12c77b48ca1fa31138c",
+    "sourceRevision": "cf4ea6ae619625ab3a134e8ea16aac2ad94677f054a17ff1b1e4b15362a67f01",
+    "schemaHash": "be5cc5708ae0a3d1d986a38b81e2bb668ca9eee2905182ed5abb1400d2e7faa4",
     "tools": [
         {
             "method": "accessControl.accessControlDefaultObjectsList",
@@ -4983,6 +4983,12 @@
             "toolName": "scout-config-list",
             "title": "List scout configs",
             "descriptionFile": "catalog/signals/scout-config-list.json"
+        },
+        {
+            "method": "signals.scoutConfigPrecheckTest",
+            "toolName": "scout-config-precheck-test",
+            "title": "Test a scout pre-check",
+            "descriptionFile": "catalog/signals/scout-config-precheck-test.json"
         },
         {
             "method": "signals.scoutConfigSync",

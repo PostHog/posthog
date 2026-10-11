@@ -123,25 +123,7 @@
             "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
         },
         {
-            "name": "SignalsSignalsScoutConfigCreateRequestSchema29",
-            "importPath": "@posthog/sdk/signals",
-            "source": "src/generated/signals/signals-scout-config-create.ts",
-            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
-        },
-        {
-            "name": "SignalsSignalsScoutConfigCreateRequestSchema31",
-            "importPath": "@posthog/sdk/signals",
-            "source": "src/generated/signals/signals-scout-config-create.ts",
-            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
-        },
-        {
-            "name": "SignalsSignalsScoutConfigCreateRequestSchema30",
-            "importPath": "@posthog/sdk/signals",
-            "source": "src/generated/signals/signals-scout-config-create.ts",
-            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
-        },
-        {
-            "name": "SignalsSignalsScoutConfigCreateRequestSchema32",
+            "name": "SignalsSignalsScoutConfigCreateRequestSchema26",
             "importPath": "@posthog/sdk/signals",
             "source": "src/generated/signals/signals-scout-config-create.ts",
             "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
@@ -153,25 +135,13 @@
             "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
         },
         {
-            "name": "SignalsSignalsScoutConfigCreateRequestSchema28Variant1",
-            "importPath": "@posthog/sdk/signals",
-            "source": "src/generated/signals/signals-scout-config-create.ts",
-            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
-        },
-        {
             "name": "SignalsSignalsScoutConfigCreateRequestSchema33",
             "importPath": "@posthog/sdk/signals",
             "source": "src/generated/signals/signals-scout-config-create.ts",
             "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
         },
         {
-            "name": "SignalsSignalsScoutConfigCreateRequestSchema33Variant1",
-            "importPath": "@posthog/sdk/signals",
-            "source": "src/generated/signals/signals-scout-config-create.ts",
-            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
-        },
-        {
-            "name": "SignalsSignalsScoutConfigCreateRequestSchema26",
+            "name": "SignalsSignalsScoutConfigCreateRequestSchema35",
             "importPath": "@posthog/sdk/signals",
             "source": "src/generated/signals/signals-scout-config-create.ts",
             "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
@@ -184,6 +154,36 @@
         },
         {
             "name": "SignalsSignalsScoutConfigCreateRequestSchema36",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/signals-scout-config-create.ts",
+            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
+        },
+        {
+            "name": "SignalsSignalsScoutConfigCreateRequestSchema32",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/signals-scout-config-create.ts",
+            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
+        },
+        {
+            "name": "SignalsSignalsScoutConfigCreateRequestSchema32Variant1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/signals-scout-config-create.ts",
+            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
+        },
+        {
+            "name": "SignalsSignalsScoutConfigCreateRequestSchema37",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/signals-scout-config-create.ts",
+            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
+        },
+        {
+            "name": "SignalsSignalsScoutConfigCreateRequestSchema37Variant1",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/signals-scout-config-create.ts",
+            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
+        },
+        {
+            "name": "SignalsSignalsScoutConfigCreateRequestSchema30",
             "importPath": "@posthog/sdk/signals",
             "source": "src/generated/signals/signals-scout-config-create.ts",
             "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
@@ -202,6 +202,18 @@
         },
         {
             "name": "SignalsSignalsScoutConfigCreateRequestSchema42",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/signals-scout-config-create.ts",
+            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
+        },
+        {
+            "name": "SignalsSignalsScoutConfigCreateRequestSchema44",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/signals-scout-config-create.ts",
+            "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
+        },
+        {
+            "name": "SignalsSignalsScoutConfigCreateRequestSchema46",
             "importPath": "@posthog/sdk/signals",
             "source": "src/generated/signals/signals-scout-config-create.ts",
             "declaration": "dist/generated/signals/signals-scout-config-create.d.ts"
@@ -367,11 +379,11 @@
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema16",
-            "effectiveDescription": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
+            "effectiveDescription": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
+                    "text": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
@@ -382,11 +394,11 @@
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema18",
-            "effectiveDescription": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
+            "effectiveDescription": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
+                    "text": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
@@ -397,11 +409,11 @@
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema20",
-            "effectiveDescription": "Whether this scout runs on its schedule. Defaults to true.",
+            "effectiveDescription": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Whether this scout runs on its schedule. Defaults to true.",
+                    "text": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
@@ -412,11 +424,11 @@
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema22",
-            "effectiveDescription": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
+            "effectiveDescription": "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
+                    "text": "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
@@ -427,11 +439,11 @@
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema24",
-            "effectiveDescription": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+            "effectiveDescription": "Whether this scout runs on its schedule. Defaults to true.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+                    "text": "Whether this scout runs on its schedule. Defaults to true.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
@@ -442,11 +454,11 @@
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema26",
-            "effectiveDescription": "Destinations that receive each finding or report this scout emits. Empty by default.",
+            "effectiveDescription": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Destinations that receive each finding or report this scout emits. Empty by default.",
+                    "text": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
@@ -456,7 +468,37 @@
             ]
         },
         {
-            "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema26",
+            "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema28",
+            "effectiveDescription": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema28"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema30",
+            "effectiveDescription": "Destinations that receive each finding or report this scout emits. Empty by default.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Destinations that receive each finding or report this scout emits. Empty by default.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema30"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema30",
             "field": "slack",
             "effectiveDescription": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.",
             "layers": [
@@ -466,13 +508,13 @@
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
-                        "pointer": "#/$defs/__schema27/properties/slack"
+                        "pointer": "#/$defs/__schema31/properties/slack"
                     }
                 }
             ]
         },
         {
-            "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema26",
+            "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema30",
             "field": "webhook",
             "effectiveDescription": "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle.",
             "layers": [
@@ -482,48 +524,18 @@
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
-                        "pointer": "#/$defs/__schema27/properties/webhook"
-                    }
-                }
-            ]
-        },
-        {
-            "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema34",
-            "effectiveDescription": "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
-            "layers": [
-                {
-                    "role": "original",
-                    "text": "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
-                    "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/signals.ts",
-                        "pointer": "#/$defs/__schema34"
-                    }
-                }
-            ]
-        },
-        {
-            "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema36",
-            "effectiveDescription": "Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.",
-            "layers": [
-                {
-                    "role": "original",
-                    "text": "Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.",
-                    "source": {
-                        "kind": "mcp_typescript",
-                        "file": "services/mcp/src/tools/generated/signals.ts",
-                        "pointer": "#/$defs/__schema36"
+                        "pointer": "#/$defs/__schema31/properties/webhook"
                     }
                 }
             ]
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema38",
-            "effectiveDescription": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.",
+            "effectiveDescription": "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.",
+                    "text": "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
@@ -534,11 +546,11 @@
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema40",
-            "effectiveDescription": "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.",
+            "effectiveDescription": "Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.",
+                    "text": "Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
@@ -549,6 +561,36 @@
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema42",
+            "effectiveDescription": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema42"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema44",
+            "effectiveDescription": "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Name shown wherever people identify this scout, written however you want it — spaces, capitalization, and acronyms are kept as typed, and two scouts may share one. It does not change the scout's skill name, which stays its identity, so renaming a scout keeps its schedule, run history, notes, memory, and links. At most 200 characters; blank means the scout has no name of its own and is labelled from its skill name instead.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/$defs/__schema44"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutConfigCreateRequest_Schema46",
             "effectiveDescription": "The skill to register a config for. Any valid skill name works — the config row is what makes a skill a scout. The skill must already exist on this project — author it via the skills store first.",
             "layers": [
                 {
@@ -557,7 +599,7 @@
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
-                        "pointer": "#/$defs/__schema42"
+                        "pointer": "#/$defs/__schema46"
                     }
                 }
             ]
@@ -675,6 +717,22 @@
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateInput",
+            "field": "lifecycle_locked",
+            "effectiveDescription": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/configs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutConfigCreateInput",
             "field": "allowed_mcp_tools",
             "effectiveDescription": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
             "layers": [
@@ -697,6 +755,22 @@
                 {
                     "role": "original",
                     "text": "Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n* `read_only` - Read only\n* `support_notes` - Support notes",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/configs/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutConfigCreateInput",
+            "field": "precheck_query",
+            "effectiveDescription": "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.",
                     "source": {
                         "kind": "openapi",
                         "file": "openapi.json",
@@ -1393,6 +1467,22 @@
         },
         {
             "typeName": "SignalsSignalsScoutConfigCreateData",
+            "field": "lifecycle_locked",
+            "effectiveDescription": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/lifecycle_locked"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutConfigCreateData",
             "field": "allowed_mcp_tools",
             "effectiveDescription": "Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.",
             "layers": [
@@ -1419,6 +1509,22 @@
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/signals.ts",
                         "pointer": "#/Shape1/properties/tool_preset"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsSignalsScoutConfigCreateData",
+            "field": "precheck_query",
+            "effectiveDescription": "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/precheck_query"
                     }
                 }
             ]

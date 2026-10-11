@@ -363,6 +363,22 @@
         },
         {
             "typeName": "ReviewHogReviewHogReviewsListResponseShape2",
+            "field": "review_design",
+            "effectiveDescription": "How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).\n\n* `pipeline` - Pipeline\n* `single_agent` - Single agent",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).\n\n* `pipeline` - Pipeline\n* `single_agent` - Single agent",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/review_hog.ts",
+                        "pointer": "#/Shape2/properties/review_design"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "ReviewHogReviewHogReviewsListResponseShape2",
             "field": "status_comment_url",
             "effectiveDescription": "Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.",
             "layers": [

@@ -10502,6 +10502,8 @@ export interface DashboardsDashboardWidgetsBatchAddResponseShape2 {
     filters_overrides?: JsonValue | null
     show_description?: null | false | true
     transparent_background?: null | false | true
+    group_key?: null | string
+    badge?: null | 'winner' | 'cheeky-hog'
 }
 
 export interface DashboardsDashboardWidgetsBatchAddData {

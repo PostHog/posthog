@@ -65,9 +65,14 @@ export type ReplayVisionVisionScannersScoutsCreateRequestSchema16 =
     ReplayVisionVisionScannersScoutsCreateRequestSchema18[]
 
 /**
+ * Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker.
+ */
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema19 = boolean
+
+/**
  * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
  */
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema19 = string[] | null
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema21 = string[] | null
 
 /**
  * Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
@@ -75,57 +80,62 @@ export type ReplayVisionVisionScannersScoutsCreateRequestSchema19 = string[] | n
  * * `read_only` - Read only
  * * `support_notes` - Support notes
  */
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema21 = 'read_only' | 'support_notes'
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema23 = 'read_only' | 'support_notes'
+/**
+ * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+ */
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema25 = string | null
+
 /**
  * Whether this scout runs on its schedule. Defaults to true.
  */
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema23 = boolean
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema27 = boolean
 
 /**
  * Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.
  */
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema25 = boolean
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema29 = boolean
 
 /**
  * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
  * @minimum 30
  * @maximum 43200
  */
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema27 = number
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema31 = number
 
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema32 = string | null
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema36 = string | null
 
 /**
  * @maxLength 255
  * @pattern ^[UW][A-Z0-9]{4,}\s*(\|.*)?$
  */
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema34 = string
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema38 = string
 
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema33 =
-    | ReplayVisionVisionScannersScoutsCreateRequestSchema34[]
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema37 =
+    | ReplayVisionVisionScannersScoutsCreateRequestSchema38[]
     | null
 
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema35 = boolean
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema39 = boolean
 
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema31 =
-    ReplayVisionVisionScannersScoutsCreateRequestSchema31Variant1 | null
-export interface ReplayVisionVisionScannersScoutsCreateRequestSchema31Variant1 {
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema35 =
+    ReplayVisionVisionScannersScoutsCreateRequestSchema35Variant1 | null
+export interface ReplayVisionVisionScannersScoutsCreateRequestSchema35Variant1 {
     /**
      * ID of the Slack integration whose bot posts this scout's findings and reports.
      * @minimum 1
      */
     integration_id: number
     /** Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set. */
-    channel?: ReplayVisionVisionScannersScoutsCreateRequestSchema32 | null
+    channel?: ReplayVisionVisionScannersScoutsCreateRequestSchema36 | null
     /** Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel. */
-    users?: ReplayVisionVisionScannersScoutsCreateRequestSchema33 | null
+    users?: ReplayVisionVisionScannersScoutsCreateRequestSchema37 | null
     /** When true, post a report as a thread: a short lead in the channel and the rest split into replies at the summary's section labels, which can be Markdown headings or bold labels. Keeps a long summary from being clipped at Slack's section limit. On by default; set it false to post a single message, which can truncate a long summary. It does not change how findings post. */
-    thread_reports?: ReplayVisionVisionScannersScoutsCreateRequestSchema35
+    thread_reports?: ReplayVisionVisionScannersScoutsCreateRequestSchema39
 }
 
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema36 =
-    ReplayVisionVisionScannersScoutsCreateRequestSchema36Variant1 | null
-export interface ReplayVisionVisionScannersScoutsCreateRequestSchema36Variant1 {
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema40 =
+    ReplayVisionVisionScannersScoutsCreateRequestSchema40Variant1 | null
+export interface ReplayVisionVisionScannersScoutsCreateRequestSchema40Variant1 {
     /** Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it. */
     hog_function_id: string
 }
@@ -133,11 +143,11 @@ export interface ReplayVisionVisionScannersScoutsCreateRequestSchema36Variant1 {
 /**
  * Destinations that receive each finding or report this scout emits. Empty by default.
  */
-export interface ReplayVisionVisionScannersScoutsCreateRequestSchema29 {
+export interface ReplayVisionVisionScannersScoutsCreateRequestSchema33 {
     /** Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery. */
-    slack?: ReplayVisionVisionScannersScoutsCreateRequestSchema31 | null
+    slack?: ReplayVisionVisionScannersScoutsCreateRequestSchema35 | null
     /** The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle. */
-    webhook?: ReplayVisionVisionScannersScoutsCreateRequestSchema36 | null
+    webhook?: ReplayVisionVisionScannersScoutsCreateRequestSchema40 | null
 }
 
 /**
@@ -146,16 +156,16 @@ export interface ReplayVisionVisionScannersScoutsCreateRequestSchema29 {
  * * `trusted` - Trusted domains only
  * * `full` - Full
  */
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema37 = 'trusted' | 'full'
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema41 = 'trusted' | 'full'
 /**
  * Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.
  */
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema39 = boolean
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema43 = boolean
 
 /**
  * Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' (twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart.
  */
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema41 = string | null
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema45 = string | null
 
 /**
  * Schedule, enablement, and delivery options accepted while creating a scout.
@@ -167,18 +177,20 @@ export interface ReplayVisionVisionScannersScoutsCreateRequestSchema2 {
     mcp_gateway_server_ids?: ReplayVisionVisionScannersScoutsCreateRequestSchema10
     repositories?: ReplayVisionVisionScannersScoutsCreateRequestSchema13
     write_scopes?: ReplayVisionVisionScannersScoutsCreateRequestSchema16
-    allowed_mcp_tools?: ReplayVisionVisionScannersScoutsCreateRequestSchema19 | null
-    tool_preset?: ReplayVisionVisionScannersScoutsCreateRequestSchema21
-    enabled?: ReplayVisionVisionScannersScoutsCreateRequestSchema23
-    emit?: ReplayVisionVisionScannersScoutsCreateRequestSchema25
-    run_interval_minutes?: ReplayVisionVisionScannersScoutsCreateRequestSchema27
-    output_destinations?: ReplayVisionVisionScannersScoutsCreateRequestSchema29
-    network_access?: ReplayVisionVisionScannersScoutsCreateRequestSchema37
-    auto_pause_exempt?: ReplayVisionVisionScannersScoutsCreateRequestSchema39
-    run_cron_schedule?: ReplayVisionVisionScannersScoutsCreateRequestSchema41 | null
+    lifecycle_locked?: ReplayVisionVisionScannersScoutsCreateRequestSchema19
+    allowed_mcp_tools?: ReplayVisionVisionScannersScoutsCreateRequestSchema21 | null
+    tool_preset?: ReplayVisionVisionScannersScoutsCreateRequestSchema23
+    precheck_query?: ReplayVisionVisionScannersScoutsCreateRequestSchema25 | null
+    enabled?: ReplayVisionVisionScannersScoutsCreateRequestSchema27
+    emit?: ReplayVisionVisionScannersScoutsCreateRequestSchema29
+    run_interval_minutes?: ReplayVisionVisionScannersScoutsCreateRequestSchema31
+    output_destinations?: ReplayVisionVisionScannersScoutsCreateRequestSchema33
+    network_access?: ReplayVisionVisionScannersScoutsCreateRequestSchema41
+    auto_pause_exempt?: ReplayVisionVisionScannersScoutsCreateRequestSchema43
+    run_cron_schedule?: ReplayVisionVisionScannersScoutsCreateRequestSchema45 | null
 }
 
-export type ReplayVisionVisionScannersScoutsCreateRequestSchema43 = boolean
+export type ReplayVisionVisionScannersScoutsCreateRequestSchema47 = boolean
 
 export interface ReplayVisionVisionScannersScoutsCreateInput {
     scanner_id: string
@@ -196,7 +208,7 @@ export interface ReplayVisionVisionScannersScoutsCreateInput {
     /** Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination. */
     config?: ReplayVisionVisionScannersScoutsCreateRequestSchema2
     /** Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only. */
-    variant_analysis?: ReplayVisionVisionScannersScoutsCreateRequestSchema43
+    variant_analysis?: ReplayVisionVisionScannersScoutsCreateRequestSchema47
 }
 
 /**
@@ -337,10 +349,14 @@ export interface ReplayVisionVisionScannersScoutsCreateResponseShape2 {
     repositories?: string[]
     /** Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run. */
     write_scopes: string[]
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    lifecycle_locked: boolean
     /** Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag. */
     allowed_mcp_tools: null | string[]
     /** Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted. */
     tool_preset: null | string
+    /** Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off. */
+    precheck_query: null | string
     /** When the coordinator last dispatched this scout. Null if it has never run. */
     last_run_at: null | string
     /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */

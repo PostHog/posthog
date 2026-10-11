@@ -69,13 +69,25 @@
             "declaration": "dist/generated/dashboards/dashboard-delete.d.ts"
         },
         {
+            "name": "DashboardsDashboardDeleteResponseShape10",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-delete.ts",
+            "declaration": "dist/generated/dashboards/dashboard-delete.d.ts"
+        },
+        {
             "name": "DashboardsDashboardDeleteResponseShape9",
             "importPath": "@posthog/sdk/dashboards",
             "source": "src/generated/dashboards/dashboard-delete.ts",
             "declaration": "dist/generated/dashboards/dashboard-delete.d.ts"
         },
         {
-            "name": "DashboardsDashboardDeleteResponseShape10",
+            "name": "DashboardsDashboardDeleteResponseShape11",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/dashboard-delete.ts",
+            "declaration": "dist/generated/dashboards/dashboard-delete.d.ts"
+        },
+        {
+            "name": "DashboardsDashboardDeleteResponseShape12",
             "importPath": "@posthog/sdk/dashboards",
             "source": "src/generated/dashboards/dashboard-delete.ts",
             "declaration": "dist/generated/dashboards/dashboard-delete.d.ts"
@@ -231,6 +243,37 @@
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/dashboards.ts",
                         "pointer": "#/Shape9/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardDeleteResponseShape9",
+            "field": "group_titles",
+            "effectiveDescription": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape9/properties/group_titles"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardDeleteResponseShape10",
+            "effectiveDescription": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape10"
                     }
                 }
             ]
@@ -438,6 +481,22 @@
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/dashboards.ts",
                         "pointer": "#/Shape1/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsDashboardDeleteData",
+            "field": "group_titles",
+            "effectiveDescription": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/dashboards.ts",
+                        "pointer": "#/Shape1/properties/group_titles"
                     }
                 }
             ]

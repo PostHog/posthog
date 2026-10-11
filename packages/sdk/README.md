@@ -105,7 +105,7 @@ Omitting `filterTestAccounts` reads the project setting. Supply it explicitly wh
 
 `queries.sql({ query: 'SELECT 1' })` returns column/type metadata and JSON-valued results. SQL determines its row shape at runtime. Some analytics response schemas also leave series fields unspecified; those gaps are documented as JSON values rather than asserted row types. Optional query response fields also allow `null`, matching the backend's model serialization.
 
-Each method validates its input before calling the API. Shared MCP handlers retain their validation, aliases, hooks, projections, links, and agent notes. The structured query and REST adapters also validate transformed responses. PATCH requests preserve omitted fields.
+Each method validates its input before calling the API. Shared MCP handlers retain their validation, aliases, hooks, projections, links, and agent notes. Responses use the generated TypeScript interfaces without runtime schema validation. PATCH requests preserve omitted fields.
 
 ```ts
 import { PostHogError } from '@posthog/sdk'

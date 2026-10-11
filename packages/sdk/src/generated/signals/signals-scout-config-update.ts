@@ -105,18 +105,22 @@ export type SignalsSignalsScoutConfigUpdateRequestSchema23 = string
  */
 export type SignalsSignalsScoutConfigUpdateRequestSchema22 = SignalsSignalsScoutConfigUpdateRequestSchema23[]
 
+export type SignalsSignalsScoutConfigUpdateRequestSchema24 = string | null
+
 /**
  * @maxLength 64
  */
-export type SignalsSignalsScoutConfigUpdateRequestSchema24 = string
+export type SignalsSignalsScoutConfigUpdateRequestSchema25 = string
 
-export type SignalsSignalsScoutConfigUpdateRequestSchema25 = string[] | null
+export type SignalsSignalsScoutConfigUpdateRequestSchema26 = boolean
+
+export type SignalsSignalsScoutConfigUpdateRequestSchema27 = string[] | null
 
 /**
  * * `read_only` - Read only
  * * `support_notes` - Support notes
  */
-export type SignalsSignalsScoutConfigUpdateRequestSchema26 = 'read_only' | 'support_notes'
+export type SignalsSignalsScoutConfigUpdateRequestSchema28 = 'read_only' | 'support_notes'
 export interface SignalsSignalsScoutConfigUpdateInput {
     /** A UUID string identifying this Signal scout config. */
     id: string
@@ -151,15 +155,19 @@ export interface SignalsSignalsScoutConfigUpdateInput {
     repositories?: SignalsSignalsScoutConfigUpdateRequestSchema20
     /** Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run. */
     write_scopes?: SignalsSignalsScoutConfigUpdateRequestSchema22
+    /** Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off. */
+    precheck_query?: SignalsSignalsScoutConfigUpdateRequestSchema24 | null
     /** Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored. */
-    suggestion_id?: SignalsSignalsScoutConfigUpdateRequestSchema24
+    suggestion_id?: SignalsSignalsScoutConfigUpdateRequestSchema25
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    lifecycle_locked?: SignalsSignalsScoutConfigUpdateRequestSchema26
     /** Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag. */
-    allowed_mcp_tools?: SignalsSignalsScoutConfigUpdateRequestSchema25 | null
+    allowed_mcp_tools?: SignalsSignalsScoutConfigUpdateRequestSchema27 | null
     /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
      *
      * * `read_only` - Read only
      * * `support_notes` - Support notes */
-    tool_preset?: SignalsSignalsScoutConfigUpdateRequestSchema26
+    tool_preset?: SignalsSignalsScoutConfigUpdateRequestSchema28
 }
 
 /**
@@ -294,10 +302,14 @@ export interface SignalsSignalsScoutConfigUpdateData {
     repositories?: string[]
     /** Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run. */
     write_scopes: string[]
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    lifecycle_locked: boolean
     /** Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag. */
     allowed_mcp_tools: null | string[]
     /** Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted. */
     tool_preset: null | string
+    /** Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off. */
+    precheck_query: null | string
     /** When the coordinator last dispatched this scout. Null if it has never run. */
     last_run_at: null | string
     /** How many of this scout's runs have failed in a row. Back to 0 after a successful run or any config edit. At the failure limit the scout pauses itself (`status` becomes `paused_by_system` with `pause_reason` `repeated_failures`) and retries about once a day; a successful retry resumes it, and so does setting `enabled=true`. */

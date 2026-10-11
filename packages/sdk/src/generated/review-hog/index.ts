@@ -9,6 +9,7 @@ export type {
     ReviewHogReviewHogReviewsGetResponseShape5,
     ReviewHogReviewHogReviewsGetResponseShape8,
     ReviewHogReviewHogReviewsGetResponseShape7,
+    ReviewHogReviewHogReviewsGetResponseShape9,
     ReviewHogReviewHogReviewsGetData,
     ReviewHogReviewHogReviewsGetOutput,
 } from './review-hog-reviews-get.js'

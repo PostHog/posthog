@@ -57,6 +57,18 @@
             "declaration": "dist/generated/dashboards/create.d.ts"
         },
         {
+            "name": "DashboardsCreateInputGroupTitles",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateInputGroupTitlesVariant1",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
             "name": "DashboardsCreateResponseRoleAtOrganizationEnumWithoutNulls",
             "importPath": "@posthog/sdk/dashboards",
             "source": "src/generated/dashboards/create.ts",
@@ -112,6 +124,12 @@
         },
         {
             "name": "DashboardsCreateDataCustomizationLayoutCompaction",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/create.ts",
+            "declaration": "dist/generated/dashboards/create.d.ts"
+        },
+        {
+            "name": "DashboardsCreateDataCustomizationGroupTitles",
             "importPath": "@posthog/sdk/dashboards",
             "source": "src/generated/dashboards/create.ts",
             "declaration": "dist/generated/dashboards/create.d.ts"
@@ -370,6 +388,22 @@
         },
         {
             "typeName": "DashboardsCreateInput",
+            "field": "group_titles",
+            "effectiveDescription": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardWriteOpenApi/properties/group_titles"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateInput",
             "field": "use_template",
             "effectiveDescription": "Template key to create the dashboard from a predefined template.",
             "layers": [
@@ -538,6 +572,22 @@
                         "kind": "openapi",
                         "file": "openapi.json",
                         "pointer": "#/components/schemas/DashboardCustomization/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsCreateData",
+            "field": "customization.group_titles",
+            "effectiveDescription": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardCustomization/properties/group_titles"
                     }
                 }
             ]

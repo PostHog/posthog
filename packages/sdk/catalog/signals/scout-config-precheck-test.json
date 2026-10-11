@@ -1,0 +1,229 @@
+{
+    "method": "signals.scoutConfigPrecheckTest",
+    "toolName": "scout-config-precheck-test",
+    "operationId": "signals_scout_config_precheck_test",
+    "title": "Test a scout pre-check",
+    "category": "Signals",
+    "description": "Run a scout's pre-check query once by its config `id` and return the rows, without starting a run and without saving anything. Pass `precheck_query` to try a query before you save it with `scout-config-update`, or omit it to try the saved one. The query gets the same `{since}` (the start of the last run that ran) and `{now}` values the next scheduled run would get. `would_run` and `reason` say whether that run would start (`rows`, `query_error`) or skip (`no_rows`, `false_value`). `rows_text` is the text the scout reads, one JSON object per line. A query error comes back in `error`: fix the query and test again.",
+    "requiredScopes": ["signal_scout:read", "query:read"],
+    "annotations": {
+        "readOnly": true,
+        "destructive": false,
+        "idempotent": true
+    },
+    "availability": [],
+    "methodSource": "src/generated/signals/client.ts",
+    "input": {
+        "name": "SignalsScoutConfigPrecheckTestInput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-config-precheck-test.ts",
+        "declaration": "dist/generated/signals/scout-config-precheck-test.d.ts"
+    },
+    "output": {
+        "name": "SignalsScoutConfigPrecheckTestOutput",
+        "importPath": "@posthog/sdk/signals",
+        "source": "src/generated/signals/scout-config-precheck-test.ts",
+        "declaration": "dist/generated/signals/scout-config-precheck-test.d.ts"
+    },
+    "referencedTypes": [
+        {
+            "name": "SignalsScoutConfigPrecheckTestRequestSchema0",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-config-precheck-test.ts",
+            "declaration": "dist/generated/signals/scout-config-precheck-test.d.ts"
+        },
+        {
+            "name": "SignalsScoutConfigPrecheckTestData",
+            "importPath": "@posthog/sdk/signals",
+            "source": "src/generated/signals/scout-config-precheck-test.ts",
+            "declaration": "dist/generated/signals/scout-config-precheck-test.d.ts"
+        }
+    ],
+    "methodDocumentation": [
+        {
+            "role": "original",
+            "text": "Run a scout's pre-check query once and return its rows, without starting a run and without saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run would get, so the result says whether that run would start or skip. Pass `precheck_query` to try a query before you save it, or omit it to try the saved one. A query error comes back in the `error` field with a 200, because a scheduled run treats it as a reason to run.",
+            "source": {
+                "kind": "openapi",
+                "file": "openapi.json",
+                "pointer": "#/paths/~1api~1projects~1{project_id}~1signals~1scout~1configs~1{id}~1precheck_test~1/post"
+            }
+        },
+        {
+            "role": "override",
+            "text": "Run a scout's pre-check query once by its config `id` and return the rows, without starting a run and without saving anything. Pass `precheck_query` to try a query before you save it with `scout-config-update`, or omit it to try the saved one. The query gets the same `{since}` (the start of the last run that ran) and `{now}` values the next scheduled run would get. `would_run` and `reason` say whether that run would start (`rows`, `query_error`) or skip (`no_rows`, `false_value`). `rows_text` is the text the scout reads, one JSON object per line. A query error comes back in `error`: fix the query and test again.",
+            "source": {
+                "kind": "mcp_yaml",
+                "file": "products/signals/mcp/tools.yaml"
+            }
+        }
+    ],
+    "typeDocumentation": [
+        {
+            "typeName": "SignalsScoutConfigPrecheckTestInput",
+            "field": "id",
+            "effectiveDescription": "A UUID string identifying this Signal scout config.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "A UUID string identifying this Signal scout config.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/configs/{id}/precheck_test/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutConfigPrecheckTestInput",
+            "field": "precheck_query",
+            "effectiveDescription": "HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the query saved on the scout.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the query saved on the scout.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "/paths//api/projects/{project_id}/signals/scout/configs/{id}/precheck_test/"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutConfigPrecheckTestData",
+            "field": "would_run",
+            "effectiveDescription": "Whether a scheduled run that started now would run the scout. False means it would skip the run.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Whether a scheduled run that started now would run the scout. False means it would skip the run.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/would_run"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutConfigPrecheckTestData",
+            "field": "reason",
+            "effectiveDescription": "Why: `rows` (the query found rows), `no_rows` (it found none, so the run is skipped), `false_value` (it returned one false value, so the run is skipped), or `query_error` (the query failed, so the run starts as if there were no pre-check).\n\n* `rows` - Rows\n* `no_rows` - No Rows\n* `false_value` - False Value\n* `query_error` - Query Error",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why: `rows` (the query found rows), `no_rows` (it found none, so the run is skipped), `false_value` (it returned one false value, so the run is skipped), or `query_error` (the query failed, so the run starts as if there were no pre-check).\n\n* `rows` - Rows\n* `no_rows` - No Rows\n* `false_value` - False Value\n* `query_error` - Query Error",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/reason"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutConfigPrecheckTestData",
+            "field": "since",
+            "effectiveDescription": "The value bound to `{since}`: the start of the last run that ran, or when the scout was created.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The value bound to `{since}`: the start of the last run that ran, or when the scout was created.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/since"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutConfigPrecheckTestData",
+            "field": "now",
+            "effectiveDescription": "The value bound to `{now}`.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The value bound to `{now}`.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/now"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutConfigPrecheckTestData",
+            "field": "row_count",
+            "effectiveDescription": "How many rows the query returned, at most 50.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many rows the query returned, at most 50.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/row_count"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutConfigPrecheckTestData",
+            "field": "columns",
+            "effectiveDescription": "The column names of the result, in order.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The column names of the result, in order.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/columns"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutConfigPrecheckTestData",
+            "field": "rows_text",
+            "effectiveDescription": "The rows as the scout reads them: one JSON object per line, cut before the text passes the size limit. Empty when the query returned no rows or failed.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The rows as the scout reads them: one JSON object per line, cut before the text passes the size limit. Empty when the query returned no rows or failed.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/rows_text"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "SignalsScoutConfigPrecheckTestData",
+            "field": "error",
+            "effectiveDescription": "Why the query failed, when it failed. A syntax or schema error is given as written; other failures read as a general message. Null when the query ran.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Why the query failed, when it failed. A syntax or schema error is given as written; other failures read as a general message. Null when the query ran.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/signals.ts",
+                        "pointer": "#/Shape1/properties/error"
+                    }
+                }
+            ]
+        }
+    ],
+    "relatedTools": [
+        {
+            "toolName": "scout-config-update",
+            "method": "signals.scoutConfigUpdate"
+        }
+    ]
+}

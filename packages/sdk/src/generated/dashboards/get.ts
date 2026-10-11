@@ -88,6 +88,13 @@ export type DashboardsGetDataCustomizationTileSpacing = 'tight' | 'condensed' | 
  */
 export type DashboardsGetDataCustomizationLayoutCompaction = 'vertical' | 'horizontal' | 'stable'
 /**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ */
+export interface DashboardsGetDataCustomizationGroupTitles {
+    [key: string]: string
+}
+
+/**
  * Dashboard display settings.
  */
 export interface DashboardsGetDataCustomization {
@@ -105,6 +112,8 @@ export interface DashboardsGetDataCustomization {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     readonly layout_compaction?: DashboardsGetDataCustomizationLayoutCompaction
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    readonly group_titles?: DashboardsGetDataCustomizationGroupTitles
 }
 
 export type DashboardsGetDataTiles = readonly DashboardsGetDataTilesVariant1[]

@@ -19,7 +19,6 @@ export interface OperationDefinition {
     bindings: ParameterBinding[]
     injectBody: JsonObject
     inputSchema: AnySchema
-    responses: Record<string, AnySchema>
     response: {
         include?: string[]
         exclude?: string[]
@@ -35,33 +34,17 @@ export interface OperationDefinition {
     query?: { kind: string; filterTestAccounts: boolean }
 }
 
-const validators = new WeakMap<
-    OperationDefinition,
-    { input: ValidateFunction; output: Map<number, ValidateFunction> }
->()
+const inputValidators = new WeakMap<OperationDefinition, ValidateFunction>()
 
-function createValidator(defaults: boolean): Ajv {
-    const ajv = new Ajv({ strict: false, allErrors: true, ownProperties: true, useDefaults: defaults })
-    addFormats.default(ajv)
-    return ajv
-}
-
-function getValidators(operation: OperationDefinition): {
-    input: ValidateFunction
-    output: Map<number, ValidateFunction>
-} {
-    let result = validators.get(operation)
-    if (!result) {
-        const ajv = createValidator(false)
-        result = {
-            input: createValidator(true).compile(operation.inputSchema),
-            output: new Map(
-                Object.entries(operation.responses).map(([status, schema]) => [Number(status), ajv.compile(schema)])
-            ),
-        }
-        validators.set(operation, result)
+function getInputValidator(operation: OperationDefinition): ValidateFunction {
+    let validator = inputValidators.get(operation)
+    if (!validator) {
+        const ajv = new Ajv({ strict: false, allErrors: true, ownProperties: true, useDefaults: true })
+        addFormats.default(ajv)
+        validator = ajv.compile(operation.inputSchema)
+        inputValidators.set(operation, validator)
     }
-    return result
+    return validator
 }
 
 function fields(errors: ErrorObject[] | null | undefined): ApiFieldError[] {
@@ -108,7 +91,7 @@ function toJson(value: unknown, seen = new Set<object>()): JsonValue {
 
 export function validateInput(operation: OperationDefinition, input: unknown): JsonObject {
     const data = toJson(input)
-    const validator = getValidators(operation).input
+    const validator = getInputValidator(operation)
     if (!validator(data) || !isObject(data)) {
         throw new PostHogError({
             kind: 'input_validation',
@@ -117,21 +100,6 @@ export function validateInput(operation: OperationDefinition, input: unknown): J
         })
     }
     return data as JsonObject
-}
-
-export function validateOutput<T>(operation: OperationDefinition, value: unknown, meta: ResponseMeta): T {
-    const validator = getValidators(operation).output.get(meta.status)
-    if (!validator || !validator(value)) {
-        throw new PostHogError({
-            kind: 'response_validation',
-            message: validator
-                ? 'The PostHog response does not match its output interface.'
-                : `PostHog returned an undocumented success status (${meta.status}).`,
-            ...meta,
-            fields: fields(validator?.errors),
-        })
-    }
-    return value as T
 }
 
 export function buildRequest(

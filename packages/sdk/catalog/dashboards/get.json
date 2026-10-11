@@ -87,6 +87,12 @@
             "declaration": "dist/generated/dashboards/get.d.ts"
         },
         {
+            "name": "DashboardsGetDataCustomizationGroupTitles",
+            "importPath": "@posthog/sdk/dashboards",
+            "source": "src/generated/dashboards/get.ts",
+            "declaration": "dist/generated/dashboards/get.d.ts"
+        },
+        {
             "name": "DashboardsGetDataCustomization",
             "importPath": "@posthog/sdk/dashboards",
             "source": "src/generated/dashboards/get.ts",
@@ -308,6 +314,22 @@
                         "kind": "openapi",
                         "file": "openapi.json",
                         "pointer": "#/components/schemas/DashboardCustomization/properties/layout_compaction"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "DashboardsGetData",
+            "field": "customization.group_titles",
+            "effectiveDescription": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.",
+                    "source": {
+                        "kind": "openapi",
+                        "file": "openapi.json",
+                        "pointer": "#/components/schemas/DashboardCustomization/properties/group_titles"
                     }
                 }
             ]

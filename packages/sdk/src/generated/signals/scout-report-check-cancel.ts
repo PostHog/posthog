@@ -26,6 +26,8 @@ export interface SignalsScoutReportCheckCancelData {
     next_run_at: string
     /** Verdict of the most recent run; null before the first. */
     last_outcome: null | string
+    /** Why the most recent run was `inconclusive`: `awaiting_data`, `unmeasurable`, `needs_manual_verification`, or `no_fix_to_measure`. Null on any other outcome. */
+    last_outcome_reason: null | string
     /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
     run_state: string
     /** True while an `agent` check waits on a dispatched run to record its verdict. */

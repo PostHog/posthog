@@ -57,6 +57,12 @@
             "declaration": "dist/generated/autoresearch/autoresearch-online-performance-retrieve.d.ts"
         },
         {
+            "name": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape6",
+            "importPath": "@posthog/sdk/autoresearch",
+            "source": "src/generated/autoresearch/autoresearch-online-performance-retrieve.ts",
+            "declaration": "dist/generated/autoresearch/autoresearch-online-performance-retrieve.d.ts"
+        },
+        {
             "name": "AutoresearchAutoresearchOnlinePerformanceRetrieveData",
             "importPath": "@posthog/sdk/autoresearch",
             "source": "src/generated/autoresearch/autoresearch-online-performance-retrieve.ts",
@@ -437,6 +443,22 @@
         },
         {
             "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
+            "field": "likely_threshold",
+            "effectiveDescription": "The Likely cut point the 'likely' confusion counts used for this date, from the base rate of the dates checked before it. Null when confusion is null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The Likely cut point the 'likely' confusion counts used for this date, from the base rate of the dates checked before it. Null when confusion is null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape2/properties/likely_threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape2",
             "field": "calibration_bins",
             "effectiveDescription": "Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.",
             "layers": [
@@ -518,11 +540,11 @@
         {
             "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape3",
             "field": "likely",
-            "effectiveDescription": "Counts when users with a score of 0.6 or higher (the Likely segment) are flagged.",
+            "effectiveDescription": "Counts when users in the Likely segment, with a score of likely_threshold or higher, are flagged.",
             "layers": [
                 {
                     "role": "original",
-                    "text": "Counts when users with a score of 0.6 or higher (the Likely segment) are flagged.",
+                    "text": "Counts when users in the Likely segment, with a score of likely_threshold or higher, are flagged.",
                     "source": {
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/autoresearch.ts",
@@ -692,6 +714,134 @@
             ]
         },
         {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape6",
+            "field": "likely_threshold",
+            "effectiveDescription": "Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6/properties/likely_threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape6",
+            "field": "possible_threshold",
+            "effectiveDescription": "Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6/properties/possible_threshold"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape6",
+            "field": "likely_lift",
+            "effectiveDescription": "How many times the base rate a score must reach to be in the Likely segment.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "How many times the base rate a score must reach to be in the Likely segment.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6/properties/likely_lift"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape6",
+            "field": "base_rate",
+            "effectiveDescription": "Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6/properties/base_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape6",
+            "field": "base_rate_dates",
+            "effectiveDescription": "Number of checked prediction dates the base rate pools.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "Number of checked prediction dates the base rate pools.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6/properties/base_rate_dates"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape6",
+            "field": "champion_mean_p_y",
+            "effectiveDescription": "The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6/properties/champion_mean_p_y"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape6",
+            "field": "champion_base_rate",
+            "effectiveDescription": "The real rate of the target event over the same dates as champion_mean_p_y.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The real rate of the target event over the same dates as champion_mean_p_y.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6/properties/champion_base_rate"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveResponseShape6",
+            "field": "scores_miscalibrated",
+            "effectiveDescription": "True when champion_mean_p_y is far above or below champion_base_rate. The scores are then not probabilities (for example after class weighting in train.py), so a score of likely_lift times the base rate does not mean the user is that many times as likely to convert.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "True when champion_mean_p_y is far above or below champion_base_rate. The scores are then not probabilities (for example after class weighting in train.py), so a score of likely_lift times the base rate does not mean the user is that many times as likely to convert.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape6/properties/scores_miscalibrated"
+                    }
+                }
+            ]
+        },
+        {
             "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveData",
             "field": "rows",
             "effectiveDescription": "One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run.",
@@ -703,6 +853,22 @@
                         "kind": "mcp_typescript",
                         "file": "services/mcp/src/tools/generated/autoresearch.ts",
                         "pointer": "#/Shape1/properties/rows"
+                    }
+                }
+            ]
+        },
+        {
+            "typeName": "AutoresearchAutoresearchOnlinePerformanceRetrieveData",
+            "field": "segment_thresholds",
+            "effectiveDescription": "The current cut points between the Likely, Possible and Unlikely segments, set by lift over the realized base rate. They do not depend on limit.",
+            "layers": [
+                {
+                    "role": "original",
+                    "text": "The current cut points between the Likely, Possible and Unlikely segments, set by lift over the realized base rate. They do not depend on limit.",
+                    "source": {
+                        "kind": "mcp_typescript",
+                        "file": "services/mcp/src/tools/generated/autoresearch.ts",
+                        "pointer": "#/Shape1/properties/segment_thresholds"
                     }
                 }
             ]

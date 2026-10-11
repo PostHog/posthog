@@ -48,6 +48,14 @@ export type DashboardsCreateInputGridSpacing = 'tight' | 'condensed' | 'standard
  * * `stable` - stable
  */
 export type DashboardsCreateInputLayoutCompaction = 'vertical' | 'horizontal' | 'stable'
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ */
+export type DashboardsCreateInputGroupTitles = DashboardsCreateInputGroupTitlesVariant1 | null
+export interface DashboardsCreateInputGroupTitlesVariant1 {
+    [key: string]: string
+}
+
 export interface DashboardsCreateInput {
     /** Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead. */
     include_dashboards?: boolean
@@ -85,6 +93,8 @@ export interface DashboardsCreateInput {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: DashboardsCreateInputLayoutCompaction
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    group_titles?: DashboardsCreateInputGroupTitles
     /** Template key to create the dashboard from a predefined template. */
     use_template?: string
     /** ID of an existing dashboard to duplicate. */
@@ -169,6 +179,13 @@ export type DashboardsCreateDataCustomizationTileSpacing = 'tight' | 'condensed'
  */
 export type DashboardsCreateDataCustomizationLayoutCompaction = 'vertical' | 'horizontal' | 'stable'
 /**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ */
+export interface DashboardsCreateDataCustomizationGroupTitles {
+    [key: string]: string
+}
+
+/**
  * Dashboard display settings.
  */
 export interface DashboardsCreateDataCustomization {
@@ -186,6 +203,8 @@ export interface DashboardsCreateDataCustomization {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     readonly layout_compaction?: DashboardsCreateDataCustomizationLayoutCompaction
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    readonly group_titles?: DashboardsCreateDataCustomizationGroupTitles
 }
 
 export type DashboardsCreateDataTiles = readonly DashboardsCreateDataTilesVariant1[]

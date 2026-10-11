@@ -86,6 +86,13 @@ export interface DashboardsDashboardReorderTilesResponseShape8 {
     [key: string]: JsonValue | null
 }
 
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ */
+export interface DashboardsDashboardReorderTilesResponseShape10 {
+    [key: string]: string
+}
+
 export interface DashboardsDashboardReorderTilesResponseShape9 {
     /** Named tile density preset.
      *
@@ -101,9 +108,15 @@ export interface DashboardsDashboardReorderTilesResponseShape9 {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: 'vertical' | 'horizontal' | 'stable'
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    group_titles?: DashboardsDashboardReorderTilesResponseShape10
 }
 
-export interface DashboardsDashboardReorderTilesResponseShape10 {
+export interface DashboardsDashboardReorderTilesResponseShape11 {
+    [key: string]: string
+}
+
+export interface DashboardsDashboardReorderTilesResponseShape12 {
     [key: string]: JsonValue | null
 }
 
@@ -164,7 +177,9 @@ export interface DashboardsDashboardReorderTilesData {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: 'vertical' | 'horizontal' | 'stable'
-    tiles: null | DashboardsDashboardReorderTilesResponseShape10[]
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    group_titles?: null | DashboardsDashboardReorderTilesResponseShape11
+    tiles: null | DashboardsDashboardReorderTilesResponseShape12[]
     /** Template key to create the dashboard from a predefined template. */
     use_template?: string
     /** ID of an existing dashboard to duplicate. */

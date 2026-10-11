@@ -2,13 +2,7 @@ import { PostHogError } from '../errors.js'
 import type { JsonValue, PostHogClientOptions, ProjectContext, RequestOptions } from '../types.js'
 import { type ResolvedConfig, resolveConfig, validateProjectId } from './config.js'
 import { isObject, request, waitWithSignal, withDeadline } from './http.js'
-import {
-    type OperationDefinition,
-    buildRequest,
-    transformResponse,
-    validateInput,
-    validateOutput,
-} from './operation.js'
+import { type OperationDefinition, buildRequest, transformResponse, validateInput } from './operation.js'
 import type { SharedToolSession } from './shared-tools.js'
 
 function metadataError(): never {
@@ -351,7 +345,7 @@ export class Runtime {
             const { path, init } = buildRequest(operation, params, project)
             const result = await request(config, path, init, signal)
             const output = transformResponse(operation, result.data, params, config, project, result.meta)
-            return validateOutput<T>(operation, output, result.meta)
+            return output as T
         })
     }
 }

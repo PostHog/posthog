@@ -76,6 +76,13 @@ export interface DashboardsDashboardTransferTileResponseShape8 {
     [key: string]: JsonValue | null
 }
 
+/**
+ * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+ */
+export interface DashboardsDashboardTransferTileResponseShape10 {
+    [key: string]: string
+}
+
 export interface DashboardsDashboardTransferTileResponseShape9 {
     /** Named tile density preset.
      *
@@ -91,9 +98,15 @@ export interface DashboardsDashboardTransferTileResponseShape9 {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: 'vertical' | 'horizontal' | 'stable'
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    group_titles?: DashboardsDashboardTransferTileResponseShape10
 }
 
-export interface DashboardsDashboardTransferTileResponseShape10 {
+export interface DashboardsDashboardTransferTileResponseShape11 {
+    [key: string]: string
+}
+
+export interface DashboardsDashboardTransferTileResponseShape12 {
     [key: string]: JsonValue | null
 }
 
@@ -154,7 +167,9 @@ export interface DashboardsDashboardTransferTileData {
      * * `horizontal` - horizontal
      * * `stable` - stable */
     layout_compaction?: 'vertical' | 'horizontal' | 'stable'
-    tiles: null | DashboardsDashboardTransferTileResponseShape10[]
+    /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+    group_titles?: null | DashboardsDashboardTransferTileResponseShape11
+    tiles: null | DashboardsDashboardTransferTileResponseShape12[]
     /** Template key to create the dashboard from a predefined template. */
     use_template?: string
     /** ID of an existing dashboard to duplicate. */
