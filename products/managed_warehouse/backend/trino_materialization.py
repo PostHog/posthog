@@ -7,7 +7,7 @@ import structlog
 
 from posthog.schema import HogQLQuery
 
-from posthog.hogql.escape_sql import escape_trino_identifier
+from posthog.hogql.escape_sql import escape_trino_identifier, safe_identifier
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
 from posthog.models import Team
@@ -101,14 +101,16 @@ def execute_trino_shadow_materialization(
 
 
 def _compile(team: Team, query: HogQLQuery, incremental: TrinoIncrementalWrite | None) -> Any:
-    select_transform = None
-    if incremental is not None:
+    def select_transform(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Name the columns first, because the incremental filter can wrap the query in a `SELECT *`.
+        node = _name_unnamed_columns(team, node)
+        if incremental is None:
+            return node
         from products.data_modeling.backend.facade.api import (  # noqa: PLC0415 -- the facade loads lazily
             apply_incremental_filter,
         )
 
-        def select_transform(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
-            return apply_incremental_filter(node, incremental_key=incremental.incremental_key, since=incremental.since)
+        return apply_incremental_filter(node, incremental_key=incremental.incremental_key, since=incremental.since)
 
     return compile_hogql_to_trino_sql(
         team.pk,
@@ -118,6 +120,40 @@ def _compile(team: Team, query: HogQLQuery, incremental: TrinoIncrementalWrite |
         expansion_mode=TrinoExpansionMode.DJANGO,
         select_transform=select_transform,
     )
+
+
+def _name_unnamed_columns(
+    team: Team, node: ast.SelectQuery | ast.SelectSetQuery
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """Give each unnamed output expression the name ClickHouse gives it, such as ``count()``.
+
+    Trino rejects a CREATE TABLE AS statement with an unnamed column. A plain field keeps its column name.
+    A ``COLUMNS(...)`` projection stays as is, because only the resolver can expand it.
+    A positional set operation takes its column names from its first branch, so only that branch and
+    ``BY NAME`` branches get names. A later branch can repeat an expression without a name conflict.
+    """
+    from posthog.hogql import ast  # noqa: PLC0415 -- keeps HogQL imports off Django startup
+    from posthog.hogql.context import HogQLContext  # noqa: PLC0415
+    from posthog.hogql.printer.hogql import HogQLPrinter  # noqa: PLC0415
+
+    printer = HogQLPrinter(context=HogQLContext(team_id=team.pk, team=team))
+
+    def name_columns(query: ast.SelectQuery | ast.SelectSetQuery) -> None:
+        if isinstance(query, ast.SelectSetQuery):
+            name_columns(query.initial_select_query)
+            for branch in query.subsequent_select_queries:
+                if branch.set_operator.endswith(" BY NAME"):
+                    name_columns(branch.select_query)
+            return
+        query.select = [
+            column
+            if isinstance(column, ast.Alias | ast.Field | ast.ColumnsExpr)
+            else ast.Alias(alias=safe_identifier(printer.visit(column)), expr=column)
+            for column in query.select
+        ]
+
+    name_columns(node)
+    return node
 
 
 def _merge(
