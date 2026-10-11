@@ -166,14 +166,21 @@ class Migration(migrations.Migration):
                 ),
             ],
             database_operations=[
+                # A dependency on customer_analytics makes a cycle between the squashes, so the account table
+                # can come after this migration on a partially migrated database. 1397 then adds the foreign key.
                 migrations.RunSQL(
                     sql="""
-                        ALTER TABLE "posthog_taggeditem"
-                        ADD COLUMN "account_id" uuid NULL
-                        CONSTRAINT "posthog_taggeditem_account_id_fk"
-                        REFERENCES "customer_analytics_account"("id")
-                        DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
-                        SET CONSTRAINTS "posthog_taggeditem_account_id_fk" IMMEDIATE; -- existing-table-constraint-ignore
+                        ALTER TABLE "posthog_taggeditem" ADD COLUMN "account_id" uuid NULL;
+                        DO $$
+                        BEGIN
+                            IF to_regclass('customer_analytics_account') IS NOT NULL THEN
+                                ALTER TABLE "posthog_taggeditem"
+                                ADD CONSTRAINT "posthog_taggeditem_account_id_fk"
+                                FOREIGN KEY ("account_id") REFERENCES "customer_analytics_account"("id")
+                                DEFERRABLE INITIALLY DEFERRED; -- existing-table-constraint-ignore
+                                SET CONSTRAINTS "posthog_taggeditem_account_id_fk" IMMEDIATE; -- existing-table-constraint-ignore
+                            END IF;
+                        END $$;
                     """,
                     reverse_sql="""
                         ALTER TABLE "posthog_taggeditem" DROP COLUMN IF EXISTS "account_id";
