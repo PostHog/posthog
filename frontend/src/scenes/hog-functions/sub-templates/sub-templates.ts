@@ -1227,6 +1227,20 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
             },
         },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
+            template_id: 'template-resend',
+            name: 'Email via Resend on issue created',
+            description: 'Sends an email with Resend when an issue is created',
+            inputs: {
+                subject: {
+                    value: 'New issue: {event.properties.name}',
+                },
+                text: {
+                    value: `{event.properties.name} was created in {project.name}.\n\n{substring(event.properties.description, 1, 1000)}\n\nView issue: ${errorTrackingIssueLinkHogTemplate('email')}\nAlert: {source.url}`,
+                },
+            },
+        },
     ],
     'error-tracking-issue-reopened': [
         {
@@ -1294,6 +1308,20 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
                 text: {
                     value: 'Issue reopened: {event.properties.name}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-reopened'],
+            template_id: 'template-resend',
+            name: 'Email via Resend on issue reopened',
+            description: 'Sends an email with Resend when an issue is reopened',
+            inputs: {
+                subject: {
+                    value: 'Issue reopened: {event.properties.name}',
+                },
+                text: {
+                    value: `{event.properties.name} was reopened in {project.name}.\n\n{substring(event.properties.description, 1, 1000)}\n\nView issue: ${errorTrackingIssueLinkHogTemplate('email')}\nAlert: {source.url}`,
                 },
             },
         },
@@ -1378,6 +1406,20 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
                 text: {
                     value: 'Issue spiking: {event.properties.name}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-resend',
+            name: 'Email via Resend on issue spiking',
+            description: 'Sends an email with Resend when an issue is spiking',
+            inputs: {
+                subject: {
+                    value: 'Issue spiking: {event.properties.name}',
+                },
+                text: {
+                    value: `{event.properties.name} is spiking in {project.name}.\n\n{substring(event.properties.description, 1, 1000)}\n\nExceptions in last 5 minutes: {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'})\n\nView issue: ${errorTrackingIssueLinkHogTemplate('email')}\nAlert: {source.url}`,
                 },
             },
         },

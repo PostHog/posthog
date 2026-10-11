@@ -41,6 +41,7 @@ import { template as posthogCreateTaskTemplate } from './_destinations/posthog_t
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
 import { template as pushTemplate } from './_destinations/push/push.template'
 import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit.template'
+import { template as resendTemplate } from './_destinations/resend/resend.template'
 import { template as retainTemplate } from './_destinations/retain/retain.template'
 import { template as slackTemplate } from './_destinations/slack/slack.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
@@ -82,6 +83,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     slackTemplate,
     webhookTemplate,
     pagerdutyTemplate,
+    resendTemplate,
     tiktokAdsTemplate,
     snapchatAdsTemplate,
     linearTemplate,

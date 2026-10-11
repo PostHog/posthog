@@ -69,4 +69,11 @@ export const ERROR_TRACKING_DESTINATIONS: WizardDestination[] = [
         icon: '/static/services/linear.png',
         templateId: 'template-linear',
     },
+    {
+        key: 'resend',
+        name: 'Email (Resend)',
+        description: 'Send an email with your Resend account',
+        icon: '/static/services/resend.png',
+        templateId: 'template-resend',
+    },
 ]
