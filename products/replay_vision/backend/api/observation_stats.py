@@ -29,6 +29,7 @@ def compute_observation_stats(
     scanner: ReplayScanner,
     queryset: QuerySet[ReplayObservation],
     recent_days: int = _DEFAULT_RECENT_DAYS,
+    tag_options_queryset: QuerySet[ReplayObservation] | None = None,
 ) -> dict[str, Any]:
     # Clamp so a hostile or stale client can't ask for "last 9,999 days" or 0.
     clamped_recent_days = max(1, min(recent_days, _MAX_RECENT_DAYS))
@@ -47,6 +48,9 @@ def compute_observation_stats(
         payload["monitor"] = _monitor_stats(queryset)
     elif scanner.scanner_type == ScannerType.CLASSIFIER:
         classifier, available_tags = _classifier_stats(queryset)
+        if tag_options_queryset is not None:
+            # The tag filter pill lists its options from this field, so a tag filter must not narrow it.
+            _, available_tags = _classifier_stats(tag_options_queryset)
         payload["classifier"] = classifier
         payload["available_tags"] = available_tags
     elif scanner.scanner_type == ScannerType.SCORER:

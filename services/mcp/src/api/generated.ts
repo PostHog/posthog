@@ -67062,7 +67062,7 @@ export namespace Schemas {
       coverage: CoverageStats;
       /** Team label (thumbs up/down) aggregates over the filtered set. */
       labels: ObservationLabelStats;
-      /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set. */
+      /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set, ignoring the `tags` filter. */
       available_tags: string[];
       /** Monitor-type aggregates; null when the scanner is not a monitor. */
       monitor: MonitorStats | null;
