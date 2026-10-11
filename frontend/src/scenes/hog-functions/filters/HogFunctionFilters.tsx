@@ -122,7 +122,6 @@ export function HogFunctionFilters({
     const isDataWarehouse = filterSource === 'data-warehouse-table' || isDataWarehouseView
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
     const cdpDwhTableSourceEnabled = useFeatureFlag('CDP_DWH_TABLE_SOURCE')
-    const cdpDwhViewSourceEnabled = useFeatureFlag('CDP_DWH_VIEW_SOURCE')
 
     // The table matcher's column suggestions read from databaseTableListLogic, which isn't loaded
     // automatically in this scene — kick it off when a warehouse table is the source.
@@ -190,10 +189,7 @@ export function HogFunctionFilters({
     }
 
     // NOTE: Mappings won't work for person updates currently as they are totally event based...
-    const showSourcePicker =
-        (cdpPersonUpdatesEnabled || cdpDwhTableSourceEnabled || cdpDwhViewSourceEnabled) &&
-        type === 'destination' &&
-        !useMapping
+    const showSourcePicker = type === 'destination' && !useMapping
     const showEventMatchers = !useMapping && (isDataWarehouse || (filterSource ?? 'events') === 'events')
 
     const mainContent = (
@@ -232,9 +228,7 @@ export function HogFunctionFilters({
                                     ...(cdpDwhTableSourceEnabled
                                         ? [{ value: 'data-warehouse-table', label: 'Warehouse table' }]
                                         : []),
-                                    ...(cdpDwhViewSourceEnabled
-                                        ? [{ value: 'data-warehouse-view', label: 'Materialized view' }]
-                                        : []),
+                                    { value: 'data-warehouse-view', label: 'Materialized view' },
                                 ]}
                                 value={value?.source ?? 'events'}
                                 onChange={(val) => {
