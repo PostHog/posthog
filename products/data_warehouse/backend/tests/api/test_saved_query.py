@@ -2135,8 +2135,13 @@ class TestSavedQuery(APIBaseTest):
                 },
             )
 
-            self.assertEqual(response.status_code, 400, response.content)
+            self.assertEqual(response.status_code, 409, response.content)
+            self.assertEqual(response.json()["code"], "query_conflict")
             self.assertEqual(response.json()["detail"], "The query was modified by someone else.")
+            current = self.client.get(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}"
+            ).json()
+            self.assertEqual(response.json()["extra"], {"latest_history_id": current["latest_history_id"]})
             mock_get_columns.assert_not_called()
 
     def test_revert_materialization(self):

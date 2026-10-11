@@ -34,6 +34,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
+import { isQueryConflictError } from 'lib/api-error'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -745,6 +746,15 @@ export interface sqlEditorLogicActions {
     updateDataWarehouseSavedQuery: (
         view: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
     ) => import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate // dataWarehouseViewsLogic
+    updateDataWarehouseSavedQueryFailed: (
+        viewId: string,
+        error?: unknown,
+        request?: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate
+    ) => {
+        viewId: string
+        error: unknown
+        request: import('../saved_queries/dataWarehouseViewsLogic').DataWarehouseSavedQueryUpdate | undefined
+    } // dataWarehouseViewsLogic
     updateDataWarehouseSavedQueryFailure: (
         error: string,
         errorObject?: any
@@ -1310,6 +1320,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'materializeDataWarehouseSavedQuery',
                 'updateDataWarehouseSavedQuerySuccess',
                 'updateDataWarehouseSavedQueryFailure',
+                'updateDataWarehouseSavedQueryFailed',
                 'updateDataWarehouseSavedQuery',
             ],
             outputPaneLogic({ tabId: props.tabId }),
@@ -3375,32 +3386,72 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     latestView?.latest_history_id != null &&
                     baselineQuery != null &&
                     latestView.query?.query !== baselineQuery
-                if (foreignEdit) {
+                const saveOrReviewConflict = async (request: UpdateViewPayload): Promise<void> => {
+                    // The loader swallows its error, so the failure listener below records it per request.
+                    cache.viewUpdateErrors ??= new WeakMap<object, unknown>()
+                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(request)
+                    const failed = cache.viewUpdateErrors.has(request)
+                    const error = cache.viewUpdateErrors.get(request)
+                    cache.viewUpdateErrors.delete(request)
+                    if (isQueryConflictError(error)) {
+                        // Someone saved between the read above and this write. The view logic already
+                        // toasts the conflict, so only open the review diff.
+                        try {
+                            const currentView = await warehouseSavedQueriesRetrieve(
+                                String(teamLogic.values.currentTeamId),
+                                view.id
+                            )
+                            reviewConflict(
+                                currentView.query?.query as string | undefined,
+                                currentView.latest_history_id
+                            )
+                        } catch {
+                            lemonToast.error("Couldn't load the latest version of this view. Try saving again.")
+                        }
+                    } else if (!failed) {
+                        actions.updateViewSuccess(request, draftId, biEditorState)
+                    }
+                }
+                const reviewConflict = (
+                    currentQuery: string | undefined,
+                    currentHistoryId: string | null | undefined
+                ): void => {
+                    const reviewedQuery = values.queryInput ?? ''
                     actions._setSuggestionPayload({
-                        suggestedValue: values.queryInput!,
-                        originalValue: latestView?.query?.query,
+                        suggestedValue: reviewedQuery,
+                        originalValue: currentQuery,
                         acceptText: 'Confirm changes',
                         rejectText: 'Cancel',
                         diffShowRunButton: false,
                         onAccept: async () => {
-                            actions.setQueryInput(view.query?.query ?? '')
-                            await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                            actions.setQueryInput(reviewedQuery)
+                            await saveOrReviewConflict({
                                 ...view,
-                                edited_history_id: latestView?.latest_history_id,
+                                query: { kind: NodeKind.HogQLQuery, ...view.query, query: reviewedQuery },
+                                // The request's types come from the run of its own query. The backend
+                                // trusts nonempty types and skips inference, so send none for edited SQL.
+                                types: reviewedQuery === view.query?.query ? view.types : [],
+                                edited_history_id: currentHistoryId ?? undefined,
                             })
-                            actions.updateViewSuccess(view, draftId, biEditorState)
                         },
                         onReject: () => {},
                     })
+                }
+                if (foreignEdit) {
+                    reviewConflict(latestView?.query?.query, latestView?.latest_history_id)
                     lemonToast.error('View has been edited by another user. Review changes to update.')
                 } else {
                     // No foreign edit — send the server's current head so the backend's own
                     // edited_history_id check accepts the save even if the editor's cached head drifted.
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
+                    await saveOrReviewConflict({
                         ...view,
                         edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
                     })
-                    actions.updateViewSuccess(view, draftId, biEditorState)
+                }
+            },
+            updateDataWarehouseSavedQueryFailed: ({ error, request }) => {
+                if (request) {
+                    cache.viewUpdateErrors?.set(request, error)
                 }
             },
             updateViewSuccess: async ({ view, draftId, biEditorState }) => {
