@@ -2781,6 +2781,12 @@
             "type": "Boolean",
             "virtual": true
         },
+        "$virt_mcp_harness": {
+            "description": "MCP client label resolved from the event's client identity signals. Empty on non-MCP events.",
+            "label": "MCP harness",
+            "type": "String",
+            "virtual": true
+        },
         "$virt_traffic_category": {
             "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc. Bots the project defined itself report the category picked in settings.",
             "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
