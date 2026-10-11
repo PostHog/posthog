@@ -404,6 +404,16 @@ SELECT
         inner_where = self.inliner.get_inner_where(select)
         assert inner_where is None
 
+    @parameterized.expand(
+        [
+            ("array_access", "SELECT * FROM sessions WHERE $start_timestamp > [now()][1]"),
+            ("tuple_access", "SELECT * FROM sessions WHERE $start_timestamp > (now(), 1).1"),
+        ]
+    )
+    def test_element_access_operand_is_not_pushed_down(self, _name: str, query: str):
+        inner_where = self.inliner.get_inner_where(parse(query))
+        assert inner_where is None
+
 
 class TestSessionsQueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):
     allow_dual_schema_snapshots = True

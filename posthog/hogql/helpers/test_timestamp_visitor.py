@@ -92,6 +92,36 @@ class TestTimestampVisitorSelectSetQuery(unittest.TestCase):
         self.assertFalse(helper_fn(node))
 
 
+class TestTimestampVisitorUnhandledNodes(unittest.TestCase):
+    @parameterized.expand(
+        [
+            (visitor_name, node_name, make_visitor, node)
+            for visitor_name, make_visitor in [
+                (
+                    "IsSimpleTimestampFieldExpressionVisitor",
+                    lambda: IsSimpleTimestampFieldExpressionVisitor(_make_hogql_context(), None),
+                ),
+                ("IsTimeOrIntervalConstantVisitor", lambda: IsTimeOrIntervalConstantVisitor(None)),
+                ("IsStartOfDayConstantVisitor", lambda: IsStartOfDayConstantVisitor(None)),
+                ("IsStartOfHourConstantVisitor", lambda: IsStartOfHourConstantVisitor(None)),
+                ("IsEndOfDayConstantVisitor", lambda: IsEndOfDayConstantVisitor(None)),
+                ("IsEndOfHourConstantVisitor", lambda: IsEndOfHourConstantVisitor(None)),
+            ]
+            for node_name, node in [
+                (
+                    "array_access",
+                    ast.ArrayAccess(array=ast.Field(chain=["arr"]), property=ast.Constant(value=1)),
+                ),
+                ("tuple_access", ast.TupleAccess(tuple=ast.Field(chain=["tup"]), index=1)),
+                ("named_argument", ast.NamedArgument(name="x", value=ast.Constant(value="2024-01-01"))),
+                ("lambda", ast.Lambda(args=["x"], expr=ast.Field(chain=["x"]))),
+            ]
+        ]
+    )
+    def test_unhandled_node_returns_false(self, _visitor_name: str, _node_name: str, make_visitor, node) -> None:
+        self.assertFalse(make_visitor().visit(node))
+
+
 class TestTimestampVisitorTypeCast(unittest.TestCase):
     """Regression tests for visit_type_cast / visit_try_cast methods.
 
