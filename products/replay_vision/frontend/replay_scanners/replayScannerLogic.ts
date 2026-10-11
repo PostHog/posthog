@@ -248,6 +248,27 @@ function draftScannerTypeAndConfig(
     }
 }
 
+// The estimate endpoint sends Retry-After with a 429. This wait applies when the header is missing.
+const ESTIMATE_THROTTLE_FALLBACK_MS = 60_000
+
+/** The fields the estimate request reads. Edits to other fields (prompt, name, tags) do not change the estimate. */
+function estimateInputsKey(scanner: ReplayScanner): string {
+    return JSON.stringify([
+        scanner.query,
+        scanner.scanner_type,
+        scanner.experiment_targeting,
+        scannerExperimentScope(scanner),
+        scanner.sampling_rate,
+        scanner.sampling_mode,
+        scanner.model,
+    ])
+}
+
+function retryAfterMs(error: any): number {
+    const seconds = Number(error?.headers?.get?.('Retry-After'))
+    return Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : ESTIMATE_THROTTLE_FALLBACK_MS
+}
+
 function omitQuery(scanner: ReplayScanner): Omit<ReplayScanner, 'query'> {
     const { query: _query, ...rest } = scanner
     return rest
@@ -595,6 +616,9 @@ export interface replayScannerLogicActions {
     }
     loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => {
         estimate: EstimateResponseApi
+    }
+    loadScannerEstimateThrottled: (error: string | null) => {
+        error: string | null
     }
     loadScannerFailure: () => {
         value: true
@@ -987,6 +1011,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         requestScannerEstimate: true,
         loadScannerEstimate: true,
         loadScannerEstimateSuccess: (estimate: EstimateResponseApi) => ({ estimate }),
+        // Ends the request without clearing the estimate, so the last good forecast stays on screen.
+        loadScannerEstimateThrottled: (error: string | null) => ({ error }),
         loadScannerEstimateFailure: (error: string | null = null) => ({ error }),
         // `silent` skips the success toast — the list view has its own inline spinner/result feedback.
         triggerOnDemandObservation: (sessionId: string, silent = false) => ({ sessionId, silent }),
@@ -1437,6 +1463,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 requestScannerEstimate: () => null,
                 loadScannerEstimateSuccess: () => null,
                 loadScannerEstimateFailure: (_, { error }) => error,
+                loadScannerEstimateThrottled: (_, { error }) => error,
             },
         ],
         scannerEstimateLoading: [
@@ -1446,6 +1473,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerEstimate: () => true,
                 loadScannerEstimateSuccess: () => false,
                 loadScannerEstimateFailure: () => false,
+                loadScannerEstimateThrottled: () => false,
             },
         ],
         estimateRequestVersion: [
@@ -1756,6 +1784,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.loadObservations(background)
             }
             actions.loadObservationStats()
+        }
+        const requestEstimateIfInputsChanged = (): void => {
+            if (values.scanner && estimateInputsKey(values.scanner) !== cache.estimateInputsKey) {
+                actions.requestScannerEstimate()
+            }
         }
         const persistDraft = (): void => {
             if (props.id !== 'new' || cache.restoringDraft) {
@@ -2248,13 +2281,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.dismissTagSuggestions()
             },
 
-            // kea-forms fires setScannerValue(s) per field change — debounced so drags don't fire a request per tick.
+            // kea-forms fires setScannerValue(s) per field change. Only edits to the estimate inputs
+            // request a new estimate, so typing the prompt does not use up the endpoint's rate limit.
             setScannerValue: () => {
-                actions.requestScannerEstimate()
+                requestEstimateIfInputsChanged()
                 persistDraft()
             },
             setScannerValues: () => {
-                actions.requestScannerEstimate()
+                requestEstimateIfInputsChanged()
                 persistDraft()
             },
             startFromTemplate: ({ templateKey }) => {
@@ -2297,8 +2331,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             },
 
             requestScannerEstimate: () => {
+                // Debounced so drags don't fire a request per tick, and held until a 429's Retry-After passes.
+                const delay = Math.max(300, (cache.estimateRetryAt ?? 0) - Date.now())
                 cache.disposables.add(() => {
-                    const id = setTimeout(() => actions.loadScannerEstimate(), 300)
+                    const id = setTimeout(() => actions.loadScannerEstimate(), delay)
                     return () => clearTimeout(id)
                 }, 'scannerEstimateDebounce')
             },
@@ -2310,6 +2346,15 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     actions.loadScannerEstimateFailure()
                     return
                 }
+                if ((cache.estimateRetryAt ?? 0) > Date.now()) {
+                    actions.requestScannerEstimate()
+                    return
+                }
+                const inputsKey = estimateInputsKey(scanner)
+                if (inputsKey !== cache.estimateInputsKey) {
+                    cache.estimateThrottleRetried = false
+                }
+                cache.estimateInputsKey = inputsKey
                 const version = values.estimateRequestVersion
                 try {
                     const scope = scannerExperimentScope(scanner)
@@ -2344,6 +2389,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     if (values.estimateRequestVersion !== version) {
                         return
                     }
+                    cache.estimateThrottleRetried = false
                     actions.loadScannerEstimateSuccess(response)
                 } catch (error: any) {
                     if (error instanceof Error && isBreakpoint(error)) {
@@ -2351,11 +2397,24 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     }
                     // eslint-disable-next-line no-console
                     console.warn('[replay-vision] scanner estimate failed', error)
+                    if (error?.status === 429) {
+                        cache.estimateRetryAt = Date.now() + retryAfterMs(error)
+                    }
                     if (values.estimateRequestVersion !== version) {
                         return
                     }
                     const detail = typeof error?.detail === 'string' ? error.detail : null
                     const message = typeof error?.message === 'string' ? error.message : null
+                    if (error?.status === 429) {
+                        // Ask again once the throttle clears, but only once per set of inputs.
+                        if (!cache.estimateThrottleRetried) {
+                            cache.estimateThrottleRetried = true
+                            actions.requestScannerEstimate()
+                        } else {
+                            actions.loadScannerEstimateThrottled(detail ?? message)
+                        }
+                        return
+                    }
                     actions.loadScannerEstimateFailure(detail ?? message)
                 }
             },
