@@ -74,8 +74,7 @@ export function EvaluationModelPicker(): JSX.Element {
                         <ByokModelPickerNotice forEvaluation />
                         {usesDecisionModel && !loading && !groups.some((group) => group.models.length > 0) && (
                             <p className="text-sm text-muted mt-2">
-                                No decision models are available. Configure an OpenRouter or custom decision provider in
-                                AI provider settings.
+                                No decision models are available from your configured AI providers.
                             </p>
                         )}
                         {evaluation && usesDecisionModel && (
