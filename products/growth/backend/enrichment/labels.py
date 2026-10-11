@@ -65,6 +65,8 @@ MAX_OUTPUT_FIELD_DESCRIPTION_CHARS = 400
 
 MAX_TOOL_ROUNDS = 4  # model turns allowed to contain tool calls
 MAX_TOOL_CALLS = 4  # tool executions per classification
+# Bound on the reply text an OutputParseError carries for error tracking.
+MAX_RAW_REPLY_CHARS = 2000
 
 _TRUNCATED_AT_MAX_DEPTH = "…(truncated: exceeded max input nesting depth)"
 
@@ -72,6 +74,8 @@ _TRUNCATED_AT_MAX_DEPTH = "…(truncated: exceeded max input nesting depth)"
 class OutputParseError(ValueError):
     """The model's reply didn't satisfy the config's output schema. Deterministic: retrying the
     same prompt against the same config produces the same failure, so it is not retried."""
+
+    raw_reply: str | None = None
 
 
 class PromptConfigError(ValueError):
@@ -414,6 +418,10 @@ def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -
     return output
 
 
+def _missing_output_keys(config: EnrichmentPromptConfig, data: dict[str, Any]) -> list[str]:
+    return [field["key"] for field in config.output_fields if field["key"] not in data]
+
+
 def _accumulate_meta(combined: dict[str, Any], turn: dict[str, Any]) -> None:
     for key in ("prompt_tokens", "completion_tokens"):
         if key in turn:
@@ -490,6 +498,7 @@ def _call_and_parse(
     tool_urls: set[str] = set()
     tool_calls_used = 0
     tool_rounds_used = 0
+    repair_sent = False
 
     while True:
         request: dict[str, Any] = {
@@ -503,7 +512,7 @@ def _call_and_parse(
             "max_completion_tokens": MAX_OUTPUT_TOKENS,
             "timeout": 60,
         }
-        if tool_calls_used < MAX_TOOL_CALLS:
+        if tool_calls_used < MAX_TOOL_CALLS and not repair_sent:
             request["tools"] = TOOLS
             request["tool_choice"] = "auto"
         response = _complete(client, request)
@@ -564,10 +573,29 @@ def _call_and_parse(
 
         # Shared with the other products that talk to the gateway: response_format isn't reliably
         # honored on the Anthropic route, so the reply can arrive fenced or wrapped in prose.
-        data = extract_json_object(message.content or "")
-        if data is None:
-            raise OutputParseError("LLM response was not a JSON object")
-        output = _parse_custom_output(config, data)
+        content = message.content or ""
+        data = extract_json_object(content)
+        missing = _missing_output_keys(config, data) if data is not None else []
+        # The output instruction is only in the first user message, so after long tool results the
+        # model can drift to another JSON shape. One turn that restates the keys usually recovers it.
+        if missing and not repair_sent:
+            repair_sent = True
+            messages.append({"role": "assistant", "content": content})
+            messages.append(
+                {
+                    "role": "user",
+                    "content": f"Your reply is missing these keys: {', '.join(missing)}. Respond with "
+                    + _output_instruction(config),
+                }
+            )
+            continue
+        try:
+            if data is None:
+                raise OutputParseError("LLM response was not a JSON object")
+            output = _parse_custom_output(config, data)
+        except OutputParseError as e:
+            e.raw_reply = content[:MAX_RAW_REPLY_CHARS]
+            raise
         if tool_log:
             meta["tool_calls"] = tool_log
             meta["tool_urls"] = sorted(tool_urls)

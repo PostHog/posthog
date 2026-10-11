@@ -265,6 +265,46 @@ class TestCallAndParseGatewayEdgeCases(SimpleTestCase):
 
         assert client.chat.completions.create.call_count == 1
 
+    def _reply(self, content: str) -> MagicMock:
+        response = MagicMock()
+        response.choices[0].message.content = content
+        response.choices[0].message.tool_calls = None
+        response.choices[0].finish_reason = "stop"
+        return response
+
+    def test_a_reply_missing_a_key_gets_one_repair_turn_without_tools(self) -> None:
+        client = MagicMock()
+        client.chat.completions.create.side_effect = [
+            self._reply(json.dumps({"verdict": "yes"})),
+            self._reply(json.dumps({"flag": True})),
+        ]
+
+        output = classify_payload(self._config(), {"company": "Acme"}, None, client)
+
+        assert output["flag"] is True
+        repair_request = client.chat.completions.create.call_args_list[1].kwargs
+        assert "tools" not in repair_request
+        assert "missing these keys: flag" in repair_request["messages"][-1]["content"]
+
+    @parameterized.expand(
+        [
+            ("still_missing_the_key", json.dumps({"verdict": "no"}), "missing the 'flag' key"),
+            ("not_json_anymore", "I could not decide.", "not a JSON object"),
+        ]
+    )
+    def test_a_failed_repair_raises_with_the_raw_reply(self, _name: str, second: str, message: str) -> None:
+        client = MagicMock()
+        client.chat.completions.create.side_effect = [
+            self._reply(json.dumps({"verdict": "yes"})),
+            self._reply(second),
+        ]
+
+        with self.assertRaisesMessage(OutputParseError, message) as ctx:
+            classify_payload(self._config(), {"company": "Acme"}, None, client)
+
+        assert ctx.exception.raw_reply == second
+        assert client.chat.completions.create.call_count == 2
+
     def test_finish_reason_is_stamped_into_response_meta_when_present(self) -> None:
         config = self._config()
         client = MagicMock()
