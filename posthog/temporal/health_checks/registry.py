@@ -19,6 +19,7 @@ HEALTH_CHECK_MODULES = [
     "products.web_analytics.backend.temporal.health_checks.missing_session_id",
     "products.growth.backend.temporal.health_checks.sdk_outdated",
     "products.cdp.backend.temporal.health_checks.ingestion_warnings",
+    "products.cdp.backend.temporal.health_checks.ingestion_stopped",
     "products.data_warehouse.backend.temporal.health_checks.materialized_view_failure",
     "products.data_warehouse.backend.temporal.health_checks.webhook_subscription_stale",
     "products.web_analytics.backend.temporal.health_checks.scroll_depth",
