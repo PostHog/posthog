@@ -1,4 +1,4 @@
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.db.models.functions import Lower
 
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
@@ -7,6 +7,7 @@ from rest_framework import filters, serializers, viewsets
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.models.tagged_item import TaggedItem
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -190,7 +191,14 @@ class ExperimentSavedMetricSerializer(
 @extend_schema(extensions={"x-swagger-tag": "experiment_saved_metrics", "x-product": "experiments"})
 class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment_saved_metric"
-    queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).distinct()
+    queryset = (
+        ExperimentSavedMetric.objects.prefetch_related(
+            "created_by",
+            Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"),
+        )
+        .order_by(Lower("name"))
+        .distinct()
+    )
     serializer_class = ExperimentSavedMetricSerializer
     filter_backends = [filters.SearchFilter]
     # `search` matches the metric's own name/description/tags, while `event` looks in metrics
