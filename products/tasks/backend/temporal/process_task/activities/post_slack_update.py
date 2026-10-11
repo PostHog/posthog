@@ -25,7 +25,19 @@ SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT = "wait_for_spend_limit"
+SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB = "reconnect_github"
 SLACK_SPEND_LIMIT_ERROR_FRAGMENT = "this agent run reached its spend limit"
+
+# Checked before the connect-then-replan markers, because a rejected personal credential needs
+# the person to authorize again rather than a re-plan against the connections already there.
+_RECONNECT_GITHUB_MARKERS = ("requires reauthorization",)
+
+_RECONNECT_GITHUB_CONNECT_LABEL = "Connect your GitHub in PostHog settings"
+_RECONNECT_GITHUB_PROMPT = (
+    "Your personal GitHub connection stopped working, so this run could not use it. "
+    "{connect} to authorize it again, or to connect it for the first time. "
+    "Then reply in this thread and I'll pick up the new credentials."
+)
 
 _CONNECT_THEN_REPLAN_MARKERS = (
     "not connected",
@@ -75,6 +87,7 @@ _RECOVERY_PROMPTS = {
     SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT: (
         "Wait for this run's spend limit to reset before replying in the thread."
     ),
+    SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB: _RECONNECT_GITHUB_PROMPT.format(connect=_RECONNECT_GITHUB_CONNECT_LABEL),
 }
 
 SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
@@ -245,7 +258,7 @@ def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None
         updates[SLACK_TERMINAL_NOTIFIED_ERROR_KEY] = error or ""
         recovery_strategy = _classify_failure_recovery(error or "")
         updates[SLACK_RECOVERY_STRATEGY_KEY] = recovery_strategy
-        updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[recovery_strategy]
+        updates[SLACK_RECOVERY_PROMPT_KEY] = _recovery_prompt(recovery_strategy, _task_run_team_id(task_run))
     elif status == TaskRun.Status.CANCELLED:
         updates[SLACK_RECOVERY_STRATEGY_KEY] = SLACK_RECOVERY_STRATEGY_CANCELLED
         updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[SLACK_RECOVERY_STRATEGY_CANCELLED]
@@ -253,10 +266,25 @@ def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None
     TaskRun.update_state_atomic(task_run.id, updates=updates)
 
 
+def _task_run_team_id(task_run: Any) -> int | None:
+    """The run's team, or None when it cannot be read.
+
+    A prompt without a link still tells the reader what to do, so an unreadable team costs the
+    link rather than the whole message.
+    """
+    try:
+        return task_run.task.team_id
+    except Exception:
+        logger.warning("post_slack_update_team_id_unavailable", run_id=str(task_run.id))
+        return None
+
+
 def _classify_failure_recovery(error: str) -> str:
     normalized = error.lower()
     if SLACK_SPEND_LIMIT_ERROR_FRAGMENT in normalized:
         return SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT
+    if any(marker in normalized for marker in _RECONNECT_GITHUB_MARKERS):
+        return SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB
     if any(marker in normalized for marker in _CONNECT_THEN_REPLAN_MARKERS):
         return SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN
     if any(marker in normalized for marker in _UNBLOCK_AND_REPLAN_MARKERS):
@@ -264,8 +292,26 @@ def _classify_failure_recovery(error: str) -> str:
     return SLACK_RECOVERY_STRATEGY_RETRY
 
 
-def _failure_recovery_prompt(error: str) -> str:
-    return _RECOVERY_PROMPTS[_classify_failure_recovery(error)]
+def _failure_recovery_prompt(error: str, team_id: int | None = None) -> str:
+    return _recovery_prompt(_classify_failure_recovery(error), team_id)
+
+
+def _recovery_prompt(strategy: str, team_id: int | None) -> str:
+    if strategy == SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB and team_id is not None:
+        return _reconnect_github_prompt(team_id)
+    return _RECOVERY_PROMPTS[strategy]
+
+
+def _reconnect_github_prompt(team_id: int) -> str:
+    """The reconnect prompt, linked to the settings flow.
+
+    That one flow both reauthorizes an existing install and creates a first one, so a single
+    link serves a person whose credentials expired and a person who never connected.
+    """
+    from products.slack_app.backend.services.slack_welcome_messages import github_connect_url
+
+    link = f"<{github_connect_url(team_id)}|{_RECONNECT_GITHUB_CONNECT_LABEL}>"
+    return _RECONNECT_GITHUB_PROMPT.format(connect=link)
 
 
 def _is_suppressed_permission_rejection_error(task_run: Any, error: str) -> bool:
@@ -285,7 +331,7 @@ def _post_error_once(task_run: Any, handler: Any, error: str, task_url: str | No
         handler.post_note(SLACK_DENIAL_STOP_MESSAGE)
     else:
         handler.update_reaction("x")
-        handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error))
+        handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error, _task_run_team_id(task_run)))
     _mark_terminal_notified(task_run, TaskRun.Status.FAILED, error)
 
 
