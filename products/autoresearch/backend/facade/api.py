@@ -40,7 +40,13 @@ from ..dataset.validation import (
     validate_pipeline_definition as _validate_pipeline_definition,
 )
 from ..evaluation.history import latest_validation_runs, realized_auc_trends
-from ..evaluation.online_validation import LIKELY_THRESHOLD as LIKELY_THRESHOLD
+from ..evaluation.segment_thresholds import (
+    BASE_RATE_DATES,
+    FIXED_LIKELY_THRESHOLD,
+    LIKELY_LIFT,
+    champion_score_calibration,
+    segment_thresholds,
+)
 from ..models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -82,6 +88,7 @@ from .contracts import (
     PipelineValidation,
     PipelineWrite,
     PredictionCoverage,
+    PredictionSegmentThresholds,
     RealizedAucPoint,
     ResolvedTemplate,
     Run,
@@ -1079,12 +1086,39 @@ def online_performance(
                     )
                     if confusion is not None
                     else None,
+                    # Dates checked before the cut point was stored used the fixed one.
+                    likely_threshold=m.get("likely_threshold", FIXED_LIKELY_THRESHOLD)
+                    if confusion is not None
+                    else None,
                     calibration_bins=[CalibrationBin(**b) for b in bins] if bins is not None else None,
                     warning=m.get("warning"),
                     validated_at=run.completed_at,
                 )
             )
-    return OnlinePerformance(rows=rows)
+    return OnlinePerformance(rows=rows, segment_thresholds=_segment_thresholds(team_id, pipeline))
+
+
+def _segment_thresholds(team_id: int, pipeline: AutoresearchPipeline) -> PredictionSegmentThresholds:
+    """The current cut points, from a fixed window of checked dates so the request's ``limit`` cannot move them."""
+    runs = latest_validation_runs(team_id, pipeline, limit=BASE_RATE_DATES)
+    thresholds = segment_thresholds(runs)
+    champion_id = (
+        AutoresearchModel.objects.for_team(team_id)
+        .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
+        .values_list("id", flat=True)
+        .first()
+    )
+    calibration = champion_score_calibration(runs, str(champion_id)) if champion_id is not None else None
+    return PredictionSegmentThresholds(
+        likely_threshold=thresholds.likely,
+        possible_threshold=thresholds.possible,
+        likely_lift=LIKELY_LIFT,
+        base_rate=thresholds.base_rate,
+        base_rate_dates=thresholds.dates,
+        champion_mean_p_y=calibration.mean_p_y if calibration else None,
+        champion_base_rate=calibration.base_rate if calibration else None,
+        scores_miscalibrated=calibration.miscalibrated if calibration else False,
+    )
 
 
 # ── Training runs ──────────────────────────────────────────────────────────

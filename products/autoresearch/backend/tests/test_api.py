@@ -1154,8 +1154,20 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             "precision": 1.0,
             "recall": 0.5,
         }
+        assert rows[1]["likely_threshold"] == 0.6
         assert rows[0]["realized_auc_ci_low"] is None and rows[0]["calibration_bins"] is None
         assert rows[0]["average_precision"] is None and rows[0]["confusion"] is None
+        assert rows[0]["likely_threshold"] is None
+        assert resp.json()["segment_thresholds"] == {
+            "likely_threshold": 0.6,
+            "possible_threshold": 0.2,
+            "likely_lift": 3.0,
+            "base_rate": None,
+            "base_rate_dates": 2,
+            "champion_mean_p_y": None,
+            "champion_base_rate": None,
+            "scores_miscalibrated": False,
+        }
 
         limited = self.client.get(f"{self.base_url}/{pipeline.id}/online_performance/?limit=1").json()["rows"]
         assert [r["prediction_date"] for r in limited] == ["2026-09-03"]
