@@ -24,7 +24,7 @@ _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MarketstackEndpointConfig:
     name: str
     path: str

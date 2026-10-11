@@ -70,7 +70,7 @@ _PERMANENT_BODY_CODES = (
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MarketstackResumeConfig:
     # Offset of the next page to fetch — Marketstack uses limit/offset pagination. Fan-out
     # endpoints store the index of the next ticker / CIK to request instead.
