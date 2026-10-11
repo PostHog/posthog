@@ -1,104 +1,30 @@
-import json
-from collections.abc import Iterable, Iterator
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, patch
 
-from requests import HTTPError, PreparedRequest, Response, Session
+from requests import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkly.checkly import (
     ChecklyResumeConfig,
-    checkly_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.checkly.source import ChecklySource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.checkly import (
     ChecklySourceConfig,
 )
 
 CONFIG = ChecklySourceConfig(api_key="fake-checkly-key", account_id="00000000-0000-0000-0000-000000000001")
 NOW = datetime(2026, 6, 1, tzinfo=UTC)
-
-
-class Transport:
-    def __init__(self) -> None:
-        self.responses: list[Response] = []
-        self.requests: list[PreparedRequest] = []
-
-    def add(self, body: object, status: int = 200) -> None:
-        response = Response()
-        response.status_code = status
-        response.reason = {401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 429: "Too Many Requests"}.get(
-            status, "OK"
-        )
-        response._content = json.dumps(body).encode()
-        response.headers["Content-Type"] = "application/json"
-        self.responses.append(response)
-
-    def send(self, request: PreparedRequest, **kwargs: object) -> Response:
-        self.requests.append(request)
-        assert self.responses, f"Unexpected request: {request.url}"
-        response = self.responses.pop(0)
-        response.url = request.url or ""
-        response.request = request
-        return response
-
-    def params(self, index: int) -> dict[str, list[str]]:
-        return parse_qs(urlparse(self.requests[index].url or "").query)
-
-    def paths(self) -> list[str]:
-        return [urlparse(request.url or "").path for request in self.requests]
-
-
-@pytest.fixture
-def transport() -> Iterator[Transport]:
-    transport = Transport()
-    with (
-        patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session",
-            side_effect=lambda **kwargs: Session(),
-        ),
-        patch.object(Session, "send", side_effect=transport.send),
-    ):
-        yield transport
-    assert not transport.responses
-
-
-@pytest.fixture
-def manager() -> MagicMock:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = False
-    return manager
-
-
-def materialize(response: SourceResponse) -> list[list[dict[str, Any]]]:
-    return list(cast(Iterable[list[dict[str, Any]]], response.items()))
-
-
-def inputs(name: str, *, incremental: bool = False, watermark: object = None) -> SourceInputs:
-    return SourceInputs(
-        schema_name=name,
-        schema_id="schema",
-        source_id="source",
-        team_id=1,
-        job_id="job",
-        should_use_incremental_field=incremental,
-        db_incremental_field_last_value=watermark,
-        db_incremental_field_earliest_value=None,
-        incremental_field="created_at" if incremental else None,
-        incremental_field_type=None,
-        logger=MagicMock(),
-        reset_pipeline=False,
-    )
+DRIVER = SourceDriver(ChecklySource(), CONFIG)
 
 
 @pytest.mark.parametrize(
@@ -112,24 +38,32 @@ def inputs(name: str, *, incremental: bool = False, watermark: object = None) ->
         ("alert_channels", "v3", "/v1/alert-channels"),
     ],
 )
-def test_list_pagination_auth_and_terminal_page(
-    transport: Transport, manager: MagicMock, name: str, api_version: str, path: str
-) -> None:
-    transport.add([{"id": "a"}])
-    transport.add([{"id": "b"}])
-    transport.add([])
-    response = checkly_source(CONFIG, manager, inputs(name), api_version)
-    assert materialize(response) == [[{"id": "a"}], [{"id": "b"}]]
-    assert transport.paths() == [path] * 3
-    assert [transport.params(i) for i in range(3)] == [{"limit": ["100"], "page": [str(page)]} for page in (1, 2, 3)]
-    for request in transport.requests:
-        assert request.headers["Authorization"] == "Bearer fake-checkly-key"
-        assert request.headers["X-Checkly-Account"] == CONFIG.account_id
-    assert [call.args[0].paginator_state for call in manager.save_state.call_args_list] == [{"page": 2}, {"page": 3}]
-    manager.clear_state.assert_not_called()
-    assert response.on_complete is not None
-    response.on_complete()
-    manager.clear_state.assert_called_once()
+def test_list_pagination_auth_and_terminal_page(name: str, api_version: str, path: str) -> None:
+    result = DRIVER.run(
+        name,
+        [ScriptedResponse(json=[{"id": "a"}]), ScriptedResponse(json=[{"id": "b"}]), ScriptedResponse(json=[])],
+        api_version=api_version,
+    )
+    assert result.raised is None
+    assert result.items == [[{"id": "a"}], [{"id": "b"}]]
+    assert result.paths == [path] * 3
+    assert result.params("limit") == ["100"] * 3
+    assert result.params("page") == ["1", "2", "3"]
+    for request in result.requests:
+        assert request.headers["authorization"] == "Bearer fake-checkly-key"
+        assert request.headers["x-checkly-account"] == CONFIG.account_id
+    assert [state.paginator_state for state in result.saved_states] == [{"page": 2}, {"page": 3}]
+    assert result.response is not None
+    on_complete = result.response.on_complete
+    assert on_complete is not None
+    with scripted_network([]):
+        manager = on_complete.__self__
+        manager.save_state(result.saved_states[-1])
+        manager.confirm()
+        manager.commit()
+        assert manager.load_state() == result.saved_states[-1]
+        on_complete()
+        assert manager.load_state() is None
 
 
 @pytest.mark.parametrize(
@@ -141,50 +75,59 @@ def test_list_pagination_auth_and_terminal_page(
         ("alert_channels", "v2"),
     ],
 )
-def test_definitions_project_only_safe_metadata(
-    transport: Transport, manager: MagicMock, name: str, api_version: str
-) -> None:
-    transport.add(
+def test_definitions_project_only_safe_metadata(name: str, api_version: str) -> None:
+    result = DRIVER.run(
+        name,
         [
-            {
-                "id": "check-a",
-                "request": {
-                    "url": "https://hooks.slack.com/services/T000/B000/SECRET",
-                    "basicAuth": {"username": "user", "password": "secret"},
-                    "body": "password=secret",
-                    "headers": [{"key": "Authorization", "value": "Bearer secret"}],
-                    "queryParameters": [{"key": "token", "value": "secret"}],
-                    "grpcConfig": {"metadata": [{"key": "authorization", "value": "Bearer secret"}]},
-                },
-                "heartbeat": {"pingToken": "secret", "pingUrl": "https://checklyhq.com/ping/secret"},
-                "script": "login('secret')",
-                "localSetupScript": "setup('secret')",
-                "localTearDownScript": "teardown('secret')",
-                "apiCheckDefaults": {
-                    "basicAuth": {"username": "user", "password": "group-secret"},
-                    "environmentVariables": [{"key": "TOKEN", "value": "group-secret"}],
-                    "headers": [{"key": "X-Api-Key", "value": "group-secret"}],
-                    "browserCheckDefaults": {"script": "login('group-secret')"},
-                },
-                "config": {"webhookUrl": "https://example.com/secret"},
-                "newProviderField": "future-secret",
-                "requiredOutcomes": ["login succeeds"],
-                "constraints": [{"type": "REQUIRED_OUTCOME", "value": "login succeeds"}],
-            }
-        ]
+            ScriptedResponse(
+                json=[
+                    {
+                        "id": "check-a",
+                        "request": {
+                            "url": "https://hooks.slack.com/services/T000/B000/SECRET",
+                            "basicAuth": {"username": "user", "password": "secret"},
+                            "body": "password=secret",
+                            "headers": [{"key": "Authorization", "value": "Bearer secret"}],
+                            "queryParameters": [{"key": "token", "value": "secret"}],
+                            "grpcConfig": {"metadata": [{"key": "authorization", "value": "Bearer secret"}]},
+                        },
+                        "heartbeat": {"pingToken": "secret", "pingUrl": "https://checklyhq.com/ping/secret"},
+                        "script": "login('secret')",
+                        "localSetupScript": "setup('secret')",
+                        "localTearDownScript": "teardown('secret')",
+                        "apiCheckDefaults": {
+                            "basicAuth": {"username": "user", "password": "group-secret"},
+                            "environmentVariables": [{"key": "TOKEN", "value": "group-secret"}],
+                            "headers": [{"key": "X-Api-Key", "value": "group-secret"}],
+                            "browserCheckDefaults": {"script": "login('group-secret')"},
+                        },
+                        "config": {"webhookUrl": "https://example.com/secret"},
+                        "newProviderField": "future-secret",
+                        "requiredOutcomes": ["login succeeds"],
+                        "constraints": [{"type": "REQUIRED_OUTCOME", "value": "login succeeds"}],
+                    }
+                ]
+            ),
+            ScriptedResponse(json=[]),
+        ],
+        api_version=api_version,
     )
-    transport.add([])
+    assert result.raised is None
+    assert result.items == [[{"id": "check-a"}]]
 
-    assert materialize(checkly_source(CONFIG, manager, inputs(name), api_version)) == [[{"id": "check-a"}]]
 
-
-def test_statuses_are_unpaginated_and_exclude_null_statuses(transport: Transport, manager: MagicMock) -> None:
-    transport.add([None, {"checkId": "check-a", "hasFailures": False}])
-    response = checkly_source(CONFIG, manager, inputs("check_statuses"), "v2")
-    assert materialize(response) == [[{"checkId": "check-a", "hasFailures": False}]]
-    assert transport.paths() == ["/v1/check-statuses"]
-    assert transport.params(0) == {}
-    assert response.primary_keys == ["checkId"]
+def test_statuses_are_unpaginated_and_exclude_null_statuses() -> None:
+    result = DRIVER.run(
+        "check_statuses",
+        [ScriptedResponse(json=[None, {"checkId": "check-a", "hasFailures": False}])],
+        api_version="v2",
+    )
+    assert result.raised is None
+    assert result.items == [[{"checkId": "check-a", "hasFailures": False}]]
+    assert result.paths == ["/v1/check-statuses"]
+    assert result.queries == [{}]
+    assert result.response is not None
+    assert result.response.primary_keys == ["checkId"]
 
 
 @time_machine.travel(NOW, tick=False)
@@ -198,43 +141,49 @@ def test_statuses_are_unpaginated_and_exclude_null_statuses(transport: Transport
         (True, NOW - timedelta(days=90), NOW - timedelta(days=30)),
     ],
 )
-def test_result_fanout_cursor_and_time_filters(
-    transport: Transport, manager: MagicMock, incremental: bool, watermark: object, expected_from: datetime
-) -> None:
-    transport.add([{"id": "check-a"}, {"id": "check-b"}])
-    transport.add({"entries": [{"id": "result-a", "created_at": "2026-05-31T23:00:00Z"}], "nextId": "cursor-a"})
-    transport.add({"entries": [], "nextId": None})
-    transport.add({"entries": [{"id": "result-a", "created_at": "2026-05-31T22:00:00Z"}], "nextId": None})
-    transport.add([])
-    response = checkly_source(
-        CONFIG, manager, inputs("check_results", incremental=incremental, watermark=watermark), "v2"
+def test_result_fanout_cursor_and_time_filters(incremental: bool, watermark: object, expected_from: datetime) -> None:
+    result = DRIVER.run(
+        "check_results",
+        [
+            ScriptedResponse(json=[{"id": "check-a"}, {"id": "check-b"}]),
+            ScriptedResponse(
+                json={"entries": [{"id": "result-a", "created_at": "2026-05-31T23:00:00Z"}], "nextId": "cursor-a"}
+            ),
+            ScriptedResponse(json={"entries": [], "nextId": None}),
+            ScriptedResponse(
+                json={"entries": [{"id": "result-a", "created_at": "2026-05-31T22:00:00Z"}], "nextId": None}
+            ),
+            ScriptedResponse(json=[]),
+        ],
+        api_version="v2",
+        incremental_field="created_at" if incremental else None,
+        db_incremental_field_last_value=watermark,
     )
-    pages = materialize(response)
-    assert [row["checkId"] for page in pages for row in page] == ["check-a", "check-b"]
-    assert pages[0][0]["created_at"] == NOW - timedelta(hours=1)
-    assert response.primary_keys == ["checkId", "id"]
-    assert response.sort_mode == "desc"
-    assert transport.paths() == [
+    assert result.raised is None
+    assert [row["checkId"] for row in result.rows] == ["check-a", "check-b"]
+    assert result.items[0][0]["created_at"] == NOW - timedelta(hours=1)
+    assert result.response is not None
+    assert result.response.primary_keys == ["checkId", "id"]
+    assert result.response.sort_mode == "desc"
+    assert result.paths == [
         "/v2/checks",
         "/v2/check-results/check-a",
         "/v2/check-results/check-a",
         "/v2/check-results/check-b",
         "/v2/checks",
     ]
-    for i in (1, 2, 3):
-        assert transport.params(i)["from"] == [str(int(expected_from.timestamp()))]
-        assert transport.params(i)["to"] == [str(int(NOW.timestamp()))]
-        assert transport.params(i)["resultType"] == ["ALL"]
-        fields = transport.params(i)["fields"][0].split(",")
+    for request in result.requests[1:4]:
+        assert request.param("from") == str(int(expected_from.timestamp()))
+        assert request.param("to") == str(int(NOW.timestamp()))
+        assert request.param("resultType") == "ALL"
+        fields = (request.param("fields") or "").split(",")
         assert {"id", "checkId", "created_at", "responseTime", "hasFailures"} <= set(fields)
         assert "apiCheckResult" not in fields
         assert "browserCheckResult" not in fields
-        assert "checkId" not in transport.params(i)
-        assert "page" not in transport.params(i)
-    assert "nextId" not in transport.params(1)
-    assert transport.params(2)["nextId"] == ["cursor-a"]
-    assert "nextId" not in transport.params(3)
-    states = [call.args[0] for call in manager.save_state.call_args_list]
+        assert request.param("checkId") is None
+        assert request.param("page") is None
+    assert result.params("nextId")[1:4] == [None, "cursor-a", None]
+    states = result.saved_states
     assert states[0].paginator_state["child_state"] == {"cursor": "cursor-a"}
     assert states[-1].paginator_state["completed"] == ["/v2/check-results/check-a", "/v2/check-results/check-b"]
     assert all(state.to_timestamp == int(NOW.timestamp()) for state in states)
@@ -242,11 +191,8 @@ def test_result_fanout_cursor_and_time_filters(
 
 @time_machine.travel(NOW, tick=False)
 @pytest.mark.parametrize("api_version", ["v2", "v3"])
-def test_result_resume_preserves_window_and_skips_completed_checks(
-    transport: Transport, manager: MagicMock, api_version: str
-) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = ChecklyResumeConfig(
+def test_result_resume_preserves_window_and_skips_completed_checks(api_version: str) -> None:
+    resume_state = ChecklyResumeConfig(
         paginator_state={
             "completed": ["/v2/check-results/check-a"],
             "current": "/v2/check-results/check-b",
@@ -255,36 +201,52 @@ def test_result_resume_preserves_window_and_skips_completed_checks(
         from_timestamp=1700000000,
         to_timestamp=1700010000,
     )
-    transport.add([{"id": "check-a"}, {"id": "check-b"}])
-    transport.add({"entries": [{"id": "last"}], "nextId": None})
-    transport.add([])
-    pages = materialize(checkly_source(CONFIG, manager, inputs("check_results"), api_version))
-    assert pages == [[{"id": "last", "checkId": "check-b"}]]
-    assert transport.paths() == [f"/{api_version}/checks", "/v2/check-results/check-b", f"/{api_version}/checks"]
-    assert transport.params(1)["from"] == ["1700000000"]
-    assert transport.params(1)["to"] == ["1700010000"]
-    assert transport.params(1)["nextId"] == ["saved-cursor"]
+    result = DRIVER.run(
+        "check_results",
+        [
+            ScriptedResponse(json=[{"id": "check-a"}, {"id": "check-b"}]),
+            ScriptedResponse(json={"entries": [{"id": "last"}], "nextId": None}),
+            ScriptedResponse(json=[]),
+        ],
+        api_version=api_version,
+        resume_state=resume_state,
+    )
+    assert result.raised is None
+    assert result.items == [[{"id": "last", "checkId": "check-b"}]]
+    assert result.paths == [f"/{api_version}/checks", "/v2/check-results/check-b", f"/{api_version}/checks"]
+    assert result.requests[1].param("from") == "1700000000"
+    assert result.requests[1].param("to") == "1700010000"
+    assert result.requests[1].param("nextId") == "saved-cursor"
 
 
 @time_machine.travel(NOW, tick=False)
 @pytest.mark.parametrize("watermark", [NOW, NOW + timedelta(hours=1)])
-def test_no_requests_for_future_or_empty_window(transport: Transport, manager: MagicMock, watermark: datetime) -> None:
-    assert (
-        materialize(
-            checkly_source(CONFIG, manager, inputs("check_results", incremental=True, watermark=watermark), "v2")
-        )
-        == []
+def test_no_requests_for_future_or_empty_window(watermark: datetime) -> None:
+    result = DRIVER.run(
+        "check_results",
+        [],
+        incremental_field="created_at",
+        db_incremental_field_last_value=watermark,
     )
-    assert transport.requests == []
+    assert result.items == []
+    assert result.requests == []
+    assert result.raised is None
 
 
 @pytest.mark.parametrize(
     "name,watermark,error",
     [("unknown", None, "Unknown Checkly table"), ("check_results", "bad", "timestamp is invalid")],
 )
-def test_rejects_invalid_pipeline_inputs(manager: MagicMock, name: str, watermark: object, error: str) -> None:
-    with pytest.raises(ValueError, match=error):
-        checkly_source(CONFIG, manager, inputs(name, incremental=True, watermark=watermark), "v2")
+def test_rejects_invalid_pipeline_inputs(name: str, watermark: object, error: str) -> None:
+    result = DRIVER.run(
+        name,
+        [],
+        incremental_field="created_at",
+        db_incremental_field_last_value=watermark,
+    )
+    assert isinstance(result.raised, ValueError)
+    assert error in str(result.raised)
+    assert result.requests == []
 
 
 @pytest.mark.parametrize(
@@ -301,59 +263,60 @@ def test_rejects_invalid_pipeline_inputs(manager: MagicMock, name: str, watermar
     ],
 )
 def test_credential_probe_and_auth_errors(
-    transport: Transport, status: int, schema: str | None, valid: bool, message: str | None, path: str
+    status: int, schema: str | None, valid: bool, message: str | None, path: str
 ) -> None:
-    transport.add([] if status == 200 else {"statusCode": status, "error": "Unauthorized"}, status)
-    result, reason = validate_credentials(CONFIG, schema, "v2")
+    with scripted_network(
+        [ScriptedResponse(status=status, json=[] if status == 200 else {"statusCode": status, "error": "Unauthorized"})]
+    ) as network:
+        result, reason = validate_credentials(CONFIG, schema, "v2")
     assert result is valid
     assert reason is None if message is None else message in (reason or "")
-    assert transport.paths() == [path]
-    assert transport.params(0) == ({} if schema == "check_statuses" else {"limit": ["1"]})
-    assert transport.requests[0].headers["Authorization"] == "Bearer fake-checkly-key"
+    assert [request.path for request in network.requests_log] == [path]
+    assert network.requests_log[0].query == ({} if schema == "check_statuses" else {"limit": ("1",)})
+    assert network.requests_log[0].headers["authorization"] == "Bearer fake-checkly-key"
     if not valid:
         assert reason in ChecklySource().get_non_retryable_errors().values()
 
 
 @pytest.mark.parametrize("status", [401, 403, 404])
-def test_sync_http_errors_are_terminal(transport: Transport, manager: MagicMock, status: int) -> None:
-    transport.add({"statusCode": status, "error": "Unauthorized"}, status)
-    with pytest.raises(HTTPError) as raised:
-        materialize(checkly_source(CONFIG, manager, inputs("checks"), "v2"))
-    assert len(transport.requests) == 1
-    matches = [value for key, value in ChecklySource().get_non_retryable_errors().items() if key in str(raised.value)]
+def test_sync_http_errors_are_terminal(status: int) -> None:
+    result = DRIVER.run(
+        "checks", [ScriptedResponse(status=status, json={"statusCode": status, "error": "Unauthorized"})]
+    )
+    assert isinstance(result.raised, HTTPError)
+    assert len(result.requests) == 1
+    matches = [value for key, value in ChecklySource().get_non_retryable_errors().items() if key in str(result.raised)]
     assert len(matches) == (0 if status == 404 else 1)
 
 
 @pytest.mark.parametrize("status", [429, 500])
-def test_transient_errors_use_framework_retries(transport: Transport, manager: MagicMock, status: int) -> None:
-    transport.add({"statusCode": status}, status)
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.DEFAULT_RETRY_ATTEMPTS", 1
-    ):
-        with pytest.raises(RESTClientRetryableError):
-            materialize(checkly_source(CONFIG, manager, inputs("checks"), "v2"))
-    assert len(transport.requests) == 1
+def test_transient_errors_use_framework_retries(status: int) -> None:
+    result = DRIVER.run("checks", [ScriptedResponse(status=status, json={"statusCode": status})] * 5)
+    assert isinstance(result.raised, RESTClientRetryableError)
+    assert len(result.requests) == 5
 
 
 @pytest.mark.parametrize("api_version,path", [(None, "/v3/checks"), ("v2", "/v2/checks"), ("v3", "/v3/checks")])
-def test_source_probe_uses_pinned_or_default_version(transport: Transport, api_version: str | None, path: str) -> None:
-    transport.add([])
-    assert ChecklySource().validate_credentials(CONFIG, team_id=1, api_version=api_version) == (True, None)
-    assert transport.paths() == [path]
+def test_source_probe_uses_pinned_or_default_version(api_version: str | None, path: str) -> None:
+    with scripted_network([ScriptedResponse(json=[])]) as network:
+        assert ChecklySource().validate_credentials(CONFIG, team_id=1, api_version=api_version) == (True, None)
+    assert [request.path for request in network.requests_log] == [path]
 
 
-def test_unknown_schema_probe_makes_no_request(transport: Transport) -> None:
-    assert validate_credentials(CONFIG, "unknown", "v2") == (False, "Unknown Checkly table: unknown")
-    assert transport.requests == []
+def test_unknown_schema_probe_makes_no_request() -> None:
+    with scripted_network([]) as network:
+        assert validate_credentials(CONFIG, "unknown", "v2") == (False, "Unknown Checkly table: unknown")
+    assert network.requests_log == []
 
 
-def test_credential_probe_preserves_unexpected_errors(transport: Transport) -> None:
-    transport.add({"statusCode": 404}, 404)
-    with pytest.raises(HTTPError):
-        validate_credentials(CONFIG, None, "v2")
+def test_credential_probe_preserves_unexpected_errors() -> None:
+    with scripted_network([ScriptedResponse(status=404, json={"statusCode": 404})]):
+        with pytest.raises(HTTPError):
+            validate_credentials(CONFIG, None, "v2")
 
 
-def test_unsupported_version_makes_no_request(transport: Transport, manager: MagicMock) -> None:
-    with pytest.raises(ValueError, match="API version is not supported"):
-        checkly_source(CONFIG, manager, inputs("checks"), "v1")
-    assert transport.requests == []
+def test_unsupported_version_makes_no_request() -> None:
+    result = DRIVER.run("checks", [], api_version="v1")
+    assert isinstance(result.raised, ValueError)
+    assert "API version is not supported" in str(result.raised)
+    assert result.requests == []
