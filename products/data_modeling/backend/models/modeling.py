@@ -701,7 +701,7 @@ insert into posthog_datawarehousemodelpath (
   from
     posthog_datawarehousemodelpath as model_path,
     (
-      select
+      select distinct
         path
       from posthog_datawarehousemodelpath
       where path ~ ('*.' || %(parent)s)::lquery
@@ -725,8 +725,9 @@ where
   and id in (
     select id
     from (
-      select id, row_number() over (partition by team_id, path) as row_number
+      select id, row_number() over (partition by path) as row_number
       from posthog_datawarehousemodelpath
+      where team_id = %(team_id)s
     ) partitioned
     where partitioned.row_number > 1
 );
