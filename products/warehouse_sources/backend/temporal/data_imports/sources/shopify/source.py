@@ -118,11 +118,9 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             SHOPIFY_STORE_NOT_FOUND_ERROR: SHOPIFY_STORE_NOT_FOUND_ERROR,
             # GraphQL "Access denied for <field> field" — the access token is missing the
             # scope required to read this resource. The scope can't change on retry, so fail
-            # fast and tell the user to reconnect with the required permissions.
-            SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR: (
-                "Your Shopify access token is missing the permissions required to read some of your data. "
-                "Please reconnect your Shopify integration and grant the requested access scopes."
-            ),
+            # fast. No replacement copy: the raised error already names the field and scope
+            # and carries the reconnect guidance.
+            SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR: None,
             # GraphQL "This app is not approved to access the <object> object" — the store's
             # Shopify plan doesn't grant apps access to customer PII. No scope or reconnect can
             # fix this; the merchant must upgrade their plan or stop syncing tables with PII.
