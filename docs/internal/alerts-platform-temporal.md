@@ -288,8 +288,11 @@ a real grouping key, and would bury them where Postgres cannot lift them into an
 
 ### What a check leaves behind
 
-Every check writes one row to `platform_alert_events` in ClickHouse, including a check that
-confirmed the alert.
+Every check writes one row to `platform_alert_events` in ClickHouse for each group its outcome
+reports, including a check that confirmed the alert.
+An outcome carries what describes the whole check (the evaluation key, the failure count, `disable`,
+the next due time) once, and a `GroupOutcome` per group for what describes one instance (its state,
+firing and value). A source that does not group reports one group with the empty key.
 Postgres could not take that volume without a per-check retention flag, and a TTL'd ClickHouse
 table needs no such flag, so nothing has to decide which checks are worth keeping.
 

@@ -219,29 +219,53 @@ class FiringEpisode:
 
 
 @frozen
+class GroupOutcome:
+    """What one check decided for one group. The platform turns each into an instance write and a
+    history row.
+
+    A source that does not group sends one of these with the empty key, which is its one instance.
+    """
+
+    grouping_key: str
+    kind: AlertEventKind
+    new_state: str
+    notified: bool
+    firing_episode: FiringEpisode | None = None
+    value: float | None = None
+    labels: dict[str, str] = field(default_factory=dict)
+    # What a mute held back, so history separates a muted fire from a check that said nothing.
+    muted_notification: str = ""
+
+
+@frozen
 class PlatformAlertOutcome:
     """What one check decided. The platform turns this into rows.
 
     Every check produces one, including a check a source skipped. A skip that records nothing
     leaves its due time where it was, so discovery finds the same work every tick.
+
+    The fields here describe the check, and each of `groups` describes one group's verdict. A failed
+    query fails every group at once, so the failure count and `disable` belong to the check.
     """
 
     configuration_id: UUID
     evaluation_key: str
-    kind: AlertEventKind
-    new_state: str
-    notified: bool
     consecutive_failures: int
-    firing_episode: FiringEpisode | None = None
-    value: float | None = None
-    labels: dict[str, str] = field(default_factory=dict)
+    groups: tuple[GroupOutcome, ...]
     error_message: str | None = None
     query_duration_ms: int | None = None
-    # What a mute held back, so history separates a muted fire from a check that said nothing.
-    muted_notification: str = ""
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
+
+    def __post_init__(self) -> None:
+        # A check's ERRORED or BROKEN arrives as a group's verdict, so an outcome with no group
+        # would record a check that wrote no status and no history.
+        if not self.groups:
+            raise ValueError("an outcome needs at least one group")
+        keys = [group.grouping_key for group in self.groups]
+        if len(set(keys)) != len(keys):
+            raise ValueError("an outcome names each group once")
 
 
 @frozen

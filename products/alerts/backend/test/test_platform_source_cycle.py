@@ -88,7 +88,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert get_query_tags().ch_user == ClickHouseUser.ALERTS_PLATFORM_INSIGHT
         record_outcomes(self.team.id, (outcome,), CUTOFF)
 
-        assert (outcome.kind, outcome.value, outcome.evaluation_key) == (
+        assert (outcome.groups[0].kind, outcome.groups[0].value, outcome.evaluation_key) == (
             AlertEventKind.FIRING,
             150.0,
             f"slot:{slot_of(configuration.next_check_at, CUTOFF)}",
@@ -135,7 +135,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         query.assert_not_called()
         assert outcome is not None
-        assert (outcome.kind, outcome.new_state, outcome.disable) == (AlertEventKind.CHECK, state, False)
+        assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.disable) == (
+            AlertEventKind.CHECK,
+            state,
+            False,
+        )
 
     def test_a_copy_whose_production_alert_is_gone_is_disabled(self) -> None:
         outcome, query = self._evaluate(self._copy(None))
@@ -153,7 +157,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         outcome, _ = self._evaluate(self._copy(self._alert()), result=error)
 
         assert outcome is not None
-        assert (outcome.kind, outcome.new_state, outcome.error_message, outcome.disable) == (
+        assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.error_message, outcome.disable) == (
             AlertEventKind.CHECK,
             "not_firing",
             CAPACITY_REJECTED,
@@ -164,7 +168,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         outcome, _ = self._evaluate(self._copy(self._alert()), result=AlertExtractionError("bad query shape"))
 
         assert outcome is not None
-        assert (outcome.kind, outcome.new_state, outcome.disable) == (AlertEventKind.ERRORED, "errored", True)
+        assert (outcome.groups[0].kind, outcome.groups[0].new_state, outcome.disable) == (
+            AlertEventKind.ERRORED,
+            "errored",
+            True,
+        )
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_the_pool_defers_what_it_cannot_hold_until_a_check_frees_its_slot(self) -> None:

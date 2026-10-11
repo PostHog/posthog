@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -10,21 +11,26 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.models.scoping import team_scope
 
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import (
     disable_configurations,
     due_checks,
     record_outcomes,
+    slot_of,
     upsert_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     FiringEpisode,
+    GroupOutcome,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
     SourceKind,
 )
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.alerts_platform.backend.models.platform_alert_events_sql import SHARDED_PLATFORM_ALERT_EVENTS_TABLE
+
+_GROUP_FIELDS = ("kind", "new_state", "notified", "firing_episode", "value", "labels", "muted_notification")
 
 
 class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
@@ -49,24 +55,31 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             )
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
 
-    def _record(self, *, at: datetime | None = None, **overrides) -> None:
+    def _record(
+        self, *, at: datetime | None = None, groups: tuple[GroupOutcome, ...] | None = None, **overrides
+    ) -> None:
         at = at or self.cutoff
-        fields = {
-            "configuration_id": self.configuration.id,
-            "evaluation_key": f"window:{at.isoformat()}",
+        group_fields: dict[str, Any] = {
+            "grouping_key": "",
             "kind": AlertEventKind.FIRING,
             "new_state": "firing",
             "notified": True,
+        }
+        group_fields.update({name: overrides.pop(name) for name in _GROUP_FIELDS if name in overrides})
+        fields: dict[str, Any] = {
+            "configuration_id": self.configuration.id,
+            "evaluation_key": f"window:{at.isoformat()}",
             "consecutive_failures": 0,
+            "groups": groups or (GroupOutcome(**group_fields),),
         }
         fields.update(overrides)
         # History rides `transaction.on_commit`, which a `TestCase` transaction never reaches.
         with self.captureOnCommitCallbacks(execute=True):
             record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], at)
 
-    def _alert(self) -> PlatformAlert:
+    def _alert(self, grouping_key: str = "") -> PlatformAlert:
         with team_scope(self.team.id):
-            return PlatformAlert.objects.get(configuration=self.configuration)
+            return PlatformAlert.objects.get(configuration=self.configuration, grouping_key=grouping_key)
 
     def test_the_row_holds_the_firing_the_alert_is_in_and_drops_the_one_that_ended(self) -> None:
         # A field missing from the `bulk_update` list is never persisted and nothing else notices.
@@ -85,8 +98,40 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         with team_scope(self.team.id):
             self.configuration.refresh_from_db()
-        assert self.configuration.enabled is False
+        assert (self.configuration.enabled, self.configuration.check_status) == (False, "broken")
         assert due_checks(self.team.id, SourceKind.LOGS.value, self.slot, self.cutoff + timedelta(hours=1)) == ()
+
+    def _next_due(self) -> datetime:
+        with team_scope(self.team.id):
+            self.configuration.refresh_from_db()
+        assert self.configuration.next_check_at is not None
+        return self.configuration.next_check_at
+
+    def test_a_failed_check_marks_the_configuration_and_the_instance_keeps_its_firing(self) -> None:
+        self._record(firing_episode=FiringEpisode(started_at=self.cutoff, ended=False))
+        self._record(
+            at=self._next_due(),
+            kind=AlertEventKind.ERRORED,
+            new_state="errored",
+            notified=False,
+            consecutive_failures=1,
+            firing_episode=FiringEpisode(started_at=self.cutoff, ended=True),
+        )
+
+        due = self._next_due()
+        stored = self._alert()
+        with team_scope(self.team.id):
+            shown = platform_testing.alert_for(self.configuration.id)
+        assert self.configuration.check_status == "errored"
+        assert (stored.state, stored.firing_started_at) == ("firing", self.cutoff)
+        assert shown is not None and shown.state == "errored"
+        (check,) = due_checks(self.team.id, SourceKind.LOGS.value, slot_of(due, due), due)
+        assert check.state == "errored"
+
+        self._record(at=due, kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
+
+        self._next_due()
+        assert (self.configuration.check_status, self._alert().state) == ("ok", "not_firing")
 
     def test_recording_a_batch_twice_advances_the_schedule_once(self) -> None:
         self._record()
@@ -122,6 +167,31 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         # `insert_events` never raises, so without reading a row back a broken write is invisible.
         assert rows == [("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10, self.cutoff)]
+
+    def test_each_group_of_a_check_keeps_its_own_instance_and_history_row(self) -> None:
+        self._record(
+            groups=(
+                GroupOutcome(
+                    grouping_key="api",
+                    kind=AlertEventKind.FIRING,
+                    new_state="firing",
+                    notified=True,
+                    firing_episode=FiringEpisode(started_at=self.cutoff, ended=False),
+                    value=40.0,
+                ),
+                GroupOutcome(grouping_key="web", kind=AlertEventKind.CHECK, new_state="not_firing", notified=False),
+            )
+        )
+
+        api, web = self._alert("api"), self._alert("web")
+        assert (api.state, api.firing_started_at, api.last_notified_at) == ("firing", self.cutoff, self.cutoff)
+        assert (web.state, web.firing_started_at, web.last_notified_at) == ("not_firing", None, None)
+        rows = sync_execute(
+            "SELECT grouping_key, alert_id, state, value FROM platform_alert_events "
+            "WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s ORDER BY grouping_key",
+            {"team_id": self.team.id, "configuration_id": self.configuration.id},
+        )
+        assert rows == [("api", api.id, "firing", 40.0), ("web", web.id, "not_firing", None)]
 
     def test_a_resolve_row_keeps_the_firing_it_ended(self) -> None:
         # The alert row clears the firing on a resolve, so history is the only place left holding
@@ -231,3 +301,26 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         copy(None)
         assert snooze_seen_by_check() == ("firing", None)
+
+
+def _group(grouping_key: str) -> GroupOutcome:
+    return GroupOutcome(grouping_key=grouping_key, kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"groups": ()},
+        {"groups": (_group("api"), _group("api"))},
+    ],
+)
+def test_an_outcome_rejects_an_invalid_shape(overrides: dict[str, Any]) -> None:
+    fields: dict[str, Any] = {
+        "configuration_id": uuid4(),
+        "evaluation_key": "slot:2026-09-16T10:00:00+00:00",
+        "consecutive_failures": 0,
+        "groups": (_group(""),),
+    }
+    fields.update(overrides)
+    with pytest.raises(ValueError):
+        PlatformAlertOutcome(**fields)

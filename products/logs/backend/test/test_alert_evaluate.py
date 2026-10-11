@@ -117,7 +117,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         evaluation, _ = self._run(configuration)
         self._record(evaluation)
 
-        assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
+        assert [(g.kind, g.value) for o in evaluation.outcomes for g in o.groups] == [(AlertEventKind.FIRING, 500.0)]
         assert [(d.sends_messages, d.incident_actions) for d in evaluation.deliveries] == [
             (True, {"": IncidentAction.TRIGGER} if paged else {})
         ]
@@ -153,7 +153,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
 
         evaluation, _ = self._run(copied)
 
-        assert [(o.kind, o.value) for o in evaluation.outcomes] == [(AlertEventKind.FIRING, 500.0)]
+        assert [(g.kind, g.value) for o in evaluation.outcomes for g in o.groups] == [(AlertEventKind.FIRING, 500.0)]
 
     def test_a_cohort_query_is_capped_below_the_batch_budget(self) -> None:
         _, query = self._run(self._configuration())
@@ -248,7 +248,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # firing reaching it, a FIRING alert does not fire again on its own and stays silent.
         unmuted, _ = self._run(configuration, now=datetime(2026, 9, 16, 12, 30, tzinfo=UTC))
 
-        assert [o.kind for o in unmuted.outcomes] == [AlertEventKind.FIRING]
+        assert [g.kind for o in unmuted.outcomes for g in o.groups] == [AlertEventKind.FIRING]
 
     def test_a_resolve_cooldown_holds_still_closes_the_incident(self) -> None:
         configuration = self._configuration(cooldown_minutes=60)
@@ -261,7 +261,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         later = datetime(2026, 9, 16, 10, 10, tzinfo=UTC)
         cleared, _ = self._run(configuration, now=later, count=0)
 
-        assert [o.kind for o in cleared.outcomes] == [AlertEventKind.CHECK]
+        assert [g.kind for o in cleared.outcomes for g in o.groups] == [AlertEventKind.CHECK]
         assert [(d.sends_messages, d.incident_actions) for d in cleared.deliveries] == [
             (False, {"": IncidentAction.RESOLVE})
         ]

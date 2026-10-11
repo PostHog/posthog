@@ -25,6 +25,15 @@ class PlatformAlertState(LabeledStrEnum):
     BROKEN = "broken", "Broken"
 
 
+class PlatformAlertCheckStatus(LabeledStrEnum):
+    """Whether a configuration's checks succeed. It holds for every instance of the configuration,
+    because a failed check returns no group to attribute the failure to."""
+
+    OK = "ok", "OK"
+    ERRORED = "errored", "Errored"
+    BROKEN = "broken", "Broken"
+
+
 class PlatformAlertConfigurationRecurrenceUnit(LabeledStrEnum):
     """The calendar unit a configuration recurs on, when it does not recur on a minute interval."""
 
