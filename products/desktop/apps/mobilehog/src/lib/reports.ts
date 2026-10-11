@@ -20,6 +20,7 @@ import { useCallback, useMemo } from "react";
 import { useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
+import { currentUserQuery } from "@/lib/queries";
 import {
   hasOpenImplementationPr,
   type ReportFilter,
@@ -32,6 +33,7 @@ import {
   restoreReadState,
   summarizeReadStates,
 } from "@/lib/reportReadState";
+import { type ReportScope, reportScopeParams } from "@/lib/reportScope";
 import { fetchHasLiveImplementationTask } from "@/lib/reportTasks";
 import { useSessions } from "@/lib/session";
 
@@ -45,18 +47,33 @@ export const reportKeys = {
   liveTask: (id: string) => ["reports", id, "live-task"] as const,
 };
 
-// Defaults to the reports a person can act on right now.
-export function useReports(search = "", filter: ReportFilter = "attention") {
+// Defaults to the reports a person can act on right now, across the project.
+export function useReports(
+  search = "",
+  filter: ReportFilter = "attention",
+  { scope = "entire-project" }: { scope?: ReportScope } = {},
+) {
   const session = useAuth((s) => s.session);
-  const key = [...reportKeys.list, filter];
+  const queryClient = useQueryClient();
+  const key = [...reportKeys.list, filter, scope];
   return useQuery({
     queryKey: search ? [...key, "search", search] : key,
-    queryFn: () =>
-      getClient().getSignalReports({
+    queryFn: async () => {
+      // "For you" waits for the user's uuid, so it never shows the whole
+      // project first.
+      const user =
+        scope === "for-you"
+          ? await queryClient.ensureQueryData(currentUserQuery(session))
+          : null;
+      const scoped = reportScopeParams(scope, user?.uuid);
+      if (!scoped) throw new Error("Could not load your account");
+      return getClient().getSignalReports({
         ...reportFilterParams(filter),
+        ...scoped,
         limit: 100,
         search: search || undefined,
-      }),
+      });
+    },
     enabled: !!session,
     refetchInterval: 60_000,
     select: (page) => {

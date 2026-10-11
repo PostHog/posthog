@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { DEFAULT_MODEL, DEFAULT_REPOSITORY } from "@/config";
 import { type Photo, uploadStagedPhotos } from "@/lib/attachments";
-import { useAuth } from "@/lib/auth";
+import { type Session, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
 import { useRepo } from "@/lib/repo";
@@ -99,6 +99,14 @@ export function useTasks(search = "") {
       return anyLive ? 5000 : 30000;
     },
   });
+}
+
+export function currentUserQuery(session: Session | null) {
+  return {
+    queryKey: ["me", session?.host, session?.userId],
+    queryFn: () => getClient().getCurrentUser(),
+    staleTime: Number.POSITIVE_INFINITY,
+  };
 }
 
 export function useTask(taskId: string) {
