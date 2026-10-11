@@ -1,3 +1,4 @@
+import math
 from typing import TYPE_CHECKING, cast
 
 from posthog.hogql import ast
@@ -6,6 +7,8 @@ from posthog.hogql.transforms.prompt_jev import PromptJevRunner, validate_prompt
 
 from posthog.llm.system_one import NoulQuestion
 from posthog.llm.system_one_client import GatewaySystemOneClient, build_system_one_client
+
+from .jev_question import PartialQuestionDecisionsError
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -47,7 +50,21 @@ class QuestionGatewayEvaluator:
         # Each manifest chunk gets Jev's existing byte, concurrency, row-isolation and time budgets.
         runner = PromptJevRunner(team_id=self.team.pk, distinct_id=self.distinct_id)
         runner.clients[self.spec.model] = self.client
-        decisions = runner.evaluate(self.spec, list(inputs))
+        completed: dict[str, float] = {}
+
+        def retain_batch(batch: dict[str, object]) -> None:
+            for text, probability in batch.items():
+                if type(probability) not in (int, float):
+                    raise ValueError("Jev returned an invalid probability.")
+                value = float(cast(float, probability))
+                if not math.isfinite(value) or not 0 <= value <= 1:
+                    raise ValueError("Jev returned an invalid probability.")
+                completed[text] = value
+
+        try:
+            decisions = runner.evaluate(self.spec, list(inputs), on_batch=retain_batch)
+        except Exception:
+            raise PartialQuestionDecisionsError(completed) from None
         if any(type(decision) not in (int, float) for decision in decisions):
             raise ValueError("Jev returned an invalid probability.")
         return [float(cast(float, decision)) for decision in decisions]

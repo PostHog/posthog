@@ -14,6 +14,7 @@ from .activities.finalize_check_suite import (
 from .activities.materialization_gate import materialization_gate_activity
 from .activities.notify_failing_checks import notify_failing_checks_activity
 from .activities.prepare_check_suite import prepare_check_suite_activity
+from .activities.question import finish_question_activity, prepare_question_activity, run_question_chunk_activity
 from .activities.reconcile_schedules import reconcile_metric_schedules_activity
 from .activities.run_check_batch import run_check_batch_activity
 from .workflows.cleanup import CleanupCheckRunsWorkflow
@@ -30,6 +31,9 @@ ACTIVITIES: list[Callable[..., Any]] = [
     materialization_gate_activity,
     prepare_check_suite_activity,
     run_check_batch_activity,
+    prepare_question_activity,
+    run_question_chunk_activity,
+    finish_question_activity,
     finalize_check_suite_activity,
     mark_check_suite_empty_activity,
     mark_check_suite_failed_activity,

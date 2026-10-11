@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.facade import api as warehouse_facade
 
 from ...facade.enums import SubjectType, SuiteRunStatus
 from ...logic import posthog_tables
+from ...logic.jev_execution import cleanup_question_snapshots
 from ...models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
 from ..contracts import CleanupOutcome
 
@@ -76,6 +77,7 @@ async def cleanup_check_runs_activity() -> CleanupOutcome:
 
 def _cleanup() -> CleanupOutcome:
     """Retention sweep across every team, which is why it uses the unscoped manager."""
+    cleanup_question_snapshots(heartbeat=_heartbeat)
     now = datetime.now(UTC)
     runs = DataQualityCheckRun.objects.unscoped()
 

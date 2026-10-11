@@ -23,6 +23,7 @@ const PASSING_METRIC_RUN: DataQualityCheckRunApi = {
     failed_row_count: 0,
     observed_value: 0,
     compiled_query: 'SELECT count() FROM signups',
+    question_result: null,
     audited_staged_refresh: false,
     error: '',
     duration_ms: 20,

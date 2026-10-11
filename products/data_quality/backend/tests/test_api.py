@@ -2234,6 +2234,33 @@ class TestDataQualityCheckAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert "to_lookback_hours" in response.json()["detail"]
 
+    def test_question_authoring_is_warehouse_only_and_warning_only(self) -> None:
+        payload = {
+            **self._table_subject(),
+            "check_type": "question",
+            "column_name": "customer_id",
+            "config": {"question": "Is this a valid identifier?"},
+        }
+        response = self.client.post(f"{self.url}/", payload)
+        assert response.status_code == 201, response.content
+        created = response.json()
+        assert created["severity"] == "warn"
+        assert created["config"]["question"] == payload["config"]["question"]
+        rejected = self.client.patch(f"{self.url}/{created['id']}/", {"severity": "error"})
+        assert rejected.status_code == 400, rejected.content
+        assert self.client.post(f"{self.url}/", {**payload, **self.subject}).status_code == 400
+        row = self.client.post(
+            f"{self.url}/",
+            {
+                **payload,
+                "column_name": "",
+                "config": {"input_mode": "row", "columns": ["customer_id"], "question": "Is this a valid identifier?"},
+            },
+        )
+        assert row.status_code == 201, row.content
+        unknown = self.client.post(f"{self.url}/", {**payload, "column_name": "unavailable"})
+        assert unknown.status_code == 400, unknown.content
+
     def test_the_check_type_catalog_needs_no_access_to_any_subject(self) -> None:
         self._deny_the_view()
 

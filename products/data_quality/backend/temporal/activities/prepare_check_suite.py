@@ -10,7 +10,7 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_modeling.backend.facade import api as data_modeling_facade
 
-from ...facade.enums import SubjectType, SuiteRunTrigger
+from ...facade.enums import CheckType, SubjectType, SuiteRunTrigger
 from ...logic import posthog_tables
 from ...logic.checks import live_subject_checks
 from ...logic.flags import get_data_quality_checks_flag_for_team_id
@@ -41,10 +41,16 @@ def _prepare(inputs: RunCheckSuiteInputs, *, schedule_enabled: bool = True) -> P
     checks = _select_checks(inputs) if _checks_enabled(inputs.team_id) and schedule_enabled else []
     suite_run = _suite_run(inputs)
 
-    check_ids = [str(check_id) for check_id in checks]
+    question_ids = list(
+        DataQualityCheck.objects.for_team(inputs.team_id)
+        .filter(id__in=checks, check_type=CheckType.QUESTION)
+        .values_list("id", flat=True)
+    )
+    question_set = {str(check_id) for check_id in question_ids}
+    check_ids = [str(check_id) for check_id in checks if str(check_id) not in question_set]
     batches = [check_ids[start : start + CHECKS_PER_BATCH] for start in range(0, len(check_ids), CHECKS_PER_BATCH)]
     LOGGER.info("Prepared check suite", suite_run_id=str(suite_run.id), checks=len(check_ids), batches=len(batches))
-    return PreparedSuite(suite_run_id=str(suite_run.id), batches=batches)
+    return PreparedSuite(suite_run_id=str(suite_run.id), batches=batches, question_check_ids=sorted(question_set))
 
 
 def _checks_enabled(team_id: int) -> bool:
