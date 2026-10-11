@@ -14,7 +14,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "dataclass_frozen_baseline.txt"
-SCANNED_ROOTS = ("posthog", "ee", "products", "common")
+SCANNED_ROOTS = ("posthog", "ee", "products", "common", "sources")
 SKIPPED_DIRS = {"node_modules", ".venv", "venv", "__pycache__", ".git", ".mypy_cache"}
 
 

@@ -20,7 +20,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_DIR = Path(__file__).parent
-SOURCES_ROOT = REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources"
+# Vendor directories live in the product and in the top-level `sources/` tree.
+SOURCE_ROOTS = (REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources", REPO_ROOT / "sources")
 SKIPPED_DIRS = {"common", "tests", "test", "__pycache__", "generated_configs"}
 REGENERATE = "python posthog/test/repo_invariants/test_warehouse_source_test_shapes.py"
 
@@ -29,6 +30,10 @@ MOCK_BUILDERS = {"MagicMock", "Mock", "NonCallableMagicMock", "create_autospec"}
 TESTING_PATH = "products/warehouse_sources/backend/temporal/data_imports/sources/common/testing"
 
 Check = Callable[[ast.Module], bool]
+
+
+def _source_files(pattern: str) -> list[tuple[Path, Path]]:
+    return [(root, path) for root in SOURCE_ROOTS for path in root.rglob(pattern)]
 
 
 def _terminal_name(node: ast.AST) -> str | None:
@@ -104,8 +109,8 @@ CHECKS: dict[str, tuple[Check, tuple[str, ...], str, str]] = {
 
 def collect(check: Check, words: tuple[str, ...]) -> list[str]:
     found: list[str] = []
-    for path in SOURCES_ROOT.rglob("test_*.py"):
-        relative = path.relative_to(SOURCES_ROOT)
+    for root, path in _source_files("test_*.py"):
+        relative = path.relative_to(root)
         if (
             len(relative.parts) < 2
             or relative.parts[0] in SKIPPED_DIRS

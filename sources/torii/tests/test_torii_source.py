@@ -1,0 +1,39 @@
+import pytest
+from unittest import mock
+
+from sources.torii._config import ToriiSourceConfig
+from sources.torii.source import ToriiSource
+
+
+class TestToriiSource:
+    def setup_method(self):
+        self.source = ToriiSource()
+        self.team_id = 123
+        self.config = ToriiSourceConfig(api_key="test-key")
+
+    @pytest.mark.parametrize(
+        "mock_return, expected_valid, expected_message",
+        [
+            (True, True, None),
+            (False, False, "Invalid credentials"),
+        ],
+    )
+    @mock.patch("sources.torii.source.validate_torii_credentials")
+    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
+        mock_validate.return_value = mock_return
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is expected_valid
+        assert error_message == expected_message
+        mock_validate.assert_called_once_with(self.config.api_key)
+
+    def test_resolves_pinned_api_version_when_set(self):
+        inputs = mock.MagicMock()
+        inputs.schema_name = "Apps"
+        inputs.api_version = "1.1"
+        manager = mock.MagicMock()
+
+        with mock.patch("sources.torii.source.torii_source") as mock_torii_source:
+            self.source.source_for_pipeline(self.config, manager, inputs)
+            assert mock_torii_source.call_args.kwargs["api_version"] == "1.1"

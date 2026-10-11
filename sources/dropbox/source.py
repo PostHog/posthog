@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.dropbox._config import DropboxSourceConfig
+
+
+@SourceRegistry.register
+class DropboxSource(SimpleSource[DropboxSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.DROPBOX
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.DROPBOX,
+            category=DataWarehouseSourceCategory.FILE_STORAGE,
+            label="Dropbox",
+            iconPath="/static/services/dropbox.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

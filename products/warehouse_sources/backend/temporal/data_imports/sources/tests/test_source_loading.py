@@ -1,5 +1,3 @@
-import ast
-from pathlib import Path
 from typing import cast
 
 import pytest
@@ -22,10 +20,9 @@ _SOURCES = "products.warehouse_sources.backend.temporal.data_imports.sources"
 
 def test_broken_source_module_does_not_block_the_rest_of_the_catalog():
     with (
-        patch(f"{_SOURCES}._bulk_load", side_effect=ModuleNotFoundError("No module named 'gone'")),
         patch(
             f"{_SOURCES}._source_module_paths",
-            return_value=[f"{_SOURCES}.gone.source", f"{_SOURCES}.pypi.source"],
+            return_value=[f"{_SOURCES}.gone.source", "sources.pypi.source"],
         ),
         patch(f"{_SOURCES}.capture_exception") as capture_exception,
         override_settings(CLOUD_DEPLOYMENT="US"),
@@ -57,14 +54,12 @@ def test_a_missing_module_is_reported_only_from_a_deploy(
         assert _should_capture_import_failure(error) is expected
 
 
-def test_per_source_fallback_covers_every_source_the_bulk_import_loads():
-    bulk_import_list = ast.parse((Path(__file__).parent.parent / "_load_all.py").read_text())
+def test_every_vendor_directory_lives_in_exactly_one_package():
+    module_paths = _source_module_paths()
+    vendor_directories = [path.rsplit(".", 2)[1] for path in module_paths]
 
-    assert set(_source_module_paths()) == {
-        f"{_SOURCES}.{node.module}"
-        for node in ast.walk(bulk_import_list)
-        if isinstance(node, ast.ImportFrom) and node.module
-    }
+    assert len(vendor_directories) == len(set(vendor_directories))
+    assert {path.split(".")[0] for path in module_paths} == {"products", "sources"}
 
 
 class _FakePypiSource:

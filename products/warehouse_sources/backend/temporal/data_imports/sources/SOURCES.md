@@ -1,6 +1,6 @@
 # Warehouse sources — implementation status & communication methods
 
-This file is the authoritative inventory of every source registered in [`products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py`](__init__.py),
+This file is the authoritative inventory of every source the loader in [`products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py`](__init__.py) registers (vendor directories here and in the top-level `sources/` tree),
 the wire protocol it uses to talk to its upstream, and whether its outbound traffic is currently routed
 through the [tracked HTTP transport](common/http/) (so it shows up in our HTTP logs, metrics, and
 sample-capture pipeline).

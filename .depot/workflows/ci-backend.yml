@@ -486,6 +486,8 @@ jobs:
                         - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - 'products/**/backend/**/*'
+                        # Warehouse source vendors; the warehouse_sources backend:test runs them.
+                        - 'sources/**'
                         # Python outside backend/ — products like logs and
                         # posthog_ai point `backend:test` at extra roots
                         # (skills/, scripts/). Catch any .py change so the

@@ -1,0 +1,93 @@
+import pytest
+from unittest.mock import MagicMock
+
+from parameterized import parameterized
+
+from sources.pylon import source as pylon_source_module
+from sources.pylon._config import PylonSourceConfig
+from sources.pylon.pylon import PYLON_EU_BASE_URL, PYLON_US_BASE_URL
+from sources.pylon.source import PylonSource
+
+
+def _config(api_token: str = "token") -> PylonSourceConfig:
+    return PylonSourceConfig.from_dict({"api_token": api_token})
+
+
+class TestPylonGetSchemas:
+    def test_filters_by_names(self) -> None:
+        schemas = PylonSource().get_schemas(_config(), team_id=1, names=["issues", "accounts"])
+        assert {s.name for s in schemas} == {"issues", "accounts"}
+
+
+class TestPylonValidateCredentials:
+    def test_valid_token(self) -> None:
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setattr(pylon_source_module, "validate_pylon_credentials", lambda token: True)
+            assert PylonSource().validate_credentials(_config(), team_id=1) == (True, None)
+
+    @parameterized.expand(
+        [
+            ("eu_token", "pylon_api_eu_abc123", PYLON_EU_BASE_URL),
+            ("us_token", "pylon_api_abc123", PYLON_US_BASE_URL),
+        ]
+    )
+    def test_failure_names_the_host_that_was_checked(self, _name: str, api_token: str, expected_host: str) -> None:
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setattr(pylon_source_module, "validate_pylon_credentials", lambda token: False)
+            ok, message = PylonSource().validate_credentials(_config(api_token), team_id=1)
+        assert ok is False
+        assert message is not None
+        assert expected_host in message
+
+
+class TestPylonNonRetryableErrors:
+    @parameterized.expand([("us", PYLON_US_BASE_URL), ("eu", PYLON_EU_BASE_URL)])
+    def test_covers_both_regional_hosts(self, _name: str, base_url: str) -> None:
+        errors = PylonSource().get_non_retryable_errors()
+        assert f"401 Client Error: Unauthorized for url: {base_url}" in errors
+        assert f"403 Client Error: Forbidden for url: {base_url}" in errors
+
+
+class TestPylonSourceForPipeline:
+    def test_plumbs_args_into_pylon_source(self) -> None:
+        captured: dict = {}
+
+        def _fake_pylon_source(**kwargs: object):
+            captured.update(kwargs)
+            return MagicMock()
+
+        inputs = MagicMock()
+        inputs.schema_name = "issues"
+        inputs.should_use_incremental_field = True
+        inputs.db_incremental_field_last_value = "2026-06-01T00:00:00Z"
+        inputs.incremental_field = "created_at"
+        manager = MagicMock()
+
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setattr(pylon_source_module, "pylon_source", _fake_pylon_source)
+            PylonSource().source_for_pipeline(_config("secret"), manager, inputs)
+
+        assert captured["api_token"] == "secret"
+        assert captured["endpoint"] == "issues"
+        assert captured["should_use_incremental_field"] is True
+        assert captured["db_incremental_field_last_value"] == "2026-06-01T00:00:00Z"
+        assert captured["resumable_source_manager"] is manager
+
+    def test_passes_none_last_value_when_not_incremental(self) -> None:
+        captured: dict = {}
+
+        def _fake_pylon_source(**kwargs: object):
+            captured.update(kwargs)
+            return MagicMock()
+
+        inputs = MagicMock()
+        inputs.schema_name = "accounts"
+        inputs.should_use_incremental_field = False
+        inputs.db_incremental_field_last_value = "ignored"
+        inputs.incremental_field = None
+
+        with pytest.MonkeyPatch().context() as mp:
+            mp.setattr(pylon_source_module, "pylon_source", _fake_pylon_source)
+            PylonSource().source_for_pipeline(_config(), MagicMock(), inputs)
+
+        assert captured["db_incremental_field_last_value"] is None

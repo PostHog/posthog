@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.discord._config import DiscordSourceConfig
+
+
+@SourceRegistry.register
+class DiscordSource(SimpleSource[DiscordSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.DISCORD
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.DISCORD,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
+            label="Discord",
+            iconPath="/static/services/discord.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

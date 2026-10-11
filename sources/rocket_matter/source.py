@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.rocket_matter._config import RocketMatterSourceConfig
+
+
+@SourceRegistry.register
+class RocketMatterSource(SimpleSource[RocketMatterSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.ROCKETMATTER
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.ROCKETMATTER,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
+            label="Rocket Matter (ProfitSolv)",
+            iconPath="/static/services/rocket_matter.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

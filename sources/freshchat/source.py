@@ -1,0 +1,204 @@
+import re
+from typing import Optional, cast
+
+from products.warehouse_sources.backend.facade.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.freshchat._config import FreshchatSourceConfig
+from sources.freshchat.freshchat import (
+    HOST_NOT_ALLOWED_ERROR,
+    FreshchatResumeConfig,
+    freshchat_source,
+    is_allowed_host,
+    normalize_domain,
+    validate_credentials as validate_freshchat_credentials,
+)
+from sources.freshchat.settings import FRESHCHAT_ENDPOINTS, PRIMARY_KEYS
+
+# Covers Freshchat's top-level v2 list endpoints (Agents, Users, Groups, Channels, Roles), the
+# single-row account configuration, and the two fan-out tables that reach conversations and their
+# messages — Freshchat exposes no top-level conversations list, so both hang off Users. The
+# outbound-messages and metrics endpoints require time-window params and are not covered.
+# Freshchat has no server-side incremental cursor on these endpoints, so every endpoint is full
+# refresh, resumable by page number.
+
+# Shape check on the normalized host (the Freshworks-suffix allowlist in `is_allowed_host` is the
+# actual security boundary).
+_DOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}$")
+
+# User-facing auth/permission messages, shared between sync-time (get_non_retryable_errors) and
+# connect-time (validate_credentials) so the two can't drift.
+_ERR_AUTH_FAILED = "Freshchat authentication failed. Please check your API token and account domain."
+_ERR_FORBIDDEN = "Your Freshchat API token does not have permission for this resource. Check the token's scope."
+_ERR_HOST_NOT_ALLOWED = (
+    "Freshchat account domain is invalid. Use the chat URL from your Freshchat API settings, "
+    "which ends in freshchat.com or myfreshworks.com."
+)
+_ERR_NON_JSON = (
+    "Your Freshchat account domain returned a web page instead of data, so it is not your Freshchat "
+    "API host. Open API settings in your Freshchat admin console and use the chat URL shown there. "
+    "It is not always the domain you sign in to."
+)
+
+
+@SourceRegistry.register
+class FreshchatSource(ResumableSource[FreshchatSourceConfig, FreshchatResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.FRESHCHAT
+
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # Freshchat's connection target is the account domain, not a `host` field. Editing it on an
+        # existing source must force the API token to be re-entered.
+        return ["domain"]
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from sources.freshchat.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error": _ERR_AUTH_FAILED,
+            "403 Client Error: Forbidden for url": _ERR_FORBIDDEN,
+            HOST_NOT_ALLOWED_ERROR: _ERR_HOST_NOT_ALLOWED,
+            # The REST client raises this when a 2xx body isn't JSON, which is what the Freshworks
+            # portal domain returns: its web app, not the API.
+            "Non-JSON response from": _ERR_NON_JSON,
+        }
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.FRESHCHAT,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
+            label="Freshchat",
+            caption="""Enter your Freshchat account domain and API token to pull your Freshchat messaging data into the PostHog Data warehouse.
+
+Your **account domain** is the host of your Freshchat chat URL, e.g. `acme.freshchat.com`. Find it under **API settings** in your Freshchat admin console. If your Freshchat came with the Freshsales Suite, the chat URL has its own host, e.g. `acme-123-4567.myfreshworks.com`, which is not the domain you sign in to.
+
+Your **API token** is generated by an account admin under **Admin settings → API tokens**. It is sent as a Bearer token.""",
+            iconPath="/static/services/freshchat.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/freshchat",
+            releaseStatus=ReleaseStatus.ALPHA,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="domain",
+                        label="Freshchat account domain",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="acme.freshchat.com",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="api_key",
+                        label="API token",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                ],
+            ),
+        )
+
+    def get_schemas(
+        self,
+        config: FreshchatSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        schemas = [
+            SourceSchema(
+                name=name,
+                # No server-side incremental cursor on the core list endpoints -> full refresh only.
+                supports_incremental=False,
+                supports_append=False,
+                incremental_fields=[],
+                detected_primary_keys=PRIMARY_KEYS[name],
+            )
+            for name in FRESHCHAT_ENDPOINTS
+        ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
+
+    def validate_credentials(
+        self,
+        config: FreshchatSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        normalized = normalize_domain(config.domain)
+        if not _DOMAIN_REGEX.match(normalized):
+            return False, "Freshchat account domain is invalid"
+
+        # The domain is fully customer-controlled; refuse anything outside the Freshworks-owned
+        # suffixes so the stored token can't be aimed at an internal host (SSRF).
+        if not is_allowed_host(normalized):
+            return False, _ERR_HOST_NOT_ALLOWED
+
+        status, returned_json = validate_freshchat_credentials(config.domain, config.api_key)
+
+        # A Freshworks portal domain answers these paths with the web app, so the status alone would
+        # accept (or mis-explain) a host that can never serve data.
+        if status is not None and not returned_json:
+            return False, _ERR_NON_JSON
+
+        if status == 200:
+            return True, None
+
+        # A valid token that simply lacks scope for the probe returns 403. Accept it at
+        # source-create (schema_name is None) — users may only grant the scopes they want to sync.
+        if status == 403 and schema_name is None:
+            return True, None
+
+        if status == 403:
+            return False, _ERR_FORBIDDEN
+
+        if status == 401:
+            return False, _ERR_AUTH_FAILED
+
+        return False, "Could not connect to Freshchat. Please check your account domain and API token."
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[FreshchatResumeConfig]:
+        return ResumableSourceManager[FreshchatResumeConfig](inputs, FreshchatResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: FreshchatSourceConfig,
+        resumable_source_manager: ResumableSourceManager[FreshchatResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return freshchat_source(
+            api_key=config.api_key,
+            domain=config.domain,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+        )

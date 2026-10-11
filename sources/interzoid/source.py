@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.interzoid._config import InterzoidSourceConfig
+
+
+@SourceRegistry.register
+class InterzoidSource(SimpleSource[InterzoidSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.INTERZOID
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.INTERZOID,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            label="Interzoid",
+            iconPath="/static/services/interzoid.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

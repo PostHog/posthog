@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.vturb._config import VturbSourceConfig
+
+
+@SourceRegistry.register
+class VturbSource(SimpleSource[VturbSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.VTURB
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.VTURB,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            label="Vturb",
+            iconPath="/static/services/vturb.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

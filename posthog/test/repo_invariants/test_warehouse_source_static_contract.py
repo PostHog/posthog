@@ -24,7 +24,8 @@ import pytest
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_DIR = Path(__file__).parent
-SOURCES_ROOT = REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources"
+# Vendor directories live in the product and in the top-level `sources/` tree.
+SOURCE_ROOTS = (REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources", REPO_ROOT / "sources")
 SKIPPED_DIRS = {"common", "tests", "test", "__pycache__", "generated_configs"}
 REGENERATE = "python posthog/test/repo_invariants/test_warehouse_source_static_contract.py"
 
@@ -35,6 +36,10 @@ RESOURCE_BUILDERS = {"rest_api_resource", "rest_api_resources", "build_dependent
 SAFE_POINT_CALLS = {"safe_point", "reach_safe_point"}
 
 Check = Callable[[ast.Module], list[str]]
+
+
+def _source_files(pattern: str) -> list[tuple[Path, Path]]:
+    return [(root, path) for root in SOURCE_ROOTS for path in root.rglob(pattern)]
 
 
 def _own_nodes(node: ast.AST) -> list[ast.AST]:
@@ -212,8 +217,8 @@ CHECKS: dict[str, tuple[Check, tuple[str, ...], str, str]] = {
 
 def collect(check: Check, words: tuple[str, ...]) -> list[str]:
     found: list[str] = []
-    for path in SOURCES_ROOT.rglob("*.py"):
-        relative = path.relative_to(SOURCES_ROOT)
+    for root, path in _source_files("*.py"):
+        relative = path.relative_to(root)
         if SKIPPED_DIRS.intersection(relative.parts) or path.name.startswith("test_"):
             continue
         source = path.read_text(encoding="utf-8", errors="ignore")

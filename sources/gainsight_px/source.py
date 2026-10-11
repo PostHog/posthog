@@ -1,0 +1,158 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.gainsight_px._config import GainsightPxSourceConfig
+from sources.gainsight_px.gainsight_px import (
+    GainsightPxResumeConfig,
+    gainsight_px_source,
+    validate_credentials as validate_gainsight_px_credentials,
+)
+from sources.gainsight_px.settings import ENDPOINTS, GAINSIGHT_PX_ENDPOINTS, INCREMENTAL_FIELDS
+
+
+@SourceRegistry.register
+class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://px-apidocs.gainsight.com/"
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.GAINSIGHTPX
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        message = (
+            "Gainsight PX rejected the API key. Generate a new key with Read access under "
+            "Administration → REST API in Gainsight PX, then reconnect."
+        )
+        return {
+            "401 Client Error: Unauthorized": message,
+            "403 Client Error: Forbidden": message,
+        }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from sources.gainsight_px.canonical_descriptions import CANONICAL_DESCRIPTIONS  # noqa: PLC0415
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: GainsightPxSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        # Only the `/events/*` streams and survey responses expose a server-side date filter; the entity
+        # endpoints have no "updated since" filter and stay full refresh.
+        schemas = [
+            SourceSchema(
+                name=endpoint,
+                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
+                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
+                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                detected_primary_keys=GAINSIGHT_PX_ENDPOINTS[endpoint].primary_keys,
+            )
+            for endpoint in ENDPOINTS
+        ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
+
+    def validate_credentials(
+        self,
+        config: GainsightPxSourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        if validate_gainsight_px_credentials(config.api_key, config.region):
+            return True, None
+
+        return False, "Invalid Gainsight PX API key or region. Check the key and the region you selected."
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GainsightPxResumeConfig]:
+        return ResumableSourceManager[GainsightPxResumeConfig](inputs, GainsightPxResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: GainsightPxSourceConfig,
+        resumable_source_manager: ResumableSourceManager[GainsightPxResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return gainsight_px_source(
+            api_key=config.api_key,
+            region=config.region,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.GAINSIGHTPX,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            label="Gainsight PX",
+            caption=(
+                "Connect Gainsight PX with your project's **API key**. Generate a key with **Read** "
+                "access under **Administration → REST API** in Gainsight PX, then pick the region your "
+                "subscription is hosted in.\n\n"
+                "Event tables (page views, sessions, engagement views, feature and segment matches, "
+                "custom events, identify events and survey responses) can sync incrementally on the "
+                "event `date`. The other tables sync as full refresh because "
+                'Gainsight PX doesn\'t expose an "updated since" filter for them.'
+            ),
+            docsUrl="https://posthog.com/docs/cdp/sources/gainsight-px",
+            iconPath="/static/services/gainsight_px.png",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="api_key",
+                        label="API key",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="region",
+                        label="Region",
+                        required=True,
+                        defaultValue="us",
+                        options=[
+                            SourceFieldSelectConfigOption(label="US (api.aptrinsic.com)", value="us"),
+                            SourceFieldSelectConfigOption(label="EU (api-eu.aptrinsic.com)", value="eu"),
+                            SourceFieldSelectConfigOption(label="US2 (api-us2.aptrinsic.com)", value="us2"),
+                        ],
+                    ),
+                ],
+            ),
+            releaseStatus=ReleaseStatus.ALPHA,
+        )

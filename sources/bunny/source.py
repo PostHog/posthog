@@ -1,0 +1,137 @@
+from typing import Optional, cast
+
+from products.warehouse_sources.backend.facade.source_config import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    build_endpoint_schemas,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.bunny._config import BunnySourceConfig
+from sources.bunny.bunny import BunnyResumeConfig, bunny_source, check_access
+from sources.bunny.settings import BUNNY_ENDPOINTS, ENDPOINTS, INCREMENTAL_FIELDS
+
+
+@SourceRegistry.register
+class BunnySource(ResumableSource[BunnySourceConfig, BunnyResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+    api_docs_url = "https://docs.bunny.net/reference"
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.BUNNY
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.BUNNY,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            label="Bunny.net",
+            releaseStatus=ReleaseStatus.ALPHA,
+            caption="""Enter your bunny.net account API key to pull your bunny.net data into the PostHog Data warehouse.
+
+You can find your account API key under **Account Settings → API** in the [bunny.net dashboard](https://dash.bunny.net/account/settings). This single key grants read access to the Core API (pull zones, storage zones, DNS zones, and Stream video libraries).
+""",
+            iconPath="/static/services/bunny.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/bunny",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="access_key",
+                        label="Account API key",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                ],
+            ),
+        )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from sources.bunny.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            # An invalid or revoked account API key surfaces as a requests HTTPError when
+            # `_fetch_page` calls `raise_for_status()`. Retrying can never satisfy a credential
+            # problem, so stop the sync. Match the stable status text and base host, not the
+            # per-request path/query.
+            "401 Client Error: Unauthorized for url: https://api.bunny.net": "Your bunny.net account API key is invalid or has been revoked. Generate a new key under Account Settings → API, then reconnect.",
+            "403 Client Error: Forbidden for url: https://api.bunny.net": "Your bunny.net account API key does not have access to this data. Check the key's permissions, then reconnect.",
+            # The Stream tables authenticate with the per-library key the account key reads off
+            # `/videolibrary`, so their auth failures come back from the Stream host instead.
+            "401 Client Error: Unauthorized for url: https://video.bunnycdn.com": "A bunny.net video library rejected its API key. Regenerate the library's key in the Stream dashboard, then re-run the sync.",
+            "403 Client Error: Forbidden for url: https://video.bunnycdn.com": "A bunny.net video library API key does not have access to this data. Check the library's key permissions, then re-run the sync.",
+            # The CDN access logs are served by a third host, which takes the account API key.
+            "401 Client Error: Unauthorized for url: https://logging.bunnycdn.com": "Your bunny.net account API key is invalid or has been revoked. Generate a new key under Account Settings → API, then reconnect.",
+            "403 Client Error: Forbidden for url: https://logging.bunnycdn.com": "Your bunny.net account API key does not have access to the CDN access logs. Check the key's permissions, then reconnect.",
+        }
+
+    def get_schemas(
+        self,
+        config: BunnySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        # Most list endpoints are full refresh only — they expose no server-side timestamp
+        # filter, so there is no incremental cursor to advance. The statistics endpoints and the
+        # CDN access logs do filter on a start date, and are merge only: appending would re-add
+        # a row per run for every interval the window still covers.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=tuple(INCREMENTAL_FIELDS))
+
+    def validate_credentials(
+        self, config: BunnySourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
+    ) -> tuple[bool, str | None]:
+        # The account API key is account-wide, so a single probe validates access to every schema;
+        # there is no per-endpoint scope to check.
+        ok, status = check_access(config.access_key)
+        if ok:
+            return True, None
+        if status in (401, 403):
+            return False, "Invalid bunny.net account API key"
+        if status is None:
+            return False, "Could not connect to bunny.net"
+        return False, f"bunny.net returned HTTP {status}"
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BunnyResumeConfig]:
+        return ResumableSourceManager[BunnyResumeConfig](inputs, BunnyResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: BunnySourceConfig,
+        resumable_source_manager: ResumableSourceManager[BunnyResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        if inputs.schema_name not in BUNNY_ENDPOINTS:
+            raise ValueError(f"Unknown bunny.net schema '{inputs.schema_name}'")
+
+        return bunny_source(
+            access_key=config.access_key,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+        )

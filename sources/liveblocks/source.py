@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.liveblocks._config import LiveblocksSourceConfig
+
+
+@SourceRegistry.register
+class LiveblocksSource(SimpleSource[LiveblocksSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.LIVEBLOCKS
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.LIVEBLOCKS,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
+            label="Liveblocks",
+            iconPath="/static/services/liveblocks.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

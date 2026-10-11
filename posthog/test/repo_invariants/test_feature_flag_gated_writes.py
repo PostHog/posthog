@@ -7,7 +7,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 BASELINE = Path(__file__).with_name("feature_flag_gated_writes_baseline.txt")
-SCANNED_ROOTS = ("common", "ee", "posthog", "products")
+SCANNED_ROOTS = ("common", "ee", "posthog", "products", "sources")
 SKIPPED_PARTS = {"test", "tests", "migrations", "__snapshots__"}
 
 GATED_FIELDS = {"active", "filters"}

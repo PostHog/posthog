@@ -1,0 +1,21 @@
+from sources.typeform._config import TypeformSourceConfig
+from sources.typeform.source import TypeformSource
+
+
+class TestTypeformSource:
+    def setup_method(self):
+        self.source = TypeformSource()
+        self.team_id = 123
+
+    def test_get_schemas_with_partials_is_full_refresh(self):
+        config = TypeformSourceConfig(auth_token="token", response_types="completed,partial,started")
+        responses = next(s for s in self.source.get_schemas(config, self.team_id) if s.name == "responses")
+        # Partial/started responses have no submitted_at and share no cursor with completed ones,
+        # so the all-responses mode is full-refresh only.
+        assert responses.supports_incremental is False
+        assert responses.incremental_fields == []
+
+    def test_get_schemas_forms_unaffected_by_response_types(self):
+        config = TypeformSourceConfig(auth_token="token", response_types="completed,partial,started")
+        forms = next(s for s in self.source.get_schemas(config, self.team_id) if s.name == "forms")
+        assert [f["field"] for f in forms.incremental_fields] == ["last_updated_at"]

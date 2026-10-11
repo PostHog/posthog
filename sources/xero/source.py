@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.xero._config import XeroSourceConfig
+
+
+@SourceRegistry.register
+class XeroSource(SimpleSource[XeroSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.XERO
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.XERO,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
+            label="Xero",
+            iconPath="/static/services/xero.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.appcues._config import AppcuesSourceConfig
+
+
+@SourceRegistry.register
+class AppcuesSource(SimpleSource[AppcuesSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.APPCUES
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.APPCUES,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            label="Appcues",
+            iconPath="/static/services/appcues.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

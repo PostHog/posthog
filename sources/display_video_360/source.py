@@ -1,0 +1,27 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.display_video_360._config import DisplayVideo360SourceConfig
+
+
+@SourceRegistry.register
+class DisplayVideo360Source(SimpleSource[DisplayVideo360SourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.DISPLAYVIDEO360
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.DISPLAYVIDEO360,
+            category=DataWarehouseSourceCategory.ADVERTISING,
+            keywords=["dv360"],
+            label="Display & Video 360",
+            iconPath="/static/services/display_video_360.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

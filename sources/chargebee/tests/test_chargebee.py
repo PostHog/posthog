@@ -1,0 +1,333 @@
+import json
+from collections.abc import Iterable
+from typing import Any, cast
+
+import pytest
+from unittest.mock import MagicMock, patch
+
+from requests import Response
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+
+from sources.chargebee._config import ChargebeeSourceConfig
+from sources.chargebee.chargebee import ChargebeePaginator, ChargebeeResumeConfig, chargebee_source
+from sources.chargebee.source import ChargebeeSource
+
+
+class TestChargebeePaginator:
+    def test_update_state_empty_body(self) -> None:
+        paginator = ChargebeePaginator()
+        response = MagicMock()
+        response.json.return_value = {}
+        paginator.update_state(response)
+        assert paginator._next_offset is None
+        assert paginator.has_next_page is False
+
+    def test_get_resume_state_returns_none_on_terminal_page(self) -> None:
+        paginator = ChargebeePaginator()
+        response = MagicMock()
+        response.json.return_value = {"list": []}
+        paginator.update_state(response)
+
+        assert paginator.get_resume_state() is None
+
+        # has_next_page is left at its BasePaginator default (True) so a fresh run still fires the first request.
+
+
+def _make_http_response(body: dict[str, Any], status_code: int = 200) -> Response:
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = json.dumps(body).encode()
+    resp.headers["Content-Type"] = "application/json"
+    return resp
+
+
+class TestChargebeeSourceResumeBehavior:
+    """End-to-end resume behaviour of ``chargebee_source`` via ``rest_api_resource``."""
+
+    def _drive(
+        self, endpoint: str, manager: MagicMock, responses: list[Response]
+    ) -> tuple[MagicMock, list[dict[str, Any]]]:
+        """Drive ``chargebee_source`` with a mocked HTTP session.
+
+        Returns ``(mock_session, sent_params)`` where ``sent_params`` is a list
+        of shallow copies of ``request.params`` captured at send-time — the
+        underlying Request object is mutated in-place by the paginator between
+        pages, so we can't rely on mock ``call_args_list`` to preserve history.
+        """
+        sent_params: list[dict[str, Any]] = []
+        response_iter = iter(responses)
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent_params.append(dict(request.params or {}))
+            return next(response_iter)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            resource = chargebee_source(
+                api_key="test-key",
+                site_name="site-test",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=None,
+                should_use_incremental_field=False,
+            )
+            list(cast(Iterable[Any], resource))
+            return mock_session, sent_params
+
+    @pytest.mark.parametrize(
+        "endpoint",
+        [
+            "CreditUnits",
+            "Customers",
+            "Events",
+            "Invoices",
+            "ItemPrices",
+            "Items",
+            "Meters",
+            "Subscriptions",
+            "Transactions",
+            "Orders",
+        ],
+    )
+    def test_fresh_run_saves_offset_after_each_non_terminal_page(self, endpoint: str) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        # Three pages: two with next_offset (intermediate), one terminal. Selector
+        # is a list under "list" — match chargebee's actual response shape.
+        responses = [
+            _make_http_response({"list": [{"customer": {"id": "c1"}}], "next_offset": "cursor-1"}),
+            _make_http_response({"list": [{"customer": {"id": "c2"}}], "next_offset": "cursor-2"}),
+            _make_http_response({"list": [{"customer": {"id": "c3"}}]}),
+        ]
+        _, sent_params = self._drive(endpoint, manager, responses)
+
+        # First request has no offset (fresh run); subsequent requests carry the prior page's cursor.
+        offsets_sent = [p.get("offset") for p in sent_params]
+        assert offsets_sent == [None, "cursor-1", "cursor-2"]
+
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [
+            ChargebeeResumeConfig(next_offset="cursor-1"),
+            ChargebeeResumeConfig(next_offset="cursor-2"),
+        ]
+
+    def test_resume_seeds_paginator_with_saved_offset(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = ChargebeeResumeConfig(next_offset="cursor-resumed")
+
+        responses = [
+            _make_http_response({"list": [{"customer": {"id": "c4"}}]}),
+        ]
+        _, sent_params = self._drive("Customers", manager, responses)
+
+        assert [p.get("offset") for p in sent_params] == ["cursor-resumed"]
+        manager.load_state.assert_called_once()
+
+    def test_does_not_load_state_when_cannot_resume(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_http_response({"list": [{"customer": {"id": "a"}}]}),
+        ]
+        self._drive("Customers", manager, responses)
+
+        manager.load_state.assert_not_called()
+
+
+class TestChargebeeSiteNameValidation:
+    _VALIDATE = "sources.chargebee.source.validate_chargebee_credentials"
+
+    @pytest.mark.parametrize(
+        "site_name",
+        [
+            # Digits are valid in a Chargebee subdomain; the site name is a DNS label. A prior
+            # letters-only check rejected these before any request was made.
+            "acme2024",
+            "shop24",
+            "acme-test",
+            "acme",
+        ],
+    )
+    def test_accepts_valid_subdomain_site_names(self, site_name: str) -> None:
+        config = ChargebeeSourceConfig(api_key="key", site_name=site_name)
+        with patch(self._VALIDATE, return_value=True) as mock_validate:
+            is_valid, message = ChargebeeSource().validate_credentials(config, team_id=1)
+        assert (is_valid, message) == (True, None)
+        mock_validate.assert_called_once_with("key", site_name)
+
+    @pytest.mark.parametrize(
+        "site_name",
+        [
+            "acme.chargebee.com",
+            "https://acme.chargebee.com",
+            "-acme",
+            "acme/live",
+            "",
+        ],
+    )
+    def test_rejects_non_subdomain_without_calling_the_api(self, site_name: str) -> None:
+        config = ChargebeeSourceConfig(api_key="key", site_name=site_name)
+        with patch(self._VALIDATE) as mock_validate:
+            is_valid, message = ChargebeeSource().validate_credentials(config, team_id=1)
+        assert is_valid is False
+        assert message is not None and "chargebee.com" in message
+        mock_validate.assert_not_called()
+
+
+class TestChargebeeCatalogEndpoints:
+    """`Items` and `ItemPrices` carry the product catalog that `subscription_items` points at.
+    `CreditUnits` and `Meters` carry the usage-based billing catalog.
+
+    Their rows sit one level deeper than the response list, so a wrong `data_selector` or
+    path yields an empty table rather than an error.
+    """
+
+    @pytest.mark.parametrize(
+        ("endpoint", "path", "wrapper", "row"),
+        [
+            ("Items", "/v2/items", "item", {"id": "gold", "type": "plan", "metadata": {"seats": 10}}),
+            (
+                "ItemPrices",
+                "/v2/item_prices",
+                "item_price",
+                {"id": "gold-USD-monthly", "item_id": "gold", "price": 1000},
+            ),
+            (
+                "CreditUnits",
+                "/v2/credit_units",
+                "credit_unit",
+                {"id": "ai-tokens", "status": "active", "is_unlimited": False, "overdraft_amount": "100.5"},
+            ),
+            (
+                "Meters",
+                "/v2/meters",
+                "meter",
+                {"id": "api-calls", "type": "simple", "query": "SELECT SUM(api_calls) FROM events"},
+            ),
+        ],
+    )
+    def test_yields_the_nested_catalog_object(
+        self, endpoint: str, path: str, wrapper: str, row: dict[str, Any]
+    ) -> None:
+        urls: list[str] = []
+        response_iter = iter([_make_http_response({"list": [{wrapper: row}]})])
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            urls.append(request.url)
+            return next(response_iter)
+
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            resource = chargebee_source(
+                api_key="test-key",
+                site_name="site-test",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=None,
+                should_use_incremental_field=False,
+            )
+            yielded = list(cast(Iterable[Any], resource))
+
+        assert urls == [f"https://site-test.chargebee.com/api{path}"]
+        assert yielded == [[row]]
+
+
+class TestChargebeeIncrementalFilter:
+    """The server-side cursor filter must only be sent once a real watermark exists (#76090).
+
+    Chargebee omits `updated_at`/`occurred_at` on some records (e.g. voided authorization
+    transactions), and its API excludes those records whenever the filter param is present.
+    Sending the filter with the initial value 0 on the first sync therefore drops those
+    records permanently. The first incremental sync must go out unfiltered; the pipeline
+    still advances the watermark from the synced rows.
+    """
+
+    CURSOR_PARAMS = {
+        "Customers": "updated_at[after]",
+        "Events": "occurred_at[after]",
+        "Invoices": "updated_at[after]",
+        "ItemPrices": "updated_at[after]",
+        "Items": "updated_at[after]",
+        "Orders": "updated_at[after]",
+        "Subscriptions": "updated_at[after]",
+        "Transactions": "updated_at[after]",
+    }
+
+    def _drive(self, endpoint: str, *, incremental: bool, last_value: Any) -> list[dict[str, Any]]:
+        sent_params: list[dict[str, Any]] = []
+        response_iter = iter([_make_http_response({"list": [{"customer": {"id": "c1"}}]})])
+
+        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
+            sent_params.append(dict(request.params or {}))
+            return next(response_iter)
+
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+        ) as MockSession:
+            mock_session = MockSession.return_value
+            mock_session.headers = {}
+            mock_session.prepare_request.side_effect = lambda req: req
+            mock_session.send.side_effect = fake_send
+
+            resource = chargebee_source(
+                api_key="test-key",
+                site_name="site-test",
+                endpoint=endpoint,
+                team_id=123,
+                job_id="test_job",
+                resumable_source_manager=manager,
+                db_incremental_field_last_value=last_value,
+                should_use_incremental_field=incremental,
+            )
+            list(cast(Iterable[Any], resource))
+        return sent_params
+
+    @pytest.mark.parametrize("endpoint", sorted(CURSOR_PARAMS))
+    def test_first_incremental_sync_omits_cursor_filter(self, endpoint: str) -> None:
+        sent_params = self._drive(endpoint, incremental=True, last_value=None)
+
+        assert self.CURSOR_PARAMS[endpoint] not in sent_params[0]
+
+    @pytest.mark.parametrize("endpoint", sorted(CURSOR_PARAMS))
+    def test_incremental_sync_with_watermark_sends_cursor_filter(self, endpoint: str) -> None:
+        sent_params = self._drive(endpoint, incremental=True, last_value=1750000000)
+
+        assert sent_params[0][self.CURSOR_PARAMS[endpoint]] == 1750000000
+
+    @pytest.mark.parametrize("endpoint", sorted(CURSOR_PARAMS))
+    def test_full_refresh_never_sends_cursor_filter(self, endpoint: str) -> None:
+        sent_params = self._drive(endpoint, incremental=False, last_value=1750000000)
+
+        assert self.CURSOR_PARAMS[endpoint] not in sent_params[0]
+
+    @pytest.mark.parametrize("endpoint", ["CreditUnits", "Meters"])
+    def test_full_refresh_only_endpoints_ignore_incremental_watermark(self, endpoint: str) -> None:
+        sent_params = self._drive(endpoint, incremental=True, last_value=1750000000)
+
+        assert sent_params == [{"limit": 100}]

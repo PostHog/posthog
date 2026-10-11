@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.kaufland_marketplace._config import KauflandMarketplaceSourceConfig
+
+
+@SourceRegistry.register
+class KauflandMarketplaceSource(SimpleSource[KauflandMarketplaceSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.KAUFLANDMARKETPLACE
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.KAUFLANDMARKETPLACE,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
+            label="Kaufland Global Marketplace (Kaufland Marketplace Seller API)",
+            iconPath="/static/services/kaufland_marketplace.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

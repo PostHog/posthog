@@ -1,0 +1,102 @@
+from typing import Any
+
+import pytest
+from unittest import mock
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+
+from sources.factorial._config import FactorialSourceConfig
+from sources.factorial.source import FactorialSource
+
+
+def _make_inputs(**overrides: Any) -> SourceInputs:
+    defaults: dict[str, Any] = {
+        "schema_name": "employees",
+        "schema_id": "schema-1",
+        "source_id": "source-1",
+        "team_id": 123,
+        "should_use_incremental_field": False,
+        "db_incremental_field_last_value": None,
+        "db_incremental_field_earliest_value": None,
+        "incremental_field": None,
+        "incremental_field_type": None,
+        "job_id": "job-1",
+        "logger": mock.MagicMock(),
+        "reset_pipeline": False,
+    }
+    defaults.update(overrides)
+    return SourceInputs(**defaults)
+
+
+class TestFactorialSource:
+    def setup_method(self) -> None:
+        self.source = FactorialSource()
+        self.team_id = 123
+        self.config = FactorialSourceConfig(api_key="test-key")
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # Static endpoint catalog (no I/O in get_schemas), so the public docs can render the
+        # Supported tables section.
+        assert self.source.lists_tables_without_credentials is True
+
+    def test_get_schemas_filtered_by_names(self) -> None:
+        schemas = self.source.get_schemas(self.config, self.team_id, names=["leaves"])
+        assert len(schemas) == 1
+        assert schemas[0].name == "leaves"
+
+    @pytest.mark.parametrize(
+        ("mock_return", "expected_valid", "expected_message"),
+        [
+            ((True, None), True, None),
+            (
+                (False, "Invalid Factorial API key, or it does not have access to your account's data."),
+                False,
+                "Invalid Factorial API key, or it does not have access to your account's data.",
+            ),
+        ],
+    )
+    @mock.patch("sources.factorial.source.validate_factorial_credentials")
+    def test_validate_credentials(
+        self,
+        mock_validate: mock.MagicMock,
+        mock_return: tuple[bool, str | None],
+        expected_valid: bool,
+        expected_message: str | None,
+    ) -> None:
+        mock_validate.return_value = mock_return
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is expected_valid
+        assert error_message == expected_message
+        # No row pin at creation time, so the probe runs under the default (newest) version.
+        mock_validate.assert_called_once_with("test-key", "2026-07-01")
+
+    @pytest.mark.parametrize(
+        ("pin", "resolved"),
+        [
+            # None pin resolves to the default (the newest supported version) — new sources land here.
+            (None, "2026-07-01"),
+            ("2025-04-01", "2025-04-01"),
+            ("2026-04-01", "2026-04-01"),
+            ("2026-07-01", "2026-07-01"),
+        ],
+    )
+    @mock.patch("sources.factorial.source.factorial_source")
+    def test_source_for_pipeline_resolves_and_threads_version(
+        self, mock_factorial_source: mock.MagicMock, pin: str | None, resolved: str
+    ) -> None:
+        manager = mock.MagicMock(spec=ResumableSourceManager)
+        inputs = _make_inputs(schema_name="leaves", team_id=99, job_id="job-xyz", api_version=pin)
+
+        self.source.source_for_pipeline(self.config, manager, inputs)
+
+        mock_factorial_source.assert_called_once_with(
+            api_key="test-key",
+            endpoint="leaves",
+            team_id=99,
+            job_id="job-xyz",
+            resumable_source_manager=manager,
+            api_version=resolved,
+        )

@@ -21,7 +21,7 @@ from hogli.manifest import REPO_ROOT
 
 from hogli_commands.change_detection import changed_files
 
-_PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/", "tools/", "services/")
+_PYTHON_ROOTS = ("posthog/", "ee/", "products/", "common/", "dags/", "tools/", "services/", "sources/")
 
 _DESKTOP_ROOT = "products/desktop"
 _AGENT_WORKSPACE_ROOT = "packages/agent"
@@ -770,7 +770,7 @@ def _run_watch(file_path: str, extra_args: list[str]) -> None:
 
     if config.test_type == "python":
         # Use nodemon for Python, matching bin/tests behavior
-        watch_dirs = ["./posthog", "./common/hogvm/python", "./ee", "./dags", "./products"]
+        watch_dirs = ["./posthog", "./common/hogvm/python", "./ee", "./dags", "./products", "./sources"]
 
         # Build the inner command as a properly shell-escaped string for nodemon --exec
         inner_parts = list(config.command) + list(extra_args)

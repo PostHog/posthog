@@ -74,6 +74,7 @@ services/agent-*/.next
 !requirements.txt
 !rust
 !share/GeoLite2-City.mmdb
+!sources
 !staticfiles
 !tailwind.config.js
 !tools/hogli
@@ -133,6 +134,8 @@ products/**/*_test.py
 products/**/*.test.*
 products/**/*.spec.*
 products/**/*.stories.*
+sources/**/test_*.py
+sources/**/*_test.py
 frontend/src/**/*.test.*
 frontend/src/**/*.spec.*
 frontend/src/**/*.stories.*

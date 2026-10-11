@@ -1,0 +1,27 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.workato._config import WorkatoSourceConfig
+
+
+@SourceRegistry.register
+class WorkatoSource(SimpleSource[WorkatoSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.WORKATO
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.WORKATO,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            label="Workato",
+            iconPath="/static/services/workato.png",
+            keywords=["ipaas", "automation", "integration"],
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

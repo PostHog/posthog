@@ -81,7 +81,7 @@ def test_the_guard_reads_some_kafka_tables() -> None:
 # template carries a "{num_consumers}" placeholder that its caller fills separately.
 _HARDCODED = re.compile(r"num_consumers\s*=\s*(\d+)")
 
-SEARCH_ROOTS = ("posthog", "products", "ee")
+SEARCH_ROOTS = ("posthog", "products", "ee", "sources")
 
 
 def test_python_ddl_does_not_hardcode_extra_consumers() -> None:

@@ -24,7 +24,6 @@ import requests
 import tenacity
 from urllib3.util.retry import Retry
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     NO_REQUEST_TIMEOUT,
     make_tracked_session,

@@ -7,7 +7,7 @@ ALLOWED = {
     # most-specific resolutions; it never enforces.
     Path("products/access_control/backend/facade/resolution_preview.py"),
 }
-SCANNED_ROOTS = ("posthog", "ee", "products")
+SCANNED_ROOTS = ("posthog", "ee", "products", "sources")
 
 
 def test_shadow_resolvers_have_no_callers_outside_their_module():

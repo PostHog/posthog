@@ -1,0 +1,27 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.uploadcare._config import UploadcareSourceConfig
+
+
+@SourceRegistry.register
+class UploadcareSource(SimpleSource[UploadcareSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.UPLOADCARE
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.UPLOADCARE,
+            category=DataWarehouseSourceCategory.FILE_STORAGE,
+            label="Uploadcare",
+            keywords=["uploadcare.com"],
+            iconPath="/static/services/uploadcare.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.captivate._config import CaptivateSourceConfig
+
+
+@SourceRegistry.register
+class CaptivateSource(SimpleSource[CaptivateSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.CAPTIVATE
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.CAPTIVATE,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            label="Captivate (Captivate.fm)",
+            iconPath="/static/services/captivate.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

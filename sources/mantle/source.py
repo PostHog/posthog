@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.mantle._config import MantleSourceConfig
+
+
+@SourceRegistry.register
+class MantleSource(SimpleSource[MantleSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.MANTLE
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.MANTLE,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
+            label="Mantle",
+            iconPath="/static/services/mantle.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

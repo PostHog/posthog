@@ -1,0 +1,43 @@
+from typing import Optional
+
+from unittest.mock import patch
+
+from parameterized import parameterized
+
+from sources.unstructured._config import UnstructuredSourceConfig
+from sources.unstructured.source import UnstructuredSource
+
+
+class TestUnstructuredSourceClass:
+    def setup_method(self) -> None:
+        self.source = UnstructuredSource()
+        self.team_id = 123
+
+    def test_lists_tables_without_credentials(self) -> None:
+        # get_schemas is a static catalog, so the public docs table list is safe to render.
+        assert self.source.lists_tables_without_credentials is True
+
+    def test_get_schemas_name_filter(self) -> None:
+        schemas = self.source.get_schemas(UnstructuredSourceConfig(api_key="k"), self.team_id, names=["jobs"])
+        assert [s.name for s in schemas] == ["jobs"]
+
+    @parameterized.expand(
+        [
+            ("valid", (True, None), True, None),
+            ("invalid", (False, "Invalid Unstructured API key"), False, "Invalid Unstructured API key"),
+        ]
+    )
+    def test_validate_credentials(
+        self, _name: str, backend_result: tuple[bool, Optional[str]], expected_ok: bool, expected_msg: Optional[str]
+    ) -> None:
+        config = UnstructuredSourceConfig(api_key="k", base_url="https://custom.example.com")
+        with patch(
+            "sources.unstructured.source.validate_unstructured_credentials",
+            return_value=backend_result,
+        ) as mock_validate:
+            ok, msg = self.source.validate_credentials(config, self.team_id)
+
+        assert ok is expected_ok
+        assert msg == expected_msg
+        # The user-configured host and team are threaded through to the probe, not discarded.
+        mock_validate.assert_called_once_with("https://custom.example.com", "k", self.team_id)

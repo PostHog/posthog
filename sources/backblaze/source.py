@@ -1,0 +1,27 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.backblaze._config import BackblazeSourceConfig
+
+
+@SourceRegistry.register
+class BackblazeSource(SimpleSource[BackblazeSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.BACKBLAZE
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.BACKBLAZE,
+            category=DataWarehouseSourceCategory.FILE_STORAGE,
+            label="Backblaze B2",
+            iconPath="/static/services/backblaze.png",
+            keywords=["backblaze", "b2", "storage", "buckets"],
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

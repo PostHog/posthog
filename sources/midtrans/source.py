@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.midtrans._config import MidtransSourceConfig
+
+
+@SourceRegistry.register
+class MidtransSource(SimpleSource[MidtransSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.MIDTRANS
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.MIDTRANS,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
+            label="Midtrans (GoTo Financial / PT Midtrans)",
+            iconPath="/static/services/midtrans.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

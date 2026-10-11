@@ -1,0 +1,26 @@
+from typing import cast
+
+from products.warehouse_sources.backend.facade.source_config import DataWarehouseSourceCategory, SourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+from sources.pennylane._config import PennylaneSourceConfig
+
+
+@SourceRegistry.register
+class PennylaneSource(SimpleSource[PennylaneSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.PENNYLANE
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.PENNYLANE,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
+            label="Pennylane",
+            iconPath="/static/services/pennylane.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )
