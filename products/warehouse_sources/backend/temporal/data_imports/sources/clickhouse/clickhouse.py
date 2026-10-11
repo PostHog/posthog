@@ -1195,8 +1195,14 @@ def _get_incremental_row_count(
 # serve us right now, not that anything we sent was wrong — they clear on their
 # own. A real ClickHouse query error carries a `Code: NNN` instead. We match
 # only these transient statuses so genuine failures still surface.
+# 500 is included: clickhouse-connect only wraps a response this way (rather than
+# "Received ClickHouse exception, code: N") when it carries no
+# `X-ClickHouse-Exception-Code` header, which a genuine ClickHouse-raised error
+# always sets — so a bare 500 means a proxy/load balancer in front of ClickHouse
+# failed, the same shape as 502/503/504.
 _TRANSIENT_HTTP_RESPONSE_SUBSTRINGS: tuple[str, ...] = (
     "received HTTP status 429",
+    "received HTTP status 500",
     "received HTTP status 502",
     "received HTTP status 503",
     "received HTTP status 504",

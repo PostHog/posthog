@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import (
     _REDIRECTED,
+    _TEMPORARILY_UNAVAILABLE,
     GENERIC_CONNECTION_ERROR,
     ClickHouseSource,
 )
@@ -413,6 +414,15 @@ class TestClickHouseSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         assert not any(pattern in error_msg for pattern in retryable)
 
+    def test_bare_gateway_status_is_classified_as_retryable(self, source):
+        # A bare HTTP 500 (no X-ClickHouse-Exception-Code header) means a proxy/load balancer in
+        # front of ClickHouse failed, not ClickHouse itself — the same transient shape as the
+        # already-retryable 502/503/504. Without this, a transient gateway blip would be reported
+        # as tracked exception noise on every occurrence instead of silently retried.
+        error_msg = "HTTP driver received HTTP status 500, server response: An unexpected error occurred: EOF (for url https://host:8443)"
+        retryable = source.get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable)
+
 
 class TestGetClientTransientRetry:
     """`_get_client` retries a transient connection drop during connect in-process."""
@@ -521,6 +531,13 @@ class TestTranslateError:
         # Proxy-bypassing connections don't follow redirects, so the 3xx reaches the user.
         msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
         assert ClickHouseSource._translate_error(msg) == _REDIRECTED
+
+    @pytest.mark.parametrize("code", ["500", "502", "503", "504"])
+    def test_gateway_responses_are_temporarily_unavailable(self, code):
+        # A bare status with no ClickHouse exception code means a proxy/LB in front of
+        # ClickHouse is briefly down, not that the connection details are wrong.
+        msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
+        assert ClickHouseSource._translate_error(msg) == _TEMPORARILY_UNAVAILABLE
 
 
 class TestGetSchemas:
