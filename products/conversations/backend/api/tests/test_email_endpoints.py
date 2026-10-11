@@ -1744,6 +1744,24 @@ class TestEmailInboundMultiConfig(MailgunWebhookTestMixin, BaseTest):
         ticket = Ticket.objects.get(team=self.team)
         assert ticket.email_config_id == config2.id
 
+    def test_inbound_sender_longer_than_email_column_is_dropped(self):
+        self._create_config("support@example.com", "aaa111")
+        long_sender = f"{'a' * 250}@example.com"
+
+        response = post_mailgun(
+            self.client,
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-aaa111@mg.posthog.com",
+                "from": long_sender,
+                "Message-Id": "<msg3@test.com>",
+                "subject": "Help",
+                "stripped-text": "I need help",
+            },
+        )
+        assert response.status_code == 202
+        assert not Ticket.objects.filter(team=self.team).exists()
+
 
 class TestEmailInboundContent(MailgunWebhookTestMixin, BaseTest):
     def setUp(self):
