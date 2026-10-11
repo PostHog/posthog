@@ -4,6 +4,7 @@ use capture_apm_metrics::histogram_assembly::{
     fingerprint_with_bounds, fold_classic_histograms, normalize_float_label,
 };
 use capture_logs::endpoints::prometheus::write_request_to_kafka_rows;
+use capture_logs::log_record::default_max_past;
 use capture_logs::metric_record::{flatten_metric, KafkaMetricRow};
 use chrono::{Duration, Utc};
 use opentelemetry_proto::tonic::common::v1::{any_value, AnyValue, KeyValue};
@@ -199,7 +200,8 @@ fn folded_histogram_shares_identity_with_the_otlp_path() {
             }],
         })),
     };
-    let (otlp_rows, _) = flatten_metric(metric, Some(&resource), None).expect("flatten_metric ok");
+    let (otlp_rows, _) = flatten_metric(metric, Some(&resource), None, default_max_past())
+        .expect("flatten_metric ok");
 
     assert_eq!(otlp_rows.len(), 1);
     assert_eq!(

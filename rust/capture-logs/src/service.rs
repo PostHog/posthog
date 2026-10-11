@@ -307,6 +307,7 @@ pub struct Service {
     pub(crate) max_request_body_size_bytes: usize,
     pub(crate) firehose_max_request_body_size_bytes: usize,
     pub(crate) max_backfill_days: u32,
+    pub(crate) max_metrics_backfill_days: u32,
 }
 
 #[derive(Deserialize)]
@@ -314,10 +315,10 @@ pub struct QueryParams {
     token: Option<String>,
 }
 
-/// Logs-only, so the traces and metrics handlers cannot accept a parameter they do not honor.
+/// Logs and metrics only, so the traces handler cannot accept a parameter it does not honor.
 #[derive(Deserialize)]
 pub struct BackfillParams {
-    backfill_days: Option<u32>,
+    pub backfill_days: Option<u32>,
 }
 
 impl Service {
@@ -327,6 +328,7 @@ impl Service {
         max_request_body_size_bytes: usize,
         firehose_max_request_body_size_bytes: usize,
         max_backfill_days: u32,
+        max_metrics_backfill_days: u32,
     ) -> Result<Self, anyhow::Error> {
         Ok(Self {
             sink: kafka_sink,
@@ -334,6 +336,7 @@ impl Service {
             max_request_body_size_bytes,
             firehose_max_request_body_size_bytes,
             max_backfill_days,
+            max_metrics_backfill_days,
         })
     }
 }
@@ -365,7 +368,7 @@ pub(crate) fn gunzip_if_magic(
 
 /// An over-wide request is rejected, not narrowed to the default. A quietly narrowed import
 /// writes most of its records onto the ingest time and still returns 200, so nobody notices.
-pub(crate) fn resolve_backfill_window(
+pub fn resolve_backfill_window(
     requested_days: Option<u32>,
     max_backfill_days: u32,
 ) -> Result<TimeDelta, String> {
@@ -374,7 +377,7 @@ pub(crate) fn resolve_backfill_window(
     };
 
     if max_backfill_days == 0 {
-        return Err("This deployment does not accept backdated logs. Remove backfill_days, or contact PostHog support to turn on historical imports.".to_string());
+        return Err("This deployment does not accept backdated data. Remove backfill_days, or contact PostHog support to turn on historical imports.".to_string());
     }
 
     if days == 0 || days > max_backfill_days {
@@ -730,6 +733,7 @@ pub fn parse_otel_metrics_message(
 pub async fn export_metrics_http(
     State(service): State<Service>,
     Query(query_params): Query<QueryParams>,
+    Query(backfill_params): Query<BackfillParams>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
@@ -739,6 +743,12 @@ pub async fn export_metrics_http(
             .authorize(&headers, query_params.token.as_deref(), Signal::Metrics)?;
 
     tracing::Span::current().record("token", token);
+
+    let max_past = resolve_backfill_window(
+        backfill_params.backfill_days,
+        service.max_metrics_backfill_days,
+    )
+    .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
@@ -779,6 +789,7 @@ pub async fn export_metrics_http(
                     metric.clone(),
                     resource_metrics.resource.as_ref(),
                     scope_metrics.scope.as_ref(),
+                    max_past,
                 ) {
                     Ok(result) => result,
                     Err(e) => {
@@ -798,7 +809,13 @@ pub async fn export_metrics_http(
     let row_count = rows.len();
     if let Err(e) = service
         .sink
-        .write_metrics(token, rows, body.len() as u64, timestamps_overridden)
+        .write_metrics(
+            token,
+            rows,
+            body.len() as u64,
+            timestamps_overridden,
+            backfill_params.backfill_days,
+        )
         .await
     {
         error!("Failed to send metrics to Kafka: {}", e);

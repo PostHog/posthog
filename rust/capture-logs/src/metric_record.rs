@@ -5,6 +5,7 @@ use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use chrono::serde::ts_microseconds;
 use chrono::DateTime;
+use chrono::TimeDelta;
 use chrono::Utc;
 use opentelemetry_proto::tonic::{
     common::v1::{
@@ -22,7 +23,7 @@ use siphasher::sip::SipHasher13;
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::log_record::{extract_span_id, extract_trace_id, override_timestamp};
+use crate::log_record::{extract_span_id, extract_trace_id, override_timestamp_with_past_limit};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KafkaMetricRow {
@@ -61,6 +62,7 @@ pub fn flatten_metric(
     metric: Metric,
     resource: Option<&Resource>,
     scope: Option<&InstrumentationScope>,
+    max_past: TimeDelta,
 ) -> Result<(Vec<KafkaMetricRow>, u64)> {
     let metric_name = metric.name;
     let unit = metric.unit;
@@ -96,6 +98,7 @@ pub fn flatten_metric(
                     None,
                     &dp.exemplars,
                     dp.flags,
+                    max_past,
                 )?;
                 if overridden {
                     timestamps_overridden += 1;
@@ -122,6 +125,7 @@ pub fn flatten_metric(
                     None,
                     &dp.exemplars,
                     dp.flags,
+                    max_past,
                 )?;
                 row.aggregation_temporality = temporality.clone();
                 row.is_monotonic = is_monotonic;
@@ -154,6 +158,7 @@ pub fn flatten_metric(
                     Some(counts),
                     &dp.exemplars,
                     dp.flags,
+                    max_past,
                 )?;
                 row.count = count;
                 row.aggregation_temporality = temporality.clone();
@@ -192,6 +197,7 @@ pub fn flatten_metric(
                     Some(counts),
                     &dp.exemplars,
                     dp.flags,
+                    max_past,
                 )?;
                 row.count = count;
                 row.aggregation_temporality = temporality.clone();
@@ -229,6 +235,7 @@ pub fn flatten_metric(
                     Some(counts),
                     &[],
                     dp.flags,
+                    max_past,
                 )?;
                 row.count = count;
                 if overridden {
@@ -263,6 +270,7 @@ fn build_number_row(
     histogram_counts: Option<Vec<i64>>,
     exemplars: &[opentelemetry_proto::tonic::metrics::v1::Exemplar],
     flags: u32,
+    max_past: TimeDelta,
 ) -> Result<(KafkaMetricRow, bool)> {
     // OTel exemplars attach trace context (and per-bucket trace context on histograms) to
     // data points. V1 picks the first exemplar with a spec-conformant 16-byte trace_id and
@@ -287,7 +295,8 @@ fn build_number_row(
         _ => DateTime::<Utc>::from_timestamp_nanos(time_unix_nano.try_into()?),
     };
 
-    let (timestamp, original_timestamp) = override_timestamp(raw_timestamp);
+    let (timestamp, original_timestamp) =
+        override_timestamp_with_past_limit(raw_timestamp, max_past);
     let was_overridden = original_timestamp.is_some();
 
     let mut attributes: HashMap<String, String> = dp_attributes
@@ -520,7 +529,7 @@ fn any_value_to_string(value: AnyValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::TimeDelta;
+    use crate::log_record::default_max_past;
 
     #[test]
     fn test_number_value_as_double() {
@@ -581,6 +590,7 @@ mod tests {
             None,
             exemplars,
             0,
+            default_max_past(),
         )
         .expect("build_number_row should succeed");
         row
@@ -713,7 +723,8 @@ mod tests {
             })),
         };
 
-        let (rows, _) = flatten_metric(metric, None, None).expect("flatten_metric ok");
+        let (rows, _) =
+            flatten_metric(metric, None, None, default_max_past()).expect("flatten_metric ok");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].trace_id, BASE64_STANDARD.encode(VALID_TRACE_BYTES));
         assert_eq!(rows[0].span_id, BASE64_STANDARD.encode(VALID_SPAN_BYTES));
@@ -740,10 +751,59 @@ mod tests {
             })),
         };
 
-        let (rows, _) = flatten_metric(metric, None, None).expect("flatten_metric ok");
+        let (rows, _) =
+            flatten_metric(metric, None, None, default_max_past()).expect("flatten_metric ok");
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].trace_id, "");
         assert_eq!(rows[0].span_id, "");
+    }
+
+    #[test]
+    fn test_flatten_metric_applies_the_requested_past_window() {
+        for (case, age, max_past, kept) in [
+            (
+                "default window",
+                TimeDelta::hours(48),
+                default_max_past(),
+                false,
+            ),
+            (
+                "backfill window",
+                TimeDelta::hours(48),
+                TimeDelta::days(8),
+                true,
+            ),
+            (
+                "past the backfill window",
+                TimeDelta::days(9),
+                TimeDelta::days(8),
+                false,
+            ),
+        ] {
+            let point_time = Utc::now() - age;
+            let metric = Metric {
+                name: "test.gauge".to_string(),
+                description: String::new(),
+                unit: String::new(),
+                metadata: vec![],
+                data: Some(Data::Gauge(Gauge {
+                    data_points: vec![NumberDataPoint {
+                        attributes: vec![],
+                        start_time_unix_nano: 0,
+                        time_unix_nano: point_time.timestamp_nanos_opt().unwrap() as u64,
+                        exemplars: vec![],
+                        flags: 0,
+                        value: None,
+                    }],
+                })),
+            };
+
+            let (rows, overridden) =
+                flatten_metric(metric, None, None, max_past).expect("flatten_metric ok");
+
+            assert_eq!(rows[0].timestamp == point_time, kept, "{case}");
+            assert_eq!(overridden, u64::from(!kept), "{case}");
+        }
     }
 
     // --- Series fingerprint ---
@@ -855,6 +915,7 @@ mod tests {
             None,
             &[],
             0,
+            default_max_past(),
         )
         .expect("build_number_row should succeed")
     }

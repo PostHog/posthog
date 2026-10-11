@@ -567,6 +567,7 @@ impl KafkaSink {
         rows: Vec<KafkaMetricRow>,
         uncompressed_bytes: u64,
         timestamps_overridden: u64,
+        backfill_days: Option<u32>,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
             return Ok(());
@@ -586,7 +587,7 @@ impl KafkaSink {
             None,
             timestamps_overridden,
             None,
-            None,
+            backfill_days,
         )
         .await?;
 

@@ -17,7 +17,7 @@ use bytes::Bytes;
 use capture_logs::authorizer::{Authorizer, Signal};
 use capture_logs::kafka::KafkaSink;
 use capture_logs::metric_record::{flatten_metric, KafkaMetricRow};
-use capture_logs::service::parse_otel_metrics_message;
+use capture_logs::service::{parse_otel_metrics_message, resolve_backfill_window, BackfillParams};
 use common_compression::{decompress_gzip_capped, has_gzip_magic_header, CompressionError};
 use opentelemetry_proto::tonic::collector::metrics::v1::ExportMetricsServiceRequest;
 use prost::Message;
@@ -33,6 +33,7 @@ pub struct MetricsService {
     pub(crate) authorizer: Authorizer,
     pub(crate) max_request_body_size_bytes: usize,
     pub(crate) series_label_gate: Arc<SeriesLabelGate>,
+    pub(crate) max_metrics_backfill_days: u32,
 }
 
 #[derive(Deserialize)]
@@ -46,12 +47,14 @@ impl MetricsService {
         authorizer: Authorizer,
         max_request_body_size_bytes: usize,
         series_label_gate: Arc<SeriesLabelGate>,
+        max_metrics_backfill_days: u32,
     ) -> Self {
         Self {
             sink: kafka_sink,
             authorizer,
             max_request_body_size_bytes,
             series_label_gate,
+            max_metrics_backfill_days,
         }
     }
 }
@@ -100,6 +103,7 @@ pub(crate) fn decode_body_if_gzip_magic(
 pub async fn export_metrics_http(
     State(service): State<MetricsService>,
     Query(query_params): Query<QueryParams>,
+    Query(backfill_params): Query<BackfillParams>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
@@ -109,6 +113,12 @@ pub async fn export_metrics_http(
             .authorize(&headers, query_params.token.as_deref(), Signal::Metrics)?;
 
     tracing::Span::current().record("token", token);
+
+    let max_past = resolve_backfill_window(
+        backfill_params.backfill_days,
+        service.max_metrics_backfill_days,
+    )
+    .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
 
     let body = decode_body_if_gzip_magic(body, service.max_request_body_size_bytes)?;
 
@@ -149,6 +159,7 @@ pub async fn export_metrics_http(
                     metric.clone(),
                     resource_metrics.resource.as_ref(),
                     scope_metrics.scope.as_ref(),
+                    max_past,
                 ) {
                     Ok(result) => result,
                     Err(e) => {
@@ -170,7 +181,13 @@ pub async fn export_metrics_http(
     let row_count = rows.len();
     if let Err(e) = service
         .sink
-        .write_metrics(token, rows, body.len() as u64, timestamps_overridden)
+        .write_metrics(
+            token,
+            rows,
+            body.len() as u64,
+            timestamps_overridden,
+            backfill_params.backfill_days,
+        )
         .await
     {
         error!("Failed to send metrics to Kafka: {}", e);

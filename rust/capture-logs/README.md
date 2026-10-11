@@ -25,7 +25,8 @@ The service is configured using environment variables:
 | MAX_REQUEST_BODY_SIZE_BYTES | 2097152 | Rejects larger request bodies, before and after gzip decompression |
 | FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES | 8388608 | Body cap for the Amazon Data Firehose route only |
 | DROP_EVENTS_BY_TOKEN | (none) | Comma-separated tokens to drop |
-| MAX_BACKFILL_DAYS | 0 | How far back a request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
+| MAX_BACKFILL_DAYS | 0 | How far back a logs request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
+| MAX_METRICS_BACKFILL_DAYS | 0 | The same bound for metrics requests, kept separate so turning on backdated metrics never widens the logs window. `capture-apm-metrics` reads it too |
 
 ## Authentication
 
@@ -54,7 +55,13 @@ protects every query range on the team from one client with a broken clock.
 A historical import needs the original timestamps. Widen the past bound for one request with the
 `backfill_days` query parameter, on `POST /v1/logs` and `POST /i/v1/logs` only. The Datadog and
 Prometheus routes do not accept it, because the Datadog agent cannot send a query string at all.
-Traces and metrics do not accept it either.
+Traces do not accept it either.
+
+Metrics accept it on `POST /v1/metrics` and `POST /i/v1/metrics`, in this service and in
+`capture-apm-metrics`, with `MAX_METRICS_BACKFILL_DAYS` as the ceiling. The same 400 rules apply.
+Metrics messages carry the `backfill_days` header too, but no consumer filters on it yet, so the
+ceiling is the only gate. A backdated point expires its retention after its own timestamp, not
+after the import.
 
 ```http
 POST /i/v1/logs?backfill_days=540
