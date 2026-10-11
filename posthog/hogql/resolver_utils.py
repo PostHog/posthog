@@ -26,7 +26,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     UUIDDatabaseField,
 )
-from posthog.hogql.errors import QueryError, ResolutionError, SyntaxError
+from posthog.hogql.errors import AmbiguousFieldError, QueryError, ResolutionError, SyntaxError
 from posthog.hogql.escape_sql import escape_hogql_identifier
 
 
@@ -71,9 +71,9 @@ def lookup_field_by_name(
         return None
 
 
-def _ambiguous_field_resolution_error(name: str, field_sources: list[str]) -> ResolutionError:
+def _ambiguous_field_resolution_error(name: str, field_sources: list[str]) -> AmbiguousFieldError:
     source_names = ", ".join(f"{source}.{name}" for source in field_sources)
-    return ResolutionError(
+    return AmbiguousFieldError(
         f"Ambiguous query. Found multiple sources for field: {name} ({source_names}). Use a qualified field name."
     )
 
