@@ -3212,26 +3212,51 @@ class TestExternalDataSource(APIBaseTest):
         auth_method = response.json()["job_inputs"]["auth_method"]
         assert auth_method == {"selection": "oauth", "github_integration_id": "99"}
 
-    def test_get_github_pat_strips_token(self):
+    @parameterized.expand(
+        [
+            (
+                "github_pat",
+                "Github",
+                {
+                    "auth_method": {"selection": "pat", "personal_access_token": "ghp_secret"},
+                    "repository": "org/repo",
+                },
+                {"auth_method": {"selection": "pat"}, "repository": "org/repo"},
+            ),
+            (
+                "woocommerce_consumer_key",
+                "WooCommerce",
+                {"store_url": "https://shop.example.com", "consumer_key": "ck_fake", "consumer_secret": "cs_fake"},
+                {"store_url": "https://shop.example.com"},
+            ),
+            (
+                "shutterstock_consumer_key",
+                "Shutterstock",
+                {"auth_method": {"selection": "api_key", "consumer_key": "fake_key", "consumer_secret": "fake_secret"}},
+                {"auth_method": {"selection": "api_key"}},
+            ),
+        ]
+    )
+    def test_list_and_retrieve_strip_credentials(self, _name, source_type, job_inputs, expected_job_inputs):
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
-            source_type="Github",
+            source_type=source_type,
             created_by=self.user,
-            prefix="gh",
-            job_inputs={
-                "auth_method": {"selection": "pat", "personal_access_token": "ghp_secret"},
-                "repository": "org/repo",
-            },
+            prefix="creds",
+            job_inputs=job_inputs,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
-        assert response.status_code == 200
-        auth_method = response.json()["job_inputs"]["auth_method"]
-        assert auth_method == {"selection": "pat"}
-        assert "personal_access_token" not in auth_method
+        retrieve_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert retrieve_response.status_code == 200
+        assert retrieve_response.json()["job_inputs"] == expected_job_inputs
+
+        list_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
+        assert list_response.status_code == 200
+        [listed] = [item for item in list_response.json()["results"] if item["id"] == str(source.pk)]
+        assert listed["job_inputs"] == expected_job_inputs
 
     def test_get_stripe_oauth_preserves_integration_id(self):
         source = ExternalDataSource.objects.create(
