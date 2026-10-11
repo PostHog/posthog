@@ -38,6 +38,8 @@ for (const [filename, expected] of [
     ['frontend/src/generated/core/api.schemas.ts', true],
     ['products/surveys/frontend/generated/api.zod.ts', true],
     ['services/mcp/src/tools/generated/surveys.ts', true],
+    ['products/desktop/packages/api-client/src/generated.ts', true],
+    ['products/desktop/packages/api-client/src/posthog-client.ts', false],
     ['pnpm-lock.yaml', true],
     ['rust/Cargo.lock', true],
     ['uv.lock', true],

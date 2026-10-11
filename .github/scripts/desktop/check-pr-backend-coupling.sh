@@ -31,6 +31,8 @@ is_backend_path() {
 
 is_desktop_path() {
     case "$1" in
+        # Backend CI regenerates this file on backend PRs. Types alone cannot call an undeployed endpoint, and call sites stay gated.
+        products/desktop/packages/api-client/src/generated.ts) return 1 ;;
         products/desktop/*) return 0 ;;
         # The desktop app bundles these packages, so they ship on its release schedule.
         packages/agent/packages/*) return 0 ;;

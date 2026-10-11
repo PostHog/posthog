@@ -13,10 +13,14 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "clean": "node ../../scripts/rimraf.mjs .turbo"
+    "clean": "node ../../scripts/rimraf.mjs .turbo",
+    "generate-client": "tsx scripts/update-openapi-client.ts"
   },
   "devDependencies": {
     "@posthog/tsconfig": "workspace:*",
+    "prettier": "3.8.1",
+    "tsx": "^4.22.3",
+    "typed-openapi": "^2.2.6",
     "typescript": "catalog:",
     "vitest": "^4.1.8"
   },

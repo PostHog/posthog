@@ -12232,6 +12232,8 @@ export namespace Schemas {
      * * `Neo4j` - Neo4j
      * * `TestDino` - TestDino
      * * `ChessCom` - ChessCom
+     * * `Userback` - Userback
+     * * `Rewardful` - Rewardful
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13606,7 +13608,9 @@ export namespace Schemas {
         | "Arcade"
         | "Neo4j"
         | "TestDino"
-        | "ChessCom";
+        | "ChessCom"
+        | "Userback"
+        | "Rewardful";
     /**
      * * `web` - web
      * * `api` - api
@@ -14990,6 +14994,8 @@ export namespace Schemas {
          * * `Neo4j` - Neo4j
          * * `TestDino` - TestDino
          * * `ChessCom` - ChessCom
+         * * `Userback` - Userback
+         * * `Rewardful` - Rewardful
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -21637,6 +21643,9 @@ export namespace Endpoints {
         };
         responses: { 200: Schemas.Ticket };
     };
+    /**
+     * Soft-delete a ticket. A daily sweeper hard-deletes it after the grace window.
+     */
     export type delete_Conversations_tickets_destroy = {
         method: "DELETE";
         path: "/api/projects/{project_id}/conversations/tickets/{id}/";

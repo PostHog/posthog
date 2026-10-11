@@ -3,7 +3,7 @@
 // emits in `generated.ts` (a `Schemas`-style namespace of response/request
 // types plus per-endpoint request functions). Loops routes are not yet in
 // the OpenAPI schema this client is generated from, so this module fills the
-// gap by hand; once `apps/code/scripts/update-openapi-client.ts` includes
+// gap by hand; once `packages/api-client/scripts/update-openapi-client.ts` includes
 // `/api/projects/{project_id}/loops` and is rerun against a live posthog
 // instance, `Schemas.Loop` and friends land in `generated.ts` and this file
 // can be deleted in favor of the generated equivalents.
