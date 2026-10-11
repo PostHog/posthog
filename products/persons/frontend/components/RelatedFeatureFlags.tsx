@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -151,7 +152,8 @@ const options = [
 
 export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Props): JSX.Element {
     const relatedFlagsLogic = relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
-    const { filteredMappedFlags, isLoading, searchTerm, filters, pagination, loadError } = useValues(relatedFlagsLogic)
+    const { filteredMappedFlags, isLoading, searchTerm, filters, pagination, loadError, loadForbidden } =
+        useValues(relatedFlagsLogic)
     const { setSearchTerm, setFilters, loadRelatedFeatureFlags } = useActions(relatedFlagsLogic)
 
     return (
@@ -244,7 +246,9 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                 dataSource={filteredMappedFlags}
                 pagination={pagination}
                 emptyState={
-                    loadError && !isLoading ? (
+                    loadForbidden && !isLoading ? (
+                        <AccessDenied reason="You do not have access to feature flags in this project." inline />
+                    ) : loadError && !isLoading ? (
                         <InsightErrorState
                             title="Failed to load this person's feature flags"
                             excludeDetail
