@@ -92,6 +92,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     customActions?: JSX.Element | JSX.Element[]
     /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
+    /** Drawn on top of a trends line or bar chart, as a child of the chart, so it can read the chart's scales. */
+    chartOverlay?: JSX.Element
     /** Wired by the web analytics scene so a pre-computed tile's badge can offer "always query live data". */
     onDisableWebAnalyticsPrecompute?: () => void
     /**

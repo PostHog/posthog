@@ -1,5 +1,6 @@
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { quotedOneLine } from '../promptText'
 import { CHECKED_DAYS } from './dataChecks'
 import type { DataCheck } from './dataChecks'
 
@@ -10,21 +11,15 @@ export interface DataCheckPromptContext {
 }
 
 const MAX_EVENT_NAMES = 10
-const MAX_EVENT_NAME_LENGTH = 80
-
-// An event name is whatever an SDK sent, so it must not be able to add lines of its own to the prompt.
-function quotedEventName(name: string): string {
-    const oneLine = Array.from(name, (character) => (character < ' ' || character === '\u007f' ? ' ' : character))
-        .join('')
-        .trim()
-    return JSON.stringify(oneLine.slice(0, MAX_EVENT_NAME_LENGTH))
-}
 
 function eventsLine(events: string[] | 'all'): string {
     if (events === 'all') {
         return 'every event in the project'
     }
-    const names = events.slice(0, MAX_EVENT_NAMES).map(quotedEventName).join(', ')
+    const names = events
+        .slice(0, MAX_EVENT_NAMES)
+        .map((name) => quotedOneLine(name))
+        .join(', ')
     return events.length > MAX_EVENT_NAMES ? `${names} and ${events.length - MAX_EVENT_NAMES} more` : names
 }
 

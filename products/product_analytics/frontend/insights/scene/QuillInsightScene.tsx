@@ -18,7 +18,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import type { Node } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
+import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 import { ChartSettingsPopover } from './chartSettings/ChartSettingsPopover'
@@ -31,6 +31,9 @@ import { InsightDraftActions } from './InsightDraftActions'
 import { InsightKindMenu } from './InsightKindMenu'
 import { DashboardFilterMark } from './sentence/DashboardFilterMark'
 import { InsightSentence } from './sentence/InsightSentence'
+import { InsightStoryLayout } from './story/InsightStoryLayout'
+import { InsightStoryToggle } from './story/InsightStoryToggle'
+import { StoryChartOverlay } from './story/StoryChartOverlay'
 import { insightZoomLogic } from './zoom/insightZoomLogic'
 import { InsightZoomReset } from './zoom/InsightZoomReset'
 
@@ -80,6 +83,38 @@ export function QuillInsightScene({ insightId, attachTo }: QuillInsightSceneProp
         return null
     }
 
+    const hasStory = isInsightVizNode(query) && isTrendsQuery(query.source)
+    const chart = (
+        <Query
+            attachTo={attachTo}
+            query={
+                isInsightVizNode(query)
+                    ? {
+                          ...query,
+                          full: false,
+                          showHeader: false,
+                          showTable: false,
+                          showCorrelationTable: false,
+                          showLastComputation: false,
+                          showLastComputationRefresh: false,
+                          showFilters: false,
+                      }
+                    : query
+            }
+            setQuery={setSceneQuery}
+            context={{
+                insightProps,
+                showOpenEditorButton: false,
+                hideAIAnalysis: true,
+                hideChartFrame: true,
+                onDateRangeZoom: zoomEnabled ? zoomIn : undefined,
+                chartOverlay: hasStory ? <StoryChartOverlay insightProps={insightProps} /> : undefined,
+            }}
+            filtersOverride={filtersOverride}
+            variablesOverride={variablesOverride}
+        />
+    )
+
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
             <InsightModals insightLogicProps={insightProps} />
@@ -102,6 +137,7 @@ export function QuillInsightScene({ insightId, attachTo }: QuillInsightSceneProp
                     ending={<InsightDataChecks insightProps={insightProps} />}
                     trailing={
                         <div className="flex shrink-0 items-center gap-2">
+                            {hasStory && <InsightStoryToggle insightProps={insightProps} />}
                             <InsightZoomReset insightProps={insightProps} />
                             <FunnelViewMenu insightProps={insightProps} />
                             <ChartTypePopover insightProps={insightProps} />
@@ -128,33 +164,11 @@ export function QuillInsightScene({ insightId, attachTo }: QuillInsightSceneProp
                 {/* The chart keeps its own margins, so the card adds no padding of its own. */}
                 <Card flush className="pt-0">
                     <CardContent>
-                        <Query
-                            attachTo={attachTo}
-                            query={
-                                isInsightVizNode(query)
-                                    ? {
-                                          ...query,
-                                          full: false,
-                                          showHeader: false,
-                                          showTable: false,
-                                          showCorrelationTable: false,
-                                          showLastComputation: false,
-                                          showLastComputationRefresh: false,
-                                          showFilters: false,
-                                      }
-                                    : query
-                            }
-                            setQuery={setSceneQuery}
-                            context={{
-                                insightProps,
-                                showOpenEditorButton: false,
-                                hideAIAnalysis: true,
-                                hideChartFrame: true,
-                                onDateRangeZoom: zoomEnabled ? zoomIn : undefined,
-                            }}
-                            filtersOverride={filtersOverride}
-                            variablesOverride={variablesOverride}
-                        />
+                        {hasStory ? (
+                            <InsightStoryLayout insightProps={insightProps}>{chart}</InsightStoryLayout>
+                        ) : (
+                            chart
+                        )}
                     </CardContent>
                 </Card>
                 <ChartTypeAccordion insightProps={insightProps} />
