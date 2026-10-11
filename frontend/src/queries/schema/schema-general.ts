@@ -2929,6 +2929,8 @@ export type QueryStatus = {
      * @default null
      */
     error_code: string | null
+    /** Minimum seconds to wait before retrying a failed query. */
+    retry_after?: integer
     results?: any
     /**
      * When was the query execution task picked up by a worker.

@@ -92,6 +92,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         isRefreshing,
         highlightedInsightId,
         refreshStatus,
+        capacityRetryQueryIds,
         dashboardStreaming,
         dashboardLoading,
         effectiveEditBarFilters,
@@ -585,7 +586,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                       })
                                     : refreshError || queryError || undefined
                                 const loadingQueued = isErrorTile ? false : isRefreshingQueued(insight.short_id)
-                                const loading = isErrorTile ? false : isRefreshing(insight.short_id)
+                                const waitingForCapacity = !isErrorTile && !!capacityRetryQueryIds[insight.short_id]
+                                const loading = isErrorTile
+                                    ? false
+                                    : isRefreshing(insight.short_id) || waitingForCapacity
 
                                 return (
                                     <MemoizedInsightCard
@@ -594,6 +598,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                                         insight={insight}
                                         loadingQueued={loadingQueued}
                                         loading={loading}
+                                        waitingForCapacity={waitingForCapacity}
                                         apiErrored={apiErrored}
                                         apiError={apiError}
                                         queryId={insight.query_status?.id}

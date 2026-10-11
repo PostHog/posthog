@@ -167,7 +167,8 @@ export function queryExportContext<N extends DataNode>(
 export async function pollForResults(
     queryId: string,
     methodOptions?: ApiMethodOptions,
-    onPoll?: (response: QueryStatus) => void
+    onPoll?: (response: QueryStatus) => void,
+    runRequest: <T>(request: () => Promise<T>) => Promise<T> = <T>(request: () => Promise<T>): Promise<T> => request()
 ): Promise<QueryStatus> {
     // Measured only across time spent actually polling (page visible), not raw wall-clock time -
     // otherwise a backgrounded tab burns down the deadline via waitForPageVisible below without
@@ -183,7 +184,8 @@ export async function pollForResults(
         activeElapsedMs += performance.now() - iterationStart
 
         try {
-            const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
+            const statusResponse = (await runRequest(() => api.queryStatus.get(queryId, true, methodOptions)))
+                .query_status
             if (statusResponse.complete) {
                 return statusResponse
             }
@@ -191,6 +193,9 @@ export async function pollForResults(
                 onPoll(statusResponse)
             }
         } catch (e: any) {
+            if (isAbortError(e)) {
+                throw e
+            }
             // Parse error message to extract clean message and code if present
             const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
             e.detail = parsed.message

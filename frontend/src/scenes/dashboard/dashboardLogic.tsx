@@ -34,7 +34,7 @@ import {
     type WidgetIssueMetadataDelta,
 } from '@posthog/products-dashboards/frontend/widgets/error_tracking/applyWidgetIssueMetadataChange'
 
-import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
+import api, { getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { DataColorTheme } from 'lib/colors'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -44,6 +44,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { ConcurrencyController } from 'lib/utils/concurrencyController'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import {
@@ -247,6 +248,28 @@ export interface DashboardSettings {
     variables: Record<string, HogQLVariable>
 }
 
+interface DashboardPreview {
+    settings: DashboardSettings
+    tiles: Map<number, Promise<boolean>>
+}
+
+function trackPreviewTile(preview: DashboardPreview | undefined, tileId: number): (succeeded: boolean) => void {
+    let complete = (_succeeded: boolean): void => {}
+    preview?.tiles.set(tileId, new Promise<boolean>((resolve) => (complete = resolve)))
+    return complete
+}
+
+async function waitForPreview(preview: DashboardPreview): Promise<boolean> {
+    // A tile override can replace a request again while the other preview tiles finish.
+    while (true) {
+        const tiles = [...preview.tiles]
+        const results = await Promise.all(tiles.map(([, request]) => request))
+        if (tiles.every(([id, request]) => preview.tiles.get(id) === request)) {
+            return results.every(Boolean)
+        }
+    }
+}
+
 export type DashboardSettingsState = 'unsavedChanges' | 'saved'
 
 export interface DashboardEditing {
@@ -331,6 +354,7 @@ export interface dashboardLogicValues {
     canRestrictDashboard: boolean
     canSaveProjectDashboardTemplate: boolean
     cancellingPreview: boolean
+    capacityRetryQueryIds: Record<string, string>
     changedFilterCount: number
     columns: number | null
     containerWidth: number | null
@@ -860,6 +884,15 @@ export interface dashboardLogicActions {
     }
     setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => {
         buttonTileId: DashboardTileIdOrNew
+    }
+    setCapacityRetry: (
+        shortId: InsightShortId,
+        queryId: string,
+        waiting: boolean
+    ) => {
+        queryId: string
+        shortId: InsightShortId
+        waiting: boolean
     }
     setDashboardCustomizeMenuOpen: (open: boolean) => {
         open: boolean
@@ -1499,6 +1532,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queued,
         }),
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
+        setCapacityRetry: (shortId: InsightShortId, queryId: string, waiting: boolean) => ({
+            shortId,
+            queryId,
+            waiting,
+        }),
         /** Number of insights enrolled in the current refresh cycle, captured up front. */
         setRefreshTilesTotal: (total: number) => ({ total }),
         abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => payload,
@@ -2413,6 +2451,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ...state,
                     responseBytes,
                 }),
+            },
+        ],
+        capacityRetryQueryIds: [
+            {} as Record<string, string>,
+            {
+                setCapacityRetry: (state, { shortId, queryId, waiting }) => {
+                    if (waiting) {
+                        return { ...state, [shortId]: queryId }
+                    }
+                    // A replaced request must not clear the new request's wait state.
+                    if (state[shortId] !== queryId) {
+                        return state
+                    }
+                    const { [shortId]: _finished, ...rest } = state
+                    return rest
+                },
+                refreshDashboardItem: (state, { tile }) => {
+                    if (!tile.insight) {
+                        return state
+                    }
+                    const { [tile.insight.short_id]: _replaced, ...rest } = state
+                    return rest
+                },
+                cancelDashboardRefresh: () => ({}),
             },
         ],
         refreshStatus: [
@@ -3658,7 +3720,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         beforeUnmount: () => {
             cache.widgetTileRefreshScheduler?.cancelAll()
-            actions.abortAnyRunningQuery()
         },
     })),
     sharedListeners(({ values, props, actions }) => ({
@@ -4311,8 +4372,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             // Cache values before the long-running await — the logic may unmount
-            const { currentTeamId, effectiveRefreshFilters, settingsForRefresh, urlFilters } = values
-            const urlVariables = settingsForRefresh.variables
+            const { currentTeamId, externalFilters, settingsForRefresh, urlFilters } = values
+            const preview: DashboardPreview | undefined = cache.dashboardPreview?.tiles.has(tile.id)
+                ? cache.dashboardPreview
+                : undefined
+            const settings = preview?.settings ?? settingsForRefresh
+            const effectiveRefreshFilters = combineDashboardFilters(settings.filters, externalFilters)
+            const urlVariables = settings.variables
+            const completePreview = trackPreviewTile(preview, tile.id)
+            let succeeded = false
+            const activeTileControllers: Map<number, AbortController> = (cache.tileRefreshControllers ??= new Map())
+            const tileController = new AbortController()
+            activeTileControllers.get(tile.id)?.abort()
+            activeTileControllers.set(tile.id, tileController)
+            const queryId = uuid()
+            const disposables = cache.disposables
+            disposables.add(
+                () => () => {
+                    tileController.abort()
+                    if (activeTileControllers.get(tile.id) === tileController) {
+                        activeTileControllers.delete(tile.id)
+                    }
+                },
+                queryId,
+                { pauseOnPageHidden: false }
+            )
 
             actions.setRefreshStatus(insight.short_id, true, true)
 
@@ -4327,13 +4411,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     currentTeamId,
                     insight,
                     dashboardId,
-                    uuid(),
+                    queryId,
                     'force_blocking',
-                    undefined,
+                    {
+                        signal: tileController.signal,
+                        onCapacityWaitChange: (waiting) => {
+                            if (!disposables.isDisposed && (!waiting || !tileController.signal.aborted)) {
+                                actions.setCapacityRetry(insight.short_id, queryId, waiting)
+                            }
+                        },
+                    },
                     effectiveRefreshFilters,
                     urlVariables,
                     tile.filters_overrides
                 )
+
+                if (tileController.signal.aborted || disposables.isDisposed) {
+                    return
+                }
 
                 reportDashboardTileRefreshed(
                     dashboardId,
@@ -4351,12 +4446,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } else {
                         dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                         actions.setRefreshStatus(insight.short_id)
+                        succeeded = true
                     }
                 } else {
                     actions.setRefreshError(insight.short_id)
                 }
             } catch (e: any) {
-                actions.setRefreshError(insight.short_id, e)
+                if (!tileController.signal.aborted && !disposables.isDisposed) {
+                    actions.setRefreshError(insight.short_id, e)
+                }
+            } finally {
+                completePreview(succeeded)
+                disposables.dispose(queryId)
             }
         },
         refreshDashboardItems: async ({ action, forceRefresh, previewUnsavedFilters }, breakpoint) => {
@@ -4405,11 +4506,39 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     true
                 )
 
-                await breakpoint()
-
                 actions.abortAnyRunningQuery()
-                cache.abortController = new AbortController()
-                const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
+                const preview: DashboardPreview | undefined =
+                    previewUnsavedFilters || initialUrlOverridesArePreviewed
+                        ? { settings: settingsToRefresh, tiles: new Map() }
+                        : undefined
+                cache.dashboardPreview = preview
+                const completePreviewTiles = sortedTilesToRefresh.map((tile) => trackPreviewTile(preview, tile.id))
+                const activeTileControllers: Map<number, AbortController> = (cache.tileRefreshControllers ??= new Map())
+                const tileControllers = sortedTilesToRefresh.map((tile) => {
+                    const tileController = new AbortController()
+                    activeTileControllers.get(tile.id)?.abort()
+                    activeTileControllers.set(tile.id, tileController)
+                    return tileController
+                })
+                const batchController = new AbortController()
+                cache.abortController = batchController
+                const disposables = cache.disposables
+                disposables.add(
+                    () => () => {
+                        batchController.abort()
+                        tileControllers.forEach((tileController) => tileController.abort())
+                        if (cache.abortController === batchController) {
+                            cache.abortController = null
+                        }
+                        if (cache.dashboardPreview === preview) {
+                            cache.dashboardPreview = undefined
+                        }
+                    },
+                    'dashboardRefresh',
+                    { pauseOnPageHidden: false }
+                )
+
+                await breakpoint()
 
                 // Cache values used during and after the long-running fetch, since the logic
                 // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
@@ -4417,29 +4546,62 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const { currentTeamId, externalFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } = values
                 const effectiveRefreshFilters = combineDashboardFilters(settingsToRefresh.filters, externalFilters)
                 const urlVariables = settingsToRefresh.variables
+                const requestConcurrency = new ConcurrencyController(4)
 
-                const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
+                const insightRefreshPromises = sortedTilesToRefresh.map(async (tile, index) => {
                     const insight = tile.insight
+                    const tileController = tileControllers[index]
+                    const isCurrentTileRefresh = (): boolean => activeTileControllers.get(tile.id) === tileController
                     const queryId = uuid()
                     const queryStartTime = performance.now()
                     const dashboardId: number = props.id
-
-                    // Set insight as refreshing
-                    actions.setRefreshStatus(insight.short_id, true, true)
+                    let insightRefreshStartTime: number | undefined
+                    let succeeded = false
 
                     try {
-                        const insightRefreshStartTime = performance.now()
+                        if (tileController.signal.aborted || disposables.isDisposed) {
+                            tilesAbortedCount++
+                            return
+                        }
                         const refreshedInsight = await getInsightWithRetry(
                             currentTeamId,
                             insight,
                             dashboardId,
                             queryId,
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
-                            methodOptions,
+                            {
+                                signal: tileController.signal,
+                                runRequest: (request) =>
+                                    requestConcurrency.run({
+                                        fn: () => {
+                                            if (insightRefreshStartTime === undefined) {
+                                                insightRefreshStartTime = performance.now()
+                                                actions.setRefreshStatus(insight.short_id, true, true)
+                                            }
+                                            return request()
+                                        },
+                                        // Retry deadlines continue while queued, so keep the tile's original priority.
+                                        priority: index,
+                                        abortController: tileController,
+                                    }),
+                                onCapacityWaitChange: (waiting) => {
+                                    if (
+                                        !disposables.isDisposed &&
+                                        (!waiting || (isCurrentTileRefresh() && !tileController.signal.aborted))
+                                    ) {
+                                        actions.setCapacityRetry(insight.short_id, queryId, waiting)
+                                    }
+                                },
+                            },
                             effectiveRefreshFilters,
                             urlVariables,
                             tile.filters_overrides
                         )
+
+                        if (!isCurrentTileRefresh() || tileController.signal.aborted || disposables.isDisposed) {
+                            tilesAbortedCount++
+                            return
+                        }
 
                         if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight)) {
                             const queryError = getInsightQueryError(refreshedInsight)
@@ -4449,6 +4611,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             } else {
                                 dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                                 actions.setRefreshStatus(insight.short_id)
+                                succeeded = true
                                 tilesRefreshedCount++
                                 if (refreshedInsight.is_cached) {
                                     tilesRefreshedCachedCount++
@@ -4458,7 +4621,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     tile,
                                     urlFilters,
                                     urlVariables,
-                                    Math.floor(performance.now() - insightRefreshStartTime),
+                                    Math.floor(performance.now() - (insightRefreshStartTime ?? queryStartTime)),
                                     false
                                 )
                             }
@@ -4467,6 +4630,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             tilesErroredCount++
                         }
                     } catch (e: any) {
+                        if (!isCurrentTileRefresh() || disposables.isDisposed) {
+                            // Cancel server work without clearing a replacement tile's state or accessing unmounted logic.
+                            if (
+                                shouldCancelQuery(e) &&
+                                insightRefreshStartTime !== undefined &&
+                                currentTeamId !== null
+                            ) {
+                                // A slow cleanup must not block the replacement preview from completing.
+                                // nosemgrep: prefer-codegen-api-namespaced-product_analytics -- insightsCancelCreate accepts InsightApi, not the client_query_id cancellation payload.
+                                api.insights.cancelQuery(queryId, currentTeamId).catch((cancelError) => {
+                                    console.warn('Failed cancelling query', cancelError)
+                                })
+                            }
+                            tilesAbortedCount++
+                            return
+                        }
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
                             actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
@@ -4475,11 +4654,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             actions.setRefreshError(insight.short_id, e)
                             tilesErroredCount++
                         }
+                    } finally {
+                        completePreviewTiles[index](succeeded)
+                        if (isCurrentTileRefresh()) {
+                            activeTileControllers.delete(tile.id)
+                        }
                     }
                 })
 
-                // Execute the fetches with concurrency limit of 4
-                await runWithLimit(fetchSyncInsightFunctions, 4)
+                // Cooldowns release request slots so later tiles can still load cached results.
+                await Promise.all(insightRefreshPromises)
+                breakpoint()
+                const previewSucceeded = preview ? await waitForPreview(preview) : true
                 breakpoint()
 
                 // REFRESH DONE: all insights have been refreshed
@@ -4525,13 +4711,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles_aborted_count: tilesAbortedCount,
                 })
 
-                if (
-                    (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
-                    (tilesErroredCount > 0 || tilesAbortedCount > 0)
-                ) {
+                if (preview && !previewSucceeded) {
                     actions.previewDashboardChangesFailure()
-                } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
+                } else if (preview) {
                     actions.setPreviewedDashboardSettings(settingsToRefresh)
+                }
+                if (cache.dashboardPreview === preview) {
+                    cache.dashboardPreview = undefined
                 }
             }
 
@@ -4951,12 +5137,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         abortAnyRunningQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-                cache.abortController = null
-            }
+            cache.disposables.dispose('dashboardRefresh')
         },
         cancelDashboardRefresh: () => {
+            const activeTileControllers: Map<number, AbortController> | undefined = cache.tileRefreshControllers
+            activeTileControllers?.forEach((tileController) => tileController.abort())
             actions.abortAnyRunningQuery()
         },
         abortQuery: async ({ queryId, queryStartTime }) => {
