@@ -3,7 +3,8 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
-from common.hogvm.python.stl.print import escape_identifier
+from common.hogvm.python.objects import new_hog_error
+from common.hogvm.python.stl.print import escape_identifier, print_hog_value
 
 
 class TestEscapeIdentifier:
@@ -26,3 +27,10 @@ class TestEscapeIdentifier:
         node = parse_expr(escape_identifier(identifier))
         assert isinstance(node, ast.Field)
         assert node.chain == [identifier]
+
+
+class TestPrintHogValue:
+    def test_error_with_itself_as_payload(self):
+        error = new_hog_error("Error", "x")
+        error["payload"] = error
+        assert print_hog_value(error) == "Error('x', null)"

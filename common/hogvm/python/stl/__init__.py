@@ -65,12 +65,6 @@ def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
         month = args[0]["month"]
         day = args[0]["day"]
         return f"{year}-{month:02d}-{day:02d}"
-    elif isinstance(args[0], dict) and is_hog_error(args[0]):
-        return (
-            f"{args[0]['name']}({toString(args[0]['message'], team, stdout, timeout)}"
-            + (f", {toString(args[0]['payload'], team, stdout, timeout)}" if "payload" in args[0] else "")
-            + ")"
-        )
     elif args[0] is True:
         return "true"
     elif args[0] is False:
@@ -78,7 +72,7 @@ def toString(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
     elif args[0] is None:
         return "null"
     else:
-        return str(args[0])
+        return print_hog_string_output(args[0])
 
 
 def toInt(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -436,7 +430,7 @@ def arrayStringConcat(args: list[Any], team: Optional["Team"], stdout: Optional[
     sep = args[1] if len(args) > 1 else ""
     if not isinstance(arr, list):
         return ""
-    return sep.join([str(s) for s in arr])
+    return sep.join(["" if s is None else toString([s], team, stdout, timeout) for s in arr])
 
 
 def has(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> bool:
