@@ -21,5 +21,8 @@ class TrinoCompilationBudget(TraversingVisitor):
             )
 
     def visit(self, node: ast.AST | None) -> None:
+        # Type nodes share one resolved graph, so counting them charges each field reference for its whole scope.
+        if isinstance(node, ast.Type):
+            return
         self.consume_node(node)
         super().visit(node)
