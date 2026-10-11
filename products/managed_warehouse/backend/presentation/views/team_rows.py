@@ -250,4 +250,8 @@ def check_schema_name(organization_id: UUID | str, name: str | None) -> Response
         return resp
 
     taken = any(row.get("schema_name") == name for row in teams)
-    return Response({"name": name, "available": not taken}, status=status.HTTP_200_OK)
+    # The response schema is declared on DataWarehouseViewSet.check_schema_name; this helper
+    # keeps the presentation logic outside the viewset.
+    return Response(  # nosemgrep: api-response-must-match-schema
+        {"name": name, "available": not taken}, status=status.HTTP_200_OK
+    )
