@@ -38,10 +38,6 @@ describe('<ProjectSecretAPIKeys />', () => {
     beforeEach(() => {
         initKeaTests()
         teamLogic.mount()
-        teamLogic.actions.loadCurrentTeamSuccess({
-            ...MOCK_DEFAULT_TEAM,
-            effective_membership_level: OrganizationMembershipLevel.Admin,
-        })
         logic.mount()
     })
 
@@ -53,15 +49,27 @@ describe('<ProjectSecretAPIKeys />', () => {
     it.each([
         {
             description: 'below the backend limit',
+            membershipLevel: OrganizationMembershipLevel.Admin,
             keyCount: MAX_PROJECT_API_KEYS_PER_PROJECT - 1,
             expectedDisabled: false,
         },
         {
             description: 'at the backend limit',
+            membershipLevel: OrganizationMembershipLevel.Admin,
             keyCount: MAX_PROJECT_API_KEYS_PER_PROJECT,
             expectedDisabled: true,
         },
-    ])('sets creation availability $description', ({ keyCount, expectedDisabled }) => {
+        {
+            description: 'for a member below admin',
+            membershipLevel: OrganizationMembershipLevel.Member,
+            keyCount: 0,
+            expectedDisabled: true,
+        },
+    ])('sets creation availability $description', ({ membershipLevel, keyCount, expectedDisabled }) => {
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            effective_membership_level: membershipLevel,
+        })
         logic.actions.loadKeysSuccess(createKeys(keyCount))
         render(<ProjectSecretAPIKeys />)
 

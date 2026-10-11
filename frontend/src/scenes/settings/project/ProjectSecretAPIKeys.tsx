@@ -144,20 +144,20 @@ export function ProjectSecretAPIKeys(): JSX.Element {
                 They should be kept secret as they can have scopes that allow access to the project's data.
             </p>
 
-            {!restrictionReason && (
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlus />}
-                    onClick={() => setEditingKeyId('new')}
-                    disabledReason={
-                        keys.length >= MAX_PROJECT_API_KEYS_PER_PROJECT
-                            ? `Maximum ${MAX_PROJECT_API_KEYS_PER_PROJECT} keys per project`
-                            : undefined
-                    }
-                >
-                    Create project secret API key
-                </LemonButton>
-            )}
+            <LemonButton
+                type="primary"
+                icon={<IconPlus />}
+                onClick={() => setEditingKeyId('new')}
+                disabledReason={
+                    restrictionReason ??
+                    (keys.length >= MAX_PROJECT_API_KEYS_PER_PROJECT
+                        ? `Maximum ${MAX_PROJECT_API_KEYS_PER_PROJECT} keys per project`
+                        : undefined)
+                }
+                data-attr="create-project-secret-api-key"
+            >
+                Create project secret API key
+            </LemonButton>
 
             <APIKeyTable
                 keys={keys}
