@@ -25,3 +25,5 @@ export const contextWikiProposalApplyResultSchema = z.object({
 export type ContextWikiProposalApplyResult = z.infer<
   typeof contextWikiProposalApplyResultSchema
 >;
+
+export const voiceSessionResponseSchema = z.object({ sdp: z.string().min(1) });

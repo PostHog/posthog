@@ -85,6 +85,7 @@ import {
   CONTEXT_WINDOW_OPTION_CATEGORY,
   FAST_MODE_OPTION_CATEGORY,
 } from "../task-detail/previewConfig";
+import { voiceQuestionFromPermission } from "../voice/voiceQuestion";
 import {
   isNotification,
   POSTHOG_NOTIFICATIONS,
@@ -6007,11 +6008,11 @@ export class SessionService {
     optionId: string,
     customInput?: string,
     answers?: Record<string, string>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) {
       this.d.log.error("No session found for permission response", { taskId });
-      return;
+      return false;
     }
 
     const permission = session.pendingPermissions.get(toolCallId);
@@ -6046,7 +6047,7 @@ export class SessionService {
           answers,
           terminalCloudStatus,
         );
-        return;
+        return true;
       }
       if (session.isCloud && cloudRequestId) {
         this.cloudPermissionRequestIds.delete(toolCallId);
@@ -6070,7 +6071,7 @@ export class SessionService {
               answers,
               latestCloudStatus,
             );
-            return;
+            return true;
           }
           throw error;
         }
@@ -6095,6 +6096,7 @@ export class SessionService {
         isCloud: !!cloudRequestId,
         hasCustomInput: !!customInput,
       });
+      return true;
     } catch (error) {
       this.d.log.error("Failed to respond to permission", {
         taskId,
@@ -6102,6 +6104,7 @@ export class SessionService {
         optionId,
         error,
       });
+      return false;
     }
   }
 
@@ -8682,6 +8685,26 @@ export class SessionService {
     const upgradeMode = resolveAllowAlwaysUpgradeMode(modeOption);
     if (!upgradeMode) return;
     this.setSessionConfigOptionByCategory(taskId, "mode", upgradeMode);
+  }
+
+  async answerVoiceQuestion(
+    taskId: string,
+    questionId: string,
+    answers: Record<string, string>,
+  ): Promise<boolean> {
+    const session = this.d.store.getSessionByTaskId(taskId);
+    const permission = session?.pendingPermissions.values().next().value;
+    const question = voiceQuestionFromPermission(permission);
+    if (!permission || !question || question.id !== questionId) return false;
+    if (question.questions.some((item) => !answers[item.question]?.trim()))
+      return false;
+    return this.respondToPermission(
+      taskId,
+      permission.toolCall.toolCallId,
+      "other",
+      undefined,
+      answers,
+    );
   }
 
   async resolvePermissionSelection(
