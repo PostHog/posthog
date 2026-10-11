@@ -1,9 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.dataclasses import frozen
@@ -27,6 +27,10 @@ OTEL_INGESTION_SOURCE = "otel"
 # `$ai_latency` is sender-controlled. Past this a value is junk rather than a slow call.
 MAX_LATENCY_SECONDS = 7 * 24 * 60 * 60
 
+# Events are stamped when a call finishes, so a call that outlives its run span lands after the
+# trace ends. The margin keeps those in the window.
+RUN_LINK_WINDOW_MARGIN = timedelta(minutes=5)
+
 
 @frozen
 class TraceAiEvent:
@@ -44,6 +48,7 @@ class TraceAiEvent:
     output_tokens: int | None
     total_cost_usd: float | None
     is_error: bool
+    run_span_id: str | None
 
 
 @frozen
@@ -52,7 +57,14 @@ class TraceAiEvents:
     has_more: bool
 
 
-def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -> TraceAiEvents:
+def fetch_trace_ai_events(
+    *,
+    team: "Team",
+    user: "User | None",
+    trace_id: str,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> TraceAiEvents:
     """LLM analytics events whose `$ai_trace_id` is the OpenTelemetry trace id, earliest start
     first, capped at `MAX_AI_EVENTS_PER_TRACE`. Matches the 32-hex form OTel ingestion writes and the hyphenated UUID form the LLM
     gateway writes for a `traceparent` header.
@@ -64,9 +76,23 @@ def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -
     read, and the table partitions by retention date rather than event time, so a window prunes
     nothing. Rows older than the ai_events retention are not found.
 
+    With the trace's time range, it also finds the AI events that name this trace in
+    `task_run_trace_id`, which the PostHog tasks agent stamps on each call it makes, with
+    `task_run_span_id` naming the run span the call belongs under. Those carry their own per-turn `$ai_trace_id`, so a subquery on the events
+    table resolves the linked ids inside the range first, and the ai_events read stays a lookup by
+    trace id. A property filter needs the range, because the events table sorts by time and not by
+    property.
+
     The requesting user is passed through so property access rules mask restricted AI columns for
     that user rather than falling back to the team default.
     """
+    # Spans read their ids back as uppercase hex, while OTel ingestion writes them lowercase. Both
+    # forms are constants, so the lookup stays on the sort key.
+    trace_filter: ast.Expr = parse_expr(
+        "trace_id IN {trace_ids}", placeholders={"trace_ids": ast.Constant(value=_stored_trace_id_forms(trace_id))}
+    )
+    if date_from is not None and date_to is not None:
+        trace_filter = ast.Or(exprs=[trace_filter, _run_linked_filter(trace_id, date_from, date_to)])
     # `$ai_latency` is sender-controlled, so the same guard that keeps a junk value out of the
     # response keeps it out of the start-time arithmetic. The start is computed in the query
     # because the order and the row cap have to follow it, not the stamped time.
@@ -86,13 +112,14 @@ def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -
             any(output_tokens) AS output_tokens,
             any(total_cost_usd) AS total_cost_usd,
             any(is_error) AS is_error,
+            any(nullIf(toString(properties.task_run_span_id), '')) AS run_span_id,
             any(if(
                 properties.$ai_ingestion_source = {otel_source} OR isNull(latency) OR NOT isFinite(latency) OR latency < 0 OR latency > {max_latency},
                 timestamp,
                 fromUnixTimestamp64Milli(toUnixTimestamp64Milli(timestamp) - toInt(latency * 1000))
             )) AS started_at
         FROM posthog.ai_events
-        WHERE trace_id IN {trace_ids}
+        WHERE ({trace_filter})
           AND event IN {events}
         GROUP BY uuid
         ORDER BY started_at ASC
@@ -100,9 +127,7 @@ def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -
         """,
         placeholders={
             "events": ast.Constant(value=AI_EVENT_KINDS),
-            # Spans read their ids back as uppercase hex, while OTel ingestion writes them
-            # lowercase. Both forms are constants, so the lookup stays on the sort key.
-            "trace_ids": ast.Constant(value=_stored_trace_id_forms(trace_id)),
+            "trace_filter": trace_filter,
             "otel_source": ast.Constant(value=OTEL_INGESTION_SOURCE),
             "max_latency": ast.Constant(value=MAX_LATENCY_SECONDS),
             # Explicit, because HogQL caps a select without a LIMIT at 100 rows. One row past the
@@ -118,6 +143,27 @@ def fetch_trace_ai_events(*, team: "Team", user: "User | None", trace_id: str) -
     return TraceAiEvents(
         events=[TraceAiEvent(**dict(zip(columns, row))) for row in rows[:MAX_AI_EVENTS_PER_TRACE]],
         has_more=len(rows) > MAX_AI_EVENTS_PER_TRACE,
+    )
+
+
+def _run_linked_filter(trace_id: str, date_from: datetime, date_to: datetime) -> ast.Expr:
+    return parse_expr(
+        """
+        trace_id IN (
+            SELECT DISTINCT toString(properties.$ai_trace_id)
+            FROM events
+            WHERE event IN {events}
+              AND timestamp >= {date_from}
+              AND timestamp <= {date_to}
+              AND properties.task_run_trace_id IN {trace_ids}
+        )
+        """,
+        placeholders={
+            "events": ast.Constant(value=AI_EVENT_KINDS),
+            "date_from": ast.Constant(value=date_from - RUN_LINK_WINDOW_MARGIN),
+            "date_to": ast.Constant(value=date_to + RUN_LINK_WINDOW_MARGIN),
+            "trace_ids": ast.Constant(value=_stored_trace_id_forms(trace_id)),
+        },
     )
 
 

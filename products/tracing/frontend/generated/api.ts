@@ -23,6 +23,7 @@ import type {
     TracingRetentionRulesReorderCreateParams,
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
+    TracingSpansTraceAiEventsRetrieveParams,
     TracingSpansValuesRetrieveParams,
     TracingViewApi,
     TracingViewsListParams,
@@ -591,13 +592,30 @@ export const tracingSpansTraceCreate = async (
     })
 }
 
-export const getTracingSpansTraceAiEventsRetrieveUrl = (projectId: string, traceId: string) => {
-    return `/api/projects/${projectId}/tracing/spans/trace/${traceId}/ai_events/`
+export const getTracingSpansTraceAiEventsRetrieveUrl = (
+    projectId: string,
+    traceId: string,
+    params?: TracingSpansTraceAiEventsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tracing/spans/trace/${traceId}/ai_events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/spans/trace/${traceId}/ai_events/`
 }
 
 /**
  * List the LLM analytics events whose `$ai_trace_id` is this trace's id, so the waterfall
- * can show each model call inline with the spans.
+ * can show each model call inline with the spans. With the trace's time range it also lists
+ * the events that name the trace in `task_run_trace_id`.
  *
  * The spans and the AI events live on different ClickHouse clusters, so one query cannot join
  * them; this returns the events half and the caller places them by time.
@@ -605,12 +623,16 @@ export const getTracingSpansTraceAiEventsRetrieveUrl = (projectId: string, trace
 export const tracingSpansTraceAiEventsRetrieve = async (
     projectId: string,
     traceId: string,
+    params?: TracingSpansTraceAiEventsRetrieveParams,
     options?: RequestInit
 ): Promise<_TracingTraceAiEventsResponseApi> => {
-    return apiMutator<_TracingTraceAiEventsResponseApi>(getTracingSpansTraceAiEventsRetrieveUrl(projectId, traceId), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<_TracingTraceAiEventsResponseApi>(
+        getTracingSpansTraceAiEventsRetrieveUrl(projectId, traceId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getTracingSpansTreeCreateUrl = (projectId: string) => {

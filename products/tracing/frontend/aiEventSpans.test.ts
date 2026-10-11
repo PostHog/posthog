@@ -1,5 +1,5 @@
 import { makeSpan } from './__mocks__/span'
-import { buildAiEventSpans, TraceAiEvent } from './aiEventSpans'
+import { buildAiEventSpans, traceBounds, TraceAiEvent } from './aiEventSpans'
 import type { Span } from './types'
 
 const TRACE_ID = '4BF92F3577B34DA6A3CE929D0E0E4736'
@@ -28,6 +28,7 @@ function aiEvent(overrides: Partial<TraceAiEvent> & { uuid: string; started_at: 
         output_tokens: 5,
         total_cost_usd: 0.01,
         is_error: false,
+        run_span_id: null,
         ...overrides,
     }
 }
@@ -48,7 +49,7 @@ const TOOL = span({
 })
 const SPANS = [ROOT, TURN, TOOL]
 
-describe('buildAiEventSpans', () => {
+describe('aiEventSpans', () => {
     // A wrong end or a wrong parent puts the row in the wrong place on the waterfall.
     it('runs the row a latency from its start and parents it to the narrowest containing span', () => {
         const [result] = buildAiEventSpans([aiEvent({ uuid: 'e1', started_at: '2026-06-02T08:00:03.000Z' })], SPANS)
@@ -69,6 +70,8 @@ describe('buildAiEventSpans', () => {
         // An OTel-sourced event names its parent, which wins over time containment.
         ['a named parent that is loaded', { started_at: '2026-06-02T08:00:03.000Z', ai_parent_id: 'tool' }, 'TOOL'],
         ['a named parent that is not loaded', { started_at: '2026-06-02T08:00:03.000Z', ai_parent_id: 'gone' }, 'TURN'],
+        // A run-linked event names the run span, in the lowercase form the agent stamps.
+        ['a named run span that is loaded', { started_at: '2026-06-02T08:00:03.000Z', run_span_id: 'tool' }, 'TOOL'],
         // A call that ran past the turn's end is only contained by the root.
         ['a call the turn does not contain', { started_at: '2026-06-02T08:00:45.000Z', latency_seconds: 10 }, 'ROOT'],
         ['a call nothing contains', { started_at: '2026-06-02T08:02:00.000Z' }, ''],
@@ -140,5 +143,22 @@ describe('buildAiEventSpans', () => {
 
         expect(second[0].parent_span_id).toBe('TURN')
         expect(buildAiEventSpans([aiEvent({ uuid: 'e3', started_at: '2026-06-02T08:00:03.000Z' })], [])).toEqual([])
+    })
+
+    // The drawer renders these bounds, and dayjs(NaN).toISOString() throws.
+    it.each([
+        ['no spans', [], { traceStart: null, traceEnd: null }],
+        [
+            'a span with a bad timestamp',
+            [ROOT, span({ span_id: 'BAD', timestamp: 'not a date', duration_nano: 1e9 })],
+            { traceStart: '2026-06-02T08:00:00.000Z', traceEnd: '2026-06-02T08:01:00.000Z' },
+        ],
+        [
+            'only spans with bad timestamps',
+            [span({ span_id: 'BAD', timestamp: 'not a date', duration_nano: 1e9 })],
+            { traceStart: null, traceEnd: null },
+        ],
+    ])('bounds the trace with %s', (_, spans, expected) => {
+        expect(traceBounds(spans)).toEqual(expected)
     })
 })
