@@ -6,6 +6,7 @@ instance settings so an operator can rotate it without a deploy) and the Stampho
 """
 
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from typing import Any
 
 from django.conf import settings
@@ -97,6 +98,13 @@ class GitHubProvider(WebhookProvider):
                 context=_installation_context(payload),
             ),
         )
+
+    def dispatch_scope(self) -> AbstractContextManager[None]:
+        from posthog.github.installations import (
+            installation_lookup_scope,  # noqa: PLC0415 - keeps the integration models off the incarnation's import path
+        )
+
+        return installation_lookup_scope()
 
 
 def build_github_provider(app: str) -> GitHubProvider:

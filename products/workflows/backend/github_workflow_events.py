@@ -18,9 +18,9 @@ from django.conf import settings
 import structlog
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
-from posthog.ingress.dispatch.database import bounded_statement_timeout, is_statement_timeout
+from posthog.github.installations import installation_integrations
+from posthog.ingress.dispatch.database import is_statement_timeout
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.integration import Integration
 
 logger = structlog.get_logger(__name__)
 
@@ -41,11 +41,6 @@ _MAX_EVENT_PAYLOAD_BYTES = 900_000
 # Associations that mean the actor has, or is granted, write access to the repository. Anyone can
 # open an issue on a public repo, so this is what separates a maintainer from a passer-by.
 TRUSTED_AUTHOR_ASSOCIATIONS = ("OWNER", "MEMBER", "COLLABORATOR")
-
-# Cap the installation lookup. This runs inside the fan-out's shared per-delivery budget, which
-# cannot interrupt a query already in flight, so a slow lookup costs every other consumer on the
-# delivery too. Same cap as the GitHub attribution lookup in posthog/github/attribution.py.
-_INTEGRATION_LOOKUP_TIMEOUT_MS = 800
 
 
 def _subject(payload: dict[str, Any]) -> dict[str, Any]:
@@ -194,12 +189,7 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
         return
 
     try:
-        with bounded_statement_timeout(_INTEGRATION_LOOKUP_TIMEOUT_MS, models=(Integration,)):
-            integrations = list(
-                Integration.objects.filter(kind="github", integration_id=str(installation_id)).values_list(
-                    "team_id", "id"
-                )
-            )
+        integrations = installation_integrations(str(installation_id))
     except Exception as e:
         if is_statement_timeout(e):
             logger.warning(
@@ -213,21 +203,21 @@ def emit_github_event(event_type: str, payload: dict[str, Any], delivery_id: str
 
     distinct_id = str((payload.get("sender") or {}).get("login") or f"installation:{installation_id}")
 
-    for team_id, integration_id in integrations:
+    for integration in integrations:
         try:
             produce_internal_event(
-                team_id,
+                integration.team_id,
                 InternalEventEvent(
                     event=GITHUB_EVENT_RECEIVED_EVENT,
                     distinct_id=distinct_id,
-                    properties=_event_properties(event_type, payload, integration_id=integration_id),
-                    uuid=str(uuid.uuid5(_GITHUB_EVENT_NAMESPACE, f"{team_id}:{delivery_id or ''}")),
+                    properties=_event_properties(event_type, payload, integration_id=integration.id),
+                    uuid=str(uuid.uuid5(_GITHUB_EVENT_NAMESPACE, f"{integration.team_id}:{delivery_id or ''}")),
                 ),
             )
         except Exception:
             logger.exception(
                 "github_workflow_event_produce_failed",
                 installation_id=installation_id,
-                team_id=team_id,
+                team_id=integration.team_id,
                 delivery_id=delivery_id,
             )
