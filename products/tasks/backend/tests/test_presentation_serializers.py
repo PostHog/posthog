@@ -76,6 +76,7 @@ class TestTaskWriteSerializerOriginProduct(SimpleTestCase):
     @parameterized.expand(
         [
             ("image_builder", True),
+            ("feature_flags", True),
             ("signals_scout", True),
             # These two resolve mintable gateway products, so a forged origin would reach
             # internally funded inference under a per-run cap.

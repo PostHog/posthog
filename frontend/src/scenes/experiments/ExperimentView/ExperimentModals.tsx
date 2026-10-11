@@ -7,7 +7,6 @@ import {
     LemonBanner,
     LemonButton,
     LemonCheckbox,
-    LemonInputSelect,
     LemonLabel,
     LemonModal,
     LemonSelect,
@@ -18,6 +17,7 @@ import {
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FlagCleanupPrOptions } from 'scenes/feature-flags/FlagCleanupPrOptions'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -439,51 +439,25 @@ export function FinishExperimentModal(): JSX.Element {
                     )}
                     <ConclusionForm />
                     {cleanupPrAvailable && (
-                        <div className="space-y-2">
-                            <LemonCheckbox
-                                checked={openCleanupPr}
-                                onChange={setOpenCleanupPr}
-                                data-attr="experiment-open-cleanup-pr"
-                                disabledReason={
-                                    cleanupTarget?.source === 'no_integration' &&
-                                    'Connect GitHub in your project settings to open cleanup PRs'
-                                }
-                                label={
-                                    <span>
-                                        Open a draft PR removing <code>{experiment.feature_flag?.key}</code> from your
-                                        code
-                                    </span>
-                                }
-                            />
-                            {openCleanupPr && cleanupTarget?.repository && (
-                                <div className="text-xs text-muted">
-                                    The PR will be opened in <code>{cleanupTarget.repository}</code>.
-                                </div>
-                            )}
-                            {openCleanupPr && cleanupNeedsRepositoryPick && (
-                                <>
-                                    <LemonInputSelect
-                                        mode="single"
-                                        value={cleanupRepository ? [cleanupRepository] : []}
-                                        onChange={(repositories) => setCleanupRepository(repositories[0] ?? null)}
-                                        options={(cleanupTarget?.candidates ?? []).map((repository) => ({
-                                            key: repository,
-                                            label: repository,
-                                        }))}
-                                        placeholder="Select a repository"
-                                        data-attr="experiment-cleanup-repository"
+                        <FlagCleanupPrOptions
+                            flagKey={experiment.feature_flag?.key ?? ''}
+                            target={cleanupTarget}
+                            checked={openCleanupPr}
+                            onCheckedChange={setOpenCleanupPr}
+                            repository={cleanupRepository}
+                            onRepositoryChange={setCleanupRepository}
+                            dataAttrPrefix="experiment"
+                            pickerFooter={
+                                !teamDefaultRestrictionReason ? (
+                                    <LemonCheckbox
+                                        checked={setAsTeamDefault}
+                                        onChange={setSetAsTeamDefault}
+                                        data-attr="experiment-cleanup-repository-team-default"
+                                        label="Use this repository for all experiments in this project"
                                     />
-                                    {!teamDefaultRestrictionReason && (
-                                        <LemonCheckbox
-                                            checked={setAsTeamDefault}
-                                            onChange={setSetAsTeamDefault}
-                                            data-attr="experiment-cleanup-repository-team-default"
-                                            label="Use this repository for all experiments in this project"
-                                        />
-                                    )}
-                                </>
-                            )}
-                        </div>
+                                ) : null
+                            }
+                        />
                     )}
                     {!isSingleVariantShipped && (
                         <LemonBanner type="info" className="mb-4">

@@ -505,6 +505,7 @@ depends_on = [
     "products.product_analytics",
     "products.product_tours",
     "products.surveys", "products.access_control",
+    "products.tasks",
 ]
 layer = "modules"
 

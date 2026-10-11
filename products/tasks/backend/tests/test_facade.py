@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
-from django.db import close_old_connections
+from django.db import close_old_connections, transaction
 from django.test import TestCase, TransactionTestCase
 from django.utils import timezone as django_timezone
 
@@ -26,6 +26,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
+from products.tasks.backend.logic.services.workflow_dispatch import WorkflowDispatchFlags
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
@@ -80,6 +81,43 @@ class TestTaskHandoffConcurrency(TransactionTestCase):
             description="Run later",
             origin_product=Task.OriginProduct.USER_CREATED,
             created_by=self.owner,
+        )
+
+    @parameterized.expand([("terminal_start_failure", False), ("durable_start_failure", True)])
+    def test_failed_retry_reports_dispatch_failure_after_commit(self, _name: str, shadow_enabled: bool) -> None:
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.FAILED)
+
+        def fail_connection():
+            assert not transaction.get_connection().in_atomic_block
+            raise RuntimeError("Temporal unavailable")
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.workflow_dispatch.execute_after_commit",
+                side_effect=transaction.on_commit,
+            ),
+            patch(
+                "products.tasks.backend.logic.services.workflow_dispatch.evaluate_workflow_dispatch_flags",
+                return_value=WorkflowDispatchFlags(shadow_enabled=shadow_enabled, async_enabled=False),
+            ),
+            patch("products.tasks.backend.temporal.client.sync_connect", side_effect=fail_connection) as mock_connect,
+            patch("products.tasks.backend.temporal.client._capture_run_feature_flags"),
+        ):
+            result = facade.retry_failed_task(
+                self.task.id, self.team.id, self.owner.id, validated_data={"run_source": "agent"}
+            )
+
+        mock_connect.assert_called_once()
+        assert result is not None
+        assert result.run_error == (None if shadow_enabled else facade.WORKFLOW_START_FAILED_ERROR)
+        assert result.task is not None
+        assert result.task.latest_run is not None
+        assert result.task.latest_run.status == (TaskRun.Status.QUEUED if shadow_enabled else TaskRun.Status.FAILED)
+        assert result.task.latest_run.id == result.run_id
+        assert self.task.runs.count() == 2
+        assert (
+            TaskWorkflowDispatch.objects.for_team(self.team.id).filter(task_run_id=result.run_id).exists()
+            == shadow_enabled
         )
 
     def test_delayed_bootstrap_cannot_create_run_after_handoff(self) -> None:
@@ -500,7 +538,13 @@ class TestFacadeReadsAndMappers(TestCase):
             assert facade.task_accessible_for_run_view(task.id, self.team.id, self.user.id, for_control=for_control)
         assert not facade.task_accessible_for_run_view(task.id, self.team.id, outsider.id, for_control=for_control)
 
-    def test_task_control_runtime_and_origin_uses_control_predicate(self):
+    @parameterized.expand(
+        [
+            ("experiments", Task.OriginProduct.EXPERIMENTS, True),
+            ("feature_flags", Task.OriginProduct.FEATURE_FLAGS, False),
+        ]
+    )
+    def test_task_control_runtime_and_origin_uses_control_predicate(self, _name, origin_product, team_readable):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI, runtime=Task.Runtime.PI)
         self.assertEqual(
             facade.task_control_runtime_and_origin(task.id, self.team.id, self.user.id),
@@ -509,14 +553,33 @@ class TestFacadeReadsAndMappers(TestCase):
             ),
         )
 
-        # An experiments task is readable across the team but only its creator may drive it, so the
-        # warm gate must use the control predicate, not the read predicate.
+        # Experiment tasks are team-readable. Flag cleanup tasks carry potentially protected flag
+        # configuration and stay private by default; both remain controllable only by their creator.
         other_user = User.objects.create(email="control-origin@test.com", distinct_id="control-origin")
-        experiments_task = self._make_task(origin_product=Task.OriginProduct.EXPERIMENTS)
-        self.assertIsNotNone(facade.get_task_detail(experiments_task.id, self.team.id, other_user.id))
+        experiments_task = self._make_task(origin_product=origin_product)
+        self.assertEqual(
+            facade.get_task_detail(experiments_task.id, self.team.id, other_user.id) is not None, team_readable
+        )
         self.assertIsNone(facade.task_control_runtime_and_origin(experiments_task.id, self.team.id, other_user.id))
 
         self.assertIsNone(facade.task_control_runtime_and_origin(uuid4(), self.team.id, self.user.id))
+
+    def test_flag_cleanup_creation_is_private_by_default(self):
+        created = facade.create_and_run_task(
+            team=self.team,
+            user_id=self.user.id,
+            title="Clean up a feature flag",
+            description="Remove the flag checks",
+            origin_product=Task.OriginProduct.FEATURE_FLAGS,
+            start_workflow=False,
+        )
+        task = Task.objects.get(id=created.task_id)
+        other_user = User.objects.create(email="cleanup-viewer@example.com")
+
+        self.assertIsNotNone(task.channel_id)
+        self.assertEqual(task.channel.channel_type, Channel.ChannelType.PERSONAL)
+        self.assertIsNotNone(facade.get_task_detail(task.id, self.team.id, self.user.id))
+        self.assertIsNone(facade.get_task_detail(task.id, self.team.id, other_user.id))
 
     def _make_wizard_run(self, task: Task, status: TaskRun.Status, **kwargs) -> TaskRun:
         # A genuine server-started wizard run carries the markers create_wizard_cloud_run stamps:

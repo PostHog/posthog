@@ -79,6 +79,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
+from posthog.models.user import User
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
@@ -142,6 +143,14 @@ from products.feature_flags.backend.facade.config_validation import ConfigValida
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import increment_request_count
+from products.feature_flags.backend.flag_cleanup import (
+    FlagCleanupKeep,
+    FlagCleanupRepositorySource,
+    build_flag_cleanup_prompt,
+    cleanup_default_repository,
+    create_flag_cleanup_task,
+    resolve_cleanup_repository,
+)
 from products.feature_flags.backend.flag_limits import get_max_feature_flags_for_team
 from products.feature_flags.backend.flag_status import (
     STALE_ACTIVE_PARAM_DESCRIPTION,
@@ -3817,6 +3826,59 @@ class FeatureFlagRollOutToEveryoneRequestSerializer(serializers.Serializer):
     )
 
 
+class FeatureFlagCleanupTargetSerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        allow_null=True,
+        help_text="Repository a flag-cleanup pull request would be opened in, or null when none can be determined.",
+    )
+    source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        choices=FlagCleanupRepositorySource.choices,
+        help_text=(
+            "How the repository was determined: `explicit` (requested on the call), `team_default` (the "
+            "environment's default cleanup repository), `single_repo` (the team's only connected repository), "
+            "`ambiguous` (several connected repositories and none chosen, so pass one via `repository`), or "
+            "`no_integration` (no GitHub integration or no connected repositories, so no cleanup PR can be opened)."
+            " `refreshing` means the repository cache is being loaded; retry the lookup."
+        ),
+    )
+    candidates = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Repositories connected to the team's GitHub integration, to choose a target from.",
+    )
+
+
+class FeatureFlagCleanupPrRequestSerializer(serializers.Serializer):
+    keep = serializers.ChoiceField(
+        choices=FlagCleanupKeep.choices,
+        help_text=(
+            "Which code path survives the cleanup. `enabled` keeps the path that runs when the flag is on and "
+            "`disabled` keeps the path that runs when it is off. `variant` keeps one variant of a multivariate "
+            "flag and needs `variant_key`."
+        ),
+    )
+    variant_key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="The variant whose code path is kept. Required when `keep` is `variant`, and rejected otherwise.",
+    )
+    repository = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=255,
+        help_text=(
+            "GitHub repository to open the pull request in, in `organization/repository` format. It must be one "
+            "of the team's connected repositories (see the `cleanup_target` action). When omitted, the "
+            "environment's default cleanup repository or the team's only connected repository is used."
+        ),
+    )
+
+
+class FeatureFlagCleanupPrResponseSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="The Code task that opens the draft pull request.")
+    repository = serializers.CharField(help_text="Repository the pull request is opened in.")
+
+
 def apply_encrypted_payload_response_form(request: Any, feature_flag_data: dict) -> None:
     """Replace stored ciphertext in a serialized flag with the form the response may carry.
 
@@ -5455,6 +5517,111 @@ class FeatureFlagViewSet(
             result = get_user_blast_radius(self.team, condition, group_type_index)
 
         return Response({"affected": result.affected, "total": result.total})
+
+    @extend_schema(responses={200: FeatureFlagCleanupTargetSerializer})
+    @action(methods=["GET"], detail=True, url_path="cleanup_target", required_scopes=["feature_flag:read"])
+    def cleanup_target(self, request: request.Request, **kwargs):
+        """
+        Repository a cleanup pull request for this flag would be opened in.
+
+        Resolution order: the environment's default cleanup repository, else the team's only connected
+        GitHub repository. When the team has several repositories and no default (source=ambiguous), pass
+        one via `repository` on `cleanup_pr`.
+        """
+        from products.tasks.backend.facade.access import (
+            code_access_required_response,  # noqa: PLC0415 -- keeps the sandbox runtime off the flag API import path
+        )
+
+        self.get_object()
+        if access_response := code_access_required_response(request, self.organization):
+            return access_response
+        target = resolve_cleanup_repository(
+            self.team,
+            requested_repository=None,
+            saved_repository=None,
+            team_default_repository=cleanup_default_repository(self.team),
+            allow_refresh=False,
+        )
+        return Response(FeatureFlagCleanupTargetSerializer(target).data)
+
+    @validated_request(
+        request_serializer=FeatureFlagCleanupPrRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=FeatureFlagCleanupPrResponseSerializer),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid parameters"),
+        },
+    )
+    # Starting a task is a task write, so the token needs task:write on top of feature_flag:write.
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="cleanup_pr",
+        required_scopes=["feature_flag:write", "task:write"],
+    )
+    def cleanup_pr(self, request: ValidatedRequest, **kwargs):
+        """
+        Open a draft pull request that removes this flag from your code.
+
+        Starts a Code task that searches the connected GitHub repository for the flag and removes its checks,
+        keeping the code path chosen with `keep`. The flag in PostHog is not changed. Returns 400 when the flag
+        is not archived when keeping the disabled path, the chosen path does not exist on the flag, or no repository
+        can be determined. When keeping the enabled path or a variant, archive the flag after the PR deploys.
+        """
+        from products.tasks.backend.facade.access import (  # noqa: PLC0415 -- keeps the sandbox runtime off the flag API import path
+            code_access_required_response,
+            usage_limit_response,
+        )
+        from products.tasks.backend.facade.client_provenance import (
+            is_sandbox_origin_request,  # noqa: PLC0415 -- keeps the sandbox runtime off the flag API import path
+        )
+
+        feature_flag = self.get_object()
+        if is_sandbox_origin_request(request):
+            raise exceptions.PermissionDenied("Sandbox agents cannot start cleanup tasks.")
+        if access_response := code_access_required_response(request, self.organization):
+            return access_response
+        if limit_response := usage_limit_response(request.user, self.team_id):
+            return limit_response
+        data = request.validated_data
+        keep = FlagCleanupKeep(data["keep"])
+        if not feature_flag.archived and keep == FlagCleanupKeep.DISABLED:
+            raise exceptions.ValidationError("Archive the flag before opening a cleanup pull request.")
+
+        variant_key = data.get("variant_key") or None
+        variant_keys = [v["key"] for v in feature_flag.variants if v.get("key")]
+        if keep == FlagCleanupKeep.VARIANT:
+            if variant_key not in variant_keys:
+                raise exceptions.ValidationError(
+                    {"variant_key": "Choose one of this flag's variants when keeping a variant."}
+                )
+        elif variant_key:
+            raise exceptions.ValidationError({"variant_key": "Only send a variant when keeping a variant."})
+        elif keep == FlagCleanupKeep.ENABLED and variant_keys:
+            raise exceptions.ValidationError({"keep": "This flag has variants, so choose a variant to keep."})
+
+        target = resolve_cleanup_repository(
+            self.team,
+            requested_repository=data.get("repository") or None,
+            saved_repository=None,
+            team_default_repository=cleanup_default_repository(self.team),
+        )
+        repository = target["repository"]
+        if repository is None:
+            raise exceptions.ValidationError(
+                {"repository": "No GitHub repository could be determined. Connect GitHub or choose a repository."}
+            )
+
+        prompt = build_flag_cleanup_prompt(feature_flag.key, variant_keys, keep, variant_key)
+        created = create_flag_cleanup_task(
+            team=self.team,
+            flag_id=feature_flag.id,
+            prompt=prompt,
+            user_id=cast(User, request.user).id,
+            repository=repository,
+        )
+        return Response(
+            FeatureFlagCleanupPrResponseSerializer({"task_id": created.task_id, "repository": created.repository}).data
+        )
 
     @action(methods=["POST"], detail=True)
     def create_static_cohort_for_flag(self, request: request.Request, **kwargs):

@@ -1,3 +1,6 @@
+import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -25,6 +28,8 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
+
+import * as flagApi from 'products/feature_flags/frontend/generated/api'
 
 jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
     showApprovalRequiredToast: jest.fn(),
@@ -536,6 +541,79 @@ describe('updateFeatureFlagArchived', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(capturesOf('feature flag archived')).toHaveLength(0)
+    })
+
+    it.each(['enabled', 'variant'] as const)('keeps the list unchanged while starting cleanup for %s', async (keep) => {
+        const update = jest.spyOn(api, 'update')
+        const request = keep === 'variant' ? { keep, variant_key: 'test' } : { keep }
+        const cleanup = jest.spyOn(flagApi, 'featureFlagsCleanupPrCreate').mockResolvedValue({
+            task_id: 'cleanup-task',
+            repository: 'example/app',
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        const flags = logic.values.featureFlags
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, via: 'archive-dialog', cleanupPr: request })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(update).not.toHaveBeenCalled()
+        expect(cleanup).toHaveBeenCalledWith(String(MOCK_DEFAULT_PROJECT.id), 1, request)
+        expect(logic.values.featureFlags).toEqual(flags)
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
+        expect(capturesOf('feature flag archived')).toHaveLength(0)
+    })
+
+    it('starts cleanup for the saved flag after navigation unmounts the list', async () => {
+        let resolveArchive: (flag: Partial<FeatureFlagType>) => void = () => {}
+        jest.spyOn(api, 'update').mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveArchive = resolve
+                })
+        )
+        const cleanup = jest.spyOn(flagApi, 'featureFlagsCleanupPrCreate').mockResolvedValue({
+            task_id: 'cleanup-task',
+            repository: 'example/app',
+        })
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, cleanupPr: { keep: 'disabled' } })
+        logic.unmount()
+        resolveArchive({ id: 1, key: 'test-flag', archived: true, active: false })
+
+        await waitFor(() =>
+            expect(cleanup).toHaveBeenCalledWith(String(MOCK_DEFAULT_PROJECT.id), 1, { keep: 'disabled' })
+        )
+    })
+
+    it.each(['flag update', 'new page'])('preserves a %s received while cleanup is pending', async (change) => {
+        let resolveCleanup: (result: { task_id: string; repository: string }) => void = () => {}
+        const cleanup = jest
+            .spyOn(flagApi, 'featureFlagsCleanupPrCreate')
+            .mockImplementation(() => new Promise((resolve) => (resolveCleanup = resolve)))
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadFeatureFlagsSuccess({
+            ...logic.values.featureFlags,
+            count: 1,
+            results: [{ id: 1, key: 'test-flag', active: true } as FeatureFlagType],
+        })
+
+        logic.actions.updateFeatureFlagArchived({ id: 1, archived: true, cleanupPr: { keep: 'enabled' } })
+        await waitFor(() => expect(cleanup).toHaveBeenCalled())
+        if (change === 'flag update') {
+            logic.actions.updateFlag({ id: 1, key: 'updated-flag', active: false } as FeatureFlagType)
+        } else {
+            logic.actions.loadFeatureFlagsSuccess({
+                ...logic.values.featureFlags,
+                count: 31,
+                results: [{ id: 2, key: 'another-page', active: true } as FeatureFlagType],
+                filters: { search: 'another' },
+            })
+        }
+        const latest = logic.values.featureFlags
+        resolveCleanup({ task_id: 'cleanup-task', repository: 'example/app' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.featureFlags).toEqual(latest)
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
     })
 
     it('marks the row as updating until the archive resolves', async () => {

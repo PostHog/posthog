@@ -24,9 +24,11 @@ import {
     rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
+import type { FeatureFlagCleanupPrRequestApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import { FeatureFlagArchivedSource, reportFeatureFlagArchived } from './featureFlagArchiveDialog'
 import { openFeatureFlagDisableDialog } from './featureFlagDisableDialog'
+import { requestFeatureFlagCleanupPr } from './requestFeatureFlagCleanupPr'
 
 export const FLAGS_PER_PAGE = 100
 
@@ -307,8 +309,10 @@ export interface featureFlagsLogicActions {
         id,
         archived,
         via,
+        cleanupPr,
     }: {
         archived: boolean
+        cleanupPr?: FeatureFlagCleanupPrRequestApi
         id: number
         /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
         via?: FeatureFlagArchivedSource
@@ -316,6 +320,7 @@ export interface featureFlagsLogicActions {
         id: number
         archived: boolean
         via?: FeatureFlagArchivedSource
+        cleanupPr?: FeatureFlagCleanupPrRequestApi
     }
     updateFeatureFlagArchivedFailure: (
         error: string,
@@ -337,6 +342,7 @@ export interface featureFlagsLogicActions {
             id: number
             archived: boolean
             via?: FeatureFlagArchivedSource
+            cleanupPr?: FeatureFlagCleanupPrRequestApi
         }
     ) => {
         featureFlags: {
@@ -351,6 +357,7 @@ export interface featureFlagsLogicActions {
             id: number
             archived: boolean
             via?: FeatureFlagArchivedSource
+            cleanupPr?: FeatureFlagCleanupPrRequestApi
         }
     }
     updateFeatureFlagFailure: (
@@ -537,27 +544,36 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     id,
                     archived,
                     via,
+                    cleanupPr,
                 }: {
                     id: number
                     archived: boolean
                     /** Telemetry source; only meaningful (and only captured) when archiving, not unarchiving. */
                     via?: FeatureFlagArchivedSource
+                    cleanupPr?: FeatureFlagCleanupPrRequestApi
                 }) => {
+                    const projectId = values.currentProjectId
+                    const featureFlags = values.featureFlags
                     try {
+                        if (archived && cleanupPr && cleanupPr.keep !== 'disabled') {
+                            await requestFeatureFlagCleanupPr(projectId, id, cleanupPr)
+                            actions.setFeatureFlagUpdating(id, false)
+                            return featureFlags
+                        }
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
-                        const response = await api.update(
-                            `api/projects/${values.currentProjectId}/feature_flags/${id}`,
-                            {
-                                ...(archived ? { archived: true, active: false } : { archived: false }),
-                                ...rowVersionToken(values.featureFlags.results.find((flag) => flag.id === id)),
-                            }
-                        )
-                        const updatedFlags = values.featureFlags.results.map((flag) =>
-                            flag.id === response.id ? response : flag
-                        )
+                        const response = await api.update(`api/projects/${projectId}/feature_flags/${id}`, {
+                            ...(archived ? { archived: true, active: false } : { archived: false }),
+                            ...rowVersionToken(values.featureFlags.results.find((flag) => flag.id === id)),
+                        })
                         if (archived && via) {
                             reportFeatureFlagArchived(via)
                         }
+                        if (archived && cleanupPr) {
+                            void requestFeatureFlagCleanupPr(projectId, response.id, cleanupPr)
+                        }
+                        const updatedFlags = values.featureFlags.results.map((flag) =>
+                            flag.id === response.id ? response : flag
+                        )
                         return { ...values.featureFlags, results: updatedFlags, lastUpdatedFlagId: id }
                     } catch (e: any) {
                         actions.setFeatureFlagUpdating(id, false)
@@ -574,6 +590,8 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     })),
     reducers({
         featureFlags: {
+            updateFeatureFlagArchivedSuccess: (state, { featureFlags, payload }) =>
+                payload?.archived && payload.cleanupPr && payload.cleanupPr.keep !== 'disabled' ? state : featureFlags,
             updateFlag: (state, { flag }) => ({
                 ...state,
                 results: state.results.map((stateFlag) => (stateFlag.id === flag.id ? flag : stateFlag)),
