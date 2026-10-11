@@ -9,13 +9,15 @@ Seven assets on one daily partition, each writing Parquet under the configured S
     inbox_signal_embeddings/v1/dt=D/        one row per signal emission during D, for the group-level model
     inbox_report_title_embeddings/v1/dt=D/  the same shape, for the title-only rendering
     inbox_report_reviewers/v1/dt=D/         one row per suggested reviewer of each spine report
+    inbox_user_report_interactions/v1/dt=D/ cumulative interactions at (report, person) grain
 
 The first four are report grain and feed one table. inbox_signal_embeddings is signal grain and is
 read on its own, joined to the others by report_id at training time. inbox_report_title_embeddings
 is a report-grain leaf: nothing joins it, and the training side pairs it to inbox_report_embeddings
 by report_id when it measures one rendering against the other. inbox_report_reviewers is a
 (report, reviewer) leaf with its own schema version: nothing joins it, and the training side pairs
-it to the report tables by report_id.
+it to the report tables by report_id. inbox_user_report_interactions is a (report, person) grain
+leaf with its own schema version, so nothing joins it either.
 
 Partition dt=D is a full snapshot of the eligible report inventory (promoted or ever-labeled),
 with every label aggregate bounded `event_time < D+1 00:00 UTC`. Label columns are cumulative,
@@ -126,6 +128,12 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     SERVER_ACTIONS_STREAM,
     SIGNAL_EMBEDDINGS_QUERY_SETTINGS,
     SIGNAL_EMBEDDINGS_SQL,
+    USER_KEY_COLUMNS,
+    USER_LABEL_DEFAULTS,
+    USER_LABEL_STREAM_COLUMNS,
+    USER_LABEL_STREAMS,
+    USER_SERVER_ACTIONS_COLUMNS,
+    USER_SERVER_ACTIONS_STREAM,
     etl_workload,
     hogql_rows,
     labels_team,
@@ -134,6 +142,9 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
 )
 
 FEATURE_SCHEMA_VERSION = 9
+# Apart from FEATURE_SCHEMA_VERSION on purpose: the labels refresh sensor rewrites every labels
+# partition whose stamp is older than that one, and a user-grain change must not set it off.
+USER_INTERACTIONS_SCHEMA_VERSION = 1
 
 STATE_TABLE = "inbox_report_state"
 EMBEDDINGS_TABLE = "inbox_report_embeddings"
@@ -142,6 +153,7 @@ LABELS_TABLE = "inbox_report_labels"
 MODEL_DATA_TABLE = "inbox_report_model_data"
 SIGNAL_EMBEDDINGS_TABLE = "inbox_signal_embeddings"
 REVIEWERS_TABLE = "inbox_report_reviewers"
+USER_INTERACTIONS_TABLE = "inbox_user_report_interactions"
 
 # The reviewers asset is a leaf with its own columns, so its schema moves apart from
 # FEATURE_SCHEMA_VERSION. The same rule applies: additive nullable columns bump it.
@@ -371,6 +383,78 @@ _MODEL_DATA_FIELDS: list[tuple[str, pa.DataType]] = [
 ]
 MODEL_DATA_SCHEMA = pa.schema(_MODEL_DATA_FIELDS)
 
+_USER_INTERACTION_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("snapshot_date", pa.date32()),
+    ("report_id", pa.string()),
+    ("report_team_id", pa.int64()),
+    ("user_distinct_id", pa.string()),
+    ("user_uuid", pa.string()),
+    ("impression_unit_count", pa.int32()),
+    ("first_impressed_at", _TIMESTAMP),
+    ("best_impression_rank", pa.int32()),
+    ("impressed_as_suggested_reviewer_count", pa.int32()),
+    ("first_impressed_as_suggested_reviewer_at", _TIMESTAMP),
+    ("open_count", pa.int32()),
+    ("first_opened_at", _TIMESTAMP),
+    ("last_opened_at", _TIMESTAMP),
+    ("first_open_method", pa.string()),
+    ("close_count", pa.int32()),
+    ("first_closed_at", _TIMESTAMP),
+    ("total_time_spent_ms", pa.int64()),
+    ("ui_dismiss_count", pa.int32()),
+    ("first_ui_dismissed_at", _TIMESTAMP),
+    ("create_pr_click_count", pa.int32()),
+    ("first_create_pr_clicked_at", _TIMESTAMP),
+    ("discuss_count", pa.int32()),
+    ("first_discussed_at", _TIMESTAMP),
+    ("snooze_count", pa.int32()),
+    ("first_snooze_clicked_at", _TIMESTAMP),
+    ("reviewer_add_count", pa.int32()),
+    ("first_reviewer_added_at", _TIMESTAMP),
+    ("reviewer_remove_count", pa.int32()),
+    ("first_reviewer_removed_at", _TIMESTAMP),
+    ("resolve_click_count", pa.int32()),
+    ("first_resolve_clicked_at", _TIMESTAMP),
+    ("copy_prompt_count", pa.int32()),
+    ("first_prompt_copied_at", _TIMESTAMP),
+    ("implement_click_count", pa.int32()),
+    ("first_implement_clicked_at", _TIMESTAMP),
+    ("open_pr_click_count", pa.int32()),
+    ("first_open_pr_clicked_at", _TIMESTAMP),
+    ("view_diff_count", pa.int32()),
+    ("first_diff_viewed_at", _TIMESTAMP),
+    ("restore_count", pa.int32()),
+    ("first_restored_at", _TIMESTAMP),
+    ("feedback_positive_count", pa.int32()),
+    ("first_positive_feedback_at", _TIMESTAMP),
+    ("feedback_negative_count", pa.int32()),
+    ("first_negative_feedback_at", _TIMESTAMP),
+    ("refund_count", pa.int32()),
+    ("first_refunded_at", _TIMESTAMP),
+    ("status_resolved_count", pa.int32()),
+    ("first_status_resolved_at", _TIMESTAMP),
+    ("status_dismissed_count", pa.int32()),
+    ("first_status_dismissed_at", _TIMESTAMP),
+    ("status_snoozed_count", pa.int32()),
+    ("first_status_snoozed_at", _TIMESTAMP),
+    ("first_status_dismissal_reason", pa.string()),
+    ("first_dismissal_actor_kind", pa.string()),
+    ("pr_closed_by_count", pa.int32()),
+    ("first_pr_closed_by_at", _TIMESTAMP),
+    ("pr_merged_by_count", pa.int32()),
+    ("first_pr_merged_by_at", _TIMESTAMP),
+    ("claim_count", pa.int32()),
+    ("first_claimed_at", _TIMESTAMP),
+    ("linked_pr_count", pa.int32()),
+    ("first_pr_linked_at", _TIMESTAMP),
+    ("note_count", pa.int32()),
+    ("first_noted_at", _TIMESTAMP),
+    ("first_viewed_at", _TIMESTAMP),
+    ("first_read_at", _TIMESTAMP),
+    ("first_slack_discussed_at", _TIMESTAMP),
+]
+USER_INTERACTIONS_SCHEMA = pa.schema(_USER_INTERACTION_FIELDS)
+
 _STATE_PASSTHROUGH_COLUMNS = (
     "report_team_id",
     "region",
@@ -397,7 +481,7 @@ _STATE_PASSTHROUGH_COLUMNS = (
 _ORM_ID_CHUNK = 10_000
 
 
-def _chunked(ids: list[str]) -> Iterator[list[str]]:
+def _chunked[T](ids: list[T]) -> Iterator[list[T]]:
     for offset in range(0, len(ids), _ORM_ID_CHUNK):
         yield ids[offset : offset + _ORM_ID_CHUNK]
 
@@ -504,6 +588,114 @@ def server_action_rows(report_ids: list[str], snapshot_end: datetime.datetime) -
     return [
         (report_id, *(values[column] for column in SERVER_ACTIONS_COLUMNS)) for report_id, values in entries.items()
     ]
+
+
+@frozen
+class UserIdentity:
+    distinct_id: str
+    uuid: str
+
+
+def user_identities(field: str, values: list[Any]) -> dict[Any, UserIdentity]:
+    """The identity of each user, keyed by `field` (`id` or `distinct_id`). A user with no
+    distinct id is left out, because the user grain has no key for them."""
+    identities: dict[Any, UserIdentity] = {}
+    for chunk in _chunked(values):
+        for key, distinct_id, user_uuid in (
+            User.objects.filter(**{f"{field}__in": chunk}, distinct_id__isnull=False)
+            .exclude(distinct_id="")
+            .values_list(field, "distinct_id", "uuid")
+        ):
+            identities[key] = UserIdentity(distinct_id=distinct_id, uuid=str(user_uuid))
+    return identities
+
+
+# The action types each user-grain Postgres column reads `first_at` from.
+_USER_ACTION_FIRST_COLUMNS: dict[str, str] = {
+    SignalReportAction.ActionType.VIEW: "first_viewed_at",
+    SignalReportAction.ActionType.READ: "first_read_at",
+    SignalReportAction.ActionType.SLACK_DISCUSSION: "first_slack_discussed_at",
+}
+
+
+def user_server_action_rows(report_ids: list[str], snapshot_end: datetime.datetime) -> list[tuple[Any, ...]]:
+    """One `(report_id, user_distinct_id, *USER_SERVER_ACTIONS_COLUMNS)` row per report and person
+    with a server-side action before the cutoff. Artefacts count by their author and the same
+    `HUMAN_ACTOR_KINDS` rule as `server_action_rows`; action rows give only `first_at`."""
+    entries: dict[tuple[str, int], dict[str, Any]] = {}
+
+    def entry(report_id: Any, user_id: int) -> dict[str, Any]:
+        return entries.setdefault(
+            (str(report_id), user_id), {column: USER_LABEL_DEFAULTS[column] for column in USER_SERVER_ACTIONS_COLUMNS}
+        )
+
+    for chunk in _chunked(report_ids):
+        artefacts = (
+            SignalReportArtefact.objects.filter(
+                report_id__in=chunk,
+                type__in=list(_ACTION_ARTEFACT_COLUMNS),
+                actor_kind__in=HUMAN_ACTOR_KINDS,
+                created_by__isnull=False,
+                created_at__lt=snapshot_end,
+            )
+            .values("report_id", "created_by_id", "type")
+            .annotate(row_count=Count("id"), earliest_at=Min("created_at"))
+        )
+        for row in artefacts.iterator(chunk_size=2000):
+            count_column, first_column = _ACTION_ARTEFACT_COLUMNS[row["type"]]
+            values = entry(row["report_id"], row["created_by_id"])
+            values[count_column] = row["row_count"]
+            values[first_column] = row["earliest_at"]
+        actions = SignalReportAction.all_teams.filter(
+            report_id__in=chunk, type__in=list(_USER_ACTION_FIRST_COLUMNS), first_at__lt=snapshot_end
+        ).values_list("report_id", "user_id", "type", "first_at")
+        for report_id, user_id, action_type, first_at in actions.iterator(chunk_size=2000):
+            entry(report_id, user_id)[_USER_ACTION_FIRST_COLUMNS[action_type]] = first_at
+
+    identities = user_identities("id", sorted({user_id for _, user_id in entries}))
+    return [
+        (report_id, identities[user_id].distinct_id, *(values[column] for column in USER_SERVER_ACTIONS_COLUMNS))
+        for (report_id, user_id), values in entries.items()
+        if user_id in identities
+    ]
+
+
+def _report_teams(report_ids: list[str], snapshot_end: datetime.datetime) -> dict[str, int]:
+    """The owning team of each report that exists in this region's Postgres before the cutoff."""
+    teams: dict[str, int] = {}
+    for chunk in _chunked(report_ids):
+        teams |= {
+            str(report_id): team_id
+            for report_id, team_id in SignalReport.objects.filter(
+                id__in=chunk, created_at__lt=snapshot_end
+            ).values_list("id", "team_id")
+        }
+    return teams
+
+
+def assemble_user_interaction_rows(
+    merged_rows: list[dict[str, Any]],
+    report_teams: Mapping[str, int],
+    consent_team_ids: Collection[int],
+    user_uuids: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    """Keep the rows whose report exists in this region and belongs to a team opted in to AI
+    training, and add the report's team and the person's uuid. Stricter than the labels asset, which
+    keeps label-only rows, because these rows describe a person. Sorted, so a re-run writes the same
+    object."""
+    rows: list[dict[str, Any]] = []
+    for merged in merged_rows:
+        team_id = report_teams.get(merged["report_id"])
+        if team_id is None or team_id not in consent_team_ids:
+            continue
+        rows.append(
+            {
+                **merged,
+                "report_team_id": team_id,
+                "user_uuid": user_uuids.get(merged["user_distinct_id"]),
+            }
+        )
+    return sorted(rows, key=lambda row: (row["report_id"], row["user_distinct_id"]))
 
 
 @dagster.asset(name=STATE_TABLE, **COMMON_ASSET_KWARGS)
@@ -1071,6 +1263,78 @@ def inbox_report_labels(context: dagster.AssetExecutionContext) -> None:
     )
 
 
+@dagster.asset(name=USER_INTERACTIONS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_user_report_interactions(context: dagster.AssetExecutionContext) -> None:
+    """Cumulative interactions at (report, person) grain, for user-report affinity models.
+
+    A leaf: nothing joins it, so a failure here never fails inbox_report_model_data. The person key
+    is `User.distinct_id`; `user_uuid` is null when that distinct id is not a user in this region.
+    """
+    if skip_unconfigured(context):
+        return
+    _tag_dagster_queries(context, query_type="inbox_ranking_user_interactions")
+    partition_key = context.partition_key
+    _, snapshot_end = snapshot_bounds(partition_key)
+    team = labels_team()
+
+    stream_rows: dict[str, list[tuple[Any, ...]]] = {}
+    for stream_name, sql, _columns in USER_LABEL_STREAMS:
+        stream_rows[stream_name] = hogql_rows(
+            sql,
+            team=team,
+            query_type=f"inbox_ranking_{stream_name}",
+            snapshot_end=snapshot_end,
+        )
+        context.log.info(f"{stream_name}: {len(stream_rows[stream_name])} (report, person) pairs")
+
+    # The same report set the labels asset reads server-side actions for, narrowed to the reports
+    # whose rows can be written.
+    candidate_ids = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(spine_report_filter(snapshot_end)).values_list("id", flat=True)
+    } | valid_report_uuids({row[0] for rows in stream_rows.values() for row in rows})
+    report_teams = _report_teams(sorted(candidate_ids), snapshot_end)
+    consent_team_ids = training_consent_team_ids()
+    consented_ids = sorted(report_id for report_id, team_id in report_teams.items() if team_id in consent_team_ids)
+    stream_rows[USER_SERVER_ACTIONS_STREAM] = user_server_action_rows(consented_ids, snapshot_end)
+
+    merged = merge_label_streams(
+        stream_rows,
+        datetime.date.fromisoformat(partition_key),
+        key_columns=USER_KEY_COLUMNS,
+        stream_columns=USER_LABEL_STREAM_COLUMNS,
+        defaults=USER_LABEL_DEFAULTS,
+    )
+    distinct_ids = sorted({row["user_distinct_id"] for row in merged})
+    user_uuids = {
+        distinct_id: identity.uuid for distinct_id, identity in user_identities("distinct_id", distinct_ids).items()
+    }
+    rows = assemble_user_interaction_rows(merged, report_teams, consent_team_ids, user_uuids)
+
+    bucket = dataset_bucket()
+    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, USER_INTERACTIONS_TABLE, partition_key)
+    write_parquet(
+        s3_client(),
+        bucket,
+        key,
+        pa.Table.from_pylist(rows, schema=USER_INTERACTIONS_SCHEMA),
+        schema_version=USER_INTERACTIONS_SCHEMA_VERSION,
+    )
+    context.add_output_metadata(
+        {
+            "rows": dagster.MetadataValue.int(len(rows)),
+            "reports": dagster.MetadataValue.int(len({row["report_id"] for row in rows})),
+            "users": dagster.MetadataValue.int(len({row["user_distinct_id"] for row in rows})),
+            "excluded_pairs": dagster.MetadataValue.int(len(merged) - len(rows)),
+            **{
+                f"{stream_name}_pairs": dagster.MetadataValue.int(len(stream))
+                for stream_name, stream in stream_rows.items()
+            },
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
 def label_provenance_ok(
     pg_status: str | None,
     pg_updated_at: datetime.datetime | None,
@@ -1236,6 +1500,7 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         MODEL_DATA_TABLE,
         TITLE_EMBEDDINGS_TABLE,
         REVIEWERS_TABLE,
+        USER_INTERACTIONS_TABLE,
     ],
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
