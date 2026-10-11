@@ -35,13 +35,11 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
-import { ByokModelPickerNotice } from '../ByokModelPickerNotice'
-import { getModelPickerFooterLink, ModelPicker } from '../ModelPicker'
-import { modelPickerLogic } from '../modelPickerLogic'
 import { providerKeyStateIssueDescription, providerLabel } from '../settings/providerKeyStateUtils'
 import { CategoricalEvaluationConfig } from './components/CategoricalEvaluationConfig'
 import { EvaluationBackfillsTab } from './components/EvaluationBackfillsTab'
 import { EvaluationCodeEditor } from './components/EvaluationCodeEditor'
+import { EvaluationModelPicker } from './components/EvaluationModelPicker'
 import { EvaluationPromptEditor } from './components/EvaluationPromptEditor'
 import { EvaluationReportConfig } from './components/EvaluationReportConfig'
 import { EvaluationReportsCallout } from './components/EvaluationReportsCallout'
@@ -942,66 +940,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     },
                 ]}
             />
-        </div>
-    )
-}
-
-function EvaluationModelPicker(): JSX.Element {
-    const { byokModels, evaluationProviderModelGroups, byokModelsLoading, providerKeysLoading } =
-        useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation, usesDecisionModel } =
-        useValues(llmEvaluationLogic)
-    const { selectModelFromPicker } = useActions(llmEvaluationLogic)
-
-    // Evals always run on the team's own provider key, so only BYOK models are offered.
-    const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
-    const groups = evaluationProviderModelGroups.filter(
-        (group) =>
-            evaluation?.output_type === 'boolean' ||
-            evaluation?.output_type === 'categorical' ||
-            evaluation?.output_type === 'numeric' ||
-            group.provider !== 'system_one'
-    )
-    const loading = byokModelsLoading || providerKeysLoading
-
-    const footerLink = getModelPickerFooterLink(groups.some((group) => !group.disabledReason))
-
-    return (
-        <div className="bg-bg-light border rounded p-6">
-            <h3 className="text-lg font-semibold mb-2">Judge model</h3>
-            <p className="text-muted text-sm mb-4">
-                Select which LLM provider and model to use for running this evaluation.
-            </p>
-
-            <div className="space-y-4">
-                <LemonField.Pure label="Model">
-                    <div>
-                        <ModelPicker
-                            model={selectedModel}
-                            selectedProviderKeyId={selectedPickerProviderKeyId}
-                            onSelect={selectModelFromPicker}
-                            groups={groups}
-                            loading={loading}
-                            footerLink={footerLink}
-                            selectedModelName={selectedModelName}
-                            data-attr="evaluation-model-selector"
-                        />
-                        <ByokModelPickerNotice forEvaluation />
-                        {evaluation && usesDecisionModel && (
-                            <p className="text-sm text-muted mt-2">
-                                {evaluation.output_type === 'categorical'
-                                    ? 'This decision model selects categories without written reasoning. For multiple selections, each category is included when its probability is 50% or higher.'
-                                    : evaluation.output_type === 'numeric'
-                                      ? 'This decision model estimates a score between your minimum and maximum without written reasoning. Define what low and high scores mean in your evaluation prompt. Scores can be fractional.'
-                                      : 'This decision model returns a probability without written reasoning. A probability of 50% or higher produces a true result.'}
-                            </p>
-                        )}
-                        {modelSelectionRequired && !selectedModel && (
-                            <p className="text-sm text-danger mt-1">Select a judge model.</p>
-                        )}
-                    </div>
-                </LemonField.Pure>
-            </div>
         </div>
     )
 }

@@ -56,7 +56,11 @@ from products.ai_observability.backend.llm.errors import (
     ProviderHostUnresolvedError,
     UnsupportedProviderError,
 )
-from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_BASE_URL, decision_model_ids
+from products.ai_observability.backend.llm.providers.openrouter import (
+    OPENROUTER_BASE_URL,
+    decision_model_ids,
+    non_chat_model_ids,
+)
 from products.ai_observability.backend.models.provider_keys import (
     LLMProvider,
     LLMProviderKey,
@@ -112,7 +116,10 @@ class LLMProxyModelInfoSerializer(serializers.Serializer):
     description = serializers.CharField(allow_blank=True, help_text="Description of the model.")
     is_recommended = serializers.BooleanField(help_text="Whether the provider recommends this model.")
     supports_decisions = serializers.BooleanField(
-        default=False, help_text="Whether this model supports decision questions instead of chat completions."
+        default=False, help_text="Whether this model supports decision questions."
+    )
+    supports_chat = serializers.BooleanField(
+        default=True, help_text="Whether this model supports chat completions with written reasoning."
     )
 
 
@@ -500,10 +507,12 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 recommended = Client.recommended_models(provider_key.provider)
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 decision_models: frozenset[str] = frozenset()
+                non_chat_models: frozenset[str] = frozenset()
                 if provider_key.provider == LLMProvider.OPENROUTER and decision_evaluations_enabled(
                     provider_key.team_id, base_url=OPENROUTER_BASE_URL
                 ):
                     decision_models = decision_model_ids() or frozenset()
+                    non_chat_models = non_chat_model_ids() or frozenset()
                     models = list(dict.fromkeys([*models, *sorted(decision_models)]))
                 return Response(
                     [
@@ -514,6 +523,7 @@ class LLMProxyViewSet(viewsets.ViewSet):
                             description="",
                             is_recommended=m in recommended,
                             supports_decisions=provider_key.provider == LLMProvider.SYSTEM_ONE or m in decision_models,
+                            supports_chat=provider_key.provider != LLMProvider.SYSTEM_ONE and m not in non_chat_models,
                         )
                         for m in models
                     ]

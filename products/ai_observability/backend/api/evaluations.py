@@ -123,7 +123,12 @@ def _evaluation_output_enabled(serializer: serializers.BaseSerializer, flag_key:
                         "type": "string",
                         "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
                         "minLength": 1,
-                    }
+                    },
+                    "judge_method": {
+                        "type": "string",
+                        "enum": ["llm", "decision"],
+                        "description": "Judge method. Omit to preserve automatic routing for existing evaluations.",
+                    },
                 },
                 "additionalProperties": False,
             },
@@ -544,18 +549,31 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         }
 
     def _uses_decision_model(self, data: dict[str, object]) -> bool:
+        stored_config = getattr(self.instance, "evaluation_config", {})
+        evaluation_config = data.get("evaluation_config", stored_config)
+        judge_method = evaluation_config.get("judge_method") if isinstance(evaluation_config, dict) else None
+        method_changed = judge_method != stored_config.get("judge_method")
         should_validate_model = (
             self.instance is None
             or bool({"model_configuration", "evaluation_type", "output_type", "output_config"} & data.keys())
             or data.get("enabled", False)
+            or method_changed
         )
         if not should_validate_model:
             return False
 
         model_configuration = self._effective_model_configuration(data) or {}
+        if judge_method is not None and not model_configuration:
+            raise serializers.ValidationError(
+                {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
+            )
         model_provider = model_configuration.get("provider")
+        if judge_method == "llm":
+            if model_provider == "system_one":
+                raise serializers.ValidationError({"model_configuration": "Select a model that supports LLM judging."})
+            return False
         try:
-            return is_decision_model(
+            supports_decisions = is_decision_model(
                 model_provider,
                 model_configuration.get("model"),
                 openrouter_enabled=model_provider == "openrouter"
@@ -563,6 +581,11 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             )
         except ProviderConnectionError as e:
             raise serializers.ValidationError({"model_configuration": str(e)}) from e
+        if judge_method == "decision" and not supports_decisions:
+            raise serializers.ValidationError(
+                {"model_configuration": "Select an available decision model for this judge method."}
+            )
+        return supports_decisions
 
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
@@ -613,7 +636,10 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     {"model_configuration": "Select a provider and model for this LLM judge evaluation."}
                 )
 
-        if data.get("model_configuration") or data.get("enabled"):
+        method_changed = "evaluation_config" in data and data["evaluation_config"].get("judge_method") != getattr(
+            self.instance, "evaluation_config", {}
+        ).get("judge_method")
+        if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
 
         should_validate_configs = (

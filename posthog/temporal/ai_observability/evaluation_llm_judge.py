@@ -599,8 +599,14 @@ def call_llm_judge(
         openrouter_enabled = provider == "openrouter" and decision_evaluations_enabled(
             team_id, base_url=OPENROUTER_DECISIONS_BASE_URL
         )
-        uses_decisions = is_decision_model(provider, model, openrouter_enabled=openrouter_enabled)
-        if provider == "openrouter" and not openrouter_enabled:
+        judge_method = evaluation["evaluation_config"].get("judge_method")
+        # Explicit selection takes precedence for models that support both methods.
+        uses_decisions = (
+            judge_method == "decision"
+            if judge_method is not None
+            else is_decision_model(provider, model, openrouter_enabled=openrouter_enabled)
+        )
+        if judge_method is None and provider == "openrouter" and not openrouter_enabled:
             uses_decisions = model in (decision_model_ids(refresh=False) or ())
         if uses_decisions:
             if output_type not in ("boolean", "categorical", "numeric"):
