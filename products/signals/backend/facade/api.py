@@ -70,6 +70,10 @@ from products.signals.backend.report_sections import (
     ReportSections as ReportSections,
     report_sections as report_sections,
 )
+from products.signals.backend.report_urls import (
+    ReportLinkSource as ReportLinkSource,
+    report_path as report_path,
+)
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching

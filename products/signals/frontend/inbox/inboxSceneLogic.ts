@@ -35,7 +35,9 @@ import {
     captureInboxReportOpened,
     captureInboxReportScrolled,
     InboxReportCloseMethod,
+    InboxReportLinkSource,
     InboxReportOpenMethod,
+    parseInboxReportLinkSource,
 } from './inboxAnalytics'
 import { inboxBulkActionsLogic } from './logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from './logics/inboxFiltersLogic'
@@ -236,6 +238,15 @@ function hasVisitedInboxList(): boolean {
     }
 }
 
+function hasLinkSource(searchParams: Record<string, any>): boolean {
+    return searchParams.source !== undefined
+}
+
+function withoutLinkSource(searchParams: Record<string, any>): Record<string, any> {
+    const { source: _source, ...rest } = searchParams
+    return rest
+}
+
 function mountedReportLists(): ReturnType<typeof reportListLogic.build>[] {
     return (Object.keys(INBOX_REPORT_SECTION_LIST_PARAMS) as InboxReportSectionKey[]).flatMap((sectionKey) => {
         const mounted = reportListLogic.findMounted({
@@ -338,6 +349,7 @@ function captureOpenWhenRanked(
     cache: Record<string, any>,
     tracking: InboxOpenTracking,
     openMethod: InboxReportOpenMethod,
+    linkSource: InboxReportLinkSource | null,
     flatList: boolean
 ): void {
     const previousReportId = cache.previousReportId ?? null
@@ -350,6 +362,7 @@ function captureOpenWhenRanked(
             {
                 report: tracking.report,
                 openMethod,
+                linkSource,
                 previousReportId,
                 rank: resolved.rank,
                 listSize: resolved.listSize,
@@ -583,10 +596,12 @@ export interface inboxSceneLogicActions {
     }
     setSelectedReportId: (
         id: string | null,
-        openMethod?: InboxReportOpenMethod
+        openMethod?: InboxReportOpenMethod,
+        linkSource?: InboxReportLinkSource | null
     ) => {
         id: string | null
         openMethod: InboxReportOpenMethod
+        linkSource: InboxReportLinkSource | null
     }
     setSelectedScoutSkillName: (
         skillName: string | null,
@@ -643,9 +658,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     })),
 
     actions({
-        setSelectedReportId: (id: string | null, openMethod: InboxReportOpenMethod = 'unknown') => ({
+        setSelectedReportId: (
+            id: string | null,
+            openMethod: InboxReportOpenMethod = 'unknown',
+            linkSource: InboxReportLinkSource | null = null
+        ) => ({
             id,
             openMethod,
+            linkSource,
         }),
         // Seed (or clear) the selected report synchronously from an already-loaded list row, so the
         // detail renders without a spinner while the authoritative fetch runs in the background.
@@ -988,7 +1008,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.setActiveTab('reports')
             }
         },
-        setSelectedReportId: ({ id, openMethod }) => {
+        setSelectedReportId: ({ id, openMethod, linkSource }) => {
             // Close the previously open report (if any) before opening/clearing. `next_report` when
             // switching straight to another report, `deselected` when returning to the list.
             const open: InboxOpenTracking | undefined = cache.openTracking
@@ -1012,6 +1032,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             clearScratchpadSearch()
             // The open method is resolved once the authoritative record lands in loadSelectedReportSuccess.
             cache.pendingOpenMethod = openMethod
+            cache.pendingLinkSource = linkSource
             // A report and a scout detail are mutually exclusive full-width views.
             if (values.selectedScoutSkillName !== null) {
                 actions.setSelectedScoutSkillName(null)
@@ -1049,9 +1070,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 cache,
                 tracking,
                 (cache.pendingOpenMethod as InboxReportOpenMethod | undefined) ?? 'unknown',
+                (cache.pendingLinkSource as InboxReportLinkSource | null | undefined) ?? null,
                 values.isRedesign
             )
             cache.pendingOpenMethod = undefined
+            cache.pendingLinkSource = undefined
             // Best-effort server-side view record: consumption evidence that keeps the authoring
             // scout from being auto-paused as ignored. The analytics event above stays the rich
             // record (rank, open method, dwell), so a failure here is swallowed.
@@ -1224,9 +1247,10 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             // queue, which the triage URL carries at this moment.
             openMethod === 'triage'
                 ? { back: removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search }
-                : router.values.searchParams,
+                : withoutLinkSource(router.values.searchParams),
             router.values.hashParams,
-            { replace: false },
+            // Replace, so Back does not return to the link URL and its `source`.
+            { replace: hasLinkSource(router.values.searchParams) },
         ],
         setSelectedScoutSkillName: ({ findingId }) => [
             inboxSurfaceUrl(values),
@@ -1447,14 +1471,20 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 if (values.selectedReportId !== reportId) {
                     // A `back` pointing at triage means the open came from the triage card's "Full
                     // report" link, which navigates by URL rather than through `openCurrent`; attribute
-                    // it to triage so the metric isn't split with plain list clicks. Otherwise: a first
-                    // route before any list URL was seen is a cold deep-link, else an in-app click.
+                    // it to triage so the metric isn't split with plain list clicks. Otherwise: a link
+                    // PostHog wrote, or a first route before any list URL was seen, is a deep-link,
+                    // else an in-app click. A tab that already saw the list can still open a link.
                     const fromTriage =
                         typeof searchParams.back === 'string' && searchParams.back.startsWith(urls.inboxTriage())
+                    const linkSource = fromTriage ? null : parseInboxReportLinkSource(searchParams.source)
                     actions.setSelectedReportId(
                         reportId,
-                        fromTriage ? 'triage' : hasVisitedInboxList() ? 'click' : 'deeplink'
+                        fromTriage ? 'triage' : linkSource !== null || !hasVisitedInboxList() ? 'deeplink' : 'click',
+                        linkSource
                     )
+                } else if (hasLinkSource(searchParams)) {
+                    // A copied address bar must not pass the original `source` on to the next reader.
+                    router.actions.replace(router.values.location.pathname, withoutLinkSource(searchParams), hashParams)
                 }
             },
         }

@@ -2031,7 +2031,9 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"
-        expected_url = None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}"
+        expected_url = (
+            None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}?source=scout"
+        )
         if expected_url is None:
             assert forward.kwargs["properties"]["report_url"] is None
         else:
@@ -2062,7 +2064,9 @@ class TestScoutReportAPI(APIBaseTest):
         )
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
-        assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
+        assert forward.kwargs["properties"]["report_url"].endswith(
+            f"/inbox/reports/{created['report_id']}?source=scout"
+        )
         assert props["run_id"] == str(run.id)
         assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"
         # Ingestion dedupes on this uuid. If its key drifts, an edit retried across a deploy fires twice.

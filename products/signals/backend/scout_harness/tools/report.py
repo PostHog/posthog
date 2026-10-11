@@ -32,7 +32,6 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import TYPE_CHECKING, Any, ParamSpec, TypeVar, cast
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
@@ -87,6 +86,7 @@ from products.signals.backend.report_metrics import (
     metric_batch_error,
 )
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -1655,7 +1655,7 @@ def _report_url(team_id: int, report_id: str | None) -> str | None:
     canonical form used by the Slack inbox notifications (`slack_inbox_notifications.py`)."""
     if not report_id:
         return None
-    return f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+    return build_report_url(team_id, report_id, ReportLinkSource.SCOUT)
 
 
 def _chart_event_key(chart: ReportChartInput) -> str:

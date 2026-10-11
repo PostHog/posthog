@@ -61,7 +61,7 @@ class TestPostReportLinkToGithubIssues(BaseTest):
         comment.assert_called_once()
         repository, number, body = comment.call_args.args
         assert (repository, number) == ("acme/widgets", 42)
-        assert f"/project/{self.team.pk}/inbox/reports/{self.report.id}" in body
+        assert f"/project/{self.team.pk}/inbox/reports/{self.report.id}?source=github_comment" in body
 
     def test_comment_carries_no_report_content(self):
         # The comment is public on the issue thread while the report is behind the project's access

@@ -99,6 +99,35 @@ export type InboxSelectionEntryMethod = 'long_press' | 'meta_click' | 'shift_cli
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
 
 /**
+ * The surface that wrote a report link, from its `source` query param. Must match
+ * `ReportLinkSource` in `products/signals/backend/report_urls.py`.
+ */
+export const INBOX_REPORT_LINK_SOURCES = [
+    'mcp',
+    'slack',
+    'slack_scout',
+    'scout',
+    'github_comment',
+    'github_pr',
+    'tracker',
+    'support',
+    'task',
+    'today',
+] as const
+
+/** `other` is a `source` value outside the fixed set, so a typo or a hand-edited link stays countable. */
+export type InboxReportLinkSource = (typeof INBOX_REPORT_LINK_SOURCES)[number] | 'other'
+
+export function parseInboxReportLinkSource(value: unknown): InboxReportLinkSource | null {
+    if (value === undefined || value === null || value === '') {
+        return null
+    }
+    return (INBOX_REPORT_LINK_SOURCES as readonly unknown[]).includes(value)
+        ? (value as InboxReportLinkSource)
+        : 'other'
+}
+
+/**
  * How a report detail was closed. `page_unload` is a tab close or hard page navigation: the scene
  * never unmounts, so it flushes on `pagehide` instead of the `unmount` path.
  */
@@ -438,6 +467,7 @@ export function captureInboxReportOpened(
     params: {
         report: SignalReport
         openMethod: InboxReportOpenMethod
+        linkSource: InboxReportLinkSource | null
         previousReportId: string | null
         rank: number | null
         listSize: number | null
@@ -453,6 +483,7 @@ export function captureInboxReportOpened(
             status: params.report.status ?? null,
             source_products: params.report.source_products ?? [],
             open_method: params.openMethod,
+            link_source: params.linkSource,
             previous_report_id: params.previousReportId,
             rank: params.rank,
             list_size: params.listSize,
