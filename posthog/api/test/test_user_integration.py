@@ -183,6 +183,20 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertTrue(data["has_more"])
         self.assertEqual(data["total"], 5)
 
+    @patch(
+        "posthog.models.github_integration_base.GitHubIntegrationBase.list_cached_branches",
+        side_effect=GitHubIntegrationError("Cache refresh already in progress"),
+    )
+    def test_github_branches_returns_503_when_branches_cannot_load(self, mock_list_cached):
+        _create_user_integration(self.user)
+
+        with patch("posthog.api.integration.capture_exception") as capture:
+            response = self.client.get("/api/users/@me/integrations/github/12345/branches/?repo=octocat/repo")
+
+        self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
+        self.assertEqual(response.json()["code"], "github_branches_unavailable")
+        capture.assert_called_once_with(mock_list_cached.side_effect)
+
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.sync_repository_cache")
     def test_github_repos_refresh_reports_unavailable_installation(self, mock_sync):
         mock_sync.side_effect = GitHubIntegrationError("token refresh after 401 failed")

@@ -43,6 +43,7 @@ from posthog.api.integration import (
     GitHubReposQuerySerializer,
     GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
+    github_branches_page,
     github_rate_limited_response,
     github_repos_page,
     validate_github_repository_name,
@@ -525,7 +526,10 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     @extend_schema(
         summary="List branches for a personal GitHub installation repository",
         parameters=[GitHubBranchesQuerySerializer],
-        responses={200: GitHubBranchesResponseSerializer},
+        responses={
+            200: GitHubBranchesResponseSerializer,
+            503: OpenApiResponse(description="GitHub branches could not be loaded. Retry the request."),
+        },
     )
     @action(methods=["GET"], detail=False, url_path=r"github/(?P<installation_id>\d+)/branches")
     def github_branches(self, request: Request, installation_id: str, **_kwargs) -> Response:
@@ -533,12 +537,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         params = GitHubBranchesQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
 
-        repo: str = params.validated_data["repo"]
-        search: str = params.validated_data["search"]
-        limit: int = params.validated_data["limit"]
-        offset: int = params.validated_data["offset"]
-
-        validate_github_repository_name(repo)
+        validate_github_repository_name(params.validated_data["repo"])
 
         integration = UserIntegration.objects.filter(
             user=self._get_user(), kind="github", integration_id=installation_id
@@ -547,14 +546,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             raise exceptions.NotFound("No GitHub integration found for this installation.")
 
         github = UserGitHubIntegration(integration)
-        branches, default_branch, has_more = github.list_cached_branches(
-            repo,
-            search=search,
-            limit=limit,
-            offset=offset,
-        )
-
-        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+        return Response(github_branches_page(github, params.validated_data))
 
     @extend_schema(
         summary="List the user's GitHub install-approval requests",

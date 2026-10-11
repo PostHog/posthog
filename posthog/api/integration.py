@@ -20,7 +20,7 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_redis.cache import RedisCache
 from django_redis.exceptions import ConnectionInterrupted
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
@@ -52,6 +52,7 @@ from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import report_user_action
+from posthog.exceptions import GitHubBranchesUnavailable
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import OrganizationMembership, User
@@ -537,6 +538,22 @@ class GitHubBranchesResponseSerializer(serializers.Serializer):
         help_text="The default branch of the repository", required=False, allow_null=True
     )
     has_more = serializers.BooleanField(help_text="Whether more branches exist beyond the returned page")
+
+
+def github_branches_page(github: GitHubIntegrationBase, query: dict[str, Any]) -> dict[str, Any]:
+    """Build one `GitHubBranchesResponseSerializer` page from validated `GitHubBranchesQuerySerializer` data."""
+    try:
+        branches, default_branch, has_more = github.list_cached_branches(
+            query["repo"],
+            search=query["search"],
+            limit=query["limit"],
+            offset=query["offset"],
+        )
+    except GitHubIntegrationError as err:
+        capture_exception(err)
+        raise GitHubBranchesUnavailable() from err
+
+    return {"branches": branches, "default_branch": default_branch, "has_more": has_more}
 
 
 class SlackChannelSerializer(serializers.Serializer):
@@ -2563,32 +2580,23 @@ class IntegrationViewSet(
 
     @extend_schema(
         parameters=[GitHubBranchesQuerySerializer],
-        responses={200: GitHubBranchesResponseSerializer},
+        responses={
+            200: GitHubBranchesResponseSerializer,
+            503: OpenApiResponse(description="GitHub branches could not be loaded. Retry the request."),
+        },
     )
     @action(methods=["GET"], detail=True, url_path="github_branches")
     def github_branches(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         params = GitHubBranchesQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
 
-        repo: str = params.validated_data["repo"]
-        search: str = params.validated_data["search"]
-        limit: int = params.validated_data["limit"]
-        offset: int = params.validated_data["offset"]
-
-        validate_github_repository_name(repo)
+        validate_github_repository_name(params.validated_data["repo"])
 
         instance = self.get_object()
         if instance.kind != "github":
             raise ValidationError("github_branches endpoint is only supported for GitHub integrations")
         github = GitHubIntegration(instance)
-        branches, default_branch, has_more = github.list_cached_branches(
-            repo,
-            search=search,
-            limit=limit,
-            offset=offset,
-        )
-
-        return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
+        return Response(github_branches_page(github, params.validated_data))
 
     @extend_schema(responses={200: JiraProjectsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="jira_projects")

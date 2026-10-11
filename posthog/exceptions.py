@@ -105,6 +105,12 @@ class QueryRanConcurrently(APIException):
     default_detail = "This query was already running and its result couldn't be reused. Try again in a moment."
 
 
+class GitHubBranchesUnavailable(APIException):
+    status_code = 503
+    default_code = "github_branches_unavailable"
+    default_detail = "Couldn't load branches from GitHub. Try again in a moment."
+
+
 class ClickHouseEstimatedQueryExecutionTimeTooLong(APIException):
     status_code = 512  # Custom error code
     default_detail = "Estimated query execution time is too long. Try reducing its scope by changing the time range."

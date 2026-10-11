@@ -631,7 +631,6 @@ class TestEmailIntegration:
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_integration_from_domain(self, mock_create_email_domain, mock_verify_email_domain):
-
         integration = EmailIntegration.create_native_integration(
             {**self.valid_config, "mail_from_subdomain": "youmustnothavelikedmyemail", "provider": "ses"},
             team_id=self.team.id,
@@ -662,7 +661,6 @@ class TestEmailIntegration:
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_email_verify_returns_ses_result(self, mock_create_email_domain, mock_verify_email_domain):
-
         # Mock the verify_email_domain method to return a test result
         expected_result = {
             "status": "pending",
@@ -720,7 +718,6 @@ class TestEmailIntegration:
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_email_verify_updates_integration(self, mock_create_email_domain, mock_verify_email_domain):
-
         # Mock the verify_email_domain method to return a test result
         expected_result: EmailDomainVerification = {
             "status": "success",
@@ -6281,6 +6278,20 @@ class TestGitHubBranches:
         assert has_more is True
         assert mock_request.call_count == 2
 
+    @pytest.mark.parametrize("successful_pages", [0, 1])
+    def test_list_branches_raises_instead_of_returning_partial_results(self, successful_pages):
+        successful = _make_github_branches_response([f"branch-{i}" for i in range(100)], has_next=True)
+        failed = MagicMock(status_code=500, headers={})
+
+        with patch(
+            "posthog.egress.transport.transport.requests.request",
+            side_effect=([successful] if successful_pages else []) + [failed],
+        ) as mock_request:
+            with pytest.raises(GitHubIntegrationError, match="failed to list branches|pagination failed"):
+                self.github.list_branches("org/repo", limit=150)
+
+        assert mock_request.call_count == successful_pages + 1
+
     @patch("posthog.egress.transport.transport.requests.request")
     def test_list_branches_empty_repo(self, mock_request):
         mock_request.return_value = _make_github_branches_response([], has_next=False)
@@ -6354,6 +6365,23 @@ class TestGitHubBranches:
 
         data = response.json()
         assert data["branches"] == ["other"]
+
+    @patch(
+        "posthog.models.integration.github.GitHubIntegration.list_cached_branches",
+        side_effect=GitHubIntegrationError("Cache refresh already in progress"),
+    )
+    def test_api_endpoint_returns_503_when_branches_cannot_load(self, mock_list_cached, client: HttpClient):
+        client.force_login(self.user)
+
+        with patch("posthog.api.integration.capture_exception") as capture:
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{self.integration.pk}/github_branches/",
+                {"repo": "org/repo"},
+            )
+
+        assert response.status_code == 503
+        assert response.json()["code"] == "github_branches_unavailable"
+        capture.assert_called_once_with(mock_list_cached.side_effect)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_branches")
     def test_api_endpoint_prepends_default_branch_even_when_not_in_list(self, mock_list_cached, client: HttpClient):
