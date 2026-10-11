@@ -35,6 +35,7 @@ class _FakeResumableManager:
     def __init__(self, state: MentionResumeConfig | None = None) -> None:
         self._state = state
         self.saved: list[MentionResumeConfig] = []
+        self.safe_points = 0
 
     def can_resume(self) -> bool:
         return self._state is not None
@@ -44,6 +45,9 @@ class _FakeResumableManager:
 
     def save_state(self, data: MentionResumeConfig) -> None:
         self.saved.append(data)
+
+    def safe_point(self) -> None:
+        self.safe_points += 1
 
 
 class TestGetRows:
@@ -147,6 +151,111 @@ class TestGetRows:
         rows = self._collect(manager, monkeypatch, pages, "alert_tags")
         assert rows == [{"id": 46468, "name": "space", "alert_id": "11"}]
         assert [s.alert_ids for s in manager.saved] == [[]]
+
+    @parameterized.expand([("alert_authors", "authors"), ("alert_tasks", "tasks")])
+    def test_paginated_fan_out_walks_each_alert_and_stages_state(self, endpoint: str, path: str) -> None:
+        manager = _FakeResumableManager()
+        alerts_url = f"{MENTION_BASE_URL}/accounts/acc1/alerts?limit=100"
+        first_11 = f"{MENTION_BASE_URL}/accounts/acc1/alerts/11/{path}?limit=100"
+        more_href = f"/api/accounts/acc1/alerts/11/{path}?limit=100&before_id=140548"
+        second_11 = f"{MENTION_HOST}{more_href}"
+        first_22 = f"{MENTION_BASE_URL}/accounts/acc1/alerts/22/{path}?limit=100"
+        pages = {
+            ME_URL: ME_PAYLOAD,
+            alerts_url: {"alerts": [{"alert": {"id": 11}}, {"alert": {"id": 22}}]},
+            first_11: {path: [{"id": "a"}], "_links": {"more": {"href": more_href}}},
+            second_11: {path: [{"id": "b"}], "_links": {}},
+            first_22: {path: [], "_links": {}},
+        }
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            rows = self._collect(manager, monkeypatch, pages, endpoint)
+        assert rows == [{"id": "a", "alert_id": "11"}, {"id": "b", "alert_id": "11"}]
+        assert [(s.alert_ids, s.next_url) for s in manager.saved] == [
+            (["11", "22"], second_11),
+            (["22"], None),
+            ([], None),
+        ]
+        # The empty alert yields nothing, so it must hand the worker a safe point instead.
+        assert manager.safe_points == 1
+
+    def test_paginated_fan_out_resumes_mid_alert_from_cursor(self, monkeypatch: Any) -> None:
+        cursor = f"{MENTION_HOST}/api/accounts/acc1/alerts/22/tasks?limit=100&before_id=140548"
+        manager = _FakeResumableManager(MentionResumeConfig(alert_ids=["22", "33"], next_url=cursor))
+        first_33 = f"{MENTION_BASE_URL}/accounts/acc1/alerts/33/tasks?limit=100"
+        pages = {
+            ME_URL: ME_PAYLOAD,
+            cursor: {"tasks": [{"id": "t1"}], "_links": {}},
+            first_33: {"tasks": [{"id": "t2"}], "_links": {}},
+        }
+        rows = self._collect(manager, monkeypatch, pages, "alert_tasks")
+        assert rows == [{"id": "t1", "alert_id": "22"}, {"id": "t2", "alert_id": "33"}]
+
+    def test_alert_daily_stats_reshapes_series_into_daily_rows(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        window = ("2025-01-01T00:00:00.0", "2026-01-01T12:00:00.0")
+        monkeypatch.setattr(mention, "_stats_window", lambda now: window)
+        alerts_url = f"{MENTION_BASE_URL}/accounts/acc1/alerts?limit=100"
+        stats_url = (
+            f"{MENTION_BASE_URL}/accounts/acc1/stats?alerts%5B%5D=11&from=2025-01-01T00%3A00%3A00.0"
+            "&to=2026-01-01T12%3A00%3A00.0&timezone=UTC&interval=P1D"
+            "&tones_per_interval_stats=true&reach_per_interval_stats=true"
+        )
+        reach = {"sum": 507, "max": 267, "avg": 48.5}
+        pages = {
+            ME_URL: ME_PAYLOAD,
+            alerts_url: {"alerts": [{"alert": {"id": 11}}]},
+            stats_url: {
+                "stats": {
+                    "11": {
+                        "mentions_per_interval": {"data": {"2025-06-02": 5, "2025-06-01": 322}, "total": 327},
+                        "tones_per_interval": {"data": {"2025-06-01": {"-1": 7, "0": 267, "1": 48}}},
+                        "direct_reach_per_interval": {"data": {"2025-06-01": reach}},
+                        "week_days_total": {"data": {"1": [3, 36]}, "total": 39},
+                    }
+                },
+                "from": window[0],
+                "to": window[1],
+            },
+        }
+        rows = self._collect(manager, monkeypatch, pages, "alert_daily_stats")
+        assert rows == [
+            {
+                "alert_id": "11",
+                "date": "2025-06-01",
+                "mentions": 322,
+                "negative_mentions": 7,
+                "neutral_mentions": 267,
+                "positive_mentions": 48,
+                "direct_reach": reach,
+                "cumulative_reach": None,
+                "domain_reach": None,
+            },
+            {
+                "alert_id": "11",
+                "date": "2025-06-02",
+                "mentions": 5,
+                "negative_mentions": None,
+                "neutral_mentions": None,
+                "positive_mentions": None,
+                "direct_reach": None,
+                "cumulative_reach": None,
+                "domain_reach": None,
+            },
+        ]
+        assert [s.alert_ids for s in manager.saved] == [[]]
+
+    def test_alert_daily_stats_partial_response_is_retryable(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager(MentionResumeConfig(alert_ids=["11"]))
+        monkeypatch.setattr(mention, "_stats_window", lambda now: ("f", "t"))
+        stats_url = (
+            f"{MENTION_BASE_URL}/accounts/acc1/stats?alerts%5B%5D=11&from=f&to=t&timezone=UTC&interval=P1D"
+            "&tones_per_interval_stats=true&reach_per_interval_stats=true"
+        )
+        pages = {ME_URL: ME_PAYLOAD, stats_url: {"stats": {"11": {}}, "partial": True}}
+        with pytest.raises(MentionRetryableError, match="partial stats"):
+            self._collect(manager, monkeypatch, pages, "alert_daily_stats")
+        # The alert stays queued so the retried sync fetches its stats again.
+        assert manager.saved == []
 
     def test_unknown_endpoint_raises(self, monkeypatch: Any) -> None:
         with pytest.raises(ValueError, match="Unknown Mention endpoint 'nope'"):

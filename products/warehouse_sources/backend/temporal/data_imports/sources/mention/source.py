@@ -51,7 +51,7 @@ class MentionSource(ResumableSource[MentionSourceConfig, MentionResumeConfig]):
             label="Mention",
             releaseStatus=ReleaseStatus.ALPHA,
             keywords=["social listening", "media monitoring", "brand monitoring"],
-            caption="""Enter your Mention API access token to pull your monitored accounts, alerts, mentions, and tags into the PostHog Data warehouse.
+            caption="""Enter your Mention API access token to pull your monitored accounts, alerts, mentions, tags, authors, tasks, and daily alert statistics into the PostHog Data warehouse.
 
 You can create an access token by registering an API application at [dev.mention.com](https://dev.mention.com). Note that Mention API access is a paid add-on to Mention plans.
 """,

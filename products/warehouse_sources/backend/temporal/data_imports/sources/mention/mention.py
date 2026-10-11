@@ -1,5 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode, urljoin
 
@@ -31,6 +32,10 @@ ALERT_STATS_PARAM = "mention_folders.inbox.total,unread_mentions.total"
 # 3600 list calls per alert per 24h quota.
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
+# Trailing window requested from the stats endpoint. Stats are bucketed by the day Mention fetched
+# each mention, so recent days keep changing and the table is rebuilt on every sync.
+STATS_LOOKBACK_DAYS = 365
+STATS_DATE_FORMAT = "%Y-%m-%dT%H:%M:%S.0"
 # Cheap endpoint used to confirm an access token is genuine. The token is account-wide, so one
 # probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/accounts/me"
@@ -273,6 +278,124 @@ def _alert_tag_rows(
         resumable_source_manager.save_state(MentionResumeConfig(alert_ids=alert_ids))
 
 
+def _paginated_alert_fan_out_rows(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resume: MentionResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[MentionResumeConfig],
+    path: str,
+    key: str,
+) -> Iterator[list[dict[str, Any]]]:
+    account_id = str(_get_account(session, logger)["id"])
+    alert_ids, next_url = _fan_out_alert_ids(session, account_id, logger, resume)
+
+    while alert_ids:
+        alert_id = alert_ids[0]
+        url: Optional[str] = next_url or _list_url(f"/accounts/{account_id}/alerts/{alert_id}/{path}")
+
+        while url:
+            payload = _fetch_page(session, url, logger)
+            rows = _rows_from_payload(payload, key, url)
+            for row in rows:
+                row["alert_id"] = alert_id
+
+            more = _more_url(payload) if rows else None
+            if more:
+                resumable_source_manager.save_state(MentionResumeConfig(alert_ids=alert_ids, next_url=more))
+            else:
+                resumable_source_manager.save_state(MentionResumeConfig(alert_ids=alert_ids[1:]))
+
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+            url = more
+
+        alert_ids = alert_ids[1:]
+        next_url = None
+
+
+def _stats_window(now: datetime) -> tuple[str, str]:
+    start = (now - timedelta(days=STATS_LOOKBACK_DAYS)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.strftime(STATS_DATE_FORMAT), now.strftime(STATS_DATE_FORMAT)
+
+
+def _stats_url(account_id: str, alert_id: str, window: tuple[str, str]) -> str:
+    params = {
+        "alerts[]": alert_id,
+        "from": window[0],
+        "to": window[1],
+        "timezone": "UTC",
+        "interval": "P1D",
+        "tones_per_interval_stats": "true",
+        "reach_per_interval_stats": "true",
+    }
+    return f"{MENTION_BASE_URL}/accounts/{account_id}/stats?{urlencode(params)}"
+
+
+def _series(alert_stats: dict[str, Any], name: str) -> dict[str, Any]:
+    series = alert_stats.get(name)
+    data = series.get("data") if isinstance(series, dict) else None
+    return data if isinstance(data, dict) else {}
+
+
+def _daily_stats_rows(alert_id: str, alert_stats: dict[str, Any]) -> list[dict[str, Any]]:
+    mentions = _series(alert_stats, "mentions_per_interval")
+    tones = _series(alert_stats, "tones_per_interval")
+    reach = {
+        column: _series(alert_stats, f"{column}_per_interval")
+        for column in ("direct_reach", "cumulative_reach", "domain_reach")
+    }
+
+    rows: list[dict[str, Any]] = []
+    for date in sorted({*mentions, *tones, *(d for series in reach.values() for d in series)}):
+        day_tones = tones.get(date)
+        day_tones = day_tones if isinstance(day_tones, dict) else {}
+        rows.append(
+            {
+                "alert_id": alert_id,
+                "date": date,
+                "mentions": mentions.get(date),
+                # Tone keys are "-1", "0" and "1"; named columns are easier to query.
+                "negative_mentions": day_tones.get("-1"),
+                "neutral_mentions": day_tones.get("0"),
+                "positive_mentions": day_tones.get("1"),
+                **{column: series.get(date) for column, series in reach.items()},
+            }
+        )
+    return rows
+
+
+def _alert_daily_stats_rows(
+    session: requests.Session,
+    logger: FilteringBoundLogger,
+    resume: MentionResumeConfig | None,
+    resumable_source_manager: ResumableSourceManager[MentionResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    account_id = str(_get_account(session, logger)["id"])
+    alert_ids, _ = _fan_out_alert_ids(session, account_id, logger, resume)
+    window = _stats_window(datetime.now(UTC))
+
+    while alert_ids:
+        alert_id = alert_ids[0]
+        url = _stats_url(account_id, alert_id, window)
+        payload = _fetch_page(session, url, logger)
+        if payload.get("partial"):
+            # Mention is still generating the stats and asks callers to try again later.
+            raise MentionRetryableError(f"Mention returned partial stats for alert {alert_id}")
+
+        stats = payload.get("stats")
+        alert_stats = stats.get(alert_id) if isinstance(stats, dict) else None
+        rows = _daily_stats_rows(alert_id, alert_stats) if isinstance(alert_stats, dict) else []
+
+        alert_ids = alert_ids[1:]
+        resumable_source_manager.save_state(MentionResumeConfig(alert_ids=alert_ids))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
 def get_rows(
     access_token: str,
     endpoint: str,
@@ -291,6 +414,16 @@ def get_rows(
         yield from _alert_tag_rows(session, logger, resume, resumable_source_manager)
     elif endpoint == "mentions":
         yield from _mention_rows(session, logger, resume, resumable_source_manager)
+    elif endpoint == "alert_authors":
+        yield from _paginated_alert_fan_out_rows(
+            session, logger, resume, resumable_source_manager, path="authors", key="authors"
+        )
+    elif endpoint == "alert_tasks":
+        yield from _paginated_alert_fan_out_rows(
+            session, logger, resume, resumable_source_manager, path="tasks", key="tasks"
+        )
+    elif endpoint == "alert_daily_stats":
+        yield from _alert_daily_stats_rows(session, logger, resume, resumable_source_manager)
     else:
         raise ValueError(f"Unknown Mention endpoint '{endpoint}'")
 
