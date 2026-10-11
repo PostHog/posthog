@@ -28336,10 +28336,11 @@ class HogQLQueryResponse(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
     column_formats: list[str | None] | None = Field(
-        default=None, description="Display formats for directly selected virtual properties, aligned with columns."
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
     )
+    columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description=(
@@ -29459,6 +29460,10 @@ class QueryResponseAlternative8(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -29563,6 +29568,10 @@ class QueryResponseAlternative42(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
@@ -30328,10 +30337,11 @@ class CachedHogQLQueryResponse(BaseModel):
         description=("What triggered the calculation of the query, leave empty if user/immediate"),
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
     column_formats: list[str | None] | None = Field(
-        default=None, description="Display formats for directly selected virtual properties, aligned with columns."
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
     )
+    columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description=(
@@ -30425,6 +30435,10 @@ class Response3(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
+    column_formats: list[str | None] | None = Field(
+        default=None,
+        description=("Display formats for directly selected virtual properties, aligned with columns."),
+    )
     columns: list | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
