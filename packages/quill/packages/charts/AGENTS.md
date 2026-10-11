@@ -18,6 +18,7 @@ This file is the map. Prop-level semantics live in the JSDoc on the config and p
 | `PieChart`             | Part of whole, one value per series; `innerRadiusRatio` for a donut                                                                         |
 | `ProportionBar`        | Part of whole as one flat 100% bar with no axes, legend rows show `share · value`; takes the same `series` as `PieChart`                    |
 | `BarList`              | Ranked rows of label, bar on a neutral track, and value; takes the same `series` as `PieChart`, one row per series                          |
+| `StackedBarList`       | `BarList` rows where each bar stacks several series, with your own label and value cells; takes `labels` and `series` like `BarChart`       |
 | `ScatterChart`         | Two continuous numeric axes — one marker per `{ x, y }` point; takes `points`, not `labels`                                                 |
 | `BoxPlot`              | Distribution summaries — `{ min, p25, median, mean, p75, max }` per label                                                                   |
 | `Heatmap`              | 2D density grid (latency over time) — `xLabels` × `yLabels`, `cells[row][col]`                                                              |

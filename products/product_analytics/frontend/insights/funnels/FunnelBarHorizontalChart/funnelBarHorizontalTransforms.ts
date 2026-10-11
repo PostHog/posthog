@@ -144,6 +144,35 @@ export function buildFunnelBarHorizontalCompareData(
     })
 }
 
+/** Merges per-bar stacks into one stacked chart with a row per bar, for a single canvas. Each
+ *  segment key becomes one series, with the row's own value, color and meta in `bars[row]`. The
+ *  drop-off filler stacks last in every row, so a key that first appears in a later row cannot
+ *  land after it. A key that a row does not have is 0 in that row. */
+export function mergeFunnelBarHorizontalRows(
+    bars: FunnelBarHorizontalStepData[]
+): Series<FunnelBarHorizontalSegmentMeta>[] {
+    const keys = [...new Set(bars.flatMap((bar) => bar.series.map((s) => s.key)))]
+    const ordered = [
+        ...keys.filter((key) => key !== FUNNEL_BAR_HORIZONTAL_FILLER_KEY),
+        ...keys.filter((key) => key === FUNNEL_BAR_HORIZONTAL_FILLER_KEY),
+    ]
+    return ordered.map((key) => {
+        const perRow = bars.map((bar) => bar.series.find((s) => s.key === key))
+        const first = perRow.find((s) => s != null)
+        const ceilings = perRow.map((s) => s?.trackData?.[0])
+        return {
+            key,
+            label: first?.label ?? key,
+            color: first?.color,
+            visibility: first?.visibility,
+            meta: first?.meta,
+            data: perRow.map((s) => s?.data[0] ?? 0),
+            bars: perRow.map((s) => ({ color: s?.color, label: s?.label, meta: s?.meta })),
+            trackData: ceilings.every((ceiling): ceiling is number => ceiling != null) ? ceilings : undefined,
+        }
+    })
+}
+
 export interface FunnelBarHorizontalHoverTarget {
     /** The breakdown variant (or the whole step) the tooltip should describe. */
     series: FunnelStepWithConversionMetrics
@@ -318,7 +347,7 @@ function buildBreakdownCompareStacks(
 }
 
 /** Sums a period's first-step counts split by compare label — the basis for the shared stack scale. */
-function periodTotals(step: FunnelStepWithConversionMetrics | undefined): { current: number; previous: number } {
+export function periodTotals(step: FunnelStepWithConversionMetrics | undefined): { current: number; previous: number } {
     let current = 0
     let previous = 0
     for (const variant of step?.nested_breakdown ?? []) {
