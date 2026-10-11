@@ -43,6 +43,14 @@ export class Runtime {
         return this.config
     }
 
+    async runWithDeadline<T>(
+        options: RequestOptions | undefined,
+        run: (signal: AbortSignal) => Promise<T>
+    ): Promise<T> {
+        const config = this.configuration()
+        return withDeadline(options ?? {}, config.timeoutMs, run)
+    }
+
     scope(projectId: number): Runtime {
         return new Runtime({}, this, validateProjectId(projectId))
     }

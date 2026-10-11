@@ -276,6 +276,7 @@ export async function emitSdk(operations, outputDir, manifest) {
         const clientImports = []
         const clientProperties = []
         const clientFactories = []
+        const clientLoaders = []
         for (const [namespace, members] of categories) {
             const directory = kebabCase(namespace)
             const typeName = `${namespace[0].toUpperCase()}${namespace.slice(1)}Client`
@@ -313,13 +314,16 @@ export async function emitSdk(operations, outputDir, manifest) {
                 path.join(generated, directory, 'index.ts'),
                 `${banner}${members.map((item) => `export type { ${item.names.join(', ')} } from './${kebabCase(item.method)}.js'`).join('\n')}\nexport type { ${typeName} } from './client.js'\n`
             )
-            clientImports.push(`import { create${typeName}, type ${typeName} } from './${directory}/client.js'`)
+            clientImports.push(`import type { ${typeName} } from './${directory}/client.js'`)
             clientProperties.push(`readonly ${namespace}: ${typeName}`)
-            clientFactories.push(`${namespace}: create${typeName}(runtime)`)
+            clientLoaders.push(
+                `const ${namespace} = new LazyClient<${typeName}>(\n() => import('./${directory}/client.js').then(({ create${typeName} }) => create${typeName}(runtime)),\n(load) => ({\n${members.map((item) => `${item.method}: (input, options) => runtime.runWithDeadline(options, async (signal) => (await load()).${item.method}(input, { ...options, signal }))`).join(',\n')}\n}))`
+            )
+            clientFactories.push(`get ${namespace}(): ${typeName} { return ${namespace}.client }`)
         }
         await fs.writeFile(
             path.join(generated, 'client.ts'),
-            `${banner}import type { Runtime } from '../runtime/client.js'\n${clientImports.join('\n')}\nexport interface GeneratedClient {\n${clientProperties.join('\n')}\n}\nexport function createNamespaces(runtime: Runtime): GeneratedClient { return { ${clientFactories.join(', ')} } }\n`
+            `${banner}import type { Runtime } from '../runtime/client.js'\nimport { LazyClient } from '../runtime/lazy-client.js'\n${clientImports.join('\n')}\nexport interface GeneratedClient {\n${clientProperties.join('\n')}\n}\nexport function createNamespaces(runtime: Runtime): GeneratedClient {\n${clientLoaders.join('\n')}\nreturn { ${clientFactories.join(', ')} } }\n`
         )
         await fs.writeFile(
             path.join(generated, 'index.ts'),
