@@ -63,7 +63,8 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
             "Marketstack API error [https_access_restricted]": "Your Marketstack plan does not allow HTTPS access. Upgrade your Marketstack plan, then reconnect.",
             # The time-series tables need at least one symbol; without one the sync can never make
             # progress, so fail permanently with a fix-it message rather than retrying.
-            "Marketstack API error [missing_symbols]": "One or more of the selected tables (EOD, intraday, splits, dividends) requires symbols. Add symbols to the source configuration, then resync.",
+            "Marketstack API error [missing_symbols]": "One or more of the selected tables (EOD, intraday, splits, dividends, ticker info, company ratings) requires symbols. Add symbols to the source configuration, then resync.",
+            "Marketstack API error [missing_cik_codes]": "The submissions table requires one or more SEC CIK codes. Add CIK codes to the source configuration, then resync.",
             "Marketstack API error [no_valid_symbols_provided]": "None of the configured symbols are valid Marketstack tickers. Check the symbols in the source configuration, then resync.",
         }
 
@@ -83,8 +84,9 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # The endpoint catalog and incremental fields are identical across v1 and v2 (v2 only adds
-        # response columns, absorbed by the auto-inferred schema), so discovery ignores the pin.
+        # v2 adds response columns to the shared endpoints (absorbed by the auto-inferred schema) and
+        # adds lookup endpoints that v1 doesn't serve, so only those depend on the pin.
+        is_v1 = self.resolve_api_version(api_version) == MARKETSTACK_API_VERSION_V1
         schemas = [
             SourceSchema(
                 name=endpoint.name,
@@ -96,6 +98,7 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
                 description=endpoint.description,
             )
             for endpoint in MARKETSTACK_ENDPOINTS.values()
+            if not (is_v1 and endpoint.v2_only)
         ]
 
         if names is not None:
@@ -135,6 +138,7 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
             resumable_source_manager=resumable_source_manager,
             api_version=self.resolve_api_version(inputs.api_version),
             symbols=config.symbols,
+            cik_codes=config.cik_codes,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
@@ -151,7 +155,9 @@ class MarketstackSource(ResumableSource[MarketstackSourceConfig, MarketstackResu
 
 You can find your access key in your [Marketstack dashboard](https://marketstack.com/dashboard).
 
-Add one or more comma-separated **symbols** (e.g. `AAPL,MSFT,TSLA`) to sync the EOD, intraday, splits, and dividends tables — those endpoints require at least one symbol. The reference tables don't need symbols.
+Add one or more comma-separated **symbols** (e.g. `AAPL,MSFT,TSLA`) to sync the EOD, intraday, splits, dividends, ticker info, and company ratings tables — those endpoints require at least one symbol. The reference tables don't need symbols.
+
+Add one or more comma-separated SEC **CIK codes** (e.g. `0000320193`) to sync the submissions table.
 
 Note: Marketstack pricing is a monthly request quota tied to your plan. Some tables (e.g. intraday) require a paid plan.""",
             iconPath="/static/services/marketstack.png",
@@ -173,6 +179,14 @@ Note: Marketstack pricing is a monthly request quota tied to your plan. Some tab
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="AAPL,MSFT,TSLA",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="cik_codes",
+                        label="CIK codes",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="0000320193,0000789019",
                         secret=False,
                     ),
                 ],

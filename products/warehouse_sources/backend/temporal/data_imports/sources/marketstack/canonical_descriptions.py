@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 
 _DOCS_URL = "https://marketstack.com/documentation"
+_DOCS_V2_URL = "https://marketstack.com/documentation_v2"
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "eod": {
@@ -64,6 +65,62 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "date": "Date the dividend was paid (YYYY-MM-DD).",
             "symbol": "Stock ticker symbol of the instrument.",
             "dividend": "Dividend amount paid per share on this date.",
+        },
+    },
+    "tickerinfo": {
+        "description": "Extended company and listing information per ticker, including sector, industry, description, and key identifiers.",
+        "docs_url": _DOCS_V2_URL,
+        "columns": {
+            "ticker": "Ticker symbol.",
+            "name": "Company or instrument name.",
+            "item_type": "Type of item (e.g. equity).",
+            "sector": "Sector of the company.",
+            "industry": "Industry of the company.",
+            "exchange_code": "Exchange code.",
+            "full_time_employees": "Number of full-time employees.",
+            "ipo_date": "IPO date.",
+            "date_founded": "Date founded.",
+            "key_executives": "Key executives with name, function, salary, exercised options, and birth year.",
+            "incorporation": "State or country of incorporation.",
+            "start_fiscal": "Fiscal year start (MM-DD).",
+            "end_fiscal": "Fiscal year end (MM-DD).",
+            "previous_names": "Previous names of the company.",
+            "stock_exchanges": "Exchanges the ticker is listed on.",
+            "reporting_currency": "Reporting currency.",
+            "website": "Company website.",
+            "about": "Company description.",
+        },
+    },
+    "companyratings": {
+        "description": "Individual analyst buy/sell/hold ratings and price targets per ticker.",
+        "docs_url": _DOCS_V2_URL,
+        "columns": {
+            "ticker": "Ticker symbol.",
+            "company_name": "Name of the company.",
+            "analyst_name": "Name of the analyst.",
+            "analyst_firm": "Firm the analyst works for.",
+            "analyst_role": "Role of the analyst.",
+            "date_rating": "Date of the rating.",
+            "target_date": "Date the price target applies to.",
+            "price_target": "Price target set by the analyst.",
+            "rated": "Rating given by the analyst (buy, sell, or hold).",
+            "conclusion": "Conclusion of the rating.",
+        },
+    },
+    "submissions": {
+        "description": "Recent SEC filing submissions per company, one row per filing.",
+        "docs_url": _DOCS_V2_URL,
+        "columns": {
+            "cik_code": "SEC Central Index Key of the filer (zero-padded).",
+            "company_name": "Company name.",
+            "accession_number": "Accession number of the filing.",
+            "filing_date": "Date the filing was made.",
+            "report_date": "Date of the reporting period.",
+            "acceptance_date_time": "Time the SEC accepted the filing.",
+            "form": "Filing form type (e.g. 10-K, 10-Q, 8-K).",
+            "file_number": "SEC file number.",
+            "primary_document": "File name of the primary document.",
+            "primary_doc_description": "Description of the primary document.",
         },
     },
     "tickers": {

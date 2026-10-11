@@ -1,4 +1,5 @@
 import dataclasses
+from typing import Literal
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -36,6 +37,15 @@ class MarketstackEndpointConfig:
     # Stable datetime column for datetime partitioning (`date` never changes for a given row).
     partition_key: str | None = None
     description: str | None = None
+    # Lookup endpoints take one ticker / CIK per request, so they are requested once per value in
+    # the named source config list, with the value passed as `fan_out_param`.
+    fan_out_over: Literal["symbols", "cik_codes"] | None = None
+    fan_out_param: str | None = None
+    data_selector: str = "data"
+    # Only served under v2; hidden from sources still pinned to v1.
+    v2_only: bool = False
+    # Minimum spacing between fan-out requests, for endpoints with their own tighter rate limit.
+    request_interval_seconds: float = 0
 
 
 MARKETSTACK_ENDPOINTS: dict[str, MarketstackEndpointConfig] = {
@@ -80,6 +90,37 @@ MARKETSTACK_ENDPOINTS: dict[str, MarketstackEndpointConfig] = {
         default_incremental_field="date",
         partition_key="date",
         description="Historical dividend payouts per symbol. Requires symbols. Incremental on date.",
+    ),
+    "tickerinfo": MarketstackEndpointConfig(
+        name="tickerinfo",
+        path="/tickerinfo",
+        primary_keys=["ticker"],
+        fan_out_over="symbols",
+        fan_out_param="ticker",
+        v2_only=True,
+        description="Company profile per configured symbol: sector, industry, executives, addresses, and listing exchanges. Requires symbols. Full refresh.",
+    ),
+    "companyratings": MarketstackEndpointConfig(
+        name="companyratings",
+        path="/companyratings",
+        # Analyst ids are not exposed; an analyst rates a ticker at most once per day.
+        primary_keys=["ticker", "analyst_firm", "analyst_name", "date_rating"],
+        fan_out_over="symbols",
+        fan_out_param="ticker",
+        data_selector="result",
+        v2_only=True,
+        # The endpoint allows one call per minute.
+        request_interval_seconds=60,
+        description="Individual analyst ratings and price targets per configured symbol. Requires symbols. Rate-limited by Marketstack to one request per minute, so each symbol adds a minute to the sync. Full refresh.",
+    ),
+    "submissions": MarketstackEndpointConfig(
+        name="submissions",
+        path="/submissions",
+        primary_keys=["accession_number"],
+        fan_out_over="cik_codes",
+        fan_out_param="cik_code",
+        v2_only=True,
+        description="Recent SEC filings (10-K, 10-Q, 8-K, and others) per configured CIK code, one row per filing. Requires CIK codes. Full refresh.",
     ),
     "tickers": MarketstackEndpointConfig(
         name="tickers",
