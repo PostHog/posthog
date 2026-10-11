@@ -242,8 +242,10 @@ from products.signals.backend.scout_harness.tools.runs import (
     search_recent_runs,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import (
+    NOT_IN_USE_KEY_PREFIX,
     InvalidScratchpadError,
     forget,
+    record_not_in_use_write,
     remember,
     search_scratchpad,
 )
@@ -2092,8 +2094,14 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # bound to. A scout copies `run_id` out of its prompt by hand and a share of those copies
         # arrive truncated, which used to cost the entry its run link; the token binding is the
         # server's own record of which run is writing, so lineage survives the typo.
+        is_not_in_use = data["key"].startswith(NOT_IN_USE_KEY_PREFIX)
+        sandbox_run_id = (
+            run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
+            if run_id is None or is_not_in_use
+            else None
+        )
         if run_id is None:
-            run_id = run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=team_id)
+            run_id = sandbox_run_id
         try:
             entry = remember(
                 team_id=team_id,
@@ -2108,6 +2116,10 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except InvalidScratchpadError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
+        # Attributed to the token's run, not the body's: a body `run_id` can name any run on the
+        # project, including a sibling scout's.
+        if is_not_in_use and sandbox_run_id is not None:
+            record_not_in_use_write(run_id=sandbox_run_id, team_id=team_id)
         return Response(ScratchpadEntrySerializer(entry.as_dict()).data, status=status.HTTP_200_OK)
 
     @validated_request(
