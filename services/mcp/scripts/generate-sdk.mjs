@@ -139,10 +139,13 @@ export async function generateSdk({
         const { version } = JSON.parse(await fs.readFile(path.join(repoRoot, 'packages/sdk/package.json'), 'utf8'))
         if (!dryRun) {
             await emitSdk(operations, staging, { packageVersion: version, sourceRevision, schemaHash, coverage })
-            for (const artifact of ['src/generated', 'catalog', 'catalog.json', 'coverage.json']) {
+            for (const artifact of ['src/generated', 'api-index.tsv', 'domains.tsv', 'coverage.json']) {
                 await fs.mkdir(path.dirname(path.join(outputDir, artifact)), { recursive: true })
                 await fs.rm(path.join(outputDir, artifact), { recursive: true, force: true })
                 await fs.rename(path.join(staging, artifact), path.join(outputDir, artifact))
+            }
+            for (const obsolete of ['catalog', 'catalog.json', 'src/api.ts']) {
+                await fs.rm(path.join(outputDir, obsolete), { recursive: true, force: true })
             }
         }
     } finally {

@@ -24,25 +24,31 @@ console.log(output.data.results)
 
 ## Discover methods without credentials
 
+`--agent-help` lists the installed tool domains and absolute local paths to `src/generated/api.ts`, `api-index.tsv`, and `domains.tsv`. Use those paths when the package is installed through npx, a workspace, or a package manager store.
+
 ```sh
-npx @posthog/sdk list
-npx @posthog/sdk search "archive feature flag"
-npx @posthog/sdk describe featureFlags.archive
-npx @posthog/sdk describe queries.trends --json
-rg 'interface FeatureFlagsArchive' node_modules/@posthog/sdk/src
+rg -n -i 'dashboard|retention' node_modules/@posthog/sdk/api-index.tsv
+cat node_modules/@posthog/sdk/domains.tsv
+rg -n -A 30 'interface FeatureFlagsArchiveInput|archive\(' node_modules/@posthog/sdk/src/generated/api.ts
 ```
 
-`describe` prints the method description and TypeScript contracts, including nested types. Its JSON output gives the source and declaration paths, required scopes, MCP tool name, and documentation provenance. Both the original schema comments and MCP overrides are retained in the shipped `.ts` and `.d.ts` files. Object contracts are named interfaces; enums and discriminated unions use named type aliases.
+`api-index.tsv` has one row per method: domain, method, MCP name, purpose, input/output names, required scopes, mutation annotations, and availability conditions. `domains.tsv` lists domain names, method counts, and import paths. Find a method in the index, then read its JSDoc and referenced interfaces in the single `src/generated/api.ts` registry. Use bounded searches and reuse the relevant contracts while they remain in context.
+
+Object contracts are named interfaces; enums and discriminated unions use named type aliases. Both original schema comments and MCP overrides remain in `api.ts` and the compiled `dist/generated/api.d.ts`. Shared contracts are deduplicated only when their complete reference graphs and documentation agree, keeping request, response, PATCH, and projection variants distinct.
 
 ```ts
-import { catalog, searchTools, describeTool } from '@posthog/sdk/discovery'
+import { operations, domains } from '@posthog/sdk/discovery'
 
-const matches = searchTools('retention', { limit: 5 })
-const method = describeTool(matches[0]!.method)
-console.log(method?.input.source, method?.output.declaration)
+const matches = operations.filter((operation) => /retention/i.test(operation.purpose))
+console.log(
+  matches.map(({ method, input, output }) => ({ method, input, output })),
+  domains
+)
 ```
 
-The package includes `catalog.json`, per-method `catalog/` files, and an `AGENTS.md` entry point. Discovery is local and does not load the API runtime. Agents must be told the package is available or discover it through the project's dependencies; npm does not automatically register its methods as MCP tools.
+These are static arrays for ordinary JavaScript exploration. Discovery works offline without credentials and does not load the API runtime. The CLI supplies `--agent-help`; method discovery uses grep or rg over the shipped files. Agents must be told the package is available or discover it through the project's dependencies; npm does not automatically register its methods as MCP tools.
+
+For a repeated job, an agent can save a parameterized script in its own skill or scratchpad, typecheck it, and reuse it. Keep credentials in the environment, bound pagination and concurrency, and return compact evidence for the next decision. Recheck contracts after SDK updates or validation errors.
 
 ## Configuration and project selection
 
@@ -155,4 +161,4 @@ Input interfaces come from the actual MCP validators. Output interfaces come fro
 
 The SDK bundles MCP handlers with a local host that supplies the direct HTTP transport, client context, and confirmation state. It does not open an MCP connection or require an MCP server, Redis, or Cloudflare. The generator replaces server-only UI registration and telemetry with SDK host behavior. Agent feedback is delivered only to the configured callback.
 
-Change the schema, MCP definition, or adapter and regenerate; do not edit `src/generated/` or `catalog/` by hand. The packed-package check installs a tarball into a separate project, verifies offline discovery, executes a mocked request, and compiles a strict TypeScript consumer. Publishing is a separate release step.
+Change the schema, MCP definition, or adapter and regenerate; do not edit `src/generated/api.ts`, `src/generated/`, or the TSV indexes by hand. The packed-package check installs a tarball into a separate project, verifies offline discovery, executes a mocked request, and compiles a strict TypeScript consumer. Publishing is a separate release step.

@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { annotateDocumentation, resolveSdkOperation } from '../../../services/mcp/scripts/lib/sdk-schema.mjs'
+import {
+    annotateDocumentation,
+    resolveSdkOperation,
+    SchemaRegistry,
+} from '../../../services/mcp/scripts/lib/sdk-schema.mjs'
+import { SdkTypeRegistry } from '../../../services/mcp/scripts/lib/sdk-type-registry.mjs'
 import { Runtime } from '../dist/runtime/client.js'
 
 function fixture(method = 'patch') {
@@ -192,4 +197,43 @@ test('capabilities needing an adapter cannot be opted in by adding an SDK name',
     const spec = fixture()
     spec.paths['/api/projects/{project_id}/examples/{id}/'].patch['x-internal'] = true
     assert.throws(() => resolve(spec), /x-internal/)
+})
+
+test('shared registry merges recursive contracts while preserving nested overrides and request variants', () => {
+    const spec = {
+        components: {
+            schemas: {
+                Parent: { type: 'object', properties: { child: { $ref: '#/components/schemas/Child' } } },
+                Child: {
+                    type: 'object',
+                    properties: {
+                        parent: { $ref: '#/components/schemas/Parent' },
+                        value: { type: 'string', default: 'example', description: 'Original field.' },
+                        server: { type: 'string', readOnly: true },
+                    },
+                },
+            },
+        },
+    }
+    const make = (prefix, direction = 'input', options = {}) => {
+        const registry = new SchemaRegistry(spec, prefix)
+        registry.add(`${prefix}Input`, { $ref: '#/components/schemas/Parent' }, direction, options)
+        return { registry }
+    }
+    const first = make('First')
+    const same = make('Same')
+    const changed = make('Changed')
+    changed.registry.schemas.ChangedRequestChild.properties.value.description = 'Override field.'
+    const response = make('Response', 'output')
+    const patch = make('Patch', 'input', { patch: true })
+    const { schemas, aliases } = new SdkTypeRegistry([first, same, changed, response, patch]).merge()
+    assert.equal(aliases.get('SameRequestChild'), 'FirstRequestChild')
+    assert.equal(aliases.get('SameRequestParent'), 'FirstRequestParent')
+    assert.ok(schemas.FirstInput && schemas.SameInput)
+    assert.ok(schemas.ChangedRequestChild && schemas.ChangedRequestParent)
+    assert.equal(schemas.ChangedRequestParent.properties.child.$ref, '#/components/schemas/ChangedRequestChild')
+    assert.equal(schemas.ResponseResponseChild.properties.server.type, 'string')
+    assert.equal(schemas.FirstRequestChild.properties.server, undefined)
+    assert.equal(schemas.PatchRequestChild.properties.value.default, undefined)
+    assert.equal(schemas.FirstRequestChild.properties.value.default, 'example')
 })

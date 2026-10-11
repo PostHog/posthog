@@ -7,7 +7,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
-const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-sdk-package-'))
+const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog sdk package '))
 const run = (command, args, cwd = temporary) =>
     execFileSync(command, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 try {
@@ -18,14 +18,15 @@ try {
     for (const expected of [
         'README.md',
         'AGENTS.md',
-        'catalog.json',
+        'api-index.tsv',
+        'domains.tsv',
         'coverage.json',
-        'src/generated/feature-flags/archive.ts',
-        'dist/generated/feature-flags/archive.d.ts',
+        'src/generated/api.ts',
+        'dist/generated/api.d.ts',
         'dist/cli.js',
         'dist/agent-help.md',
         'dist/generated/handlers.mjs',
-        'src/generated/notebooks/notebooks-create-markdown.ts',
+        'dist/generated/notebooks/client.js',
     ]) {
         assert.ok(files.has(expected), `Missing ${expected}`)
     }
@@ -48,11 +49,11 @@ globalThis.fetch = () => assert.fail('discovery/import must not call the API')
 const { default: defaultClient, client, createPostHogClient } = await import('@posthog/sdk')
 assert.equal(defaultClient, client)
 assert.deepEqual(importedProducts(), [])
-const { searchTools, describeTool } = await import('@posthog/sdk/discovery')
-assert.equal(searchTools('archive feature flag')[0].method, 'featureFlags.archive')
-const tool = describeTool('featureFlags.archive')
+const { operations, domains } = await import('@posthog/sdk/discovery')
+assert.ok(operations.some(({ method }) => method === 'featureFlags.archive'))
+assert.ok(domains.some(({ domain }) => domain === 'featureFlags'))
 const root = new URL('./node_modules/@posthog/sdk/', import.meta.url)
-assert.match(readFileSync(new URL(tool.input.source, root), 'utf8'), /export interface FeatureFlagsArchiveInput/)
+assert.match(readFileSync(new URL('src/generated/api.ts', root), 'utf8'), /export interface FeatureFlagsArchiveInput/)
 const api = createPostHogClient({ env: false, token: 'phx_example', projectId: 1, fetch: async () => Response.json({ id: 17, key: 'example', status: 'ARCHIVED' }) })
 const flags = api.featureFlags
 assert.equal(flags, api.featureFlags)
@@ -71,16 +72,28 @@ assert.deepEqual(importedProducts().sort(), ['feature-flags', 'notebooks'].map((
 `
     await fs.writeFile(path.join(temporary, 'smoke.mjs'), script)
     run(process.execPath, ['smoke.mjs'])
-    const list = run(process.execPath, ['node_modules/@posthog/sdk/dist/cli.js', 'list', '--json'])
-    assert.ok(JSON.parse(list).tools.some(({ method }) => method === 'queries.sql'))
-    const guide = run('npx', ['@posthog/sdk', '--agent-help'])
+    const guide = run('npx', ['--no-install', '@posthog/sdk', '--agent-help'])
     assert.match(guide, /^# PostHog SDK guide for agents/)
     assert.match(guide, /`client\.queries\.sql`/)
+    assert.match(guide, /- `signals`: \d+ methods/)
+    const packageRoot = path.join(temporary, 'node_modules/@posthog/sdk')
+    for (const file of ['src/generated/api.ts', 'api-index.tsv', 'domains.tsv']) {
+        const installed = path.join(packageRoot, file)
+        assert.ok(guide.includes(installed), `Help must locate installed ${file}`)
+        await fs.access(installed)
+    }
+    const relocated = path.join(temporary, "moved package's directory")
+    await fs.rename(packageRoot, relocated)
+    const relocatedGuide = run(process.execPath, [path.join(relocated, 'dist/cli.js'), '--agent-help'])
+    assert.ok(relocatedGuide.includes(path.join(relocated, 'src/generated/api.ts')))
+    assert.ok(relocatedGuide.includes("package'\\''s directory"))
+    await fs.rename(relocated, packageRoot)
     const consumer = `
 import client, { type FeatureFlagsArchiveOutput, type QueriesTrendsInput } from '@posthog/sdk'
 import type { FeatureFlagsArchiveInput } from '@posthog/sdk/feature-flags'
 import type { QueriesSqlOutput } from '@posthog/sdk/queries'
-import { describeTool } from '@posthog/sdk/discovery'
+import { operations } from '@posthog/sdk/discovery'
+import type { SignalsScoutRunsListInput } from '@posthog/sdk/api'
 const input: FeatureFlagsArchiveInput = { id: 17 }
 const result: Promise<FeatureFlagsArchiveOutput> = client.featureFlags.archive(input)
 const notebook: Promise<{ data: { notebook_id: string; title: string } }> = client.notebooks.notebooksCreateMarkdown({ title: 'Sample report' })
@@ -95,7 +108,8 @@ function read(output: QueriesSqlOutput): void {
 client.featureFlags.archive({ id: '17' })
 // @ts-expect-error Completed-only results must be narrowed by state.
 function invalid(output: QueriesSqlOutput): void { console.log(output.data.result) }
-void [result, notebook, query, read, describeTool]
+const runs: SignalsScoutRunsListInput = { limit: 1 }
+void [result, notebook, query, read, operations, runs]
 `
     await fs.writeFile(path.join(temporary, 'consumer.ts'), consumer)
     await fs.writeFile(

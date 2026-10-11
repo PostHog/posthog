@@ -32,7 +32,7 @@ The structured SQL and analytics adapters expose completed, pending, and failed 
 
 The generated files preserve original schema comments and effective overrides.
 Method JSDoc contains complete tool descriptions, original descriptions, scope requirements, and MCP names.
-The offline catalog records documentation layers and their source locations.
+The single `src/generated/api.ts` registry retains full method JSDoc and schema comments; the TSV indexes point to its named contracts.
 Open JSON fields and source schema gaps remain documented `JsonValue` contracts; the generator does not invent result fields.
 
 ## Shared execution
@@ -63,19 +63,14 @@ Tool error envelopes become rejected SDK promises rather than successful data.
 
 ## Offline discovery
 
-After installation, an agent can run:
+After installation, run `npx @posthog/sdk --agent-help` to read the workflow guide, available domains, and absolute local paths to the registry and indexes.
+Search `api-index.tsv` with grep or rg to select a method, then read its JSDoc and named input/output interfaces in `src/generated/api.ts`.
+Follow referenced type names with bounded searches; shared type graphs are deduplicated only when their shapes and documentation agree.
+`domains.tsv` lists each domain's method count and import path.
 
-```sh
-npx --no-install posthog-sdk list
-npx --no-install posthog-sdk search "feature flag"
-npx --no-install posthog-sdk describe featureFlags.archive
-rg 'interface FeatureFlagsArchive' node_modules/@posthog/sdk/src
-```
-
-These commands require no credentials or network access.
-`describe` prints the full description and TypeScript source, including nested interfaces.
-`--json` returns structured metadata and file references.
-`@posthog/sdk/discovery` exposes the same catalog, search, and describe operations programmatically.
+These files and the guide work offline without credentials.
+`@posthog/sdk/discovery` exposes static `operations` and `domains` arrays for ordinary JavaScript filtering.
+Agents can save parameterized scripts in their own skills or scratchpads for repeated work, keeping credentials in the environment and output compact.
 
 ## Generation and validation
 
@@ -88,4 +83,4 @@ The package check installs a tarball in a separate project, exercises offline di
 Publishing remains a separate release step.
 
 The adjacent handwritten TypeScript files are early contract sketches.
-Use the package's generated source and catalog for the current API surface.
+Use the package's generated registry and TSV indexes for the current API surface.

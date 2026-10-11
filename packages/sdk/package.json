@@ -9,8 +9,8 @@
     "files": [
         "dist",
         "src",
-        "catalog.json",
-        "catalog",
+        "api-index.tsv",
+        "domains.tsv",
         "coverage.json",
         "README.md",
         "AGENTS.md"
@@ -27,13 +27,18 @@
             "types": "./dist/discovery.d.ts",
             "default": "./dist/discovery.js"
         },
-        "./catalog.json": "./catalog.json",
         "./coverage.json": "./coverage.json",
         "./package.json": "./package.json",
         "./*": {
             "types": "./dist/generated/*/index.d.ts",
             "default": "./dist/generated/*/index.js"
-        }
+        },
+        "./api": {
+            "types": "./dist/generated/api.d.ts",
+            "default": "./dist/generated/api.js"
+        },
+        "./api-index.tsv": "./api-index.tsv",
+        "./domains.tsv": "./domains.tsv"
     },
     "scripts": {
         "build": "node scripts/build.mjs",

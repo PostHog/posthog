@@ -1,4 +1,4 @@
-import { describeTool, searchTools, type ToolDescription, type ToolSearchResult } from './discovery'
+import { operations, type OperationInfo } from './discovery'
 import type { FeatureFlagsArchiveOutput } from './feature-flags/archive'
 import type { FeatureFlagsListInput, FeatureFlagsListOutput } from './feature-flags/list'
 import { client, createPostHogClient, type PostHogProjectClient } from './index'
@@ -7,12 +7,8 @@ export async function findFlagsWithDefaults(search: string): Promise<FeatureFlag
     return client.featureFlags.list({ search, limit: 20 })
 }
 
-export function findTools(query: string): ToolSearchResult[] {
-    return searchTools(query, { limit: 5 })
-}
-
-export function inspectArchive(): ToolDescription | undefined {
-    return describeTool('featureFlags.archive')
+export function findTools(query: string): OperationInfo[] {
+    return operations.filter((operation) => operation.purpose.toLowerCase().includes(query.toLowerCase())).slice(0, 5)
 }
 
 export async function findFlags(token: string, baseUrl: string, search: string): Promise<FeatureFlagsListOutput> {

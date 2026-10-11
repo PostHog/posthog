@@ -1,7 +1,7 @@
 # Using @posthog/sdk
 
+Run `posthog-sdk --agent-help` before a PostHog task; it lists available tool domains, absolute local paths to `api.ts` and both TSV indexes, and workflow guidance.
+Use grep or rg on `api-index.tsv` to find methods, then read their JSDoc and named input/output interfaces in `src/generated/api.ts`. `domains.tsv` lists domain counts and import paths.
 Read [README.md](README.md) when configuring authentication, project selection, or a Tasks proxy.
-Run `posthog-sdk search "<task>"`, then `posthog-sdk describe <method>` to discover the method and its input/output interfaces without credentials.
-`catalog.json` is the offline index; its entries point to full descriptions and source/declaration files in this package.
-Import `{ client }` from `@posthog/sdk` to use environment defaults, or `createPostHogClient` for explicit configuration.
-Inspect the method's required scopes and result type before calling it. `coverage.json` maps every registered MCP tool to its SDK method.
+Import `{ client }` from `@posthog/sdk` for environment defaults, or `createPostHogClient` for explicit configuration. `@posthog/sdk/discovery` exports static `operations` and `domains` arrays for programmatic exploration.
+Inspect required scopes and result types before calling a method. Reuse parameterized scripts in your own skill or scratchpad when a job repeats.
