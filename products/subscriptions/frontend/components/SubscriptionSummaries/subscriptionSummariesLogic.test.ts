@@ -39,24 +39,26 @@ describe('subscriptionSummariesLogic', () => {
     })
 
     it.each([
-        { flagEnabled: false, expectedSummaries: null, expectedCalls: 0 },
-        { flagEnabled: true, expectedSummaries: [summary('b'), summary('a')], expectedCalls: 1 },
+        { flagEnabled: false, expectedSummaries: null, expectedLatest: null, expectedCalls: [] },
+        {
+            flagEnabled: true,
+            expectedSummaries: [summary('b'), summary('a')],
+            expectedLatest: summary('b'),
+            expectedCalls: [[expect.any(String), { dashboard: 7 }]],
+        },
     ])(
         'loads summaries for the source only when the flag is enabled ($flagEnabled)',
-        async ({ flagEnabled, expectedSummaries, expectedCalls }) => {
+        async ({ flagEnabled, expectedSummaries, expectedLatest, expectedCalls }) => {
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.SUBSCRIPTION_SOURCE_SUMMARIES]: flagEnabled,
             })
             logic = subscriptionSummariesLogic({ dashboardId: 7 })
             logic.mount()
 
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({ summaries: expectedSummaries })
-            expect(mockSummariesList).toHaveBeenCalledTimes(expectedCalls)
-            if (expectedCalls) {
-                expect(mockSummariesList).toHaveBeenCalledWith(expect.any(String), { dashboard: 7 })
-                expect(logic.values.latestSummary).toEqual(summary('b'))
-                expect(logic.values.earlierSummaries).toEqual([summary('a')])
-            }
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ summaries: expectedSummaries, latestSummary: expectedLatest })
+            expect(mockSummariesList.mock.calls).toEqual(expectedCalls)
         }
     )
 })

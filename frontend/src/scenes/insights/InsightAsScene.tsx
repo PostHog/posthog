@@ -103,6 +103,8 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
 
                 {!isBIVisualizationNode(query) && <InsightQueryScanBanner insightProps={insightProps} />}
 
+                {!isEditing && !!insight.id && <SubscriptionSummaries insightId={insight.id} />}
+
                 <SqlInsightFilters query={query} setQuery={setQuery}>
                     {isDataVisualizationNode(query) && insightLoading ? (
                         // Avoid painting the stale chart type during a reload (the query re-syncs in insightDataLogic).
@@ -127,8 +129,6 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                         />
                     )}
                 </SqlInsightFilters>
-
-                {!isEditing && !!insight.id && <SubscriptionSummaries insightId={insight.id} />}
             </SceneContent>
         </BindLogic>
     )

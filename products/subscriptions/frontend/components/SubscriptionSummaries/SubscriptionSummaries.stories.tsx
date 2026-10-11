@@ -63,7 +63,7 @@ export default meta
 
 type Story = StoryObj<typeof SubscriptionSummaries>
 
-export const LatestWithHistory: Story = {
+export const Latest: Story = {
     render: () => (
         <div className="max-w-200">
             <SubscriptionSummaries dashboardId={1} />
