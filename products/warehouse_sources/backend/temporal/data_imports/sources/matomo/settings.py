@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
@@ -16,7 +16,7 @@ DEFAULT_BACKFILL_DAYS = 365
 # deferred to the next sync so their action list is complete when stored.
 VISIT_FINALITY_WINDOW_SECONDS = 3600
 
-MatomoEndpointKind = Literal["visits", "report"]
+MatomoEndpointKind = Literal["visits", "report", "list"]
 
 _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -35,6 +35,8 @@ class MatomoEndpointConfig:
     # Matomo Reporting API method name (everything goes through one RPC-style
     # endpoint: index.php?module=API&method=...).
     method: str
+    # Extra request parameters sent alongside the method, e.g. `flat` for hierarchical reports.
+    params: dict[str, Any] = field(default_factory=dict)
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Delta partitioning for this endpoint. Left unset (None) means the table is written
@@ -99,6 +101,51 @@ MATOMO_ENDPOINTS: dict[str, MatomoEndpointConfig] = {
         method="UserCountry.getCountry",
         primary_keys=["_date", "label"],
         incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "pages": MatomoEndpointConfig(
+        name="pages",
+        kind="report",
+        method="Actions.getPageUrls",
+        # The report nests pages under folder rows; flattening yields one row per page URL
+        # with its full path as the label, so (_date, label) stays unique.
+        params={"flat": 1},
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "goals_summary": MatomoEndpointConfig(
+        name="goals_summary",
+        kind="report",
+        method="Goals.get",
+        primary_keys=["_date"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "event_categories": MatomoEndpointConfig(
+        name="event_categories",
+        kind="report",
+        method="Events.getCategory",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "event_actions": MatomoEndpointConfig(
+        name="event_actions",
+        kind="report",
+        method="Events.getAction",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    "event_names": MatomoEndpointConfig(
+        name="event_names",
+        kind="report",
+        method="Events.getName",
+        primary_keys=["_date", "label"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    # Goal definitions: a small undated lookup, fetched whole each sync.
+    "goals": MatomoEndpointConfig(
+        name="goals",
+        kind="list",
+        method="Goals.getGoals",
+        primary_keys=["idgoal"],
     ),
 }
 
