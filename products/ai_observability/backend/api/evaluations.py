@@ -1186,7 +1186,8 @@ def _test_hog_over_sessions(
                 "results": [],
                 "message": (
                     f"No sessions have been quiet for {_humanize_seconds(quiet_period_seconds)} in the last "
-                    f"{EVALUATION_TEST_LOOKBACK_DAYS} days, so there is nothing to preview yet."
+                    f"{EVALUATION_TEST_LOOKBACK_DAYS} days, so there is nothing to preview yet. "
+                    "Session evaluations only include generations that have the $ai_session_id property."
                 ),
             }
         )
