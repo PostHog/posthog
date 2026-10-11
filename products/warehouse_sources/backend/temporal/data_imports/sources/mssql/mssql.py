@@ -1543,4 +1543,6 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             # `supports_resume` defaults to True. A read on the single query has no position to
             # hand to another worker, so it must say so.
             supports_resume=takes_keyset_path or resumes_incremental,
+            # The single query has `ORDER BY <incremental field>`. The keyset walk orders by its key.
+            sort_mode=("asc" if not takes_keyset_path and should_use_incremental_field and incremental_field else None),
         )

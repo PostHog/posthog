@@ -102,7 +102,7 @@ def _rest_api_client_config(base_api_url: str, api_key: str) -> ClientConfig:
 class FilloutSubmissionsPaginator(OffsetPaginator):
     """Limit/offset paginator for `/forms/{formId}/submissions`.
 
-    Pins `sort=asc`, oldest-first, matching the ascending incremental watermark. No `status`
+    Pins `sort=asc`, oldest-first within one form. No `status`
     param: `finished` is already Fillout's default, so sending it only added a way for the
     request to be rejected. `totalResponses` reflects the `afterDate`-filtered count, so the
     walk stops at the watermark on incremental syncs rather than re-reading each form's full

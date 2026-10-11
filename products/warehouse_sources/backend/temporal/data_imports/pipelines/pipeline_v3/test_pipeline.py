@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     OutputLane,
+    SortMode,
     SourceInputs,
     SourceResponse,
 )
@@ -2138,6 +2139,36 @@ class TestIncrementalHandoffCheckpoint:
     def test_an_attempt_that_continues_keeps_the_queue_rows_of_earlier_attempts(
         self, resumed_incremental_value: int | None, expected_is_resume: bool
     ) -> None:
+        pipeline, producer_cls = self._built_pipeline(
+            SourceResponse(
+                name="orders",
+                items=lambda: iter(()),
+                primary_keys=["id"],
+                sort_mode="asc",
+            ),
+            resumed_incremental_value,
+        )
+
+        # A fresh run replaces the queue rows of earlier attempts and overwrites on batch 0. A run that
+        # reads after their rows must not, or the rows it skipped are never loaded.
+        assert producer_cls.call_args.kwargs["is_resume"] is expected_is_resume
+        assert pipeline._handoff_checkpoint is not None
+        assert pipeline._handoff_checkpoint.resume_value == resumed_incremental_value
+
+    @pytest.mark.parametrize("sort_mode", [pytest.param(None, id="unordered"), pytest.param("desc", id="descending")])
+    def test_a_source_that_does_not_promise_ascending_order_gets_no_checkpoint(
+        self, sort_mode: SortMode | None
+    ) -> None:
+        pipeline, _ = self._built_pipeline(
+            SourceResponse(name="orders", items=lambda: iter(()), primary_keys=["id"], sort_mode=sort_mode), None
+        )
+
+        assert pipeline._handoff_checkpoint is None
+
+    @staticmethod
+    def _built_pipeline(
+        resource: SourceResponse, resumed_incremental_value: int | None
+    ) -> tuple[PipelineV3, MagicMock]:
         schema = MagicMock(
             id="schema-1",
             source_id="source-1",
@@ -2150,8 +2181,6 @@ class TestIncrementalHandoffCheckpoint:
             incremental_field_type=IncrementalFieldType.Integer,
             incremental_field_earliest_value=None,
         )
-        resource = SourceResponse(name="orders", items=lambda: iter(()), primary_keys=["id"])
-
         with (
             patch(f"{_PIPELINE}.current_import_attempt", return_value=2),
             patch(f"{_PIPELINE}.current_workflow_id", return_value="wf-1"),
@@ -2177,12 +2206,7 @@ class TestIncrementalHandoffCheckpoint:
                 incremental_checkpoints_allowed=True,
                 resumed_incremental_value=resumed_incremental_value,
             )
-
-        # A fresh run replaces the queue rows of earlier attempts and overwrites on batch 0. A run that
-        # reads after their rows must not, or the rows it skipped are never loaded.
-        assert producer_cls.call_args.kwargs["is_resume"] is expected_is_resume
-        assert pipeline._handoff_checkpoint is not None
-        assert pipeline._handoff_checkpoint.resume_value == resumed_incremental_value
+        return pipeline, producer_cls
 
 
 class _ShutdownSwitch:

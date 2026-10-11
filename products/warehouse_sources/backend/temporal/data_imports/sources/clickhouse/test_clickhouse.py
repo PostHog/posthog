@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     _parse_mv_target,
     _project_columns,
     _quote_identifier,
+    _reads_in_incremental_order,
     filter_clickhouse_incremental_fields,
     get_primary_keys_for_schemas,
 )
@@ -169,6 +170,54 @@ class TestBuildQuery:
         assert "toString(`status`) AS `status`" in query
         assert "toString(`payload`) AS `payload`" in query
         assert "toString(`value`) AS `value`" in query
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,page_conditions,expected_tail",
+        [
+            pytest.param(True, (), " ORDER BY `created_at` ASC", id="incremental_single_query"),
+            pytest.param(
+                True, ("(`created_at`) > (%(page_lower_0)s)",), " ORDER BY `created_at` ASC", id="incremental_paged"
+            ),
+            pytest.param(False, (), None, id="full_refresh"),
+        ],
+    )
+    def test_orders_only_an_incremental_query_and_ends_with_the_order(
+        self, should_use_incremental_field: bool, page_conditions: tuple[str, ...], expected_tail: str | None
+    ) -> None:
+        query, _ = _build_query(
+            database="default",
+            table_name="events",
+            columns=self._cols(("id", "Int64"), ("created_at", "DateTime64(6)")),
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field="created_at" if should_use_incremental_field else None,
+            incremental_field_type=IncrementalFieldType.DateTime if should_use_incremental_field else None,
+            page_conditions=page_conditions,
+        )
+        if expected_tail is None:
+            assert "ORDER BY" not in query
+        else:
+            assert query.endswith(expected_tail)
+
+    @pytest.mark.parametrize(
+        "data_type,should_use_incremental_field,incremental_field,expected",
+        [
+            ("DateTime64(6)", True, "created_at", True),
+            ("Date", True, "created_at", True),
+            ("Nullable(Int64)", True, "created_at", True),
+            ("LowCardinality(Nullable(UInt32))", True, "created_at", True),
+            # The SELECT list casts these with toString(), and the alias can make the order textual.
+            ("Int128", True, "created_at", False),
+            ("UInt256", True, "created_at", False),
+            ("Nullable(Int256)", True, "created_at", False),
+            ("DateTime64(6)", False, "created_at", False),
+            ("DateTime64(6)", True, "missing", False),
+        ],
+    )
+    def test_reads_in_incremental_order(
+        self, data_type: str, should_use_incremental_field: bool, incremental_field: str, expected: bool
+    ) -> None:
+        columns = self._cols(("id", "Int64"), ("created_at", data_type))
+        assert _reads_in_incremental_order(columns, should_use_incremental_field, incremental_field) is expected
 
 
 class TestProjectColumns:

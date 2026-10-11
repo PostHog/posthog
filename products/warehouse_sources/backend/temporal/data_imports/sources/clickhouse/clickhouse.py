@@ -1297,6 +1297,24 @@ def _needs_to_string_cast(inner: str) -> bool:
     return any(inner.startswith(prefix) for prefix in _ARROW_UNSUPPORTED_PREFIXES)
 
 
+def _reads_in_incremental_order(
+    columns: list[ClickHouseColumn], should_use_incremental_field: bool, incremental_field: str | None
+) -> bool:
+    """Whether the read returns its rows in ascending order of the incremental value.
+
+    The query has `ORDER BY <incremental field>`, and a paged read walks ascending ranges of that
+    field. A column that the SELECT list casts with `toString()` has an alias with the column's
+    name, so the server can order by the text and not by the number.
+    """
+    if not should_use_incremental_field or incremental_field is None:
+        return False
+    column = next((column for column in columns if column.name == incremental_field), None)
+    if column is None:
+        return False
+    inner, _ = _strip_type_modifiers(column.data_type)
+    return not _needs_to_string_cast(inner)
+
+
 def _build_select_list(columns: list[ClickHouseColumn]) -> str:
     """Build explicit SELECT list, wrapping Arrow-unsupported types in toString()."""
     parts: list[str] = []
@@ -1897,4 +1915,9 @@ def clickhouse_source(
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
         has_duplicate_primary_keys=has_duplicate_primary_keys,
+        sort_mode=(
+            "asc"
+            if _reads_in_incremental_order(list(table.columns), should_use_incremental_field, incremental_field)
+            else None
+        ),
     )

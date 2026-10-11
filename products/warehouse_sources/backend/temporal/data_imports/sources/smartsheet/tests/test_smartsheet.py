@@ -107,7 +107,7 @@ class TestSmartsheetSourceResponse:
         expected_keys = config.primary_key if isinstance(config.primary_key, list) else [config.primary_key]
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_format == "week"

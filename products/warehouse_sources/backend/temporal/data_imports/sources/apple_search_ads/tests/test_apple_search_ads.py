@@ -875,8 +875,7 @@ class TestSourceResponse:
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
-        # Windows are walked oldest-first, so the watermark only ever moves forward.
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
         if config.partition_key is None:
             assert response.partition_mode is None
             assert response.partition_keys is None

@@ -129,8 +129,7 @@ class TestSourceResponseShape:
         assert response.primary_keys == expected_keys
         assert response.partition_mode == expected_partition_mode
         assert response.partition_keys == ([expected_partition_key] if expected_partition_key else None)
-        # Ascending order is the safe default; we never declare desc here.
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
 
 
 class TestEndpointConfig:

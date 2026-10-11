@@ -260,7 +260,7 @@ class TestCloudflareSourceResponse:
 
         assert response.name == endpoint
         assert response.primary_keys == list(config.primary_keys)
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
         assert response.partition_mode is None
         assert response.partition_keys is None
 

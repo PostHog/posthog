@@ -195,6 +195,8 @@ class TestTypeformTransport:
         assert resource["endpoint"]["path"] == "/forms"
         assert resource["endpoint"]["data_selector"] == "items"
         assert resource["endpoint"]["params"]["page_size"] == 200
+        assert resource["endpoint"]["params"]["sort_by"] == "last_updated_at"
+        assert resource["endpoint"]["params"]["order_by"] == "asc"
         assert resource["table_format"] == "delta"
 
     def test_get_resource_rejects_responses_fanout(self) -> None:

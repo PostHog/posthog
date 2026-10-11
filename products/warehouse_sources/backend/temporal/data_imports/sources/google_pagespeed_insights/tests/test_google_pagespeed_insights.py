@@ -303,7 +303,7 @@ class TestSource:
         assert response.primary_keys == ["requested_url", "analysis_timestamp"]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["analysis_timestamp"]
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
 
     def test_invalid_urls_raise(self):
         with pytest.raises(ValueError):

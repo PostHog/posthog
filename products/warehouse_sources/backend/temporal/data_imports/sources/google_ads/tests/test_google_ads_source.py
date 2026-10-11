@@ -1598,7 +1598,7 @@ class TestGoogleAdsQueryConstruction:
             "ORDER BY segments.date ASC"
         )
         assert all("2100-01-01" not in q for q in queries)
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
 
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
         # Spending the whole budget on lookback overlap leaves the cursor unmoved, so the next run

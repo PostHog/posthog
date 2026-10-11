@@ -1020,6 +1020,33 @@ class TestKeysetReadPath:
 
         assert source.supports_resume is False
 
+    @pytest.mark.parametrize(
+        "incremental,has_manager,expected_ascending,expected_resume",
+        [
+            pytest.param(True, False, True, False, id="incremental_streaming"),
+            pytest.param(True, True, True, False, id="incremental_streaming_with_manager"),
+            pytest.param(False, False, False, False, id="full_refresh_streaming"),
+            pytest.param(False, True, False, True, id="full_refresh_keyset"),
+        ],
+    )
+    def test_only_the_incremental_streaming_read_claims_ascending_order(
+        self, keyset_mocks, incremental: bool, has_manager: bool, expected_ascending: bool, expected_resume: bool
+    ):
+        inputs = _make_inputs(
+            should_use_incremental_field=incremental,
+            incremental_field="id" if incremental else None,
+            incremental_field_type=IncrementalFieldType.Integer if incremental else None,
+        )
+
+        source = MySQLImplementation().build_pipeline(
+            _make_config(), inputs, resumable_source_manager=self._fake_manager() if has_manager else None
+        )
+
+        assert (source.sort_mode, source.supports_resume) == (
+            "asc" if expected_ascending else None,
+            expected_resume,
+        )
+
 
 class TestBuildPipelineSourceLocation:
     def test_uses_schema_metadata_when_schema_is_blank(self, build_pipeline_mocks):
@@ -2218,6 +2245,7 @@ class TestBuildQueryForceIndex:
             db_incremental_field_last_value="2025-01-01",
         )
         assert "FORCE INDEX" not in query
+        assert query.endswith("ORDER BY `created_at` ASC")
 
     def test_force_index_hint_added_when_provided(self):
         query, _ = _build_query(
@@ -2232,6 +2260,7 @@ class TestBuildQueryForceIndex:
         assert "FORCE INDEX (`idx_created_at`)" in query
         # Hint goes between the table and the WHERE clause
         assert query.index("FORCE INDEX") < query.index("WHERE")
+        assert query.endswith("ORDER BY `created_at` ASC")
 
     def test_force_index_hint_applied_for_non_incremental_query_too(self):
         # Full refresh mode — the hint still attaches so callers can force a

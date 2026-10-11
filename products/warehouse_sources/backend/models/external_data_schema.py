@@ -213,7 +213,7 @@ STAGED_CURSOR_PENDING_LIMIT = MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION
 # The key, inside a staged cursor, for the incremental value a later attempt of the same workflow
 # run can resume after. It differs from the staged `last_value`, which the loader promotes only
 # when the whole run completes.
-STAGED_RESUME_VALUE_KEY = "resume_value"
+STAGED_RESUME_VALUE_KEY = "ordered_resume_value"
 
 # The key, inside a staged cursor, for the run whose queue rows the resume value actually describes.
 # An attempt that only inherits the value from an earlier attempt, without queuing a batch of its

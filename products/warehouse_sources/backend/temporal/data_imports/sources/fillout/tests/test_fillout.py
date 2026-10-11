@@ -232,7 +232,7 @@ class TestFilloutTransport:
         assert response.primary_keys == expected_primary_keys
         assert response.partition_mode == expected_partition_mode
         assert response.partition_keys == expected_partition_keys
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == (None if endpoint == "submissions" else "asc")
 
     @parameterized.expand(
         [

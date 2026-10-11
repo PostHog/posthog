@@ -518,4 +518,6 @@ class DatabricksImplementation(SQLSourceImplementation[DatabricksSourceConfig, A
             partition_count=partition_settings.partition_count if partition_settings else None,
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,
+            # One statement with `ORDER BY <incremental field>`, read as one stream.
+            sort_mode="asc" if incremental_field is not None else None,
         )

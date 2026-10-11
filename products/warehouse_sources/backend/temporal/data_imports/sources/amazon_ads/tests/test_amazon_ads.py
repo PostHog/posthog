@@ -378,7 +378,7 @@ class TestAmazonAdsSourceResponse:
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
         if config.report is None:
             assert response.partition_mode is None
             assert response.partition_keys is None

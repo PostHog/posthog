@@ -2212,4 +2212,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             # The streaming path can't be resumed across pods (its cursor is bound to one connection),
             # so this run is not cheaply resumable — treated as non-resumable for shutdown handling.
             supports_resume=False,
+            # One streamed statement with `ORDER BY <incremental field>`. The FORCE INDEX retry
+            # keeps the clause and runs only before the first row.
+            sort_mode="asc" if should_use_incremental_field and incremental_field is not None else None,
         )

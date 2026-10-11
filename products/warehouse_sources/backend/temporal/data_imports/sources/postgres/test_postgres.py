@@ -4337,6 +4337,9 @@ class TestChunkedRereadAfterRecoveryConflict:
         chunking: _TableChunking | None = None,
         lock_timeout_before_each_page: bool = False,
         page_error: BaseException | None = None,
+        is_duckdb: bool = False,
+        child_partitions: list[ChildPartition] | None = None,
+        partition_strategy: PartitionStrategy | None = None,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4372,10 +4375,12 @@ class TestChunkedRereadAfterRecoveryConflict:
             ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
-            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._is_duckdb_connection", return_value=is_duckdb),
             patch(f"{module}._get_primary_keys", return_value=primary_keys),
             patch(f"{module}._has_duplicate_primary_keys", return_value=has_duplicate_pks),
-            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._is_partitioned_table", return_value=child_partitions is not None),
+            patch(f"{module}.list_child_partitions", return_value=child_partitions or []),
+            patch(f"{module}.get_partition_strategy", return_value=partition_strategy),
             patch(
                 f"{module}._get_table_chunk_size",
                 return_value=chunking or _TableChunking(batch_rows=2, fetch_rows=2),
@@ -4405,6 +4410,8 @@ class TestChunkedRereadAfterRecoveryConflict:
                 resumable_source_manager=resumable_source_manager,
             )
             self.last_response = response
+            if pages_to_take == 0:
+                return []
             pages = cast(Iterator[Any], iter(cast(Iterable[Any], response.items())))
             ids: list[int | str] = []
             taken = 0
@@ -4601,6 +4608,43 @@ class TestChunkedRereadAfterRecoveryConflict:
         )
 
         assert self.last_response.supports_resume is False
+
+    @pytest.mark.parametrize(
+        "kwargs,expected",
+        [
+            ({"should_use_incremental_field": True, "primary_keys": ["id"]}, True),
+            ({"should_use_incremental_field": True, "primary_keys": ["id"], "is_duckdb": True}, False),
+            ({"should_use_incremental_field": True, "primary_keys": ["id"], "child_partitions": []}, False),
+            (
+                {
+                    "should_use_incremental_field": True,
+                    "primary_keys": ["id"],
+                    "child_partitions": [ChildPartition(oid=1, schema="public", name="orders_p1", partbound="")],
+                    "partition_strategy": PartitionStrategy(strategy="r", key_columns=("id",)),
+                },
+                False,
+            ),
+            ({"should_use_incremental_field": False, "primary_keys": ["id"]}, False),
+            ({"should_use_incremental_field": False, "primary_keys": None}, False),
+            ({"should_use_incremental_field": False, "is_xmin": True, "primary_keys": ["id"]}, False),
+        ],
+        ids=[
+            "incremental_one_server_cursor",
+            "incremental_duckdb_offset_pages",
+            "incremental_partitioned_windows",
+            "incremental_per_child_partition",
+            "full_refresh_keyset",
+            "full_refresh_no_seekable_key",
+            "xmin",
+        ],
+    )
+    def test_only_one_ordered_statement_claims_ascending_for_the_whole_run(
+        self, kwargs: dict[str, Any], expected: bool
+    ) -> None:
+        # The claim is set when the response is built, so no page is read here.
+        self._read_ids(rows_before_conflict=0, pages_to_take=0, **kwargs)
+
+        assert self.last_response.sort_mode == ("asc" if expected else None)
 
     def test_a_text_primary_key_seeks_but_never_checkpoints(self):
         # The collation decision. Ordering a text key is stable within one process, so the in-process

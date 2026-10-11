@@ -293,6 +293,7 @@ class TestBuildPipeline:
             # Full refresh rewrites the whole table — the partition probes must be skipped.
             assert response.partition_count is None
             assert response.partition_size is None
+            assert response.sort_mode is None
             # The stream must terminate on the first empty arrow batch — not loop forever.
             assert list(response.items()) == [batch]
 
@@ -320,11 +321,12 @@ class TestBuildPipeline:
             # Table stats feed the shared partition math so incremental merges get md5 partitioning.
             assert response.partition_count is not None
             assert response.partition_size is not None
+            assert response.sort_mode == "asc"
             list(response.items())
 
         sql, params = streaming_cursor.execute.call_args.args
         assert "WHERE `updated_at` > :incremental_value" in sql
-        assert "ORDER BY `updated_at` ASC" in sql
+        assert sql.endswith("ORDER BY `updated_at` ASC")
         assert params == {"incremental_value": "2025-01-01T00:00:00"}
 
 

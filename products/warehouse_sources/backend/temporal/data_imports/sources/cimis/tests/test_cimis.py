@@ -246,7 +246,7 @@ class TestCimisSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.partition_mode == partition_mode
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
         if partition_mode == "datetime":
             assert response.partition_keys == [CIMIS_ENDPOINTS[endpoint].partition_key]
             assert response.partition_format == "month"

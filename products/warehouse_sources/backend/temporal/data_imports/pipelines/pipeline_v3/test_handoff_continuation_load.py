@@ -85,6 +85,8 @@ class _Import:
     queue: list[dict[str, Any]] = field(default_factory=list)
     attempts: int = 0
     pages_read: int = 0
+    reads_in_incremental_order: bool = True
+    source_reads: list[int | None] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.schema = ExternalDataSchema(
@@ -106,8 +108,11 @@ class _Import:
 
     def _source(self, read_after: int | None) -> SourceResponse:
         self.pages_read = 0
+        self.source_reads.append(read_after)
+        order_column = 1 if self.reads_in_incremental_order else 0
         rows = sorted(
-            (row for row in self.source_rows if read_after is None or row[1] > read_after), key=lambda row: row[1]
+            (row for row in self.source_rows if read_after is None or row[1] > read_after),
+            key=lambda row: row[order_column],
         )
 
         def items() -> Iterator[pa.Table]:
@@ -116,7 +121,13 @@ class _Import:
                 self.pages_read += 1
                 yield pa.table({"id": [row[0] for row in page], "n": [row[1] for row in page]})
 
-        return SourceResponse(name="orders", items=items, primary_keys=["id"], chunk_size=_PAGE_ROWS)
+        return SourceResponse(
+            name="orders",
+            items=items,
+            primary_keys=["id"],
+            chunk_size=_PAGE_ROWS,
+            sort_mode="asc" if self.reads_in_incremental_order else None,
+        )
 
     async def run_attempt(self, *, shut_down_after_pages: int | None, reset_pipeline: bool = False) -> bool:
         """Run one execution of the import the way the activity builds it. Returns whether it handed off."""
@@ -240,6 +251,11 @@ class _Import:
                     primary_keys=["id"],
                 )
 
+    def complete_job(self) -> None:
+        """Promote the staged watermark of the last attempt, as the loader does when the job completes."""
+        with patch.object(schema_models, "update_sync_type_config_keys", self._update_config):
+            self.schema.promote_staged_incremental_values(f"{_WORKFLOW_RUN_ID}-a{self.attempts}")
+
     def loaded_ids(self) -> list[int]:
         ids = deltalake.DeltaTable(self.table_uri).to_pyarrow_table().column("id").to_pylist()
         return sorted(cast(list[int], ids))
@@ -287,3 +303,47 @@ async def test_a_run_that_continues_after_a_handoff_loads_each_source_row_once(
     await run.load_queue()
 
     assert run.loaded_ids() == [row[0] for row in source_rows]
+
+
+# In id order the incremental values go up to 101 and then back to 21. The first two pages are
+# ascending, so a run that trusted them would continue after 100 and never read 21 to 28.
+_ID_ORDER = _rows([10, 11, 12, 13, 14, 15, 100, 101, 21, 22, 23, 24, 25, 26, 27, 28])
+
+
+@pytest.mark.parametrize(
+    "stored_watermark", [pytest.param(None, id="first_sync"), pytest.param(1, id="existing_table")]
+)
+@pytest.mark.asyncio
+async def test_an_unordered_source_starts_again_after_a_handoff(tmp_path: Path, stored_watermark: int | None) -> None:
+    run = _Import(table_uri=str(tmp_path / "orders"), source_rows=_ID_ORDER, reads_in_incremental_order=False)
+    if stored_watermark is not None:
+        deltalake.write_deltalake(run.table_uri, pa.table({"id": [0], "n": [stored_watermark]}))
+        run.schema.table = DataWarehouseTable(name="orders", team_id=1)
+        run.schema.sync_type_config["incremental_field_last_value"] = stored_watermark
+
+    assert await run.run_attempt(shut_down_after_pages=2)
+    assert not await run.run_attempt(shut_down_after_pages=None)
+    await run.load_queue()
+
+    assert run.source_reads == [stored_watermark, stored_watermark]
+    assert set(run.loaded_ids()) >= {row[0] for row in _ID_ORDER}
+
+
+@pytest.mark.asyncio
+async def test_an_unordered_run_moves_the_watermark_to_its_largest_value_only_when_the_job_completes(
+    tmp_path: Path,
+) -> None:
+    run = _Import(table_uri=str(tmp_path / "orders"), source_rows=_ID_ORDER, reads_in_incremental_order=False)
+    deltalake.write_deltalake(run.table_uri, pa.table({"id": [0], "n": [1]}))
+    run.schema.table = DataWarehouseTable(name="orders", team_id=1)
+    run.schema.sync_type_config["incremental_field_last_value"] = 1
+
+    assert await run.run_attempt(shut_down_after_pages=2)
+    assert run.schema.sync_type_config["incremental_field_last_value"] == 1
+
+    assert not await run.run_attempt(shut_down_after_pages=None)
+    assert run.schema.sync_type_config["incremental_field_last_value"] == 1
+    run.complete_job()
+
+    # The last row holds 28. The watermark is the largest value, which arrived in the middle of the read.
+    assert run.schema.sync_type_config["incremental_field_last_value"] == 101

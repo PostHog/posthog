@@ -806,7 +806,9 @@ async def update_incremental_field_values(
         if (last_incremental_field_value is None) or (last_value > last_incremental_field_value):
             last_incremental_field_value = last_value
 
-        if resource.sort_mode == "asc":
+        # The loader promotes the staged value only when the run completes, so the largest value
+        # read is the watermark with or without an order. A descending read stages it at the end.
+        if resource.sort_mode != "desc":
             await logger.adebug(
                 f"{log_prefix}Updating incremental_field_last_value with {last_incremental_field_value}"
             )
