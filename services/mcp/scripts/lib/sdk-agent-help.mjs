@@ -5,11 +5,25 @@ const header = `# PostHog SDK guide for agents
 
 Read this guide once before starting a PostHog task with \`@posthog/sdk\`. Follow its workflow guidance and reuse it while it remains in context. This guide shares its product guidance with the PostHog MCP server.
 
+## Local API reference
+
+- TypeScript registry: \`__SDK_API_PATH__\`
+- Method index: \`__SDK_INDEX_PATH__\`
+- Domain index: \`__SDK_DOMAINS_PATH__\`
+
+### Available tool domains
+
+__SDK_DOMAIN_LIST__
+
+These are the installed SDK's domains. The API checks the current credential's access on each call.
+
 ## Discover and call methods
 
-1. Find an unknown method with \`npx @posthog/sdk search "<task>"\`. Use \`npx @posthog/sdk list\` to browse all methods.
-2. Run \`npx @posthog/sdk describe <method>\` once when its description or input/output interfaces are missing from context. Read nested types before constructing complex inputs. Reuse the contracts unless the method changes or a validation error occurs.
-3. Import \`{ client }\` from \`@posthog/sdk\` and call the exported method with its documented input. Never guess method names, fields, or required scopes.
+1. Search the compact method index with \`rg -n -i 'dashboard|retention' __SDK_INDEX_SHELL__\`. Browse domains with \`cat __SDK_DOMAINS_SHELL__\`. The index maps each method to its input, output, required scopes, and mutation annotations. If it has no useful match, search the full method descriptions in \`api.ts\`.
+2. Read the matching method documentation and named interfaces in \`api.ts\` using \`rg -n -A 30 'interface FeatureFlagsArchiveInput|archive\\(' __SDK_API_SHELL__\`. Follow referenced interface names with further bounded searches. Read only the relevant contracts and reuse them while they remain in context.
+3. Import \`{ client }\` from \`@posthog/sdk\` and call the exported method with its documented input. Never guess method names, fields, or required scopes. For programmatic exploration, import \`{ operations, domains }\` from \`@posthog/sdk/discovery\` and filter these ordinary arrays.
+
+When several calls form a repeated job, save a small parameterized script in your skill or scratchpad. Keep credentials in the environment, bound pagination and concurrency, emit only the evidence needed for the next decision, and typecheck the script before reusing it. Recheck the contracts after an SDK update or validation error.
 
 Discovery and this guide work offline without credentials. Read the package README for authentication, project selection, and Tasks proxy configuration.
 
@@ -31,13 +45,16 @@ export class SdkAgentHelp {
 
     toSdkSyntax(text) {
         return text
-            .replace(/`info ([\w-]+)`/g, (original, name) =>
-                this.methods.has(name) ? `\`npx @posthog/sdk describe ${this.methods.get(name)}\`` : original
-            )
-            .replaceAll('`info query-*`', '`npx @posthog/sdk describe <method>`')
-            .replaceAll('`exec search`', '`npx @posthog/sdk search`')
-            .replaceAll('`search <noun>`', '`npx @posthog/sdk search "<task>"`')
-            .replaceAll('`search notebooks-`', '`npx @posthog/sdk search "notebooks"`')
+            .replace(/`info ([\w-]+)`/g, (original, name) => {
+                const tool = this.tools.find((tool) => tool.toolName === name)
+                return tool
+                    ? `the \`${tool.input}\` interface and \`client.${tool.method}\` documentation in \`api.ts\``
+                    : original
+            })
+            .replaceAll('`info query-*`', 'reading query interfaces in `api.ts`')
+            .replaceAll('`exec search`', 'Searching `api-index.tsv`')
+            .replaceAll('`search <noun>`', 'searching `api-index.tsv`')
+            .replaceAll('`search notebooks-`', "use `rg -n 'notebooks' __SDK_INDEX_SHELL__`")
             .replaceAll('Each `query-*` tool', 'Each query method')
             .replace(/`([\w-]+)`/g, (original, name) =>
                 this.methods.has(name) ? `\`client.${this.methods.get(name)}\`` : original

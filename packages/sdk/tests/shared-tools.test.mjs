@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { describeTool } from '../dist/discovery.js'
+import { operations } from '../dist/discovery.js'
+
+const operation = (name) => operations.find((item) => item.toolName === name || item.method === name)
 import { createPostHogClient, PostHogError } from '../dist/index.js'
 
 function invoke(client, name, input = {}, options) {
-    const tool = describeTool(name)
+    const tool = operation(name)
     assert.ok(tool, `Missing ${name}`)
     const [namespace, method] = tool.method.split('.')
     return client[namespace][method](input, options)
@@ -135,7 +137,7 @@ test('embedded query wrappers and gated tools remain callable with their origina
     })
     await invoke(client, 'tasks-list')
     assert.match(calls[0].url, /\/api\/projects\/23\/tasks\//)
-    const query = describeTool('query-mcp-tool-stats')
+    const query = operation('query-mcp-tool-stats')
     assert.ok(query.method.startsWith('mcpAnalytics.'))
     await invoke(client, 'query-mcp-tool-stats', { toolName: 'tasks-list' })
     const body = JSON.parse(calls.at(-1).init.body)
@@ -231,9 +233,6 @@ test('feedback reports callback delivery accurately and preserves callback failu
         },
     })
     await assert.rejects(invoke(failing, 'agent-feedback', input), /Example sink failure/)
-    const docs = describeTool('agent-feedback')
-    assert.match(docs.description, /does not automatically submit/)
-    assert.ok(docs.methodDocumentation.some((layer) => layer.role === 'original'))
 })
 
 test('connected-project calls use the configured transport and keep the local project', async () => {
