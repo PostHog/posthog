@@ -18,7 +18,7 @@ Rate limits: 120 requests / 60s per user+IP, `429` with `Retry-After`. The frame
 import dataclasses
 from collections.abc import Iterable
 from typing import Any, Optional, cast
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from requests import Response
 
@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.mixmax.settings import (
+    MESSAGE_ID_PARAM_FIELD,
     MIXMAX_ENDPOINTS,
     PAGE_SIZE,
     MixmaxEndpointConfig,
@@ -118,6 +119,11 @@ def _client_config(api_key: str) -> ClientConfig:
     }
 
 
+def _with_encoded_message_id(row: dict[str, Any]) -> dict[str, Any]:
+    row[MESSAGE_ID_PARAM_FIELD] = quote(str(row["_id"]), safe="")
+    return row
+
+
 def _fanout_source(
     api_key: str, endpoint: str, config: MixmaxEndpointConfig, team_id: int, job_id: str
 ) -> SourceResponse:
@@ -140,6 +146,7 @@ def _fanout_source(
             parent_endpoint_extra={"paginator": MixmaxCursorPaginator(parent_config.path), "data_selector": "results"},
             # Child responses are a single `{results: [...]}` page, capped server-side.
             child_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": "results"},
+            parent_data_map=_with_encoded_message_id,
         ),
     )
 

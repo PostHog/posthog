@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class MixmaxEndpointConfig:
     name: str
     path: str
@@ -32,12 +32,16 @@ class MixmaxEndpointConfig:
     page_size: int = PAGE_SIZE
 
 
+# Parent rows carry their `_id` percent-encoded under this key, because the fan-out binds the
+# resolved value into the child URL with no escaping.
+MESSAGE_ID_PARAM_FIELD = "_message_id_param"
+
 # /livefeed/events takes a single `messageId` per request, so events fan out over the live feed's
 # messages. Event ids are only documented as unique, so the key also carries the parent message id.
 _LIVE_FEED_EVENTS_FANOUT = DependentEndpointConfig(
     parent_name="live_feed",
     resolve_param="message_id",
-    resolve_field="_id",
+    resolve_field=MESSAGE_ID_PARAM_FIELD,
     include_from_parent=["_id"],
     parent_field_renames={"_id": "message_id"},
     parent_params={"limit": PAGE_SIZE},

@@ -803,7 +803,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mistral_ai/mistral_ai.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mistral_ai/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixmax/mixmax.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/mixmax/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/mixpanel.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mixpanel/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/mollie/mollie.py

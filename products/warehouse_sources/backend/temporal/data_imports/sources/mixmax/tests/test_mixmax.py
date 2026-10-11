@@ -153,7 +153,7 @@ class TestLiveFeedEventsFanout:
             [
                 _resp({"results": [{"_id": "m1"}], "next": "cur2", "hasNext": True}),
                 _resp({"results": [{"_id": "e1", "type": "opened"}, {"_id": "e2", "type": "replied"}]}),
-                _resp({"results": [{"_id": "m2"}], "hasNext": False}),
+                _resp({"results": [{"_id": "m2&limit=1"}], "hasNext": False}),
                 _resp({}, status=404),
             ],
         )
@@ -168,7 +168,10 @@ class TestLiveFeedEventsFanout:
             {"url": "https://api.mixmax.com/v1/livefeed", "params": {"limit": 100}},
             {"url": "https://api.mixmax.com/v1/livefeed/events?messageId=m1", "params": {"wasSentViaMixmax": "true"}},
             {"url": "https://api.mixmax.com/v1/livefeed?limit=100&next=cur2", "params": {}},
-            {"url": "https://api.mixmax.com/v1/livefeed/events?messageId=m2", "params": {"wasSentViaMixmax": "true"}},
+            {
+                "url": "https://api.mixmax.com/v1/livefeed/events?messageId=m2%26limit%3D1",
+                "params": {"wasSentViaMixmax": "true"},
+            },
         ]
 
 
