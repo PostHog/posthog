@@ -11308,6 +11308,18 @@ export namespace Schemas {
       team: number;
     }
 
+    /**
+     * * `winner` - Winner
+     * * `cheeky-hog` - Cheeky hog
+     */
+    export type DashboardTileBadgeEnum = typeof DashboardTileBadgeEnum[keyof typeof DashboardTileBadgeEnum];
+
+
+    export const DashboardTileBadgeEnum = {
+      Winner: 'winner',
+      CheekyHog: 'cheeky-hog',
+    } as const;
+
     export interface DashboardTile {
       id?: number;
       insight: Insight;
@@ -11325,6 +11337,12 @@ export namespace Schemas {
       show_description?: boolean | null;
       /** @nullable */
       transparent_background?: boolean | null;
+      /**
+         * @maxLength 100
+         * @nullable
+         */
+      group_key?: string | null;
+      badge?: DashboardTileBadgeEnum | null;
     }
 
     export interface AddDashboardWidgetsBatchResponse {
@@ -24606,7 +24624,7 @@ export namespace Schemas {
       top_10: ConfusionCounts;
       /** Counts when the top 20% of users by score are flagged. */
       top_20: ConfusionCounts;
-      /** Counts when users with a score of 0.6 or higher (the Likely segment) are flagged. */
+      /** Counts when users in the Likely segment, with a score of likely_threshold or higher, are flagged. */
       likely: ConfusionCounts;
     }
 
@@ -27462,6 +27480,12 @@ export namespace Schemas {
      */
     export type DashboardPersistedVariables = { [key: string]: unknown } | null;
 
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    export type DashboardGroupTitles = {[key: string]: string} | null;
+
     export type DashboardTilesItem = { [key: string]: unknown };
 
     /**
@@ -27512,6 +27536,11 @@ export namespace Schemas {
       Stable: 'stable',
     } as const;
 
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     */
+    export type DashboardCustomizationGroupTitles = {[key: string]: string};
+
     export interface DashboardCustomization {
       /** Named tile density preset.
        *
@@ -27527,6 +27556,8 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /** Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles. */
+      group_titles?: DashboardCustomizationGroupTitles;
     }
 
     /**
@@ -27620,6 +27651,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /**
+         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * @nullable
+         */
+      group_titles?: DashboardGroupTitles;
       /** @nullable */
       readonly tiles: readonly DashboardTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -27810,6 +27846,17 @@ export namespace Schemas {
       layouts?: _DashboardPatchTileLayoutsOpenApi;
       /** Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard. */
       show_description?: boolean;
+      /**
+         * Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group.
+         * @maxLength 100
+         * @nullable
+         */
+      group_key?: string | null;
+      /** Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. More than one tile in a group can have the winner badge.
+       *
+       * * `winner` - Winner
+       * * `cheeky-hog` - Cheeky hog */
+      badge?: DashboardTileBadgeEnum | null;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
     }
@@ -27945,6 +27992,12 @@ export namespace Schemas {
      */
     export type DashboardWriteOpenApiPersistedVariables = { [key: string]: unknown } | null;
 
+    /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    export type DashboardWriteOpenApiGroupTitles = {[key: string]: string} | null;
+
     export type DashboardWriteOpenApiTilesItem = { [key: string]: unknown };
 
     /**
@@ -28039,6 +28092,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /**
+         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * @nullable
+         */
+      group_titles?: DashboardWriteOpenApiGroupTitles;
       /** @nullable */
       readonly tiles: readonly DashboardWriteOpenApiTilesItem[] | null;
       /** Template key to create the dashboard from a predefined template. */
@@ -67819,6 +67877,11 @@ export namespace Schemas {
       /** Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. Null for dates validated before this metric existed. */
       confusion: ConfusionByCutoff | null;
       /**
+         * The Likely cut point the 'likely' confusion counts used for this date, from the base rate of the dates checked before it. Null when confusion is null.
+         * @nullable
+         */
+      likely_threshold: number | null;
+      /**
          * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
          * @nullable
          */
@@ -67835,9 +67898,39 @@ export namespace Schemas {
       validated_at: string | null;
     }
 
+    export interface PredictionSegmentThresholds {
+      /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null. */
+      likely_threshold: number;
+      /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null. */
+      possible_threshold: number;
+      /** How many times the base rate a score must reach to be in the Likely segment. */
+      likely_lift: number;
+      /**
+         * Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.
+         * @nullable
+         */
+      base_rate: number | null;
+      /** Number of checked prediction dates the base rate pools. */
+      base_rate_dates: number;
+      /**
+         * The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.
+         * @nullable
+         */
+      champion_mean_p_y: number | null;
+      /**
+         * The real rate of the target event over the same dates as champion_mean_p_y.
+         * @nullable
+         */
+      champion_base_rate: number | null;
+      /** True when champion_mean_p_y is far above or below champion_base_rate. The scores are then not probabilities (for example after class weighting in train.py), so a score of likely_lift times the base rate does not mean the user is that many times as likely to convert. */
+      scores_miscalibrated: boolean;
+    }
+
     export interface OnlinePerformance {
       /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
       rows: OnlinePerformanceRow[];
+      /** The current cut points between the Likely, Possible and Unlikely segments, set by lift over the realized base rate. They do not depend on limit. */
+      segment_thresholds: PredictionSegmentThresholds;
     }
 
     /**
@@ -72145,6 +72238,22 @@ export namespace Schemas {
       Inconclusive: 'inconclusive',
     } as const;
 
+    /**
+     * * `awaiting_data` - Awaiting Data
+     * * `unmeasurable` - Unmeasurable
+     * * `needs_manual_verification` - Needs Manual Verification
+     * * `no_fix_to_measure` - No Fix To Measure
+     */
+    export type SignalReportCheckInconclusiveReasonEnum = typeof SignalReportCheckInconclusiveReasonEnum[keyof typeof SignalReportCheckInconclusiveReasonEnum];
+
+
+    export const SignalReportCheckInconclusiveReasonEnum = {
+      AwaitingData: 'awaiting_data',
+      Unmeasurable: 'unmeasurable',
+      NeedsManualVerification: 'needs_manual_verification',
+      NoFixToMeasure: 'no_fix_to_measure',
+    } as const;
+
     export interface SignalReportCheck {
       readonly id: string;
       /** Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`. */
@@ -72199,6 +72308,13 @@ export namespace Schemas {
        * * `errored` - Errored
        * * `inconclusive` - Inconclusive */
       readonly last_outcome: SignalReportCheckOutcomeEnum | null;
+      /** Why the most recent run could not settle the claim. Set only when `last_outcome` is `inconclusive`: `awaiting_data`, `unmeasurable`, `needs_manual_verification`, or `no_fix_to_measure`.
+       *
+       * * `awaiting_data` - Awaiting Data
+       * * `unmeasurable` - Unmeasurable
+       * * `needs_manual_verification` - Needs Manual Verification
+       * * `no_fix_to_measure` - No Fix To Measure */
+      readonly last_outcome_reason: SignalReportCheckInconclusiveReasonEnum | null;
       /**
          * When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.
          * @nullable
@@ -81411,6 +81527,12 @@ export namespace Schemas {
     }
 
     /**
+     * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+     * @nullable
+     */
+    export type PatchedPatchedDashboardOpenApiGroupTitles = {[key: string]: string} | null;
+
+    /**
      * OpenAPI-only PATCH body for dashboards (agents/MCP).
      *
      * Must be a superset of ``dashboard_patch_runtime_openapi_field_names()`` — ``extend_schema(request=...)``
@@ -81462,6 +81584,11 @@ export namespace Schemas {
        * * `horizontal` - horizontal
        * * `stable` - stable */
       layout_compaction?: LayoutCompactionEnum;
+      /**
+         * Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles.
+         * @nullable
+         */
+      group_titles?: PatchedPatchedDashboardOpenApiGroupTitles;
       /** Dashboard tiles to update, each identified by its tile id. Any tile type accepts `layouts` to set its grid position and size. Widget tiles also accept nested widget.config patches. */
       tiles?: DashboardPatchTileOpenApi[];
       /** Template key to create the dashboard from a predefined template. */
@@ -83624,10 +83751,18 @@ export namespace Schemas {
          */
       write_scopes?: string[];
       /**
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * @maxLength 10000
+         * @nullable
+         */
+      precheck_query?: string | null;
+      /**
          * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
          * @maxLength 64
          */
       suggestion_id?: string;
+      /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+      lifecycle_locked?: boolean;
       /**
          * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
          * @nullable
@@ -93081,22 +93216,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `awaiting_data` - Awaiting Data
-     * * `unmeasurable` - Unmeasurable
-     * * `needs_manual_verification` - Needs Manual Verification
-     * * `no_fix_to_measure` - No Fix To Measure
-     */
-    export type SignalReportCheckInconclusiveReasonEnum = typeof SignalReportCheckInconclusiveReasonEnum[keyof typeof SignalReportCheckInconclusiveReasonEnum];
-
-
-    export const SignalReportCheckInconclusiveReasonEnum = {
-      AwaitingData: 'awaiting_data',
-      Unmeasurable: 'unmeasurable',
-      NeedsManualVerification: 'needs_manual_verification',
-      NoFixToMeasure: 'no_fix_to_measure',
-    } as const;
-
-    /**
      * Request body for `scout-check-record-result`: the verdict on one dispatched report check.
      */
     export interface RecordCheckResultRequest {
@@ -95195,6 +95314,30 @@ export namespace Schemas {
     }
 
     /**
+     * * `full` - Deep
+     * * `flash` - Standard
+     */
+    export type ReviewTriggerReviewModeEnum = typeof ReviewTriggerReviewModeEnum[keyof typeof ReviewTriggerReviewModeEnum];
+
+
+    export const ReviewTriggerReviewModeEnum = {
+      Full: 'full',
+      Flash: 'flash',
+    } as const;
+
+    /**
+     * * `pipeline` - Pipeline
+     * * `single_agent` - Single agent
+     */
+    export type ReviewTurnDesignEnum = typeof ReviewTurnDesignEnum[keyof typeof ReviewTurnDesignEnum];
+
+
+    export const ReviewTurnDesignEnum = {
+      Pipeline: 'pipeline',
+      SingleAgent: 'single_agent',
+    } as const;
+
+    /**
      * * `fetching` - fetching
      * * `chunking` - chunking
      * * `selecting` - selecting
@@ -95264,6 +95407,44 @@ export namespace Schemas {
       needs_attention: number;
     }
 
+    /**
+     * * `resolving` - Resolving
+     * * `stopped` - Stopped
+     * * `completed` - Completed
+     */
+    export type ReviewLatestResolutionStatusEnum = typeof ReviewLatestResolutionStatusEnum[keyof typeof ReviewLatestResolutionStatusEnum];
+
+
+    export const ReviewLatestResolutionStatusEnum = {
+      Resolving: 'resolving',
+      Stopped: 'stopped',
+      Completed: 'completed',
+    } as const;
+
+    export interface ReviewLatestResolution {
+      /** Where the run stands: 'resolving' while threads are being settled, 'completed' when it finished, 'stopped' when it died partway or a newer review turn replaced it.
+       *
+       * * `resolving` - Resolving
+       * * `stopped` - Stopped
+       * * `completed` - Completed */
+      status: ReviewLatestResolutionStatusEnum;
+      /** When the run queued its threads. */
+      started_at: string;
+      /**
+         * When the run finished; null unless the status is 'completed'.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** Threads queued for this run. */
+      total: number;
+      /** Threads the run fixed with a commit to the branch. */
+      fixed: number;
+      /** Threads left for the author: judged worth doing but not safe to fix unattended. */
+      needs_attention: number;
+      /** SHAs of the run's fix commits, oldest first. Only commits confirmed on the pull request branch that touch no protected files; the replies on GitHub link the same commits. */
+      commits: string[];
+    }
+
     export interface ReviewSelectionChunk {
       /** The chunk this row describes, as numbered by the chunker. */
       chunk_id: number;
@@ -95289,6 +95470,16 @@ export namespace Schemas {
       chunks: ReviewSelectionChunk[];
     }
 
+    export interface ReviewFindingLineRange {
+      /** First affected line. */
+      start: number;
+      /**
+         * Last affected line; null for a single line.
+         * @nullable
+         */
+      end: number | null;
+    }
+
     /**
      * * `must_fix` - must_fix
      * * `should_fix` - should_fix
@@ -95302,16 +95493,6 @@ export namespace Schemas {
       ShouldFix: 'should_fix',
       Consider: 'consider',
     } as const;
-
-    export interface ReviewFindingLineRange {
-      /** First affected line. */
-      start: number;
-      /**
-         * Last affected line; null for a single line.
-         * @nullable
-         */
-      end: number | null;
-    }
 
     /**
      * * `bug` - bug
@@ -95383,6 +95564,88 @@ export namespace Schemas {
       validator_note: string;
     }
 
+    /**
+     * * `must_fix` - Must fix
+     * * `should_fix` - Should fix
+     * * `consider` - Consider
+     */
+    export type ReviewDroppedFindingPriorityEnum = typeof ReviewDroppedFindingPriorityEnum[keyof typeof ReviewDroppedFindingPriorityEnum];
+
+
+    export const ReviewDroppedFindingPriorityEnum = {
+      MustFix: 'must_fix',
+      ShouldFix: 'should_fix',
+      Consider: 'consider',
+    } as const;
+
+    /**
+     * * `old_code` - On unchanged code
+     * * `dedup_prior` - Repeat of an earlier review
+     * * `dedup_comment` - Already in a PR comment
+     * * `dedup_anchor` - Same spot as another finding
+     * * `dedup_sibling` - Repeat of a finding
+     * * `cap` - Over the limit
+     */
+    export type ReviewDropDispositionEnum = typeof ReviewDropDispositionEnum[keyof typeof ReviewDropDispositionEnum];
+
+
+    export const ReviewDropDispositionEnum = {
+      OldCode: 'old_code',
+      DedupPrior: 'dedup_prior',
+      DedupComment: 'dedup_comment',
+      DedupAnchor: 'dedup_anchor',
+      DedupSibling: 'dedup_sibling',
+      Cap: 'cap',
+    } as const;
+
+    export interface ReviewDroppedFinding {
+      /** One-line summary of the finding. */
+      title: string;
+      /** Repository-relative path of the affected file. */
+      file: string;
+      /** Affected line ranges within the file. */
+      lines: ReviewFindingLineRange[];
+      /** Description of the problem. */
+      body: string;
+      /** The specific fix the reviewer proposes. Usually empty: a single-agent finding ends its body with the fix direction instead. */
+      suggestion: string;
+      /** The reviewer's priority for the finding.
+       *
+       * * `must_fix` - Must fix
+       * * `should_fix` - Should fix
+       * * `consider` - Consider */
+      priority: ReviewDroppedFindingPriorityEnum;
+      /**
+         * The session that raised the finding: the main review or a lens.
+         * @nullable
+         */
+      source_perspective: string | null;
+      /** Why the turn did not post the finding. `old_code`: a follow-up turn's minor finding on code that did not change since the last reviewed head. `dedup_prior`: repeats an earlier turn's finding. `dedup_comment`: repeats a PR comment. `dedup_anchor`: repeats a main-review finding at the same spot. `dedup_sibling`: repeats another finding from the same session or lens. `cap`: ranked below the per-review finding limit.
+       *
+       * * `old_code` - On unchanged code
+       * * `dedup_prior` - Repeat of an earlier review
+       * * `dedup_comment` - Already in a PR comment
+       * * `dedup_anchor` - Same spot as another finding
+       * * `dedup_sibling` - Repeat of a finding
+       * * `cap` - Over the limit */
+      disposition: ReviewDropDispositionEnum;
+      /**
+         * For a dedup drop, what it repeats: an issue key, or `comment:<id>` for a PR comment. Null for other dispositions.
+         * @nullable
+         */
+      duplicate_of: string | null;
+      /**
+         * Link to the PR comment the finding repeats, when `duplicate_of` names one and the PR URL is known. Null otherwise.
+         * @nullable
+         */
+      comment_url: string | null;
+      /**
+         * For a `cap` drop, the finding's 1-based position in the turn's ranked findings. Null otherwise.
+         * @nullable
+         */
+      rank: number | null;
+    }
+
     export interface ReviewDetail {
       /** The review report's id, for fetching the review's detail. */
       id: string;
@@ -95429,8 +95692,25 @@ export namespace Schemas {
          * @nullable
          */
       last_run_at: string | null;
-      /** Whether a review has been published back to GitHub. */
+      /** Whether any turn of this report has been published back to GitHub. See `turn_published` for the returned turn. */
       published: boolean;
+      /** Whether the returned turn (the latest completed one, or `run_index` on the detail) was published to GitHub. False when it found nothing to post or publishing was off. */
+      turn_published: boolean;
+      /** What the returned turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record its mode (turns from before the mode was recorded).
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
+      /** How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).
+       *
+       * * `pipeline` - Pipeline
+       * * `single_agent` - Single agent */
+      review_design: ReviewTurnDesignEnum | null;
+      /**
+         * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
+         * @nullable
+         */
+      status_comment_url: string | null;
       /** Whether a Deep review of this pull request has been published. No Standard review runs after one. */
       full_review_published: boolean;
       /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
@@ -95439,6 +95719,8 @@ export namespace Schemas {
       progress: ReviewProgress | null;
       /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
       resolution: ReviewResolutionStatus | null;
+      /** The report's latest resolution run, completed runs included: its status, counts, and fix commits. Null when no resolution run has queued threads on this report. */
+      latest_resolution: ReviewLatestResolution | null;
       /** The latest turn's valid findings at must_fix effective priority. */
       must_fix_count: number;
       /** The latest turn's valid findings at should_fix effective priority. */
@@ -95474,25 +95756,32 @@ export namespace Schemas {
          * @nullable
          */
       blind_spot_issue_count: number | null;
+      /** The review turn this detail describes, from 1 to `run_count`. */
+      run_index: number;
       /**
-         * The PR head commit the latest turn reviewed — anchors GitHub links to the exact code.
+         * The PR head commit the returned turn reviewed. Anchors GitHub links to the exact code. Null for an older turn whose head was not recorded.
          * @nullable
          */
       head_sha: string | null;
       /** The selector's per-chunk perspective plan for the latest turn; null when the turn ran without a selection (selector unavailable, failed, or the run predates it). */
       perspective_selection: ReviewPerspectiveSelection | null;
-      /** The rendered review body published to GitHub, as markdown. */
-      report_markdown: string;
-      /** The urgency threshold the completed turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
+      /**
+         * The rendered review body published to GitHub, as markdown. Only kept for the latest turn, so null when `run_index` selects an older turn.
+         * @nullable
+         */
+      report_markdown: string | null;
+      /** The urgency threshold the returned turn's publishing gated on (stamped at finalize from the run's own resolve snapshot); null for turns that predate its recording — readers fall back to the viewer's current setting as an approximation.
        *
-       * * `must_fix` - must_fix
-       * * `should_fix` - should_fix
-       * * `consider` - consider */
-      run_urgency_threshold: ReviewIssuePriorityEnum | null;
-      /** The latest turn's validated findings, most urgent first. */
+       * * `consider` - Consider (all)
+       * * `should_fix` - Should fix
+       * * `must_fix` - Must fix */
+      run_urgency_threshold: UrgencyThresholdEnum | null;
+      /** The returned turn's validated findings, most urgent first. */
       findings: ReviewFinding[];
-      /** The latest turn's findings the validator dismissed, with its reasoning. */
+      /** The returned turn's findings the validator dismissed, with its reasoning. */
       dismissed_findings: ReviewFinding[];
+      /** The returned turn's findings a single-agent (Standard) review raised but did not post, each with the reason. Empty for pipeline turns and for turns that predate the record. */
+      dropped_findings: ReviewDroppedFinding[];
     }
 
     export interface ReviewHogSettingsError {
@@ -95531,6 +95820,132 @@ export namespace Schemas {
        * * `all` - All repositories
        * * `selected` - Only selected repositories */
       scope: ReviewInstallationClaimScopeEnum;
+    }
+
+    /**
+     * * `not_reviewed` - Not reviewed
+     * * `queued` - Queued
+     * * `reviewing` - Reviewing
+     * * `resolving` - Resolving
+     * * `idle` - Idle
+     * * `unknown` - Unknown
+     */
+    export type ReviewPRStateEnum = typeof ReviewPRStateEnum[keyof typeof ReviewPRStateEnum];
+
+
+    export const ReviewPRStateEnum = {
+      NotReviewed: 'not_reviewed',
+      Queued: 'queued',
+      Reviewing: 'reviewing',
+      Resolving: 'resolving',
+      Idle: 'idle',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ReviewPRStatusLatestReview {
+      /** The review's id, for `review-hog-reviews-get`. */
+      id: string;
+      /** What the turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record it.
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
+      /**
+         * The PR head commit the turn reviewed.
+         * @nullable
+         */
+      head_sha: string | null;
+      /** The turn's index, for `review-hog-reviews-get`. */
+      run_index: number;
+      /**
+         * When the turn completed.
+         * @nullable
+         */
+      completed_at: string | null;
+      /** The turn's valid findings at must_fix priority. */
+      must_fix_count: number;
+      /** The turn's valid findings at should_fix priority. */
+      should_fix_count: number;
+      /** The turn's valid findings at consider priority. */
+      consider_count: number;
+      /** Whether the turn was published to GitHub. */
+      turn_published: boolean;
+      /**
+         * Link to the review's status comment on the pull request; null when there is none.
+         * @nullable
+         */
+      status_comment_url: string | null;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     * * `unknown` - Unknown
+     */
+    export type ReviewRequestOutcomeStatusEnum = typeof ReviewRequestOutcomeStatusEnum[keyof typeof ReviewRequestOutcomeStatusEnum];
+
+
+    export const ReviewRequestOutcomeStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Skipped: 'skipped',
+      Failed: 'failed',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ReviewPRStatusRequestOutcome {
+      /** How the request ended: 'pending' while a run for it is queued or running, 'completed' when a turn of the requested mode or deeper finished after `requested_at` and either started after it or reviewed the given `head_sha` (Deep covers Standard), 'skipped' when the run ended without doing the work, 'failed' when the run died or no run answered the request, 'unknown' when the run state could not be read (retry later).
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `skipped` - Skipped
+       * * `failed` - Failed
+       * * `unknown` - Unknown */
+      status: ReviewRequestOutcomeStatusEnum;
+      /**
+         * Why it was skipped or failed: 'flash_after_full' (Standard dropped after a Deep review), 'review_failed', 'stopped' (Resolve died partway), 'no_matching_run' (nothing ran for the request and nothing is queued, for example when the queue replaced it), or a Resolve skip reason such as 'pr_not_open', 'resolution_not_opted_in', 'no_unresolved_threads', 'pr_in_merge_queue'. Null otherwise.
+         * @nullable
+         */
+      reason: string | null;
+      /**
+         * The review to read with `review-hog-reviews-get`; null before the PR has one.
+         * @nullable
+         */
+      review_id: string | null;
+      /**
+         * The review turn that answered or failed the request, for `review-hog-reviews-get`. Null for 'resolve_only' and while pending.
+         * @nullable
+         */
+      run_index: number | null;
+    }
+
+    export interface ReviewPRStatus {
+      /** The pull request's repository as 'owner/repo'. */
+      repository: string;
+      /** The pull request number. */
+      pr_number: number;
+      /**
+         * The PR's review id, for `review-hog-reviews-get`; null before its first run.
+         * @nullable
+         */
+      report_id: string | null;
+      /** Where the PR stands now: 'not_reviewed' (no completed review and nothing queued), 'queued' (a run is queued or starting), 'reviewing' (a review turn is running), 'resolving' (Resolve is running), 'idle' (nothing running), 'unknown' (the run state could not be read, retry later).
+       *
+       * * `not_reviewed` - Not reviewed
+       * * `queued` - Queued
+       * * `reviewing` - Reviewing
+       * * `resolving` - Resolving
+       * * `idle` - Idle
+       * * `unknown` - Unknown */
+      state: ReviewPRStateEnum;
+      /** The latest completed review turn; null before the first one completes. */
+      latest_review: ReviewPRStatusLatestReview | null;
+      /** The latest Resolve run, finished ones too; null when no Resolve run has queued threads. */
+      latest_resolution: ReviewLatestResolution | null;
+      /** How the request at `requested_at` ended; null without `requested_at`. */
+      request_outcome: ReviewPRStatusRequestOutcome | null;
     }
 
     export interface ReviewPerspectiveConfig {
@@ -95654,8 +96069,25 @@ export namespace Schemas {
          * @nullable
          */
       last_run_at: string | null;
-      /** Whether a review has been published back to GitHub. */
+      /** Whether any turn of this report has been published back to GitHub. See `turn_published` for the returned turn. */
       published: boolean;
+      /** Whether the returned turn (the latest completed one, or `run_index` on the detail) was published to GitHub. False when it found nothing to post or publishing was off. */
+      turn_published: boolean;
+      /** What the returned turn ran: 'full' (Deep) or 'flash' (Standard). Null when the turn did not record its mode (turns from before the mode was recorded).
+       *
+       * * `full` - Deep
+       * * `flash` - Standard */
+      review_mode: ReviewTriggerReviewModeEnum | null;
+      /** How the returned turn found its issues. 'pipeline': chunks, perspectives, a blind-spot sweep and a separate validation step. 'single_agent': one main review plus focused lenses, with no separate validation step. Null when the turn recorded no design (turns from before it was recorded ran the pipeline).
+       *
+       * * `pipeline` - Pipeline
+       * * `single_agent` - Single agent */
+      review_design: ReviewTurnDesignEnum | null;
+      /**
+         * Link to the review's status comment on the pull request; null when there is no status comment or no pull request URL.
+         * @nullable
+         */
+      status_comment_url: string | null;
       /** Whether a Deep review of this pull request has been published. No Standard review runs after one. */
       full_review_published: boolean;
       /** Whether a run is on this report right now: a review turn or a resolution run (activity within the last 30 minutes). */
@@ -95664,6 +96096,8 @@ export namespace Schemas {
       progress: ReviewProgress | null;
       /** The report's latest resolution run (settling the PR's review threads): live progress while it runs, or where it stopped when it died partway. Null when there is none, it completed, or a newer review turn superseded it. */
       resolution: ReviewResolutionStatus | null;
+      /** The report's latest resolution run, completed runs included: its status, counts, and fix commits. Null when no resolution run has queued threads on this report. */
+      latest_resolution: ReviewLatestResolution | null;
       /** The latest turn's valid findings at must_fix effective priority. */
       must_fix_count: number;
       /** The latest turn's valid findings at should_fix effective priority. */
@@ -95965,6 +96399,15 @@ export namespace Schemas {
       body: string;
     }
 
+    export interface ReviewReviewsTablePage {
+      /** How many reviews match the scope and every filter, across all pages. */
+      count: number;
+      /** How many reviews have a run in flight under the scope and filters, ignoring `status`. Labels the running quick filter without a second request. */
+      running_count: number;
+      /** One page of reviews, most recent activity first. */
+      results: ReviewRecentReview[];
+    }
+
     export interface ReviewStateCounts {
       needs_review: number;
       clean: number;
@@ -96010,18 +96453,6 @@ export namespace Schemas {
       run_mode?: ReviewTriggerRequestRunModeEnum;
     }
 
-    /**
-     * * `full` - Deep
-     * * `flash` - Standard
-     */
-    export type ReviewTriggerReviewModeEnum = typeof ReviewTriggerReviewModeEnum[keyof typeof ReviewTriggerReviewModeEnum];
-
-
-    export const ReviewTriggerReviewModeEnum = {
-      Full: 'full',
-      Flash: 'flash',
-    } as const;
-
     export interface ReviewTriggerResponse {
       /** Temporal workflow id for the started review run; empty when no run was started. */
       workflow_id: string;
@@ -96048,7 +96479,7 @@ export namespace Schemas {
       report_id: string | null;
       /** Server time when the request was accepted. */
       requested_at: string;
-      /** Whether this request runs the resolution stage, which can push fix commits to the pull request. */
+      /** Whether this request plans to run the resolution stage, which can push fix commits to the pull request. It is the plan at request time: a request queued behind a running turn on the same head can be skipped as already published. `review-hog-reviews-pr-status` reports what actually ran. */
       resolve_will_run: boolean;
       /** Why the resolution stage does not run: 'run_mode_excludes_resolve' ('review_only' and 'flash' never resolve), 'owner_not_opted_in' (the pull request owner has not turned on resolving comments), 'already_reviewed' (no run starts). Null when it runs.
        *
@@ -96754,6 +97185,8 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+      lifecycle_locked?: boolean;
       /**
          * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
          * @nullable
@@ -96764,6 +97197,12 @@ export namespace Schemas {
        * * `read_only` - Read only
        * * `support_notes` - Support notes */
       tool_preset?: ToolPresetEnum;
+      /**
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * @maxLength 10000
+         * @nullable
+         */
+      precheck_query?: string | null;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -97019,6 +97458,8 @@ export namespace Schemas {
          * @maxItems 10
          */
       readonly write_scopes: readonly string[];
+      /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+      readonly lifecycle_locked: boolean;
       /**
          * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
          * @nullable
@@ -97029,6 +97470,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly tool_preset: string | null;
+      /**
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * @nullable
+         */
+      readonly precheck_query: string | null;
       /**
          * When the coordinator last dispatched this scout. Null if it has never run.
          * @nullable
@@ -97435,6 +97881,11 @@ export namespace Schemas {
          * @nullable
          */
       last_outcome: string | null;
+      /**
+         * Why the most recent run was `inconclusive`: `awaiting_data`, `unmeasurable`, `needs_manual_verification`, or `no_fix_to_measure`. Null on any other outcome.
+         * @nullable
+         */
+      last_outcome_reason: string | null;
       /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
       run_state: string;
       /** True while an `agent` check waits on a dispatched run to record its verdict. */
@@ -97621,6 +98072,22 @@ export namespace Schemas {
          */
       expires_at?: string | null;
     }
+
+    /**
+     * * `rows` - Rows
+     * * `no_rows` - No Rows
+     * * `false_value` - False Value
+     * * `query_error` - Query Error
+     */
+    export type ScoutPrecheckReasonEnum = typeof ScoutPrecheckReasonEnum[keyof typeof ScoutPrecheckReasonEnum];
+
+
+    export const ScoutPrecheckReasonEnum = {
+      Rows: 'rows',
+      NoRows: 'no_rows',
+      FalseValue: 'false_value',
+      QueryError: 'query_error',
+    } as const;
 
     /**
      * One report a scanner's scout filed. Enough to read it in Replay Vision; the inbox owns the
@@ -98215,6 +98682,7 @@ export namespace Schemas {
     export const TrialComparisonOutcomeStatusEnum = {
       Winner: 'winner',
       Tie: 'tie',
+      Provisional: 'provisional',
       Inconclusive: 'inconclusive',
     } as const;
 
@@ -99899,6 +100367,8 @@ export namespace Schemas {
          * @maxItems 10
          */
       write_scopes?: string[];
+      /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+      lifecycle_locked?: boolean;
       /**
          * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
          * @nullable
@@ -99909,6 +100379,12 @@ export namespace Schemas {
        * * `read_only` - Read only
        * * `support_notes` - Support notes */
       tool_preset?: ToolPresetEnum;
+      /**
+         * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off.
+         * @maxLength 10000
+         * @nullable
+         */
+      precheck_query?: string | null;
       /** Whether this scout runs on its schedule. Defaults to true. */
       enabled?: boolean;
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -100051,6 +100527,42 @@ export namespace Schemas {
          * @maxLength 1000
          */
       note?: string;
+    }
+
+    export interface SignalScoutPrecheckTest {
+      /** Whether a scheduled run that started now would run the scout. False means it would skip the run. */
+      would_run: boolean;
+      /** Why: `rows` (the query found rows), `no_rows` (it found none, so the run is skipped), `false_value` (it returned one false value, so the run is skipped), or `query_error` (the query failed, so the run starts as if there were no pre-check).
+       *
+       * * `rows` - Rows
+       * * `no_rows` - No Rows
+       * * `false_value` - False Value
+       * * `query_error` - Query Error */
+      reason: ScoutPrecheckReasonEnum;
+      /** The value bound to `{since}`: the start of the last run that ran, or when the scout was created. */
+      since: string;
+      /** The value bound to `{now}`. */
+      now: string;
+      /** How many rows the query returned, at most 50. */
+      row_count: number;
+      /** The column names of the result, in order. */
+      columns: string[];
+      /** The rows as the scout reads them: one JSON object per line, cut before the text passes the size limit. Empty when the query returned no rows or failed. */
+      rows_text: string;
+      /**
+         * Why the query failed, when it failed. A syntax or schema error is given as written; other failures read as a general message. Null when the query ran.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface SignalScoutPrecheckTestRequest {
+      /**
+         * HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the query saved on the scout.
+         * @maxLength 10000
+         * @nullable
+         */
+      precheck_query?: string | null;
     }
 
     export type SignalScoutRunDetailMetadataDerived = {
@@ -126388,6 +126900,13 @@ export namespace Schemas {
       Everyone: 'everyone',
     } as const;
 
+    export type ReviewHogReviewsRetrieveParams = {
+    /**
+     * The completed review turn to read, from 1 to `run_count`. Defaults to the latest completed turn. Use it to read an older turn's findings.
+     */
+    run_index?: number;
+    };
+
     export type ReviewHogReviewsPerspectiveStatsRetrieveParams = {
     /**
      * Whose reviews to aggregate: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project, `own_deep` for the last 10 Deep reviews the requesting user started. The review skills in the settings use `own_deep`, because only the person who starts a Deep review picks its skills.
@@ -126407,6 +126926,116 @@ export namespace Schemas {
       Mine: 'mine',
       Everyone: 'everyone',
       OwnDeep: 'own_deep',
+    } as const;
+
+    export type ReviewHogReviewsPrStatusRetrieveParams = {
+    /**
+     * The `head_sha` the trigger returned. Lets a turn that was already running on that head when the request came in answer the request. Only used with `requested_at`.
+     * @minLength 1
+     */
+    head_sha?: string;
+    /**
+     * GitHub pull request URL to look up, e.g. 'https://github.com/PostHog/posthog/pull/123'.
+     * @minLength 1
+     */
+    pr_url: string;
+    /**
+     * The `requested_at` the trigger returned. When set, the response carries `request_outcome` for that request.
+     */
+    requested_at?: string;
+    /**
+     * The `run_mode` the trigger was called with (default 'review'). Only used with `requested_at`.
+     *
+     * * `review` - Review
+     * * `review_only` - Review only
+     * * `resolve_only` - Resolve only
+     * * `flash` - Standard
+     * @minLength 1
+     */
+    run_mode?: ReviewHogReviewsPrStatusRetrieveRunMode;
+    };
+
+    export type ReviewHogReviewsPrStatusRetrieveRunMode = typeof ReviewHogReviewsPrStatusRetrieveRunMode[keyof typeof ReviewHogReviewsPrStatusRetrieveRunMode];
+
+
+    export const ReviewHogReviewsPrStatusRetrieveRunMode = {
+      Review: 'review',
+      ReviewOnly: 'review_only',
+      ResolveOnly: 'resolve_only',
+      Flash: 'flash',
+    } as const;
+
+    export type ReviewHogReviewsTableRetrieveParams = {
+    /**
+     * Rows per page. Defaults to 25, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many rows to skip, for paging through the table.
+     * @minimum 0
+     * @maximum 1000000
+     */
+    offset?: number;
+    /**
+     * Only reviews whose latest completed turn was (true) or was not (false) published to GitHub.
+     * @nullable
+     */
+    published?: boolean | null;
+    /**
+     * Only reviews of this repository, as `owner/repo`. Matched case-insensitively.
+     * @minLength 1
+     */
+    repository?: string;
+    /**
+     * Only reviews whose latest completed turn ran this mode: 'full' (Deep) or 'flash' (Standard). Turns that did not record their mode match neither value.
+     *
+     * * `full` - Deep
+     * * `flash` - Standard
+     * @minLength 1
+     */
+    review_mode?: ReviewHogReviewsTableRetrieveReviewMode;
+    /**
+     * Whose reviews to list: `mine` (the default) for reviews the requesting user ran plus reviews of pull requests they authored (matched via their linked GitHub login), `everyone` for every review on this project.
+     *
+     * * `mine` - Mine
+     * * `everyone` - Everyone
+     * @minLength 1
+     */
+    scope?: ReviewHogReviewsTableRetrieveScope;
+    /**
+     * Only reviews in this state: 'running' for reviews with a run in flight (activity within the last 30 minutes), 'completed' for reviews with a completed turn and nothing running now.
+     *
+     * * `running` - Running
+     * * `completed` - Completed
+     * @minLength 1
+     */
+    status?: ReviewHogReviewsTableRetrieveStatus;
+    };
+
+    export type ReviewHogReviewsTableRetrieveReviewMode = typeof ReviewHogReviewsTableRetrieveReviewMode[keyof typeof ReviewHogReviewsTableRetrieveReviewMode];
+
+
+    export const ReviewHogReviewsTableRetrieveReviewMode = {
+      Full: 'full',
+      Flash: 'flash',
+    } as const;
+
+    export type ReviewHogReviewsTableRetrieveScope = typeof ReviewHogReviewsTableRetrieveScope[keyof typeof ReviewHogReviewsTableRetrieveScope];
+
+
+    export const ReviewHogReviewsTableRetrieveScope = {
+      Mine: 'mine',
+      Everyone: 'everyone',
+    } as const;
+
+    export type ReviewHogReviewsTableRetrieveStatus = typeof ReviewHogReviewsTableRetrieveStatus[keyof typeof ReviewHogReviewsTableRetrieveStatus];
+
+
+    export const ReviewHogReviewsTableRetrieveStatus = {
+      Running: 'running',
+      Completed: 'completed',
     } as const;
 
     export type SandboxCustomImagesListParams = {

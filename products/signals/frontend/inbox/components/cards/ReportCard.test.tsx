@@ -255,18 +255,30 @@ describe('ReportCard', () => {
         expect(screen.queryByText(/Held back|Judged not actionable/)).not.toBeInTheDocument()
     })
 
-    it('locks the selection while a bulk action is running', () => {
-        const setState = jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {}))
+    it.each([
+        {
+            action: 'dismiss',
+            hold: () => jest.spyOn(api.signalReports, 'setState').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null }),
+        },
+        {
+            action: 'unassign',
+            hold: () => jest.spyOn(api, 'delete').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkUnassignMe(['r-1']),
+        },
+    ])('locks the selection while a bulk $action is running', ({ hold, start }) => {
+        const pending = hold()
         act(() => {
             logic.actions.setSelectedReportIds(['r-1'])
-            logic.actions.bulkDismiss({ reason: 'other', note: '', correctedRepository: null })
+            start()
         })
 
         expect(fireEvent.click(cardLink(), { metaKey: true })).toBe(true)
         expect(fireEvent.click(cardLink(), { ctrlKey: true })).toBe(true)
         expect(fireEvent.click(cardLink())).toBe(false)
+        expect(fireEvent.click(cardLink(), { shiftKey: true })).toBe(false)
         expect(logic.values.selectedReportIds).toEqual(['r-1'])
-        setState.mockRestore()
+        pending.mockRestore()
     })
 
     it('shows the affected-user snapshot in a redesigned row and prefers it over the primary metric', async () => {

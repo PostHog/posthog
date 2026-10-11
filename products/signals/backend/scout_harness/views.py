@@ -58,7 +58,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
-from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.oauth import SCOUT_GRANTABLE_WRITE_SCOPES
 from posthog.user_permissions import UserPermissions
@@ -88,6 +93,13 @@ from products.signals.backend.scout_harness.lazy_seed import (
     is_operational_scout,
     scout_skill_origin,
 )
+from products.signals.backend.scout_harness.lifecycle_lock import (
+    lock_protected_changes,
+    record_lifecycle_refusal,
+    resolve_auth_kind,
+    user_holds_scout_lifecycle_claim,
+)
+from products.signals.backend.scout_harness.precheck import dry_run_scout_precheck
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -152,6 +164,8 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutEmissionSerializer,
     SignalScoutManualRunRequestSerializer,
     SignalScoutManualRunSerializer,
+    SignalScoutPrecheckTestRequestSerializer,
+    SignalScoutPrecheckTestSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
     validate_scout_repositories,
@@ -2778,6 +2792,21 @@ def create_scout_for_source(
             # Only when one was given: the upsert applies every tunable to a row that already
             # exists, and a blank would clear a label the existing scout was renamed to.
             tunables["display_name"] = display_name
+        if not skill_created:
+            # Reusing a name adopts someone else's scout, and the tunables apply to its config as
+            # an edit — so a locked scout keeps its lifecycle gate on this route too. A scout
+            # authored in this request has no other owner to protect it from.
+            adopted_config = (
+                SignalScoutConfig.objects.for_team(team.id).select_for_update().filter(skill_name=name).first()
+            )
+            guard_scout_lifecycle_fields(
+                request=request,
+                team=team,
+                skill_name=name,
+                config=adopted_config,
+                requested=tunables,
+                action="create_scout",
+            )
         if source_product and source_id:
             # Reusing a name adopts the existing config, and the source pair is what the owning
             # product's report route trusts — so adopting an unowned scout would expose everything it
@@ -3112,6 +3141,58 @@ def _resolve_scout_config_grants(
             added_scopes=set(data["write_scopes"]) - current_scopes,
         )
     return resolved
+
+
+def guard_scout_lifecycle_fields(
+    *,
+    request: Request,
+    team: Team,
+    skill_name: str,
+    config: SignalScoutConfig | None,
+    requested: object,
+    action: str,
+) -> None:
+    """Apply the lock gate to a write body. A no-op unless the body changes a protected field."""
+    fields = lock_protected_changes(requested, config=config)
+    if config is None or not fields:
+        return
+    assert_can_change_scout_lifecycle(
+        request=request, team=team, skill_name=skill_name, config=config, action=action, fields=fields
+    )
+
+
+def assert_can_change_scout_lifecycle(
+    *,
+    request: Request,
+    team: Team,
+    skill_name: str,
+    config: SignalScoutConfig,
+    action: str,
+    fields: list[str] | None = None,
+) -> None:
+    """Gate on pausing, silencing, deleting, or unlocking a scout that opted into the lock.
+
+    The claim it asks for, and why, is documented on `lifecycle_lock`. The lock is off by default
+    and guards only human write paths: a system transition keeps its own rules, so the inactivity
+    sweep and the failure breaker still pause a locked scout.
+    """
+    user = cast(User, request.user)
+    if user_holds_scout_lifecycle_claim(team=team, skill_name=skill_name, config=config, user=user):
+        return
+    record_lifecycle_refusal(
+        team=team,
+        skill_name=skill_name,
+        action=action,
+        auth_kind=resolve_auth_kind(request.successful_authenticator),
+        user_id=user.pk,
+        fields=fields,
+    )
+    if config.lifecycle_locked:
+        raise exceptions.PermissionDenied(
+            "This scout is locked, so only the person its runs act as or a project admin can "
+            "pause, resume, or delete it."
+        )
+    raise exceptions.PermissionDenied("Only the person this scout's runs act as or a project admin can lock it.")
 
 
 def scout_config_context(team: Team, skill_names: list[str], request: Request) -> dict[str, Any]:
@@ -3451,6 +3532,22 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         # from the comparison to the save, so a grant revoked in between cannot be written back by
         # a request that compared against the old value.
         with transaction.atomic():
+            existing = (
+                SignalScoutConfig.objects.unscoped()
+                .select_for_update()
+                .filter(team_id=team_id, skill_name=skill_name)
+                .first()
+            )
+            # This endpoint upserts, so a create body lands on an existing row as an edit — and
+            # `enabled` / `emit` are among the fields it applies.
+            guard_scout_lifecycle_fields(
+                request=request,
+                team=team,
+                skill_name=skill_name,
+                config=existing,
+                requested=request.data,
+                action="create",
+            )
             if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
                 raise exceptions.ValidationError(
                     {"skill_name": "No skill with this name exists on this project. Author the skill first."}
@@ -3510,6 +3607,16 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             )
             if config is None:
                 raise exceptions.NotFound()
+            # Read off the raw body under the row lock: the serializer has not run yet, and a lock
+            # cleared between the check and the save would otherwise let the same request pause the scout.
+            guard_scout_lifecycle_fields(
+                request=request,
+                team=team,
+                skill_name=config.skill_name,
+                config=config,
+                requested=request.data,
+                action="partial_update",
+            )
             serializer = SignalScoutConfigUpdateSerializer(
                 config,
                 data=request.data,
@@ -3664,6 +3771,46 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             status=status.HTTP_202_ACCEPTED,
         )
 
+    @validated_request(
+        request_serializer=SignalScoutPrecheckTestRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutPrecheckTestSerializer,
+                description="What the pre-check returns now, and whether a scheduled run would start.",
+            ),
+            400: OpenApiResponse(description="The scout has no saved pre-check and the request gives no query."),
+            404: OpenApiResponse(description="Config not found for this project."),
+        },
+        summary="Test a scout pre-check",
+        description=(
+            "Run a scout's pre-check query once and return its rows, without starting a run and without "
+            "saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run "
+            "would get, so the result says whether that run would start or skip. Pass `precheck_query` to "
+            "try a query before you save it, or omit it to try the saved one. A query error comes back in "
+            "the `error` field with a 200, because a scheduled run treats it as a reason to run."
+        ),
+        operation_id="signals_scout_config_precheck_test",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="precheck_test",
+        # The query reads project data and returns it, so the caller needs the query read scope too.
+        required_scopes=["signal_scout:read", "query:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def precheck_test(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        team = _canonical_team(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        config = SignalScoutConfig.objects.for_team(team.id).filter(id=config_id).first()
+        if config is None or config.skill_name in withheld_skills_for_team(team.id):
+            raise exceptions.NotFound()
+        query = request.validated_data.get("precheck_query") or config.precheck_query
+        if not query:
+            raise exceptions.ValidationError({"precheck_query": "This scout has no pre-check query. Give one to test."})
+        result = dry_run_scout_precheck(team, config, query)
+        return Response(SignalScoutPrecheckTestSerializer(dataclasses.asdict(result)).data)
+
     @extend_schema(
         request=None,
         responses={
@@ -3701,6 +3848,14 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             raise exceptions.ValidationError(
                 "This scout watches the self-driving system itself, so it can't be deleted. "
                 "Switch it off in its settings if you need it to stop running."
+            )
+        if config.lifecycle_locked:
+            assert_can_change_scout_lifecycle(
+                request=request,
+                team=_canonical_team(self),
+                skill_name=config.skill_name,
+                config=config,
+                action="destroy",
             )
         capture_background_scout_opted_out(
             config=config, user=request.user if isinstance(request.user, User) else None, action=OPT_OUT_DELETED

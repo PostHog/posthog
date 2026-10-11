@@ -37,7 +37,7 @@ from products.review_hog.backend.automatic_reviews import automatic_flash_allowe
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
-from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
+from products.review_hog.backend.review_request_rules import ResolutionGate, ReviewRequestRefusal, full_review_published
 from products.review_hog.backend.reviewer.constants import (
     ALREADY_RAISED_SHOWN,
     CHUNKING_MODEL,
@@ -99,6 +99,14 @@ from products.review_hog.backend.reviewer.persistence import (
     replace_deduplicated_findings,
     replace_dropped_findings,
     upsert_review_report,
+)
+from products.review_hog.backend.reviewer.progress import (
+    REVIEW_FAILED_REASON,
+    RUN_OUTCOME_FAILED,
+    RUN_OUTCOME_SKIPPED,
+    RUN_STAGE_REVIEW,
+    in_publish_window,
+    record_run_outcome,
 )
 from products.review_hog.backend.reviewer.push_gate import SYSTEM_ONE_SKIP_BELOW, PushGate, PushGateDecision
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
@@ -863,6 +871,23 @@ def _flash_after_full(input: ResolveActingUserInput) -> bool:
     return full_review_published(ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).first())
 
 
+def _record_flash_after_full(team_id: int, report_id: str) -> None:
+    """Record the dropped Standard request, so a status reader sees it ended instead of waiting forever."""
+    report = ReviewReport.objects.for_team(team_id).filter(id=report_id).only("run_count", "head_sha").first()
+    if report is None:
+        return
+    record_run_outcome(
+        team_id,
+        report_id,
+        stage=RUN_STAGE_REVIEW,
+        outcome=RUN_OUTCOME_SKIPPED,
+        reason=ReviewRequestRefusal.FLASH_AFTER_FULL.value,
+        run_index=report.run_count + 1,
+        review_mode=REVIEW_MODE_FLASH,
+        head_sha=report.head_sha,
+    )
+
+
 def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResult:
     # Resolved even on override runs: the owner decides resolution and the clean-review media,
     # whoever asked for the review.
@@ -882,11 +907,14 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
             acting_user_id, resolved_from = input.default_user_id, "default"
     automatic_allowed = input.trigger_source == TRIGGER_AUTOMATIC and _automatic_review_allowed(input, acting_user_id)
-    if (input.trigger_source == TRIGGER_AUTOMATIC and not automatic_allowed) or _flash_after_full(input):
+    flash_after_full = _flash_after_full(input)
+    if (input.trigger_source == TRIGGER_AUTOMATIC and not automatic_allowed) or flash_after_full:
         if input.report_id is not None:
             ReviewReport.objects.for_team(input.team_id).filter(id=input.report_id).update(
                 status=ReviewReport.Status.IDLE
             )
+        if flash_after_full and input.report_id is not None:
+            _record_flash_after_full(input.team_id, input.report_id)
         return ResolveActingUserResult(acting_user_id=None)
     if acting_user_id is None:
         return ResolveActingUserResult(acting_user_id=None)
@@ -2217,6 +2245,19 @@ def _fail_run(team_id: int, report_id: str, review_mode: str = REVIEW_MODE_FULL)
     # finalize defers going idle to the publish stage, so a run dying between finalize and publish
     # would otherwise sit ACTIVE (reading as in-progress in the UI) until the staleness cutoff.
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(status=ReviewReport.Status.IDLE)
+    report = ReviewReport.objects.for_team(team_id).filter(id=report_id).first()
+    if report is not None:
+        record_run_outcome(
+            team_id,
+            report_id,
+            stage=RUN_STAGE_REVIEW,
+            outcome=RUN_OUTCOME_FAILED,
+            reason=REVIEW_FAILED_REASON,
+            # A run that dies in the publish window already counts its turn in `run_count`.
+            run_index=report.run_count if in_publish_window(report) else report.run_count + 1,
+            review_mode=review_mode,
+            head_sha=report.head_sha,
+        )
     fail_status_comment(team_id, report_id, review_mode=review_mode)
 
 

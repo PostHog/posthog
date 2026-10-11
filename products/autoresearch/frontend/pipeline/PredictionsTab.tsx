@@ -33,7 +33,8 @@ function DailyVolumePanel(): JSX.Element {
 }
 
 function ProbabilityDistributionPanel(): JSX.Element {
-    const { probabilityHistogram, probabilityDistributionError } = useValues(autoresearchPipelineLogic)
+    const { probabilityHistogram, probabilityDistributionError, segmentThresholds } =
+        useValues(autoresearchPipelineLogic)
 
     if (probabilityDistributionError) {
         return (
@@ -52,7 +53,7 @@ function ProbabilityDistributionPanel(): JSX.Element {
             </p>
         )
     }
-    return <ProbabilityHistogram buckets={probabilityHistogram} />
+    return <ProbabilityHistogram buckets={probabilityHistogram} thresholds={segmentThresholds} />
 }
 
 export function PredictionsTab(): JSX.Element {

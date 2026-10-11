@@ -1476,7 +1476,7 @@ export interface ConfusionByCutoffApi {
     top_10: ConfusionCountsApi
     /** Counts when the top 20% of users by score are flagged. */
     top_20: ConfusionCountsApi
-    /** Counts when users with a score of 0.6 or higher (the Likely segment) are flagged. */
+    /** Counts when users in the Likely segment, with a score of likely_threshold or higher, are flagged. */
     likely: ConfusionCountsApi
 }
 
@@ -1558,6 +1558,11 @@ export interface OnlinePerformanceRowApi {
     /** Confusion counts, precision and recall at three cutoffs: top 10%, top 20%, and the Likely segment. Null for dates validated before this metric existed. */
     confusion: ConfusionByCutoffApi | null
     /**
+     * The Likely cut point the 'likely' confusion counts used for this date, from the base rate of the dates checked before it. Null when confusion is null.
+     * @nullable
+     */
+    likely_threshold: number | null
+    /**
      * Calibration table with up to 10 bins cut at score quantiles, lowest scores first. Users with equal scores share a bin, so heavy ties give fewer bins. Null for dates validated before this metric existed.
      * @nullable
      */
@@ -1574,9 +1579,39 @@ export interface OnlinePerformanceRowApi {
     validated_at: string | null
 }
 
+export interface PredictionSegmentThresholdsApi {
+    /** Users with a score at or above this probability are in the Likely segment: likely_lift times the base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null. */
+    likely_threshold: number
+    /** Users with a score at or above this probability and below likely_threshold are in the Possible segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null. */
+    possible_threshold: number
+    /** How many times the base rate a score must reach to be in the Likely segment. */
+    likely_lift: number
+    /**
+     * Fraction of the champion's scored users who did the target event, pooled over the newest checked dates. Null, and the fixed cut points apply, until those dates hold enough positives.
+     * @nullable
+     */
+    base_rate: number | null
+    /** Number of checked prediction dates the base rate pools. */
+    base_rate_dates: number
+    /**
+     * The current champion's mean predicted probability over the checked dates it scored as champion. Null until those dates hold enough positives.
+     * @nullable
+     */
+    champion_mean_p_y: number | null
+    /**
+     * The real rate of the target event over the same dates as champion_mean_p_y.
+     * @nullable
+     */
+    champion_base_rate: number | null
+    /** True when champion_mean_p_y is far above or below champion_base_rate. The scores are then not probabilities (for example after class weighting in train.py), so a score of likely_lift times the base rate does not mean the user is that many times as likely to convert. */
+    scores_miscalibrated: boolean
+}
+
 export interface OnlinePerformanceApi {
     /** One row per model per validated prediction date, newest date first. Empty until a prediction horizon has elapsed and online validation has run. */
     rows: OnlinePerformanceRowApi[]
+    /** The current cut points between the Likely, Possible and Unlikely segments, set by lift over the realized base rate. They do not depend on limit. */
+    segment_thresholds: PredictionSegmentThresholdsApi
 }
 
 export interface StartTrainingRequestApi {
