@@ -49,10 +49,12 @@ SKIP_MERGE_ONLY = True
 SKIP_DOCS_ONLY = False
 SKIP_SYSTEM_ONE = False
 
-# The JevK5 build PostHog hosts on the ai-gateway. The study calibrated the threshold on TypeSafe's
-# `jev-latest`, so the shadow decisions must confirm it holds for this model before SKIP_SYSTEM_ONE goes on.
-PUSH_GATE_MODEL = "posthog/hogference/jevk5-fp8-0.2"
-SYSTEM_ONE_SKIP_BELOW = 0.30
+# OpenAI's Decisions model, which the ai-gateway serves in the System One shape. The hosted Jev build
+# rate-limited the gate and refused states above its context window, so the gate let those pushes through.
+PUSH_GATE_MODEL = "openai/gpt-6-luna"
+# Luna returns probabilities in steps of 0.01. At the study's 25% skip share, its cut is a score of 0.01
+# or below. The shadow decisions must confirm the cut before SKIP_SYSTEM_ONE goes on.
+SYSTEM_ONE_SKIP_BELOW = 0.02
 # The study sent states up to 64k tokens, at about 3.5 characters per token of code.
 MAX_STATE_CHARS = 224_000
 SYSTEM_ONE_TIMEOUT_SECONDS = 15.0
@@ -114,6 +116,8 @@ class PushGateDecision:
     probability: float | None = None
     model: str | None = None
     own_commits: int | None = None
+    # The HTTP status of a failed System One request, to tell rate limits from rejected states.
+    status_code: int | None = None
 
 
 @frozen
@@ -165,7 +169,12 @@ def _matched(
 
 
 def _runs(
-    reason: RunReason, *, own_commits: int | None = None, probability: float | None = None, model: str | None = None
+    reason: RunReason,
+    *,
+    own_commits: int | None = None,
+    probability: float | None = None,
+    model: str | None = None,
+    status_code: int | None = None,
 ) -> PushGateDecision:
     return PushGateDecision(
         skip=False,
@@ -174,6 +183,7 @@ def _runs(
         probability=probability,
         model=model,
         own_commits=own_commits,
+        status_code=status_code,
     )
 
 
@@ -268,11 +278,16 @@ class PushGate:
             )
             result = client.decide(state=state, questions={_QUESTION_ID: _ALTERS_QUESTION})
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
-            logger.warning("Push gate could not reach System One: %s", type(error).__name__)
-            return _runs("system_one_unavailable", own_commits=own_commits)
+            status_code = error.status_code if isinstance(error, SystemOneRequestFailed) else None
+            logger.warning(
+                "Push gate could not reach System One: %s (HTTP status %s)", type(error).__name__, status_code
+            )
+            return _runs(
+                "system_one_unavailable", own_commits=own_commits, model=PUSH_GATE_MODEL, status_code=status_code
+            )
         answer = result.answers[_QUESTION_ID]
         if not isinstance(answer, NoulAnswer):
-            return _runs("system_one_unavailable", own_commits=own_commits)
+            return _runs("system_one_unavailable", own_commits=own_commits, model=result.model)
         if answer.probability < SYSTEM_ONE_SKIP_BELOW:
             return _matched(
                 "system_one_below_threshold",

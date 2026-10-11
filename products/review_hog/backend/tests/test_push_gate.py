@@ -152,8 +152,8 @@ def test_push_gate_matches_pushes_without_own_code_changes(
 @parameterized.expand(
     [
         ("likely_behavior_change_runs", 0.8, False, False, False, "system_one_above_threshold"),
-        ("shadow_skip_while_switched_off", 0.2, False, True, False, "system_one_below_threshold"),
-        ("skip_once_switched_on", 0.2, True, True, True, "system_one_below_threshold"),
+        ("shadow_skip_while_switched_off", 0.01, False, True, False, "system_one_below_threshold"),
+        ("skip_once_switched_on", 0.01, True, True, True, "system_one_below_threshold"),
     ]
 )
 def test_push_gate_asks_system_one_about_own_code_commits(
@@ -187,16 +187,23 @@ def test_push_gate_reviews_a_push_that_mixes_reviewhog_and_author_commits() -> N
 
 @parameterized.expand(
     [
-        ("not_configured", SystemOneNotConfigured("no gateway")),
-        ("request_failed", SystemOneRequestFailed("HTTP 500", status_code=500)),
+        ("not_configured", SystemOneNotConfigured("no gateway"), None),
+        ("rate_limited", SystemOneRequestFailed("HTTP 429", status_code=429), 429),
     ]
 )
-def test_push_gate_reviews_the_push_when_system_one_is_unavailable(_name: str, error: Exception) -> None:
+def test_push_gate_reviews_the_push_when_system_one_is_unavailable(
+    _name: str, error: Exception, status_code: int | None
+) -> None:
     system_one = MagicMock()
     system_one.decide.side_effect = error
     with patch(f"{_MODULE}.SKIP_SYSTEM_ONE", True):
         decision = _decide(_CODE_PUSH, system_one)
-    assert (decision.skip, decision.would_skip, decision.reason) == (False, False, "system_one_unavailable")
+    assert (decision.skip, decision.would_skip, decision.reason, decision.status_code) == (
+        False,
+        False,
+        "system_one_unavailable",
+        status_code,
+    )
 
 
 @parameterized.expand(
