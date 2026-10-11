@@ -40,6 +40,13 @@ class CaseResult:
     candidate_files: list[str]
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class CaseOutcome:
+    result: CaseResult
+    candidate: str
+    agent_log: str
+
+
 def verdict_for(
     run: AgentRun, prompt: str, candidate: str, golden: str, judge_model: str
 ) -> tuple[Verdict, str | None]:
@@ -56,7 +63,7 @@ def verdict_for(
 
 def evaluate(
     pr: GoldenPR, runtime: Runtime, model: str, judge_model: str, timeout_seconds: int, repo: Path
-) -> tuple[CaseResult, str, str]:
+) -> CaseOutcome:
     ensure_golden_commits(repo, pr)
     golden = golden_diff(repo, pr)
     prompt = build_prompt(pr)
@@ -86,7 +93,7 @@ def evaluate(
         golden_files=sorted(changed_files(golden)),
         candidate_files=sorted(changed_files(candidate)),
     )
-    return result, candidate, run.stdout + run.stderr
+    return CaseOutcome(result=result, candidate=candidate, agent_log=run.stdout + run.stderr)
 
 
 def write_result(results_dir: Path, result: CaseResult, candidate: str, agent_log: str) -> None:
@@ -180,10 +187,9 @@ def main(argv: list[str]) -> int:
     for pr in selected:
         print(f"#{pr.number} {pr.title}: running {args.runtime} {model}", flush=True)
         try:
-            result, candidate, agent_log = evaluate(
-                pr, args.runtime, model, args.judge_model, args.case_timeout, args.repo
-            )
-            write_result(results_dir, result, candidate, agent_log)
+            outcome = evaluate(pr, args.runtime, model, args.judge_model, args.case_timeout, args.repo)
+            result = outcome.result
+            write_result(results_dir, result, outcome.candidate, outcome.agent_log)
         except Exception as error:
             # One broken case must not stop the rest of the batch.
             errored.append(pr.number)
