@@ -1513,3 +1513,42 @@ class TestLogsSessionIdFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, AP
         )
         self.assertEqual(group_by_response.status_code, status.HTTP_200_OK)
         self.assertEqual(group_by_response.json()["total_logs"], 1)
+
+
+class TestLogsNumericAttributeFilter(_LogsScopeFilterTestMixin, ClickhouseTestMixin, APIBaseTest):
+    service_name = "numeric-attr-test-svc"
+    default_attribute_key = "retry_count"
+
+    def _run(self, operator: PropertyOperator, value: str | float) -> set[str]:
+        query = self._scope_query()
+        assert query.filterGroup is not None
+        query.filterGroup.values[0].values = [
+            LogPropertyFilter(
+                key=self.default_attribute_key,
+                operator=operator,
+                type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                value=value,
+            )
+        ]
+        results = LogsQueryRunner(query=query, team=self.team).calculate().results
+        return {r["body"] for r in results}
+
+    @parameterized.expand(
+        [
+            ("exact_numeric_zero", PropertyOperator.EXACT, 0, {"log for 0"}),
+            ("gt_numeric_zero", PropertyOperator.GT, 0, {"log for 1"}),
+            ("lt_numeric_zero", PropertyOperator.LT, 0, {"log for -1"}),
+        ]
+    )
+    def test_zero_value_filters_records(
+        self, _name: str, operator: PropertyOperator, value: str | float, expected: set[str]
+    ):
+        self._insert_logs(
+            [
+                self._log_row("-1"),
+                self._log_row("0"),
+                self._log_row("1"),
+                self._log_row("missing", attribute_key="other_key"),
+            ]
+        )
+        self.assertEqual(self._run(operator, value), expected)
