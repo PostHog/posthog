@@ -236,6 +236,19 @@ pub enum EventError {
     RateLimitedPerIssue(Uuid),
     #[error("Rate limited (project): team {0}")]
     RateLimitedProject(i32),
+    #[error("Exception on event {0} is too large to resolve: {1} bytes, the limit is {2} bytes")]
+    ExceptionTooLarge(Uuid, usize, usize),
+}
+
+impl EventError {
+    /// Handled errors the caller should dead-letter instead of ingesting, as a
+    /// low-cardinality reason. Everything else is ingested with the error attached.
+    pub fn dlq_reason(&self) -> Option<&'static str> {
+        match self {
+            EventError::ExceptionTooLarge(..) => Some("exception_too_large"),
+            _ => None,
+        }
+    }
 }
 
 impl JsResolveErr {
