@@ -93,6 +93,19 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
     )
 
 
+def viewable_dashboard_ref(dashboard_id: int, *, team: "Team", user: User) -> DashboardRef | None:
+    """The dashboard as a ref when it is live in this team and the user may view it, else None.
+
+    Object-level access rules can hide one dashboard from a user who has team-wide dashboard access.
+    """
+    dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).first()
+    if dashboard is None:
+        return None
+    if UserAccessControl(user=user, team=team).check_access_level_for_object(dashboard, "viewer") is False:
+        return None
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
 def create_dashboard_from_tiles(
     *,
     team: "Team",

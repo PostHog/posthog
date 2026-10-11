@@ -20,8 +20,8 @@ from posthog.models.user import User
 from products.dashboards.backend.facade.api import (
     DashboardRef,
     create_dashboard_from_tiles,
-    dashboard_refs,
     unknown_dashboard_ids,
+    viewable_dashboard_ref,
 )
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
@@ -50,6 +50,10 @@ _FREEFORM_EXPR = "JSONExtract(ifNull(properties.scanner_output_tags_freeform, '[
 _TAGS_EXPR = (
     f"arrayConcat(JSONExtract(ifNull(properties.scanner_output_tags, '[]'), 'Array(String)'), {_FREEFORM_EXPR})"
 )
+
+
+class DashboardNotViewable(Exception):
+    """The scanner already has a dashboard that the requester may not view."""
 
 
 def live_dashboard_ids(team_id: int, scanners: Sequence[ReplayScanner]) -> dict[UUID, int]:
@@ -94,7 +98,10 @@ def create_scanner_dashboard(scanner: ReplayScanner, user: User) -> tuple[Dashbo
         locked = ReplayScanner.objects.select_for_update().get(pk=scanner.pk, team_id=scanner.team_id)
         existing_id = live_dashboard_ids(locked.team_id, [locked]).get(locked.id)
         if existing_id is not None:
-            return dashboard_refs([existing_id])[0], False
+            existing = viewable_dashboard_ref(existing_id, team=scanner.team, user=user)
+            if existing is None:
+                raise DashboardNotViewable(existing_id)
+            return existing, False
         dashboard = create_dashboard_from_tiles(
             team=scanner.team,
             user=user,

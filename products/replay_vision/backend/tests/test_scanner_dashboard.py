@@ -2,6 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -157,6 +158,13 @@ class TestScannerDashboardEndpoint(_ScannerDashboardTestCase):
         dashboard_id = self._create_dashboard(scanner, 201)
         self.assertEqual(self._scanner_state(scanner), (dashboard_id, False))
         self.assertEqual(self._create_dashboard(scanner, 200), dashboard_id)
+        # A caller who may not view the linked dashboard must not learn its name through the scanner.
+        with patch(
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
+            return_value=False,
+        ):
+            response = self.client.post(f"/api/projects/{self.team.id}/vision/scanners/{scanner.id}/create_dashboard/")
+        self.assertEqual(response.status_code, 403, response.json())
 
         Dashboard.objects.filter(pk=dashboard_id).update(deleted=True)
         self.assertEqual(self._scanner_state(scanner), (None, True))

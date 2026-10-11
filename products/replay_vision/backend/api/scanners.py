@@ -159,6 +159,7 @@ from products.replay_vision.backend.scanner_config import (
 )
 from products.replay_vision.backend.scanner_dashboard import (
     DASHBOARD_SUGGESTION_MIN_OBSERVATIONS,
+    DashboardNotViewable,
     create_scanner_dashboard,
     live_dashboard_ids,
     scanners_ready_for_dashboard,
@@ -3047,7 +3048,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             raise PermissionDenied("Creating a scanner dashboard requires dashboard edit access.")
         scanner = self.get_object()
         user = cast(User, request.user)
-        dashboard, created = create_scanner_dashboard(scanner, user)
+        try:
+            dashboard, created = create_scanner_dashboard(scanner, user)
+        except DashboardNotViewable:
+            raise PermissionDenied("This scanner already has a dashboard that you don't have access to.")
         if created:
             report_user_action(
                 user,
