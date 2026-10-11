@@ -86,7 +86,8 @@ The text in `instructions` and `probe_hints` reaches the run as evidence, not as
 
 A **failed `metric_threshold` check on a resolved report re-surfaces**: the breach is emitted as a signal and the pipeline files a fresh report linked back to the resolved one.
 A resolved report is no longer in the inbox, so a verdict left only on its artefact log would reach nobody, and this lane has no scout in it to author anything.
-An `agent` check needs no such path, because the run that answers it can file a report itself.
+An `agent` check needs no such path, because the run that answers it files the follow-up itself.
+When a run records `failed` on a resolved report, it authors a fresh report linked `follow_up_of` the original, the same link the pipeline writes for a metric breach.
 
 ## Reading a report's checks
 
