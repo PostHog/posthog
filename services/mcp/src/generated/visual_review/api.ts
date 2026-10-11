@@ -511,7 +511,7 @@ export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
         .max(visualReviewRunsSnapshotsListQueryLimitMax)
         .optional()
         .describe(
-            'Number of snapshots to return per page. Defaults to and is capped at 100; a larger value returns this many. Page through the rest with `offset` or the `next` URL.'
+            'Number of snapshots to return per page. Defaults to and is capped at 100; a larger value returns that many. Page through the rest with `offset` or the `next` URL.'
         ),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     quarantined_only: zod

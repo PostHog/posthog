@@ -166,7 +166,7 @@ class SnapshotsPagination(PrecountedLimitOffsetPagination):
     instance before rendering the response."""
 
     default_limit = SNAPSHOTS_PAGE_SIZE_MAX
-    # One snapshot serializes to a few KB with its signed URLs, so an unbounded page of a large
+    # One snapshot serializes to over 1 KB with its signed URLs, so an unbounded page of a large
     # run fills an MCP client's context. A larger `limit` is clamped, and `next` gives the rest.
     max_limit = SNAPSHOTS_PAGE_SIZE_MAX
     quarantined_count = 0
@@ -177,7 +177,7 @@ class SnapshotsPagination(PrecountedLimitOffsetPagination):
             if parameter["name"] == self.limit_query_param:
                 parameter["description"] = (
                     f"Number of snapshots to return per page. Defaults to and is capped at {self.max_limit}; "
-                    "a larger value returns this many. Page through the rest with `offset` or the `next` URL."
+                    "a larger value returns that many. Page through the rest with `offset` or the `next` URL."
                 )
                 parameter["schema"] = {**parameter["schema"], "minimum": 1, "maximum": self.max_limit}
         return parameters
