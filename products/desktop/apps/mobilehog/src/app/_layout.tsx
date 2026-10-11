@@ -16,7 +16,7 @@ import { usePrefs } from "@/lib/prefs";
 import { useRepo } from "@/lib/repo";
 import { useSeenReports } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
-import { colors } from "@/lib/theme";
+import { colors, fonts } from "@/lib/theme";
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -89,6 +89,18 @@ export default function RootLayout() {
           >
             <Stack.Screen name="login" options={{ animation: "fade" }} />
             <Stack.Screen name="(drawer)" />
+            <Stack.Screen
+              name="report/[id]"
+              options={{
+                headerShown: true,
+                title: "Report",
+                headerBackButtonDisplayMode: "minimal",
+                headerShadowVisible: false,
+                headerTintColor: colors.ink,
+                headerStyle: { backgroundColor: colors.bg },
+                headerTitleStyle: { fontFamily: fonts.sansSemi },
+              }}
+            />
             <Stack.Screen
               name="config"
               options={{
