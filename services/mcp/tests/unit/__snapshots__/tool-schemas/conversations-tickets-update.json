@@ -96,11 +96,16 @@
             "type": "string"
         },
         "tags": {
-            "description": "Tag names to set on the ticket.",
+            "description": "Tag names to apply to the ticket. How they combine with the current tags depends on tags_mode.",
             "items": {
                 "type": "string"
             },
             "type": "array"
+        },
+        "tags_mode": {
+            "description": "How tags apply: 'set' replaces all current tags, 'add' keeps the current tags and adds these, 'remove' deletes only these. Defaults to 'set'.\n\n* `add` - add\n* `remove` - remove\n* `set` - set",
+            "enum": ["add", "remove", "set"],
+            "type": "string"
         }
     },
     "required": ["id"],
