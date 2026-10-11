@@ -182,7 +182,7 @@ BK_RRF_K = 60
 # roughly the top-5 of the semantic list to survive.
 BK_RRF_SCORE_FLOOR = 0.015
 # Listwise reranker model for post-search reordering (opt-in via rerank=true).
-BK_RERANK_MODEL = "claude-haiku-4-5"
+BK_RERANK_MODEL = "claude-haiku-5-5"
 # Max chars of chunk content included in the rerank prompt per candidate.
 BK_RERANK_SNIPPET_CHARS = 500
 # Timeout (seconds) for the async embedding call on the query path. If the
