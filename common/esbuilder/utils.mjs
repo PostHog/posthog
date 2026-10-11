@@ -18,6 +18,7 @@ import ts from 'typescript'
 
 import { chunkLoaderScript, chunkMapFileContents, chunkMapFileName } from './chunkLoader.mjs'
 import { cssLoaderScript, stableCssLoaderScript } from './cssLoader.mjs'
+import { ZOD_CORE_FILE, withJitlessZod } from './zodJitless.mjs'
 
 // Re-exported for one-shot builds outside buildInParallel (e.g. the toolbar loader, which is
 // built after the toolbar app build so it can embed the hashed entry filename). Consumers
@@ -292,6 +293,15 @@ export const commonConfig = {
                     contents: 'export { default as en } from "./en.js";',
                     loader: 'js',
                     resolveDir: path.dirname(args.path),
+                }))
+            },
+        },
+        {
+            name: 'zod-jitless',
+            setup(build) {
+                build.onLoad({ filter: ZOD_CORE_FILE }, async (args) => ({
+                    contents: withJitlessZod(await fs.readFile(args.path, 'utf8'), args.path),
+                    loader: 'js',
                 }))
             },
         },
