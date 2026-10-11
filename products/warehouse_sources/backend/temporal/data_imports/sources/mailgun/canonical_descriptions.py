@@ -9,6 +9,49 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 
+_METRICS_DOCS_URL = (
+    "https://documentation.mailgun.com/docs/mailgun/api-reference/send/mailgun/metrics/post-v1-analytics-metrics"
+)
+
+_METRICS_COLUMNS: dict[str, str] = {
+    "time": "Start of the UTC day the metrics cover.",
+    "accepted_count": "Messages Mailgun accepted for delivery.",
+    "processed_count": "Messages Mailgun processed, including ones it suppressed.",
+    "sent_count": "Messages Mailgun attempted to deliver.",
+    "delivered_count": "Messages the recipient's mail server accepted.",
+    "failed_count": "Messages that failed to deliver, temporarily or permanently.",
+    "temporary_failed_count": "Delivery attempts that failed temporarily and may be retried.",
+    "permanent_failed_count": "Messages that failed to deliver permanently.",
+    "bounced_count": "Messages that bounced.",
+    "hard_bounces_count": "Messages that bounced permanently.",
+    "soft_bounces_count": "Messages that bounced temporarily.",
+    "opened_count": "Opens of delivered messages.",
+    "unique_opened_count": "Delivered messages opened at least once.",
+    "clicked_count": "Clicks on tracked links.",
+    "unique_clicked_count": "Delivered messages with at least one tracked link clicked.",
+    "unsubscribed_count": "Recipients who unsubscribed.",
+    "complained_count": "Recipients who reported a message as spam.",
+    "delivered_rate": "Delivered messages as a percentage of sent messages.",
+    "opened_rate": "Opens as a percentage of delivered messages.",
+    "unique_opened_rate": "Unique opens as a percentage of delivered messages.",
+    "clicked_rate": "Clicks as a percentage of delivered messages.",
+    "unique_clicked_rate": "Unique clicks as a percentage of delivered messages.",
+    "unsubscribed_rate": "Unsubscribes as a percentage of delivered messages.",
+    "complained_rate": "Spam complaints as a percentage of delivered messages.",
+    "bounce_rate": "Bounces as a percentage of processed messages.",
+    "permanent_fail_rate": "Permanent failures as a percentage of processed messages.",
+    "delayed_rate": "Messages not delivered on the first attempt as a percentage of delivered messages.",
+}
+
+
+def _breakdown_columns(dimension: str, label: str) -> dict[str, str]:
+    return {
+        **_METRICS_COLUMNS,
+        dimension: f"The {label} the metrics are grouped by.",
+        f"{dimension}_display_value": f"The {label} in display form.",
+    }
+
+
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "domains": {
         "description": "A sending domain configured on the Mailgun account.",
@@ -135,5 +178,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdAt": "Time the template was created.",
             "version": "The version details of the template's stored content.",
         },
+    },
+    "metrics": {
+        "description": "Daily sending, delivery and engagement metrics for the whole Mailgun account.",
+        "docs_url": _METRICS_DOCS_URL,
+        "columns": _METRICS_COLUMNS,
+    },
+    "domain_metrics": {
+        "description": "Daily sending, delivery and engagement metrics for each sending domain.",
+        "docs_url": _METRICS_DOCS_URL,
+        "columns": _breakdown_columns("domain", "sending domain"),
+    },
+    "tag_metrics": {
+        "description": "Daily sending, delivery and engagement metrics for each message tag.",
+        "docs_url": _METRICS_DOCS_URL,
+        "columns": _breakdown_columns("tag", "message tag"),
+    },
+    "country_metrics": {
+        "description": "Daily engagement metrics for each country, from the IP of the opening or clicking recipient. Non-engagement counts fall under Unknown.",
+        "docs_url": _METRICS_DOCS_URL,
+        "columns": _breakdown_columns("country", "ISO 3166 country code"),
+    },
+    "recipient_provider_metrics": {
+        "description": "Daily sending, delivery and engagement metrics for each recipient mailbox provider, such as Gmail or Outlook 365.",
+        "docs_url": _METRICS_DOCS_URL,
+        "columns": _breakdown_columns("recipient_provider", "recipient mailbox provider"),
     },
 }

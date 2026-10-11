@@ -26,8 +26,8 @@ class MailgunEndpointConfig:
     partition_format: Optional[PartitionFormat] = None
 
 
-# Only the Events API exposes a server-side timestamp filter (`begin`/`end` epoch seconds
-# with `ascending=yes`), so it's the only endpoint advertised as incremental. Domains,
+# Of these list endpoints, only the Events API exposes a server-side timestamp filter (`begin`/`end`
+# epoch seconds with `ascending=yes`), so it's the only one advertised as incremental. Domains,
 # suppressions, mailing lists, tags, and templates have no updated-at filter — full
 # refresh only. Domain-scoped rows get a `domain` column injected so primary keys stay
 # unique across domains.
@@ -110,10 +110,79 @@ MAILGUN_ENDPOINTS: dict[str, MailgunEndpointConfig] = {
     ),
 }
 
-ENDPOINTS = tuple(MAILGUN_ENDPOINTS.keys())
+METRICS_PATH = "/v1/analytics/metrics"
+
+# Sending metrics requested from the Metrics API, as named in Mailgun's metric and rate
+# definitions. Rates come back as strings.
+METRICS: tuple[str, ...] = (
+    "accepted_count",
+    "processed_count",
+    "sent_count",
+    "delivered_count",
+    "failed_count",
+    "temporary_failed_count",
+    "permanent_failed_count",
+    "bounced_count",
+    "hard_bounces_count",
+    "soft_bounces_count",
+    "opened_count",
+    "unique_opened_count",
+    "clicked_count",
+    "unique_clicked_count",
+    "unsubscribed_count",
+    "complained_count",
+    "delivered_rate",
+    "opened_rate",
+    "unique_opened_rate",
+    "clicked_rate",
+    "unique_clicked_rate",
+    "unsubscribed_rate",
+    "complained_rate",
+    "bounce_rate",
+    "permanent_fail_rate",
+    "delayed_rate",
+)
+
+
+@dataclass(frozen=True)
+class MailgunMetricsEndpointConfig:
+    name: str
+    # Metrics API dimension each daily row breaks down by. None gives account-wide totals.
+    dimension: Optional[str] = None
+
+    @property
+    def primary_keys(self) -> list[str]:
+        return ["time", self.dimension] if self.dimension else ["time"]
+
+
+# Daily rollups from the Metrics API, which replaces the deprecated /v3 stats, tag stats and
+# aggregates endpoints. The request takes a start/end window, so every table can sync
+# incrementally on its daily `time` bucket.
+MAILGUN_METRICS_ENDPOINTS: dict[str, MailgunMetricsEndpointConfig] = {
+    config.name: config
+    for config in (
+        MailgunMetricsEndpointConfig(name="metrics"),
+        MailgunMetricsEndpointConfig(name="domain_metrics", dimension="domain"),
+        MailgunMetricsEndpointConfig(name="tag_metrics", dimension="tag"),
+        MailgunMetricsEndpointConfig(name="country_metrics", dimension="country"),
+        MailgunMetricsEndpointConfig(name="recipient_provider_metrics", dimension="recipient_provider"),
+    )
+}
+
+METRICS_INCREMENTAL_FIELDS: list[IncrementalField] = [
+    {
+        "label": "time",
+        "type": IncrementalFieldType.DateTime,
+        "field": "time",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+ENDPOINTS = tuple(MAILGUN_ENDPOINTS.keys()) + tuple(MAILGUN_METRICS_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: config.incremental_fields for name, config in MAILGUN_ENDPOINTS.items() if config.incremental_fields
+    **{name: config.incremental_fields for name, config in MAILGUN_ENDPOINTS.items() if config.incremental_fields},
+    **dict.fromkeys(MAILGUN_METRICS_ENDPOINTS, METRICS_INCREMENTAL_FIELDS),
 }
 
 # Webhook-only table fed by Mailgun's pushed event stream. It deliberately does not feed the
