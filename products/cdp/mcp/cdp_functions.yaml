@@ -19,7 +19,7 @@ tools:
         title: Create function
         description: >
             Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook,
-            warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to
+            site_app, or transformation) and either 'hog' source code or a 'template_id' to
             derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with
             their values. Use 'filters' to control which events trigger the function. Transformations run during
             ingestion and have an 'execution_order' field. Create destinations disabled: test with
@@ -143,7 +143,8 @@ tools:
             type:
                 description: >
                     Function type. One of: destination, site_destination, internal_destination, source_webhook,
-                    warehouse_source_webhook, site_app, transformation.
+                    site_app, transformation. Warehouse source webhooks are created with
+                    external-data-sources-create-webhook-create, not here.
             template_id:
                 description: >
                     ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description).
@@ -234,9 +235,18 @@ tools:
             List all functions (destinations, transformations, site apps, and source webhooks) in the project. Returns
             each function's name, type, enabled status, execution order, template info, and filters (the event/property
             filter expression that gates the function). Filter by type (destination, site_destination,
-            internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation) and enabled status
-            via query parameters. Pagination caps at 100 per page by default — pass limit=1000 (max 1000) when scanning
-            for an existing function by alert id, and follow the next link if more pages exist.
+            internal_destination, source_webhook, site_app, transformation) and enabled status via query parameters.
+            This list never includes warehouse source webhooks, and type=warehouse_source_webhook returns a 400 error.
+            To read a warehouse source webhook, call external-data-sources-list, then
+            external-data-sources-webhook-info-retrieve for each source. Pagination caps at 100 per page by default —
+            pass limit=1000 (max 1000) when scanning for an existing function by alert id, and follow the next link if
+            more pages exist.
+        param_overrides:
+            type:
+                description: >
+                    Function types to return. Supported: destination, site_destination, internal_destination,
+                    source_webhook, site_app, transformation. warehouse_source_webhook is not supported and returns a
+                    400 error.
         response:
             include:
                 - id

@@ -10,7 +10,7 @@ const CdpFunctionsCreateSchema = () => {
     const HogFunctionsCreateBody = orvalSchemas.HogFunctionsCreateBody()
     return HogFunctionsCreateBody.extend({
         type: HogFunctionsCreateBody.shape['type'].describe(
-            'Function type. One of: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation.'
+            'Function type. One of: destination, site_destination, internal_destination, source_webhook, site_app, transformation. Warehouse source webhooks are created with external-data-sources-create-webhook-create, not here.'
         ),
         template_id: HogFunctionsCreateBody.shape['template_id'].describe(
             'ID of a HogFunctionTemplate to derive defaults from (code, inputs_schema, icon, name, description). Use the cdp-function-templates-list tool to find available templates.'
@@ -189,7 +189,11 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
 
 const CdpFunctionsListSchema = () => {
     const HogFunctionsListQueryParams = orvalSchemas.HogFunctionsListQueryParams()
-    return HogFunctionsListQueryParams
+    return HogFunctionsListQueryParams.extend({
+        type: HogFunctionsListQueryParams.shape['type'].describe(
+            'Function types to return. Supported: destination, site_destination, internal_destination, source_webhook, site_app, transformation. warehouse_source_webhook is not supported and returns a 400 error.'
+        ),
+    })
 }
 
 const cdpFunctionsList = (): ToolBase<
