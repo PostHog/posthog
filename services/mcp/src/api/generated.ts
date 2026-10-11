@@ -8594,6 +8594,7 @@ export namespace Schemas {
       GoogleCloudServiceAccount: 'google-cloud-service-account',
       GoogleCloudStorage: 'google-cloud-storage',
       GoogleAds: 'google-ads',
+      GoogleAdsense: 'google-adsense',
       GoogleAnalytics: 'google-analytics',
       GoogleCalendar: 'google-calendar',
       GoogleSearchConsole: 'google-search-console',
@@ -59175,6 +59176,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-adsense` - Google Adsense
      * * `google-analytics` - Google Analytics
      * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
@@ -59230,6 +59232,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAdsense: 'google-adsense',
       GoogleAnalytics: 'google-analytics',
       GoogleCalendar: 'google-calendar',
       GoogleCloudServiceAccount: 'google-cloud-service-account',
@@ -59285,6 +59288,7 @@ export namespace Schemas {
        * * `github` - Github
        * * `gitlab` - Gitlab
        * * `google-ads` - Google Ads
+       * * `google-adsense` - Google Adsense
        * * `google-analytics` - Google Analytics
        * * `google-calendar` - Google Calendar
        * * `google-cloud-service-account` - Google Cloud Service Account
@@ -124471,6 +124475,7 @@ export namespace Schemas {
      * * `github` - Github
      * * `gitlab` - Gitlab
      * * `google-ads` - Google Ads
+     * * `google-adsense` - Google Adsense
      * * `google-analytics` - Google Analytics
      * * `google-calendar` - Google Calendar
      * * `google-cloud-service-account` - Google Cloud Service Account
@@ -124537,6 +124542,7 @@ export namespace Schemas {
       Github: 'github',
       Gitlab: 'gitlab',
       GoogleAds: 'google-ads',
+      GoogleAdsense: 'google-adsense',
       GoogleAnalytics: 'google-analytics',
       GoogleCalendar: 'google-calendar',
       GoogleCloudServiceAccount: 'google-cloud-service-account',

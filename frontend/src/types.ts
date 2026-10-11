@@ -2479,7 +2479,14 @@ export interface BillingType {
     projected_total_amount_usd_with_limit?: string
     projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
-    usage_summary?: Record<string, { usage?: number | null; limit?: number | null; todays_usage?: number | null }>
+    usage_summary?: Record<
+        string,
+        {
+            usage?: number | null
+            limit?: number | null
+            todays_usage?: number | null
+        }
+    >
 
     custom_limits_usd?: {
         [key: string]: number | null
@@ -5724,6 +5731,7 @@ export const INTEGRATION_KINDS = [
     'google-cloud-service-account',
     'google-cloud-storage',
     'google-ads',
+    'google-adsense',
     'google-analytics',
     'google-calendar',
     'google-search-console',
@@ -6734,7 +6742,11 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * Primary-key + active incremental columns are always retained even if not listed.
      */
     enabled_columns?: string[] | null
-    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    available_columns?: {
+        name: string
+        data_type?: string
+        is_nullable?: boolean
+    }[]
     /** Exact source identifiers are available for sources that project columns upstream. */
     source_column_metadata_available?: boolean
     /**
@@ -7868,7 +7880,11 @@ export interface Conversation {
      */
     agent_runtime?: 'langgraph' | 'sandbox'
     /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
-    task?: { id: string; latest_run: string | null; runtime?: TaskRuntimeEnumApi } | null
+    task?: {
+        id: string
+        latest_run: string | null
+        runtime?: TaskRuntimeEnumApi
+    } | null
 }
 
 export interface ConversationDetail extends Conversation {
@@ -7946,7 +7962,10 @@ export interface ProductManifest {
     urls?: Record<string, string | ((...args: any[]) => string)>
     fileSystemTypes?: Record<string, FileSystemType>
     treeItemsNew?: FileSystemImport[]
-    treeItemsProducts?: (FileSystemImport & { intents: ProductKey[]; category: ProductItemCategory })[] // Require `intents` and `category to be set for products
+    treeItemsProducts?: (FileSystemImport & {
+        intents: ProductKey[]
+        category: ProductItemCategory
+    })[] // Require `intents` and `category to be set for products
     treeItemsGames?: FileSystemImport[]
     treeItemsMetadata?: FileSystemImport[]
     /**
