@@ -252,12 +252,11 @@ def _resolve_rows(
     list whose items carry this endpoint's primary keys. A response holding lists that
     match neither fails the sync rather than reading as an empty page.
     """
-    items = data.get(config.data_key)
-    if isinstance(items, list):
-        return _ListCandidate(path=config.data_key, items=items, parent=data)
-
     candidates = _list_candidates(data)
     same_key = [found for found in candidates if found.path.rsplit(".", 1)[-1] == config.data_key]
+    if len(same_key) == 1 and same_key[0].path == config.data_key:
+        return same_key[0]
+
     row_like = [found for found in candidates if _looks_like_rows(config, found.items)]
     # An empty list reads the same as a renamed key that returned no rows, so the primary
     # keys stop separating the two readings. Most keyed endpoints key on `id`, which any
@@ -268,14 +267,14 @@ def _resolve_rows(
     # only list is not evidence: "the only list" also describes a list of warnings, and
     # reading that one imports metadata as rows. Anything that leaves more than one
     # candidate is a guess, so it fails instead.
-    for shortlist in (same_key, inferred):
-        if len(shortlist) == 1:
-            found = shortlist[0]
-            logger.warning(
-                f"Decagon: {endpoint} response carries no '{config.data_key}' list; reading rows from "
-                f"'{found.path}' instead (response shape: {_describe_shape(data)})"
-            )
-            return found
+    shortlist = same_key or inferred
+    if len(shortlist) == 1:
+        found = shortlist[0]
+        logger.warning(
+            f"Decagon: {endpoint} response carries no '{config.data_key}' list; reading rows from "
+            f"'{found.path}' instead (response shape: {_describe_shape(data)})"
+        )
+        return found
 
     if candidates:
         reason = _unreadable_reason(config, same_key, row_like)
@@ -300,7 +299,14 @@ def _resolve_rows(
         f"Decagon: {endpoint} response carries no '{config.data_key}' list and no list to read it from "
         f"(response shape: {_describe_shape(data)})"
     )
-    return _ListCandidate(path=config.data_key, items=[], parent=data)
+    return _ListCandidate(path=config.data_key, items=[], parent=_total_holder(data, config))
+
+
+def _total_holder(data: dict[str, Any], config: DecagonEndpointConfig) -> dict[str, Any]:
+    if config.total_key is None or config.total_key in data:
+        return data
+    holders = [value for value in data.values() if isinstance(value, dict) and config.total_key in value]
+    return holders[0] if len(holders) == 1 else data
 
 
 def _next_cursor(data: dict[str, Any], cursor_keys: tuple[str, ...]) -> Optional[str]:

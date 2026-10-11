@@ -453,6 +453,16 @@ class TestArticleTables:
                 "2 of them are named 'articles' ('result.articles', 'backup.articles')",
             ),
             (
+                "a_top_level_and_a_nested_list_carrying_the_configured_name",
+                {"articles": [{"id": 1}], "result": {"articles": [{"id": 2}]}},
+                "2 of them are named 'articles' ('articles', 'result.articles')",
+            ),
+            (
+                "two_lists_carrying_the_configured_name_and_one_carrying_the_primary_key",
+                {"result": {"articles": [{"slug": "bad"}]}, "backup": {"articles": [{"id": 2}]}},
+                "2 of them are named 'articles' ('result.articles', 'backup.articles')",
+            ),
+            (
                 "a_later_item_without_the_primary_key",
                 {"items": [{"id": 1}, {"slug": "x"}], "tags": [], "total": 2},
                 "none of them is named 'articles' or carries this endpoint's primary keys",
@@ -545,6 +555,15 @@ class TestArticleTables:
         # raises. An unclassified message repeats this identical request for the whole attempt
         # budget, reports it every time, and leaves the schema enabled for the next schedule.
         assert error_message_matches(str(excinfo.value), DecagonSource().get_non_retryable_errors())
+
+    def test_no_rows_against_a_nested_nonzero_total_fails_the_sync(self) -> None:
+        manager = _fresh_manager()
+        responses = [_make_response({"result": {"articles": {"id": 1}, "total": 12}})]
+
+        with pytest.raises(DecagonContractError) as excinfo:
+            _drive_rows(manager, responses, endpoint="articles")
+
+        assert "reports 12 rows" in str(excinfo.value)
 
     @parameterized.expand(
         [
