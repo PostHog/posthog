@@ -290,6 +290,22 @@ class LogParser:
         return (output, bool(result.get("is_error", False)))
 
 
+def user_prompt(output: dict[str, Any] | None) -> str:
+    """Return the prompt the agent was given, from the log when there is one.
+
+    The log is the better source: a suite can wrap or rewrite a case's prompt before the
+    agent sees it, and a judge that grades the case's own string then reads something the
+    agent never got. ``output["prompt"]`` is the fallback for a case that produced no log.
+    """
+    if not output:
+        return ""
+    raw_log = output.get("raw_log")
+    if raw_log:
+        return LogParser.cached(raw_log, output.get("prompt", "") or "").get_user_prompt()
+    prompt = output.get("prompt")
+    return prompt if isinstance(prompt, str) else ""
+
+
 @functools.lru_cache(maxsize=32)
 def _cached_parser(raw_log: str, initial_prompt: str) -> LogParser:
     return LogParser(raw_log, initial_prompt=initial_prompt)
