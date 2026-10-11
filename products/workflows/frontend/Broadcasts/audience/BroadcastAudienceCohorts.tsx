@@ -7,6 +7,8 @@ import { IconCohort, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { PropertyFilterType, PropertyOperator } from '~/types'
+
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 import { AudienceCohort, broadcastAudienceCohortsLogic } from './broadcastAudienceCohortsLogic'
 
@@ -41,6 +43,12 @@ function CohortMembers({ cohort }: { cohort: AudienceCohort }): JSX.Element {
 export function BroadcastAudienceCohorts(): JSX.Element | null {
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { cohortIds, audienceCohorts } = useValues(broadcastAudienceCohortsLogic(props))
+    const { audienceProperties } = useValues(broadcastWizardLogic)
+    const leftOutIds = new Set(
+        audienceProperties
+            .filter((filter) => filter.type === PropertyFilterType.Cohort && filter.operator === PropertyOperator.NotIn)
+            .map((filter) => Number(filter.value))
+    )
 
     if (cohortIds.length === 0) {
         return null
@@ -63,6 +71,11 @@ export function BroadcastAudienceCohorts(): JSX.Element | null {
                                     {cohort ? (
                                         <LemonTag type="muted" size="small">
                                             {cohort.isStatic ? 'List' : 'Dynamic'}
+                                        </LemonTag>
+                                    ) : null}
+                                    {leftOutIds.has(id) ? (
+                                        <LemonTag type="warning" size="small" data-attr="broadcast-audience-left-out">
+                                            Left out
                                         </LemonTag>
                                     ) : null}
                                 </div>

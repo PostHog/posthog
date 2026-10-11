@@ -29,6 +29,7 @@ import {
     messageAudienceReadiness,
     toMessageAudienceCohort,
 } from './messageAudienceReadiness'
+import { checkPreviousRecipients, openBroadcastAfterCheck } from './previousRecipients'
 
 const COHORT_POLL_MS = 3000
 
@@ -61,6 +62,7 @@ export interface messageAudienceReadinessLogicValues {
     currentProjectId: number | null // projectLogic
     emailSendingSuspended: boolean // workflowsEmailSuspensionLogic
     cohorts: MessageAudienceCohort[]
+    navigating: boolean
     readiness: MessageAudienceReadiness
     size: MessageAudienceSize | null
     sizeFailed: boolean
@@ -97,6 +99,9 @@ export interface messageAudienceReadinessLogicActions {
     }
     navigate: (destination: MessageAudienceDestination) => {
         destination: MessageAudienceDestination
+    }
+    navigateFinished: () => {
+        value: true
     }
     open: (destination: MessageAudienceDestination) => {
         destination: MessageAudienceDestination
@@ -150,6 +155,7 @@ export const messageAudienceReadinessLogic = kea<messageAudienceReadinessLogicTy
     actions({
         open: (destination: MessageAudienceDestination) => ({ destination }),
         navigate: (destination: MessageAudienceDestination) => ({ destination }),
+        navigateFinished: true,
         loadCohorts: true,
         setCohorts: (cohorts: MessageAudienceCohort[]) => ({ cohorts }),
     }),
@@ -185,6 +191,13 @@ export const messageAudienceReadinessLogic = kea<messageAudienceReadinessLogicTy
                 loadSize: () => false,
                 loadSizeSuccess: () => false,
                 loadSizeFailure: () => true,
+            },
+        ],
+        navigating: [
+            false,
+            {
+                navigate: () => true,
+                navigateFinished: () => false,
             },
         ],
         cohorts: [
@@ -281,8 +294,15 @@ export const messageAudienceReadinessLogic = kea<messageAudienceReadinessLogicTy
                     : { children: 'Cancel' },
             })
         },
-        navigate: ({ destination }) => {
-            router.actions.push(messageAudienceUrl(props.audience, destination))
+        navigate: async ({ destination }) => {
+            if (destination !== 'broadcast' || !props.audience.sourceRecord || !values.currentProjectId) {
+                actions.navigateFinished()
+                router.actions.push(messageAudienceUrl(props.audience, destination))
+                return
+            }
+            const check = await checkPreviousRecipients(String(values.currentProjectId), props.audience)
+            actions.navigateFinished()
+            openBroadcastAfterCheck(props.audience, check)
         },
     })),
 

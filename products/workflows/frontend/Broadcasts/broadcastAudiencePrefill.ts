@@ -10,20 +10,30 @@ import { EMAIL_PREFILL_PARAM, MessageDraft } from '../MessageAudience/messageDra
 export const AUDIENCE_PREFILL_PARAM = 'audience'
 export const NAME_PREFILL_PARAM = 'name'
 export const SOURCE_PREFILL_PARAM = 'source'
+export const SOURCE_RECORD_PREFILL_PARAM = 'source_record'
 
 export interface BroadcastPrefill {
     properties: AnyPropertyFilter[]
     name?: string
     /** The product surface the person came from, reported on the launch event. */
     source?: string
+    /** The record the email is about, as "<kind>:<id>". Saved on the broadcast so a later send can skip its recipients. */
+    sourceRecord?: string
     email?: MessageDraft
 }
 
-export function urlForNewBroadcastWithAudience({ properties, name, source, email }: BroadcastPrefill): string {
+export function urlForNewBroadcastWithAudience({
+    properties,
+    name,
+    source,
+    sourceRecord,
+    email,
+}: BroadcastPrefill): string {
     return combineUrl(urls.broadcastNew(), {
         [AUDIENCE_PREFILL_PARAM]: JSON.stringify(properties),
         ...(name ? { [NAME_PREFILL_PARAM]: name } : {}),
         ...(source ? { [SOURCE_PREFILL_PARAM]: source } : {}),
+        ...(sourceRecord ? { [SOURCE_RECORD_PREFILL_PARAM]: sourceRecord } : {}),
         ...(email ? { [EMAIL_PREFILL_PARAM]: JSON.stringify(email) } : {}),
     }).url
 }
@@ -97,4 +107,10 @@ function toAudienceFilter(filter: unknown): AnyPropertyFilter | null {
         operator: operator as PropertyOperator,
         value: value as string | number | boolean | (string | number | boolean)[],
     } as AnyPropertyFilter
+}
+
+const SOURCE_RECORD_PATTERN = /^[a-z_]+:[A-Za-z0-9_-]+$/
+
+export function parseSourceRecordPrefill(raw: unknown): string | undefined {
+    return typeof raw === 'string' && raw.length <= 255 && SOURCE_RECORD_PATTERN.test(raw) ? raw : undefined
 }

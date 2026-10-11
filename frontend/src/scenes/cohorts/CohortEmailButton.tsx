@@ -43,21 +43,29 @@ export function CohortEmailButton({
 
 function CountedCohortEmailButton({ cohortId, cohortName }: { cohortId: number; cohortName?: string }): JSX.Element {
     const logic = messageAudienceReadinessLogic({
-        audience: { properties: cohortAudienceProperties({ id: cohortId, name: cohortName }), source: 'cohort' },
+        audience: {
+            properties: cohortAudienceProperties({ id: cohortId, name: cohortName }),
+            source: 'cohort',
+            sourceRecord: `cohort:${cohortId}`,
+            sourceRecordName: cohortName,
+        },
     })
-    const { readiness } = useValues(logic)
+    const { readiness, navigating } = useValues(logic)
     const { open } = useActions(logic)
 
     return (
         <ButtonPrimitive
             onClick={() => open('broadcast')}
-            disabledReasons={readiness.disabledReason ? { [readiness.disabledReason]: true } : {}}
+            disabledReasons={{
+                ...(readiness.disabledReason ? { [readiness.disabledReason]: true } : {}),
+                'Checking who already got this email': navigating,
+            }}
             data-attr="cohort-send-broadcast"
             tooltip={messageAudienceTooltip(readiness) ?? 'Send a one-time email to everyone in this cohort'}
             menuItem
         >
             <IconLetter /> {messageAudienceButtonLabel(readiness, LABEL)}
-            {readiness.countState === 'loading' ? <Spinner className="ml-auto" /> : null}
+            {readiness.countState === 'loading' || navigating ? <Spinner className="ml-auto" /> : null}
             {readiness.warnings.length > 0 ? <IconWarning className="ml-auto text-warning" /> : null}
         </ButtonPrimitive>
     )
