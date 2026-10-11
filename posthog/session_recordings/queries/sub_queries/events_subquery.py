@@ -23,6 +23,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -63,6 +64,9 @@ REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER = Counter(
 # Allow for the delay between an event and the recorder's first or last snapshot.
 RECORDING_MATCH_MARGIN_MINUTES = 1
 COMBINED_EVENT_FILTERS_FLAG = "replay-combined-event-filters"
+# Matches an event filter to a recording through the event's person and time when the event
+# carries no $session_id, as server-side events usually do.
+UNSESSIONED_EVENTS_FLAG = "replay-match-unsessioned-events"
 EVENTS_SUBQUERY_ROW_LIMIT = 1_000_000
 
 # Modes where events.person_id is resolved through person_distinct_id_overrides, so it follows
@@ -112,6 +116,8 @@ class SessionIdMatchPlan:
     # reads properties for the plain event filters, which the separate scans never needed.
     property_filter_count: int
     combined_eligible: bool
+    # Event filters that also match events without a session id, by person and time.
+    unsessioned_filter_count: int
 
 
 class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
@@ -156,27 +162,28 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             )
         return join
 
-    def _recording_bounds_query(self, scope_session_ids: list[str] | None = None) -> ast.SelectQuery:
+    def _recording_scope(self, scope_session_ids: list[str] | None = None) -> ast.Expr:
         session_ids = scope_session_ids if scope_session_ids is not None else self._query.session_ids
         if session_ids is not None:
-            scope = parse_expr(
+            return parse_expr(
                 "s.session_id IN {session_ids} AND s.min_first_timestamp >= {date_from}",
                 placeholders={
                     "session_ids": ast.Constant(value=session_ids),
                     "date_from": ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
                 },
             )
-        else:
-            # Include adjacent segments because a recording can cross either date boundary. One day of
-            # slack covers the SDK's 24-hour session cap; a wider window would grow the GLOBAL-shipped
-            # bounds set for every query to cover only sessions no conforming SDK records.
-            scope = parse_expr(
-                "s.min_first_timestamp >= {date_from} AND s.min_first_timestamp <= {date_to}",
-                placeholders={
-                    "date_from": ast.Constant(value=self.query_date_range.date_from() - timedelta(days=1)),
-                    "date_to": ast.Constant(value=self.query_date_range.date_to() + timedelta(days=1)),
-                },
-            )
+        # Include adjacent segments because a recording can cross either date boundary. One day of
+        # slack covers the SDK's 24-hour session cap; a wider window would grow the GLOBAL-shipped
+        # bounds set for every query to cover only sessions no conforming SDK records.
+        return parse_expr(
+            "s.min_first_timestamp >= {date_from} AND s.min_first_timestamp <= {date_to}",
+            placeholders={
+                "date_from": ast.Constant(value=self.query_date_range.date_from() - timedelta(days=1)),
+                "date_to": ast.Constant(value=self.query_date_range.date_to() + timedelta(days=1)),
+            },
+        )
+
+    def _recording_bounds_query(self, scope_session_ids: list[str] | None = None) -> ast.SelectQuery:
         query = parse_select(
             """
             SELECT s.session_id AS session_id,
@@ -186,10 +193,146 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             WHERE {scope}
             GROUP BY s.session_id
             """,
-            placeholders={"scope": scope},
+            placeholders={"scope": self._recording_scope(scope_session_ids)},
         )
         assert isinstance(query, ast.SelectQuery)
         return query
+
+    def _matches_unsessioned_events(self) -> bool:
+        if (
+            # Recording scope already bounds each event by its own session's recording window.
+            self._query.event_match_scope == EventMatchScope.RECORDING
+            # Sampling protects large teams, and this match does not sample.
+            or self._sample_factor is not None
+            # Exclusions remove sessions by session id only, so a time match could keep a recording
+            # that an excluded event without a session id should remove.
+            or self.negated_entities
+            or self._collect_negative_properties()
+            or all(isinstance(entity, DataWarehouseNode) for entity in self.entities)
+        ):
+            return False
+        return feature_enabled_or_false(
+            UNSESSIONED_EVENTS_FLAG, str(self._team.id), only_evaluate_locally=True, send_feature_flag_events=False
+        )
+
+    def _unsessioned_person_mapping(self) -> ast.SelectQuery:
+        """The current person of every distinct id that may share a person with a recording in scope.
+
+        The raw rows nominate candidates without resolving versions, so the set can only be too
+        wide. The latest-version resolution then runs over those candidates only, not over the
+        team's whole mapping.
+        """
+        query = parse_select(
+            """
+            SELECT distinct_id, argMax(person_id, version) AS person_id
+            FROM raw_person_distinct_ids
+            WHERE distinct_id IN (
+                SELECT distinct_id FROM raw_person_distinct_ids
+                WHERE person_id IN (
+                    SELECT person_id FROM raw_person_distinct_ids
+                    WHERE distinct_id IN (SELECT s.distinct_id FROM raw_session_replay_events AS s WHERE {scope})
+                )
+            )
+            GROUP BY distinct_id
+            HAVING argMax(is_deleted, version) = 0
+            """,
+            placeholders={"scope": self._recording_scope()},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _unsessioned_events_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
+        """One row per distinct id and minute with matching events that carry no session id.
+
+        The filter runs here, on the events table alone, so its unqualified fields cannot clash with
+        the joined tables. Only distinct ids of persons with a recording in scope are read, and the
+        minute grouping bounds the join for busy ids. There is no row cap here: the only cap applies
+        to matched sessions.
+        """
+        exprs: list[ast.Expr] = [
+            # coalesce, because an absent session id reads as NULL and empty(NULL) is not true.
+            parse_expr("coalesce(properties.$session_id, '') = ''"),
+            parse_expr("timestamp <= now()"),
+            clone_expr(filter_expr),
+            parse_expr(
+                "distinct_id IN (SELECT distinct_id FROM {mapping})",
+                placeholders={"mapping": self._unsessioned_person_mapping()},
+            ),
+        ]
+        events_date_from = self._events_date_from()
+        if events_date_from is not None:
+            exprs.append(
+                parse_expr("timestamp >= {date_from}", placeholders={"date_from": ast.Constant(value=events_date_from)})
+            )
+        if self._query.date_to:
+            exprs.append(
+                parse_expr(
+                    "timestamp <= {date_to}",
+                    placeholders={"date_to": ast.Constant(value=self.query_date_range.date_to() + timedelta(days=1))},
+                )
+            )
+        return ast.SelectQuery(
+            select=[
+                ast.Alias(alias="event_distinct_id", expr=ast.Field(chain=["distinct_id"])),
+                ast.Alias(alias="first_timestamp", expr=parse_expr("min(timestamp)")),
+                ast.Alias(alias="last_timestamp", expr=parse_expr("max(timestamp)")),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=exprs),
+            group_by=[ast.Field(chain=["distinct_id"]), parse_expr("toStartOfMinute(timestamp)")],
+        )
+
+    def _unsessioned_sessions_query(self, filter_expr: ast.Expr) -> ast.SelectQuery:
+        """Recordings of the person who sent a matching event without a session id, around its time.
+
+        A recording matches when the event falls inside the recording window of one of that
+        person's distinct ids. Both sides resolve the person through the current distinct id
+        mapping, so a merge after the event is followed in every persons-on-events mode. The
+        events join the recording windows before any cap, so only matched sessions count
+        toward the limit. The minute grouping can widen the match by up to one minute past
+        the margin.
+        """
+        query = parse_select(
+            """
+            SELECT recording.session_id AS session_id
+            FROM {unsessioned} AS unsessioned
+            INNER JOIN {event_person} AS event_person ON event_person.distinct_id = unsessioned.event_distinct_id
+            INNER JOIN (
+                SELECT s.session_id AS session_id,
+                       recording_person.person_id AS person_id,
+                       min(s.min_first_timestamp) AS window_start,
+                       max(s.max_last_timestamp) AS window_end
+                FROM raw_session_replay_events AS s
+                INNER JOIN {recording_person} AS recording_person ON recording_person.distinct_id = s.distinct_id
+                WHERE {scope}
+                GROUP BY s.session_id, recording_person.person_id
+            ) AS recording ON recording.person_id = event_person.person_id
+            WHERE unsessioned.last_timestamp >= subtractMinutes(recording.window_start, {margin})
+              AND unsessioned.first_timestamp <= addMinutes(recording.window_end, {margin})
+            GROUP BY recording.session_id
+            LIMIT {limit}
+            """,
+            placeholders={
+                "unsessioned": self._unsessioned_events_query(filter_expr),
+                "event_person": self._unsessioned_person_mapping(),
+                "recording_person": self._unsessioned_person_mapping(),
+                "scope": self._recording_scope(),
+                "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES),
+                "limit": ast.Constant(value=EVENTS_SUBQUERY_ROW_LIMIT),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _with_unsessioned_sessions(self, sessioned: ast.SelectQuery, filter_expr: ast.Expr) -> ast.SelectQuery:
+        return ast.SelectQuery(
+            select=[ast.Field(chain=["session_id"])],
+            select_from=ast.JoinExpr(
+                table=ast.SelectSetQuery.create_from_queries(
+                    [sessioned, self._unsessioned_sessions_query(filter_expr)], "UNION ALL"
+                )
+            ),
+        )
 
     def _recording_window_predicates(self) -> list[ast.Expr]:
         if self._query.event_match_scope != EventMatchScope.RECORDING:
@@ -708,7 +851,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     def get_session_id_match_plan(self, allow_combined_filters: bool = False) -> SessionIdMatchPlan:
         gathered_exprs, hybrid_query = self._gathered_exprs(union_entities=False)
-        eligible = allow_combined_filters and self._can_combine_session_filters(len(gathered_exprs))
+        match_unsessioned = self._matches_unsessioned_events()
+        # The combined scan has no slot for a per-filter person and time match.
+        eligible = (
+            allow_combined_filters and not match_unsessioned and self._can_combine_session_filters(len(gathered_exprs))
+        )
         # Recording scope adds a GLOBAL JOIN on the per-recording bounds to every events subquery, and
         # ClickHouse ships and builds that bounds set once per subquery. Separate queries would ship it
         # once per filter, so eligible filters always take the single combined scan under this scope.
@@ -726,12 +873,23 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 hybrid_query,
             )
         )
+        unsessioned_filter_count = 0
+        if match_unsessioned:
+            # _gathered_exprs puts one predicate per event and action filter first, and
+            # _separate_queries keeps that order after the optional hybrid query.
+            offset = 1 if hybrid_query else 0
+            unsessioned_filter_count = sum(1 for entity in self.entities if not isinstance(entity, DataWarehouseNode))
+            for index in range(unsessioned_filter_count):
+                queries[offset + index] = self._with_unsessioned_sessions(
+                    queries[offset + index], gathered_exprs[index]
+                )
         return SessionIdMatchPlan(
             queries=queries,
             strategy="combined" if combined else "separate",
             filter_count=len(gathered_exprs),
             property_filter_count=self._property_filter_count(),
             combined_eligible=eligible,
+            unsessioned_filter_count=unsessioned_filter_count,
         )
 
     def get_negative_blocklist_query(self) -> ast.SelectQuery | None:

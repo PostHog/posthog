@@ -511,6 +511,7 @@ class QueryTags(BaseModel):
     replay_event_filter_count: Optional[int] = None
     replay_event_query_property_filter_count: Optional[int] = None
     replay_combined_event_query_eligible: Optional[bool] = None
+    replay_unsessioned_event_filter_count: Optional[int] = None
     replay_event_query_operand: Optional[Literal["AND", "OR"]] = None
     replay_event_query_range_days: Optional[float] = None
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
