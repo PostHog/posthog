@@ -220,7 +220,7 @@ export const changeRequestsLogic = kea<changeRequestsLogicType>([
                         window.location.reload()
                     }, 2000)
                 } else if (response.status === ChangeRequestState.Failed) {
-                    lemonToast.error(`Approval succeeded but application failed: ${response.message}`)
+                    lemonToast.error(response.message || 'Approval succeeded but the change could not be applied')
                     actions.loadChangeRequests()
                 } else {
                     lemonToast.success(response.message || 'Change request approved')

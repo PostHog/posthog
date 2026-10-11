@@ -21,7 +21,12 @@ from posthog.permissions import (
     PremiumFeaturePermission,
 )
 
-from products.approvals.backend.exceptions import AlreadyVotedError, InvalidStateError, ReasonRequiredError
+from products.approvals.backend.exceptions import (
+    AlreadyVotedError,
+    InvalidStateError,
+    ReasonRequiredError,
+    StaleChangeRequestError,
+)
 from products.approvals.backend.experiment_policy_sync import SYNCED_ACTION_KEYS
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.approvals.backend.permissions import CanApprove, CanCancel
@@ -90,6 +95,8 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
             return Response(
                 {"error": "You have already voted on this change request."}, status=status.HTTP_400_BAD_REQUEST
             )
+        except StaleChangeRequestError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
         except Exception as e:
             logger.error("Unexpected error in approve: %s", str(e), exc_info=True)
             return Response(

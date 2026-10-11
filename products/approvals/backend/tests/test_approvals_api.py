@@ -227,6 +227,24 @@ class TestChangeRequestViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "already voted" in response.json()["error"].lower()
 
+    @patch("products.approvals.backend.services.apply_change_request")
+    def test_approve_refuses_vote_when_flag_changed_since_request(self, mock_apply):
+        flag = FeatureFlag.objects.create(team=self.team, key="moved-flag", created_by=self.user, version=2)
+        cr = self._create_change_request(
+            resource_id=str(flag.id),
+            intent={"flag_id": flag.id, "gated_changes": {"active": True}, "preconditions": {"version": 1}},
+        )
+
+        response = self.client.post(f"/api/environments/{self.team.id}/change_requests/{cr.id}/approve/")
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert "request the change again" in response.json()["detail"].lower()
+        assert not Approval.objects.filter(change_request=cr).exists()
+        mock_apply.assert_not_called()
+        cr.refresh_from_db()
+        assert cr.state == ChangeRequestState.PENDING
+        assert cr.validation_status == ValidationStatus.STALE
+
     def test_approve_not_pending(self):
         cr = self._create_change_request(state=ChangeRequestState.APPLIED)
 
