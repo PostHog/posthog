@@ -206,6 +206,47 @@ def _named_warehouse_tables(entries: Any) -> list[Any]:
     ]
 
 
+# The keys that bind an input to an integration. Agent tools cannot send these keys, so an edit
+# through them must not unbind the integration.
+_INTEGRATION_SCHEMA_KEYS = ("integration", "integration_key", "integration_field", "requires_field", "requiredScopes")
+
+
+def _with_integration_keys(inputs_schema: Any, reference: Any) -> Any:
+    """`inputs_schema` with the integration keys the caller left out copied from `reference`.
+
+    Only entries with the same key and type get a copy, so a change of type still unbinds an input.
+    """
+    if not isinstance(inputs_schema, list) or not isinstance(reference, list):
+        return inputs_schema
+    by_key = {item["key"]: item for item in reference if isinstance(item, dict) and item.get("key")}
+    restored = []
+    for item in inputs_schema:
+        source = by_key.get(item.get("key")) if isinstance(item, dict) else None
+        if not source or source.get("type") != item.get("type"):
+            restored.append(item)
+            continue
+        missing = {key: source[key] for key in _INTEGRATION_SCHEMA_KEYS if key in source and key not in item}
+        restored.append({**item, **missing})
+    return restored
+
+
+def _mappings_with_integration_keys(mappings: Any, reference: Any) -> Any:
+    """`mappings` with `_with_integration_keys` applied to each mapping, matched to `reference` by name."""
+    if not isinstance(mappings, list) or not isinstance(reference, list):
+        return mappings
+    by_name = {
+        mapping["name"]: mapping.get("inputs_schema")
+        for mapping in reference
+        if isinstance(mapping, dict) and mapping.get("name")
+    }
+    return [
+        {**mapping, "inputs_schema": _with_integration_keys(mapping["inputs_schema"], by_name[mapping["name"]])}
+        if isinstance(mapping, dict) and "inputs_schema" in mapping and mapping.get("name") in by_name
+        else mapping
+        for mapping in mappings
+    ]
+
+
 def _worker_error_messages(response: requests.Response) -> list[str]:
     """The CDP worker's own description of a failed test invocation, as a list of messages."""
     try:
@@ -586,6 +627,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             self.context.get("view") and self.context["view"].action == "create"
         )
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        # Read before the defaults below, so a config field the caller did not send stays untouched.
+        sent_schema_fields = {field for field in ("inputs_schema", "mappings") if field in data}
 
         # Override some default values from the instance that should always be set
         data["type"] = data.get("type", instance.type if instance else "destination")
@@ -657,6 +700,20 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                     data["icon_url"] = data.get("icon_url") or template.icon_url
                     data["description"] = data.get("description") or template.description
                     data["name"] = data.get("name") or template.name
+
+        # The staged draft holds the newest config, then the live config. The template covers an
+        # input or a mapping that this function does not have yet.
+        draft = (instance.draft if instance else None) or {}
+        references = [
+            (draft.get("inputs_schema"), draft.get("mappings")),
+            (instance.inputs_schema, instance.mappings) if instance else (None, None),
+            (template.inputs_schema, template.mapping_templates) if template else (None, None),
+        ]
+        for schema_reference, mappings_reference in references:
+            if "inputs_schema" in sent_schema_fields:
+                data["inputs_schema"] = _with_integration_keys(data["inputs_schema"], schema_reference)
+            if "mappings" in sent_schema_fields:
+                data["mappings"] = _mappings_with_integration_keys(data["mappings"], mappings_reference)
 
         return super().to_internal_value(data)
 
