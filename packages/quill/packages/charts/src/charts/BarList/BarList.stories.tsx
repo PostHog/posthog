@@ -74,3 +74,19 @@ export const NarrowWithLongLabels: Story = {
         )
     },
 }
+
+// Above the bar, a long label reads in full and the bar takes the full width of a narrow list.
+export const LabelsOnTop: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={280} height={176}>
+                <BarList
+                    series={LONG_LABELS}
+                    theme={theme}
+                    config={{ labelPosition: 'top', scale: 'total', valueDisplay: 'both' }}
+                />
+            </Stage>
+        )
+    },
+}
