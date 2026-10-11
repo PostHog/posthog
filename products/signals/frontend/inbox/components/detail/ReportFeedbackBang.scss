@@ -1,0 +1,93 @@
+// The resting pose (no animation running) is the fully visible burst, so the Storybook test
+// runner, which disables animations, still captures the artwork.
+.ReportFeedbackBang {
+    position: fixed;
+    inset: 0;
+
+    // Above every popover and modal, like Hogfetti.
+    z-index: 9999;
+    overflow: hidden;
+    pointer-events: none;
+
+    &__anchor {
+        position: absolute;
+        width: 0;
+        height: 0;
+    }
+
+    &__burst {
+        position: absolute;
+        bottom: 10px;
+        left: 0;
+        overflow: visible;
+        filter: drop-shadow(0 4px 6px rgb(0 0 0 / 30%));
+        transform: translateX(-50%);
+        transform-origin: 50% 100%;
+        animation: ReportFeedbackBang__pop 1.1s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+    }
+
+    &__text {
+        font-family: Impact, 'Arial Black', 'Helvetica Neue', sans-serif;
+        font-size: 54px;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: -0.02em;
+        fill: #f9bd2b;
+        stroke: #000;
+        stroke-linejoin: round;
+        stroke-width: 5px;
+        paint-order: stroke;
+    }
+
+    &__confetti {
+        position: absolute;
+        top: -5px;
+        left: -3px;
+        width: 6px;
+        height: 10px;
+        border-radius: 1px;
+        transform: translate(var(--dx), var(--dy)) rotate(var(--rot));
+        animation: ReportFeedbackBang__confetti 1s cubic-bezier(0.15, 0.85, 0.3, 1) var(--delay) both;
+    }
+}
+
+@keyframes ReportFeedbackBang__pop {
+    0% {
+        opacity: 0;
+        transform: translateX(-50%) scale(0) rotate(-20deg);
+    }
+
+    35% {
+        opacity: 1;
+        transform: translateX(-50%) scale(1.15) rotate(4deg);
+    }
+
+    55%,
+    80% {
+        opacity: 1;
+        transform: translateX(-50%) scale(1) rotate(0deg);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translateX(-50%) scale(0.85) rotate(0deg);
+    }
+}
+
+@keyframes ReportFeedbackBang__confetti {
+    0% {
+        opacity: 1;
+        transform: translate(0, 0) rotate(0deg);
+    }
+
+    70% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0;
+
+        // Fall back a little at the end so the scatter reads as paper, not sparks.
+        transform: translate(var(--dx), calc(var(--dy) + 40px)) rotate(var(--rot));
+    }
+}
