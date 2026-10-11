@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import cast
+from typing import Any, cast
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -17,6 +17,8 @@ from products.surveys.backend.responses.fetch_rows import (
     resolve_question_metadata,
 )
 
+OTHER_BUCKET = "<other>"
+
 
 @dataclass(frozen=True)
 class PerQuestionStats:
@@ -27,6 +29,99 @@ class PerQuestionStats:
     response_count: int
     distribution: dict[str, int] = field(default_factory=dict)
     average: float | None = None
+
+
+# A multiple-choice answer arrives in one of these shapes:
+# - a native JSON array property, which only the array form of getSurveyResponse reads;
+# - a string that holds a JSON array, such as '["a","b"]', which only the string form reads;
+# - a plain string with one choice.
+_MULTIPLE_CHOICE_ANSWER_JSON = """
+    if(
+        length(getSurveyResponse({q_idx}, {q_id}, true)) > 0,
+        concat('[', arrayStringConcat(getSurveyResponse({q_idx}, {q_id}, true), ','), ']'),
+        trim(coalesce(getSurveyResponse({q_idx}, {q_id}), ''))
+    )
+"""
+
+
+def _fetch_multiple_choice_stats(
+    *,
+    question: dict[str, Any],
+    team: Team,
+    placeholders: dict[str, ast.Expr],
+) -> PerQuestionStats:
+    """Count each choice once per submission, and bucket every unknown value as "<other>".
+
+    The query maps values to their base choice inside ClickHouse, so free text never leaves it.
+    A submission counts once in `response_count`, also when it selects several choices.
+    """
+    choice_map: dict[str, str] = question.get("choice_map") or {}
+    # transform() needs non-empty arrays. Picks are never blank, so the blank key never matches.
+    choice_keys = list(choice_map) or [""]
+    choice_values = list(choice_map.values()) or [OTHER_BUCKET]
+
+    query_str = """
+        SELECT count() AS submissions, sumMap(picks, arrayMap(x -> 1, picks)) AS pick_counts
+        FROM (
+            SELECT arrayDistinct(arrayMap(x -> transform(x, {choice_keys}, {choice_values}, {other}), answer)) AS picks
+            FROM (
+                SELECT argMaxIf(response, timestamp, length(response) > 0) AS answer
+                FROM (
+                    SELECT
+                        {answer_json} AS answer_json,
+                        arrayFilter(
+                            x -> length(trim(x)) > 0,
+                            if(startsWith(answer_json, '['), JSONExtract(answer_json, 'Array(String)'), [answer_json])
+                        ) AS response,
+                        timestamp,
+                        {grouping_key} AS submission_key
+                    FROM events
+                    WHERE {response_events}
+                        AND properties.`$survey_id` = {survey_id}
+                        AND timestamp >= {start_date}
+                        AND timestamp <= {end_date}
+                )
+                GROUP BY submission_key
+                HAVING length(answer) > 0
+            )
+        )
+    """
+    select_ast = cast(
+        ast.SelectQuery,
+        parse_select(
+            query_str,
+            {
+                **placeholders,
+                "answer_json": parse_expr(_MULTIPLE_CHOICE_ANSWER_JSON, placeholders),
+                "choice_keys": ast.Array(exprs=[ast.Constant(value=key) for key in choice_keys]),
+                "choice_values": ast.Array(exprs=[ast.Constant(value=value) for value in choice_values]),
+                "other": ast.Constant(value=OTHER_BUCKET),
+            },
+        ),
+    )
+    response = execute_hogql_query(
+        query=select_ast,
+        team=team,
+        query_type="survey_per_question_stats_multiple_choice_query",
+    )
+
+    submissions = 0
+    distribution: dict[str, int] = {}
+    if response.results:
+        submissions = int(response.results[0][0])
+        keys, counts = response.results[0][1]
+        distribution = {str(key): int(count) for key, count in sorted(zip(keys, counts), key=lambda kv: -kv[1])}
+        if OTHER_BUCKET in distribution:
+            distribution[OTHER_BUCKET] = distribution.pop(OTHER_BUCKET)
+
+    return PerQuestionStats(
+        question_id=question["id"],
+        question_index=question["index"],
+        question_text=question["text"],
+        question_type=question["type"],
+        response_count=submissions,
+        distribution=distribution,
+    )
 
 
 def fetch_per_question_stats(
@@ -113,6 +208,10 @@ def fetch_per_question_stats(
             )
             continue
 
+        if question_type == "multiple_choice":
+            results.append(_fetch_multiple_choice_stats(question=q, team=team, placeholders=placeholders))
+            continue
+
         # For rating/choice: aggregate by answer value to get a distribution.
         # Same defensive coalesce as the open branch — filter out NULL and empty before grouping.
         # Merge each submission's events into one answer (latest non-null), then build the
@@ -153,11 +252,8 @@ def fetch_per_question_stats(
         # "Other" without exposing the text itself. Reading the text requires the responses
         # endpoint, which requires `query:read`. Translated answers map back to their base
         # choice so they aggregate with it rather than being redacted into "<other>".
-        # `multiple_choice` never actually reaches here today: the grouped query above resolves
-        # JSON-array answers to '', filtered out before this point. Kept in the tuple so
-        # normalization applies for free if the query is ever extended to array-extract answers.
         choice_map: dict[str, str] | None = None
-        if question_type in ("single_choice", "multiple_choice"):
+        if question_type == "single_choice":
             choice_map = q.get("choice_map") or {}
 
         distribution: dict[str, int] = {}
@@ -191,7 +287,7 @@ def fetch_per_question_stats(
                     continue
 
         if other_count:
-            distribution["<other>"] = other_count
+            distribution[OTHER_BUCKET] = other_count
 
         average = (rating_sum / rating_count) if rating_count else None
 
