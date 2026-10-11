@@ -34,6 +34,7 @@ from products.data_catalog.backend.facade.api import approved_metric_names_for_t
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
+from products.signals.backend.scout_harness.acting_user import resolve_scout_run_acting_user
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
@@ -60,7 +61,6 @@ from products.signals.backend.scout_harness.skill_loader import (
     LoadedSkill,
     load_skill_for_run,
     resolve_report_channel_variant,
-    resolve_scout_acting_user_id,
     skill_uses_report_channel,
 )
 from products.signals.backend.scout_harness.team_limits import (
@@ -79,7 +79,6 @@ from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METAD
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
-    resolve_acting_user_id_for_team,
 )
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import (
@@ -397,26 +396,10 @@ async def _arun_signals_scout(
     # into `_spawn_and_run` and booked a bogus `failed`). The only remaining short-circuit is the
     # genuine "no member can act" case; like the withheld / in-flight skips it leaves no row, no
     # lifecycle event, and a `skip_reason` the coordinator can surface — not a failure.
-    user_id = (
-        trial.user_id
-        if trial is not None
-        else await database_sync_to_async(resolve_scout_acting_user_id, thread_sensitive=False)(
-            team, skill.name, config
-        )
+    acting_user = await database_sync_to_async(resolve_scout_run_acting_user, thread_sensitive=False)(
+        team, skill.name, config, trial_user_id=trial.user_id if trial is not None else None
     )
-    if user_id is None:
-        user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
-        if user_id is not None and _granted_write_scopes(config):
-            # The grant was approved for the person the runs act as. The team fallback is a member
-            # who never approved it, so this run holds only the fleet posture. Cleared in memory
-            # only: the runner never saves the config row, so the grant is back the moment the
-            # author's identity resolves again.
-            logger.info(
-                "signals_scout: withholding write access, acting user is the team fallback",
-                extra={"team_id": team_id, "skill_name": skill.name, "user_id": user_id},
-            )
-            config.write_scopes = []
-    if user_id is None:
+    if acting_user is None:
         logger.info(
             "signals_scout: skipping run, no active user to act as for team",
             extra={"team_id": team_id, "skill_name": skill.name},
@@ -431,6 +414,17 @@ async def _arun_signals_scout(
             skill_version=skill.version,
             skip_reason="no active user to act as for team",
         )
+    if acting_user.is_team_fallback and _granted_write_scopes(config):
+        # The grant was approved for the person the runs act as. The team fallback is a member
+        # who never approved it, so this run holds only the fleet posture. Cleared in memory
+        # only: the runner never saves the config row, so the grant is back the moment the
+        # author's identity resolves again.
+        logger.info(
+            "signals_scout: withholding write access, acting user is the team fallback",
+            extra={"team_id": team_id, "skill_name": skill.name, "user_id": acting_user.user_id},
+        )
+        config.write_scopes = []
+    user_id = acting_user.user_id
 
     started = time.monotonic()
     # Pre-mint the bridge row's UUID so the prompt can reference it before the row

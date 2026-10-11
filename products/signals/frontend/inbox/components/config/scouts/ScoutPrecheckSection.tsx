@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { LemonButton, LemonCollapse, LemonDialog, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
 import type {
     PatchedSignalScoutConfigUpdateApi as SignalScoutConfigUpdate,
@@ -172,6 +173,13 @@ export function ScoutPrecheckSection({
                                         </span>
                                         {result.error ? (
                                             <span className="text-[11.5px] text-danger">{result.error}</span>
+                                        ) : null}
+                                        {result.acting_user ? (
+                                            <span className="text-[11.5px] text-muted">
+                                                This test used your access. Scheduled runs check the query as{' '}
+                                                {fullNameOrEmail(result.acting_user)}, who may not be able to read the
+                                                same tables.
+                                            </span>
                                         ) : null}
                                         <span className="text-[11.5px] text-muted">
                                             {'{since}'} is {humanFriendlyDetailedTime(result.since)}.{' '}
