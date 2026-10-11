@@ -16,6 +16,10 @@ export function HogFlowEditorPanelLogs(): JSX.Element | null {
 
     const shouldShowActionLevelLogs = workflow.trigger?.type !== 'batch'
 
+    if (!workflow.id || workflow.id === 'new') {
+        return <div className="p-4 text-center text-secondary">Save the workflow to see its logs.</div>
+    }
+
     return (
         <>
             <div className="border-b">
