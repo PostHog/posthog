@@ -60,6 +60,15 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             (
+                # A read timeout never gets s3fs's OSError translation (there's no response to
+                # translate), so it reaches here as the raw botocore `HTTPClientError` subclass once
+                # s3fs's own retries are exhausted - the same blip `s3/writer.py` already retries on
+                # the write path.
+                "bare_read_timeout_error",
+                botocore.exceptions.ReadTimeoutError(endpoint_url="https://example.com/part-0000.parquet"),
+                True,
+            ),
+            (
                 # aiobotocore's session bootstrap (e.g. inside `aget_s3_client`) opens botocore's own
                 # bundled endpoints.json before any network call is made - a full fd table fails that
                 # local open the same way it fails a socket connect, so it needs the same transient

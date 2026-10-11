@@ -78,6 +78,14 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     subclass, so the message-matched branch below never sees it; recognized by type for the same
     reason as `NoCredentialsError`.
 
+    A read that times out or a connection the object store drops mid-response surfaces as a bare
+    `botocore.exceptions.HTTPClientError` (`ReadTimeoutError`, `ConnectionClosedError`) the same way:
+    s3fs's own retries only translate a *response* it got back into an `OSError`, and a request that
+    never got one never does. `s3/writer.py`'s `_is_transient_s3_write_error` already retries this
+    class on the write path; recognized by type here too so the copy/maintenance paths that share
+    this classifier treat the same blip the same way instead of reporting it as a bug on the first
+    occurrence.
+
     A bare `OSError` with errno `EMFILE`/`ENFILE` means this worker's (or the system's) file
     descriptor table is full — e.g. `aget_s3_client`'s aiobotocore session bootstrap opening
     botocore's own bundled `endpoints.json` fails with this errno before any network call is even
@@ -101,7 +109,11 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     failure is a silent no-op either way) folds it in.
     """
     if isinstance(
-        error, TransientObjectStoreError | botocore.exceptions.NoCredentialsError | botocore.exceptions.ConnectionError
+        error,
+        TransientObjectStoreError
+        | botocore.exceptions.NoCredentialsError
+        | botocore.exceptions.ConnectionError
+        | botocore.exceptions.HTTPClientError,
     ):
         # Already classified and wrapped by a prior call to this same function (see
         # `_capture_unless_transient`) — a caller further up the stack that catches broadly and
