@@ -238,12 +238,13 @@ function hasVisitedInboxList(): boolean {
     }
 }
 
+// Not `source`: the inbox filters own that param for the product filter.
 function hasLinkSource(searchParams: Record<string, any>): boolean {
-    return searchParams.source !== undefined
+    return searchParams.link_source !== undefined
 }
 
 function withoutLinkSource(searchParams: Record<string, any>): Record<string, any> {
-    const { source: _source, ...rest } = searchParams
+    const { link_source: _linkSource, ...rest } = searchParams
     return rest
 }
 
@@ -1249,7 +1250,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 ? { back: removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search }
                 : withoutLinkSource(router.values.searchParams),
             router.values.hashParams,
-            // Replace, so Back does not return to the link URL and its `source`.
+            // Replace, so Back does not return to the link URL and its `link_source`.
             { replace: hasLinkSource(router.values.searchParams) },
         ],
         setSelectedScoutSkillName: ({ findingId }) => [
@@ -1476,14 +1477,14 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     // else an in-app click. A tab that already saw the list can still open a link.
                     const fromTriage =
                         typeof searchParams.back === 'string' && searchParams.back.startsWith(urls.inboxTriage())
-                    const linkSource = fromTriage ? null : parseInboxReportLinkSource(searchParams.source)
+                    const linkSource = fromTriage ? null : parseInboxReportLinkSource(searchParams.link_source)
                     actions.setSelectedReportId(
                         reportId,
                         fromTriage ? 'triage' : linkSource !== null || !hasVisitedInboxList() ? 'deeplink' : 'click',
                         linkSource
                     )
                 } else if (hasLinkSource(searchParams)) {
-                    // A copied address bar must not pass the original `source` on to the next reader.
+                    // A copied address bar must not pass the original `link_source` on to the next reader.
                     router.actions.replace(router.values.location.pathname, withoutLinkSource(searchParams), hashParams)
                 }
             },

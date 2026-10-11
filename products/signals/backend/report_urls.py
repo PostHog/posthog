@@ -1,7 +1,7 @@
 """Links to an inbox report that PostHog writes into other surfaces.
 
-Each link carries a `source` query param. The inbox reads it, records it as `link_source` on
-`Inbox report opened`, and removes it from the address bar. The values must match
+Each link carries a `link_source` query param. The inbox reads it, records it on
+`Inbox report opened`, and removes it from the address bar. The inbox filters already use `source`. The values must match
 `INBOX_REPORT_LINK_SOURCES` in `frontend/inbox/inboxAnalytics.ts`.
 """
 
@@ -25,7 +25,7 @@ class ReportLinkSource(StrEnum):
 
 
 def report_path(team_id: int, report_id: str | UUID, source: ReportLinkSource) -> str:
-    return f"/project/{team_id}/inbox/reports/{report_id}?source={source.value}"
+    return f"/project/{team_id}/inbox/reports/{report_id}?link_source={source.value}"
 
 
 def build_report_url(team_id: int, report_id: str | UUID, source: ReportLinkSource) -> str:

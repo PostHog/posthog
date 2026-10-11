@@ -135,8 +135,8 @@ class TestWriteBriefing(TodayTeamScopedTestMixin, BaseTest):
         self.briefing.refresh_from_db()
         assert (self.briefing.status, self.briefing.writer) == (BriefingStatus.READY, BriefingWriter.AGENT)
         assert [(item["key"], item["reason"], item["url"]) for item in self.briefing.facts["items"]] == [
-            ("report:b", "suggested_reviewer", f"/project/{self.team.id}/inbox/reports/b?source=today"),
-            ("report:a", "waiting_for_you", f"/project/{self.team.id}/inbox/reports/a?source=today"),
+            ("report:b", "suggested_reviewer", f"/project/{self.team.id}/inbox/reports/b?link_source=today"),
+            ("report:a", "waiting_for_you", f"/project/{self.team.id}/inbox/reports/a?link_source=today"),
         ]
         content = self.briefing.content
         assert content["headline"] == "Two reports need your input"

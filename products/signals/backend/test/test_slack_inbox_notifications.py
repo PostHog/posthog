@@ -120,7 +120,7 @@ def test_build_message_blocks_includes_recipient_and_open_in_posthog_button() ->
     buttons = blocks[3]["elements"]
     assert len(buttons) == 1
     assert buttons[0]["text"]["text"] == "Review in PostHog"
-    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?source=slack"
+    assert buttons[0]["url"] == f"{settings.SITE_URL}/project/42/inbox/reports/report-uuid?link_source=slack"
     assert text == "Report (P1): Checkout errors spiked"
 
 
@@ -357,7 +357,7 @@ def test_dispatch_sends_to_configured_reviewer(org_and_team, target, expected_co
         assert "Suggested reviewers" not in context_text
     assert all("<@" not in t for t in _plain_text_block_texts(blocks))
     assert blocks[3]["elements"][0]["url"] == (
-        f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?source=slack"
+        f"{settings.SITE_URL}/project/{team.id}/inbox/reports/{report.id}?link_source=slack"
     )
 
 

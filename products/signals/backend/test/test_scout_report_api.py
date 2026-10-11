@@ -2032,7 +2032,7 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"
         expected_url = (
-            None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}?source=scout"
+            None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}?link_source=scout"
         )
         if expected_url is None:
             assert forward.kwargs["properties"]["report_url"] is None
@@ -2065,7 +2065,7 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["token"] == self.team.api_token
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["properties"]["report_url"].endswith(
-            f"/inbox/reports/{created['report_id']}?source=scout"
+            f"/inbox/reports/{created['report_id']}?link_source=scout"
         )
         assert props["run_id"] == str(run.id)
         assert forward.kwargs["distinct_id"] == f"signals_scout:{run.skill_name}"

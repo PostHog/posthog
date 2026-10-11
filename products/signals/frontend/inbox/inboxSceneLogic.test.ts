@@ -400,7 +400,7 @@ describe('inboxSceneLogic routing', () => {
         expect(openMethod).toBe(expected)
     })
 
-    // A link PostHog wrote names its surface in `source`. A tab that already saw the list can still
+    // A link PostHog wrote names its surface in `link_source`. The product filter keeps `source`. A tab that already saw the list can still
     // open one, and the param leaves the address bar so a copied URL does not pass it on.
     it.each([
         { name: 'no param', source: undefined, visitedList: false, method: 'deeplink', linkSource: null },
@@ -423,7 +423,7 @@ describe('inboxSceneLogic routing', () => {
             }
             const url = combineUrl(
                 urls.inboxReport('reports', 'r1'),
-                source ? { source, keep: 'yes' } : { keep: 'yes' }
+                source ? { link_source: source, source: 'github' } : { source: 'github' }
             ).url
 
             let payload: { openMethod?: string; linkSource?: string | null } = {}
@@ -437,7 +437,7 @@ describe('inboxSceneLogic routing', () => {
                 },
             ])
             expect(payload).toMatchObject({ openMethod: method, linkSource })
-            expect(router.values.searchParams).toEqual({ keep: 'yes' })
+            expect(router.values.searchParams).toEqual({ source: 'github' })
         }
     )
 

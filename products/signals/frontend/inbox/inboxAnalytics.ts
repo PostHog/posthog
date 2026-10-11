@@ -99,7 +99,7 @@ export type InboxSelectionEntryMethod = 'long_press' | 'meta_click' | 'shift_cli
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
 
 /**
- * The surface that wrote a report link, from its `source` query param. Must match
+ * The surface that wrote a report link, from its `link_source` query param. Must match
  * `ReportLinkSource` in `products/signals/backend/report_urls.py`.
  */
 export const INBOX_REPORT_LINK_SOURCES = [

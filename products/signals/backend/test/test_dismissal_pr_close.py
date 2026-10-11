@@ -353,7 +353,7 @@ class TestCloseImplementationPrForReport(BaseTest):
         if login != "octocat":
             assert "@" not in comment_body
         # The report link carries the attribution GitHub cannot: it names everyone who acted.
-        assert f"/project/{self.team.id}/inbox/reports/{self.report.id}?source=github_pr)" in comment_body
+        assert f"/project/{self.team.id}/inbox/reports/{self.report.id}?link_source=github_pr)" in comment_body
 
     def test_returns_false_and_skips_github_without_linked_pr(self):
         self.assignment.pr_url = None
