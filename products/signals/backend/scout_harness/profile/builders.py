@@ -389,7 +389,9 @@ def _recent_dashboards(team: Team) -> list[dict[str, Any]]:
     have a per-dashboard view *count* in Postgres (the `viewed dashboard` event would
     give us counts but only for PostHog-internal teams via project 2), so this surfaces
     "what's the team currently looking at" rather than "what's most trafficked." The
-    name reflects what we actually have.
+    name reflects what we actually have. A self-driving scout read does not bump
+    `last_accessed_at` (see `should_record_dashboard_view`), so a scout scoring these
+    dashboards can't promote them into its own recency signal.
     """
     rows = (
         Dashboard.objects.filter(team=team, deleted=False, last_accessed_at__isnull=False)

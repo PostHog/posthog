@@ -65,7 +65,6 @@ from posthog.event_usage import EventSource, get_event_source, report_user_actio
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template, dashboard_template_from_creation_payload
-from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
     MAX_SEARCH_LENGTH,
@@ -106,7 +105,12 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.ai_observability.backend.dashboard_templates import get_ai_observability_default_template
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.dashboards.backend.access import dashboard_access_method, record_dashboard_access, record_dashboard_view
+from products.dashboards.backend.access import (
+    dashboard_access_method,
+    record_dashboard_access,
+    record_dashboard_view,
+    should_record_dashboard_view,
+)
 from products.dashboards.backend.api.dashboard_template_json_schema_parser import (
     DashboardTemplateCreationJSONSchemaParser,
 )
@@ -3032,9 +3036,7 @@ class DashboardsViewSet(
         dashboard = self.get_object()
 
         access_method = dashboard_access_method(request)
-        # Views during staff impersonation aren't the team's own activity - skip the write
-        # so support sessions don't bump the team-facing "Last accessed" (it also feeds cache warming).
-        if not is_impersonated(request):
+        if should_record_dashboard_view(request):
             record_dashboard_view(dashboard, access_method)
         serializer_context = self.get_serializer_context()
         serializer_context["dashboard_access_method"] = access_method
@@ -3081,8 +3083,7 @@ class DashboardsViewSet(
 
         # Do all database operations and data loading synchronously first
         access_method = dashboard_access_method(request)
-        # Skip the "Last accessed" bump during staff impersonation (see retrieve)
-        if not is_impersonated(request):
+        if should_record_dashboard_view(request):
             record_dashboard_view(dashboard, access_method)
 
         context = self.get_serializer_context()
