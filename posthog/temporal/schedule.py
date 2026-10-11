@@ -79,6 +79,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.alerts.backend.facade.temporal import create_insight_anomaly_scoring_schedule
 from products.alerts_platform.backend.facade.temporal import create_alerts_platform_tick_schedule
 from products.autoresearch.backend.facade.temporal import create_autoresearch_daily_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
@@ -972,6 +973,7 @@ schedules = [
     create_today_briefing_schedule,
     create_signals_scout_coordinator_schedule,
     create_inbox_ranking_scoring_schedule,
+    create_insight_anomaly_scoring_schedule,
     create_scout_suggestions_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,
