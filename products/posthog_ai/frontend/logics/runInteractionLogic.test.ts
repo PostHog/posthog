@@ -27,6 +27,7 @@ import { TaskDraftPersistence, taskDraftStorageKey } from './taskDraftPersistenc
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 const GENERIC_FAILURE = 'Failed to start a new run. Please try again.'
+const SEND_FAILURE = 'Failed to send message. Please try again.'
 
 // Minimal kea stub for the shared sandbox stream logic — gives the test full control over the busy gate
 // (`isThinking`) and `currentRunStatus`, and lets us fire `markTurnComplete` and observe `pushHumanMessage`
@@ -1056,8 +1057,21 @@ describe('runInteractionLogic', () => {
         expect(logic.values.queuedMessages).toEqual([])
     })
 
-    it('keeps the draft and toasts when the send fails', async () => {
-        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue(new Error('boom'))
+    test.each([
+        [new Error('boom'), SEND_FAILURE],
+        [
+            new ApiError('sending', 403, undefined, {
+                detail: 'Only the user who started this run can use its Claude plan.',
+            }),
+            'Only the user who started this run can use its Claude plan.',
+        ],
+        [
+            new ApiError('sending', 409, undefined, { error: 'Task run workflow has ended' }),
+            'Task run workflow has ended',
+        ],
+        [new ApiError('sending', 502, undefined, { error: 'Failed to queue user message for task run' }), SEND_FAILURE],
+    ])('keeps the draft and toasts when the send fails with %s', async (error, message) => {
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue(error)
         setThinking(false)
         logic.actions.setComposerFormValues({ draft: 'ship it' })
 
@@ -1065,7 +1079,7 @@ describe('runInteractionLogic', () => {
             logic.actions.submitComposerForm()
         }).toFinishAllListeners()
 
-        expect(lemonToast.error).toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith(message)
         expect(logic.values.composerForm.draft).toBe('ship it')
         expect(logic.values.sending).toBe(false)
         expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
