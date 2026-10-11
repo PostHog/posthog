@@ -2,10 +2,6 @@ import {
   buildCreatePrReportPrompt,
   canCreateImplementationPr,
 } from "@posthog/core/inbox/reportActions";
-import {
-  INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
-  INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
-} from "@posthog/core/inbox/reportFiltering";
 import type {
   SignalReport,
   SignalReportArtefactsResponse,
@@ -24,6 +20,11 @@ import { create } from "zustand";
 import { accountStorageKey, sessionIdentity, useAuth } from "@/lib/auth";
 import { getClient } from "@/lib/client";
 import { currentRunConfig } from "@/lib/composer";
+import {
+  hasOpenImplementationPr,
+  type ReportFilter,
+  reportFilterParams,
+} from "@/lib/reportFilters";
 import { fetchHasLiveImplementationTask } from "@/lib/reportTasks";
 import { useSessions } from "@/lib/session";
 
@@ -36,23 +37,31 @@ export const reportKeys = {
   liveTask: (id: string) => ["reports", id, "live-task"] as const,
 };
 
-// Reports a person can act on right now, highest priority first.
-export function useReports(search = "") {
+// Defaults to the reports a person can act on right now.
+export function useReports(search = "", filter: ReportFilter = "attention") {
   const session = useAuth((s) => s.session);
+  const key = [...reportKeys.list, filter];
   return useQuery({
-    queryKey: search ? [...reportKeys.list, "search", search] : reportKeys.list,
+    queryKey: search ? [...key, "search", search] : key,
     queryFn: () =>
       getClient().getSignalReports({
-        status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
-        actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
-        ordering: "status,-priority,-created_at",
+        ...reportFilterParams(filter),
         limit: 100,
         search: search || undefined,
       }),
     enabled: !!session,
     refetchInterval: 60_000,
-    select: (page) =>
-      page.results.filter((report) => canCreateImplementationPr(report)),
+    select: (page) => {
+      if (filter === "attention") {
+        return page.results.filter((report) =>
+          canCreateImplementationPr(report),
+        );
+      }
+      if (filter === "pull-requests") {
+        return page.results.filter(hasOpenImplementationPr);
+      }
+      return page.results;
+    },
   });
 }
 
