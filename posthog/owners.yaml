@@ -23,6 +23,9 @@ rules:
       owners: team-data-tools
     - match: '/management/migration_analysis/'
       owners: team-devex
+    # Each line acknowledges a risky migration, so one added line lets that migration skip the check.
+    - match: '/management/migration_analysis/*_acknowledged_migrations.txt'
+      sensitive: true
     - match: '/queries/'
       owners: team-analytics-platform
     - match: '/rbac/'
