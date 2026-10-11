@@ -72,6 +72,8 @@ class RunSignalsScoutInput:
     check_id: str | None = None
     # The rows the pre-check found, set by the workflow on a scheduled run the pre-check started.
     precheck_rows: str | None = None
+    # Which pre-check started the run (`config` or `skill_default`), stamped on the run row.
+    precheck_query_source: str | None = None
 
 
 @frozen
@@ -128,18 +130,22 @@ class EvaluateScoutPrecheckOutput:
     should_run: bool
     # The capped rows the run renders into its prompt. None when there are no rows to pass.
     rows_text: str | None = None
+    # Where the query came from. None when the scout has no pre-check.
+    query_source: str | None = None
 
 
 @temporalio.activity.defn
 @close_db_connections
 async def evaluate_signals_scout_precheck_activity(input: RunSignalsScoutInput) -> EvaluateScoutPrecheckOutput:
-    """Evaluate the scout's pre-check query. A scout without one always runs."""
+    """Evaluate the scout's effective pre-check query. A scout without one always runs."""
     result = await database_sync_to_async(evaluate_scout_precheck, thread_sensitive=False)(
         input.team_id, input.skill_name
     )
     if result is None:
         return EvaluateScoutPrecheckOutput(should_run=True)
-    return EvaluateScoutPrecheckOutput(should_run=result.should_run, rows_text=result.rows_text)
+    return EvaluateScoutPrecheckOutput(
+        should_run=result.should_run, rows_text=result.rows_text, query_source=result.query_source
+    )
 
 
 @temporalio.activity.defn
@@ -235,6 +241,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 trial_launch_id=input.trial_launch_id,
                 check_id=input.check_id,
                 precheck_rows=input.precheck_rows,
+                precheck_query_source=input.precheck_query_source,
             )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
@@ -298,6 +305,8 @@ class RunSignalsScoutWorkflow:
                 )
             if precheck.rows_text:
                 input = replace(input, precheck_rows=precheck.rows_text)
+            if precheck.query_source:
+                input = replace(input, precheck_query_source=precheck.query_source)
         try:
             output = await temporalio.workflow.execute_activity(
                 run_signals_scout_activity,
