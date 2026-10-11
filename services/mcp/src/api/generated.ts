@@ -71156,6 +71156,13 @@ export namespace Schemas {
       readonly limit_reached: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor: number;
+      /**
+         * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
+         * @nullable
+         */
+      readonly dashboard_id: number | null;
+      /** Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at least 20 succeeded observations to chart. Offer it once and do not repeat the offer if the user declines. */
+      readonly dashboard_suggested: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -82938,6 +82945,13 @@ export namespace Schemas {
       readonly limit_reached?: boolean;
       /** How much the scheduled sweep is slowed to keep this scanner inside its daily ClickHouse read budget. 1 means it checks for new recordings on the normal schedule; N means it checks once every N schedule intervals. Expensive filters raise it. */
       readonly sweep_throttle_factor?: number;
+      /**
+         * Dashboard created for this scanner with the create_dashboard action. Null when none was created or the user deleted it.
+         * @nullable
+         */
+      readonly dashboard_id?: number | null;
+      /** Whether to offer the user a dashboard for this scanner: true when the scanner has no dashboard and at least 20 succeeded observations to chart. Offer it once and do not repeat the offer if the user declines. */
+      readonly dashboard_suggested?: boolean;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -97060,6 +97074,15 @@ export namespace Schemas {
     export interface ScannerCreatorsResponse {
       /** Users who created at least one scanner on this team. Returned regardless of pagination state so the dropdown stays stable across pages. */
       creators: UserBasic[];
+    }
+
+    export interface ScannerDashboardResponse {
+      /** Id of the scanner's dashboard. */
+      dashboard_id: number;
+      /** Name of the dashboard. */
+      name: string;
+      /** True when this call created the dashboard. False when the scanner already had one, which is returned instead. */
+      created: boolean;
     }
 
     /**

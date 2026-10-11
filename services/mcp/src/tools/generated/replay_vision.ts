@@ -646,6 +646,27 @@ const visionScannersAffectedCohortCreate = (): ToolBase<
     },
 })
 
+const VisionScannersDashboardCreateSchema = () => {
+    const VisionScannersCreateDashboardCreateParams = orvalSchemas.VisionScannersCreateDashboardCreateParams()
+    return VisionScannersCreateDashboardCreateParams.omit({ project_id: true })
+}
+
+const visionScannersDashboardCreate = (): ToolBase<
+    ReturnType<typeof VisionScannersDashboardCreateSchema>,
+    Schemas.ScannerDashboardResponse
+> => ({
+    name: 'vision-scanners-dashboard-create',
+    schema: VisionScannersDashboardCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersDashboardCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScannerDashboardResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/${encodeURIComponent(String(params.id))}/create_dashboard/`,
+        })
+        return result
+    },
+})
+
 const VisionScannersBackfillsCancelSchema = () => {
     const VisionScannersBackfillsCancelCreateBody = orvalSchemas.VisionScannersBackfillsCancelCreateBody()
     const VisionScannersBackfillsCancelCreateParams = orvalSchemas.VisionScannersBackfillsCancelCreateParams()
@@ -1639,6 +1660,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-quota-get': visionQuotaGet,
     'vision-quota-spend-series-get': visionQuotaSpendSeriesGet,
     'vision-scanners-affected-cohort-create': visionScannersAffectedCohortCreate,
+    'vision-scanners-dashboard-create': visionScannersDashboardCreate,
     'vision-scanners-backfills-cancel': visionScannersBackfillsCancel,
     'vision-scanners-backfills-create': visionScannersBackfillsCreate,
     'vision-scanners-backfills-estimate': visionScannersBackfillsEstimate,
