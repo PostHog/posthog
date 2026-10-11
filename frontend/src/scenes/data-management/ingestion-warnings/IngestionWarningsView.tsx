@@ -23,6 +23,28 @@ import { IngestionWarning, IngestionWarningSummary, ingestionWarningsLogic } fro
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
+function CookielessMissingPropertyWarning(warning: IngestionWarning): JSX.Element {
+    const details = warning.details as {
+        eventUuid: string
+        event: string
+        missingProperty: string
+    }
+    return (
+        <>
+            Discarded a <code>{details.event}</code> event sent in cookieless mode (event uuid:{' '}
+            <code>{details.eventUuid}</code>) because it has no <code>{details.missingProperty}</code> property.
+            Cookieless tracking needs this property to count unique users.
+            {details.missingProperty !== '$ip' && (
+                <>
+                    {' '}
+                    If your posthog-js <code>before_send</code> function keeps only some properties, add{' '}
+                    <code>$raw_user_agent</code> and <code>$host</code> to that list.
+                </>
+            )}
+        </>
+    )
+}
+
 export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
@@ -46,6 +68,9 @@ export const WARNING_TYPE_TO_DESCRIPTION: Record<string, string> = {
     event_dropped_person_processing_disabled:
         'Discarded an event that requires person processing, which is turned off for this project',
     cookieless_team_disabled: 'Discarded cookieless event because cookieless tracking is disabled',
+    cookieless_missing_user_agent: 'Discarded cookieless event with no $raw_user_agent property',
+    cookieless_missing_ip: 'Discarded cookieless event with no IP address',
+    cookieless_missing_host: 'Discarded cookieless event with no $host property',
     // Emitted by the capture service when it drops events at validation time
     missing_event_name: 'Discarded event with no event name',
     event_name_too_long: 'Discarded event whose name exceeds the length limit',
@@ -367,6 +392,9 @@ export const WARNING_TYPE_RENDERER = {
             </>
         )
     },
+    cookieless_missing_user_agent: CookielessMissingPropertyWarning,
+    cookieless_missing_ip: CookielessMissingPropertyWarning,
+    cookieless_missing_host: CookielessMissingPropertyWarning,
     schema_validation_failed: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             eventUuid: string
