@@ -280,8 +280,7 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
     @property
     def is_sharing_enabled(self):
         # uses .all and not .first so that prefetching can be used
-        sharing_configurations = self.sharingconfiguration_set.all()
-        return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
+        return any(config.enabled and config.expires_at is None for config in self.sharingconfiguration_set.all())
 
     def dashboard_filters(
         self, dashboard: Optional["Dashboard"] = None, dashboard_filters_override: Optional[dict] = None

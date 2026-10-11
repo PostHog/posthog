@@ -5,6 +5,7 @@ from urllib.parse import urlparse, urlunparse
 
 from django.core.exceptions import ImproperlyConfigured
 from django.core.serializers.json import DjangoJSONEncoder
+from django.db import transaction
 from django.db.models import Model, Q
 from django.http import HttpResponseRedirect
 from django.shortcuts import render
@@ -536,9 +537,6 @@ class SharingConfigurationViewSet(
 
         check_can_access_sharing_configuration(self, request, instance)
 
-        # Now that the caller is authorized to edit, collapse any duplicate active rows.
-        instance = self._get_sharing_configuration(context, dedupe=True)
-
         if request.data.get("password_required", False):
             if not self.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
                 return response.Response(
@@ -568,9 +566,24 @@ class SharingConfigurationViewSet(
                     "which the shared queries use. Ask an admin for access, or remove those queries first."
                 )
 
-        serializer = self.get_serializer(instance, data=request.data, partial=True)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
+        with transaction.atomic():
+            # Take the rotation lock before the read, so this request cannot save a stale copy over a row
+            # that a concurrent rotation already expired.
+            instance.lock_resource()
+            # Now that the caller is authorized to edit, collapse any duplicate active rows.
+            instance = self._get_sharing_configuration(context, dedupe=True)
+
+            # Turning sharing back on issues a new token, so a link that leaked before it was turned off stays dead.
+            if request.data.get("enabled") and instance.pk and not instance.enabled:
+                instance = instance.rotate_access_token()
+
+            serializer = self.get_serializer(instance, data=request.data, partial=True)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+            # A refresh keeps the previous token working for a grace period, so turning sharing off ends that too.
+            if not instance.enabled:
+                instance.revoke_grace_period_tokens()
 
         if context.get("insight"):
             name = instance.insight.name or instance.insight.derived_name

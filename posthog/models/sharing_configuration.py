@@ -161,7 +161,7 @@ class SharingConfiguration(models.Model):
 
             return keep
 
-    def _lock_resource_for_rotation(self) -> None:
+    def lock_resource(self) -> None:
         # Resolve each parent model from its own FK instead of importing it. This keeps the module
         # free of product imports.
         for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
@@ -187,12 +187,18 @@ class SharingConfiguration(models.Model):
             interviewee_context=self.interviewee_context,
         )
 
+    def revoke_grace_period_tokens(self) -> None:
+        now = timezone.now()
+        SharingConfiguration.objects.filter(**self._resource_lookup_for_instance(), expires_at__gt=now).update(
+            expires_at=now
+        )
+
     def rotate_access_token(self) -> "SharingConfiguration":
         """Create a new sharing configuration and expire the current one"""
         resource_lookup = self._resource_lookup_for_instance()
 
         with transaction.atomic():
-            self._lock_resource_for_rotation()
+            self.lock_resource()
 
             active_configs = list(
                 SharingConfiguration.objects.select_for_update()
@@ -216,6 +222,15 @@ class SharingConfiguration(models.Model):
                         expired_config_ids=[config.pk for config in active_configs[1:]],
                         team_id=self.team_id,
                     )
+
+            if source.dashboard_id:
+                # The sharing API adopts a dashboard's legacy share token when no config owns it. Clear
+                # the token here, or a revoked link comes back after cleanup deletes the expired configs.
+                dashboard_field = cast("models.ForeignKey", self._meta.get_field("dashboard"))
+                dashboard_model = cast("type[models.Model]", dashboard_field.related_model)
+                dashboard_model._default_manager.filter(pk=source.dashboard_id, team_id=self.team_id).exclude(
+                    share_token=None
+                ).update(share_token=None)
 
             new_config = SharingConfiguration.objects.create(
                 team=source.team,
