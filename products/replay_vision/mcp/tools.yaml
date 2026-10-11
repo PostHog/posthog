@@ -385,22 +385,6 @@ tools:
             `min_score` and/or `max_score`. The cohort is a dated snapshot and does not live-update; calling again
             creates a new cohort. Use it anywhere cohorts work: funnel breakdowns, retention, survey targeting,
             experiment exclusion. Fails when the window has no users or none resolve to a person profile.
-    vision-scanners-dashboard-create:
-        operation: vision_scanners_create_dashboard_create
-        enabled: true
-        feature_flag: replay-vision-scanner-dashboard
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: true
-        title: Create a dashboard for a scanner
-        description: >
-            Create a dashboard that charts a scanner's observations and link it to the scanner. Tiles depend on the
-            scanner type: people (and accounts, when group analytics is set up) the scanner matched per week,
-            type-specific breakdowns such as yes rate, category share or score percentiles, and the latest matching
-            recordings. Offer it when `vision-scanners-get` returns `dashboard_suggested: true`, at most once per
-            conversation, and only call it when the user agrees. Calling it again returns the existing dashboard
-            (`created: false`) rather than a second one. Link the user to the dashboard at /dashboard/{dashboard_id}.
     vision-scanners-backfills-cancel:
         operation: vision_scanners_backfills_cancel_create
         enabled: true
@@ -562,6 +546,22 @@ tools:
             - created_by
             - updated_at
         requires_ai_consent: true
+    vision-scanners-dashboard-create:
+        operation: vision_scanners_create_dashboard_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Create a dashboard for a scanner
+        description: >
+            Create a dashboard that charts a scanner's observations and link it to the scanner. Tiles depend on the
+            scanner type: people (and accounts, when group analytics is set up) the scanner matched per week,
+            type-specific breakdowns such as yes rate, category share or score percentiles, and the latest matching
+            recordings. Offer it when `vision-scanners-get` returns `dashboard_suggested: true`, at most once per
+            conversation, and only call it when the user agrees. Calling it again returns the existing dashboard
+            (`created: false`) rather than a second one. Link the user to the dashboard at /dashboard/{dashboard_id}.
+        feature_flag: replay-vision-scanner-dashboard
     vision-scanners-delete:
         operation: vision_scanners_destroy
         enabled: true
@@ -653,8 +653,8 @@ tools:
             `vision-scanners-list`. Returns the full configuration including `scanner_config` (the type-specific prompt
             and response schema parameters), the `RecordingsQuery` used to select sessions, and operational fields like
             `enabled`, `sampling_rate`, `provider`, `model`, `emits_signals`, `scanner_version`, and `last_swept_at`.
-            `dashboard_id` links the scanner's dashboard when one exists, and `dashboard_suggested` says whether to offer
-            the user one with `vision-scanners-dashboard-create`.
+            `dashboard_id` links the scanner's dashboard when one exists, and `dashboard_suggested` says whether to
+            offer the user one with `vision-scanners-dashboard-create`.
     vision-scanners-impact-get:
         operation: vision_scanners_impact_retrieve
         enabled: true
