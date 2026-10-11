@@ -91,11 +91,11 @@ import {
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 import {
     FeatureFlagConfigFormat,
-    STALE_ROW_VERSION_RELOADED_MESSAGE,
     featureFlagConfigFormat,
+    featureFlagDeleteOptions,
     isRulesV2EditableConfig,
-    isStaleRowVersionError,
     isV1FeatureFlagConfig,
+    reloadIfStaleRowVersion,
     rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
@@ -857,16 +857,6 @@ export const getRecordingFilterForFlagVariant = (
             ],
         },
     }
-}
-
-// The conflicting write may have replaced the whole document, so a stale row version reloads the flag.
-function reloadIfStaleRowVersion(token: { version?: number }, error: any, reload: () => void): boolean {
-    if (!isStaleRowVersionError(token, error)) {
-        return false
-    }
-    lemonToast.error(error?.detail || STALE_ROW_VERSION_RELOADED_MESSAGE)
-    reload()
-    return true
 }
 
 // A v2 write must carry the row version the previous write returned, so inline saves go out one at a time.
@@ -3449,7 +3439,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
                         const restoredFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${featureFlag.id}`,
-                            { deleted: false }
+                            { deleted: false, ...rowVersionToken(featureFlag) }
                         )
                         // Restore gives the flag a new tree entry. A delete from another tab or the API leaves the old entry in this tab's tree.
                         deleteFromTree('feature_flag', String(featureFlag.id))
@@ -4332,6 +4322,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { id: featureFlag.id },
                 label: featureFlag.key,
+                // Read the row version now: an inline save may have moved it on since the dialog opened.
+                ...featureFlagDeleteOptions(values.featureFlag, actions.refreshFeatureFlag),
                 callback: (undo) => {
                     if (undo) {
                         refreshTreeItem('feature_flag', String(featureFlag.id))

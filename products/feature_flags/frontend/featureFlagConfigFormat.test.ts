@@ -1,6 +1,14 @@
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { FeatureFlagConfig } from '~/types'
 
-import { featureFlagConfigFormat, featureFlagConfigFormatLabel, rowVersionToken } from './featureFlagConfigFormat'
+import {
+    canRestoreFeatureFlag,
+    featureFlagConfigFormat,
+    featureFlagConfigFormatLabel,
+    featureFlagDeleteOptions,
+    rowVersionToken,
+} from './featureFlagConfigFormat'
 
 describe('featureFlagConfigFormat', () => {
     it.each([
@@ -23,5 +31,49 @@ describe('featureFlagConfigFormat', () => {
         ['a v2 row written before versioning', { filters: { version: 2 } as FeatureFlagConfig, version: null }, {}],
     ])('sends the row version only for a row outside v1: %s', (_, flag, expected) => {
         expect(rowVersionToken(flag)).toEqual(expected)
+    })
+
+    it.each([
+        [undefined, true],
+        [{ groups: [] }, true],
+        [{ version: 2 }, false],
+        [{ version: 3 }, false],
+    ])('allows restoring %j: %s', (filters, expected) => {
+        expect(canRestoreFeatureFlag(filters as FeatureFlagConfig | undefined)).toBe(expected)
+    })
+})
+
+describe('featureFlagDeleteOptions', () => {
+    const stale = { status: 409, detail: 'This feature flag has changed.' }
+
+    beforeEach(() => {
+        jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
+    it('sends no row version for a v1 flag, offers Undo and leaves a 409 to the error toast', () => {
+        const reload = jest.fn()
+        const options = featureFlagDeleteOptions({ filters: { groups: [] }, version: 4 }, reload)
+
+        expect(options.payload).toEqual({})
+        expect(options.undoable).toBe(true)
+        expect(options.onError(stale)).toBe(false)
+        expect(reload).not.toHaveBeenCalled()
+    })
+
+    it('sends the row version for a v2 flag, offers no Undo and reloads on a stale row version', () => {
+        const reload = jest.fn()
+        const options = featureFlagDeleteOptions({ filters: { version: 2 } as FeatureFlagConfig, version: 4 }, reload)
+
+        expect(options.payload).toEqual({ version: 4 })
+        expect(options.undoable).toBe(false)
+        expect(options.onError({ status: 400, detail: 'Bad request' })).toBe(false)
+        expect(reload).not.toHaveBeenCalled()
+        expect(options.onError(stale)).toBe(true)
+        expect(reload).toHaveBeenCalledTimes(1)
+        expect(lemonToast.error).toHaveBeenCalledWith('This feature flag has changed.')
     })
 })

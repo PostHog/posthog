@@ -63,6 +63,7 @@ import {
     canArchiveFeatureFlag,
     featureFlagConfigFormat,
     featureFlagConfigFormatLabel,
+    featureFlagDeleteOptions,
     isRulesV2FeatureFlagConfig,
     isV1FeatureFlagConfig,
     rulesV2CreateDisabledReason,
@@ -323,7 +324,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             </AccessControlAction>
                         )}
 
-                        {featureFlag.id && isV1Config && (
+                        {featureFlag.id && configFormat !== 'unsupported' && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -337,6 +338,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                                 endpoint: `projects/${currentProjectId}/feature_flags`,
                                                 object: { id: featureFlag.id },
                                                 label: featureFlag.key,
+                                                ...featureFlagDeleteOptions(featureFlag, loadFeatureFlags),
                                                 callback: () => loadFeatureFlags(),
                                             }).catch((e) => {
                                                 lemonToast.error(`Failed to delete feature flag: ${e.detail}`)
