@@ -2,6 +2,9 @@ import { MakeLogicType, actions, kea, key, listeners, path, props, reducers, sel
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { productHasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
+
+import { AccessControlResourceType } from '~/types'
 
 import { NotebookListItemType, NotebookNodeResource, NotebookNodeType } from '../types'
 export const NOTEBOOK_DROPDOWN_LIMIT = 50
@@ -153,6 +156,9 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             {
                 loadAllNotebooks: async (_, breakpoint) => {
                     await breakpoint(100)
+                    if (productHasEffectiveNoneAccess(AccessControlResourceType.Notebook)) {
+                        return []
+                    }
                     const response = await api.notebooks.list({
                         search: values.searchQuery || undefined,
                         created_by: values.createdBy || undefined,
@@ -168,7 +174,7 @@ export const notebookSelectButtonLogic = kea<notebookSelectButtonLogicType>([
             {
                 loadNotebooksContainingResource: async (_, breakpoint) => {
                     await breakpoint(100)
-                    if (!props.resource) {
+                    if (!props.resource || productHasEffectiveNoneAccess(AccessControlResourceType.Notebook)) {
                         return []
                     }
                     const response = await api.notebooks.list({
