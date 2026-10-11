@@ -9,16 +9,18 @@ import (
 )
 
 type CompleteModel struct {
-	success bool
-	error   string
-	domain  string
+	success  bool
+	error    string
+	domain   string
+	warnings []string
 }
 
-func NewCompleteModel(success bool, errorMsg, domain string) CompleteModel {
+func NewCompleteModel(success bool, errorMsg, domain string, warnings []string) CompleteModel {
 	return CompleteModel{
-		success: success,
-		error:   errorMsg,
-		domain:  domain,
+		success:  success,
+		error:    errorMsg,
+		domain:   domain,
+		warnings: warnings,
 	}
 }
 
@@ -70,10 +72,11 @@ func (m CompleteModel) successView() string {
 		ui.MutedStyle.Render("  Clean up old images: ")+"docker system prune -a",
 	)
 
-	content := lipgloss.JoinVertical(
-		lipgloss.Center,
-		"",
-		successBox,
+	parts := []string{"", successBox}
+	for _, warning := range m.warnings {
+		parts = append(parts, "", ui.RenderWarningBox(warning))
+	}
+	parts = append(parts,
 		"",
 		tips,
 		"",
@@ -81,6 +84,7 @@ func (m CompleteModel) successView() string {
 		"",
 		ui.HelpStyle.Render("Press enter or q to exit"),
 	)
+	content := lipgloss.JoinVertical(lipgloss.Center, parts...)
 
 	return lipgloss.NewStyle().
 		Padding(2, 4).

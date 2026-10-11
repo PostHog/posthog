@@ -2,6 +2,7 @@ package ci
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/posthog/posthog/bin/hobby-installer/core"
 )
@@ -104,9 +105,17 @@ func runInstall(cfg core.InstallConfig) error {
 			return fmt.Errorf("%s failed: %w", step.Name, result.Err)
 		}
 
-		if !step.Hidden {
-			fmt.Printf("✓ %s\n", result.Detail)
+		if step.Hidden {
+			continue
 		}
+		if result.Warning != "" {
+			fmt.Printf("⚠ %s\n", result.Detail)
+			for _, line := range strings.Split(result.Warning, "\n") {
+				fmt.Printf("     %s\n", line)
+			}
+			continue
+		}
+		fmt.Printf("✓ %s\n", result.Detail)
 	}
 
 	return nil

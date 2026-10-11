@@ -18,6 +18,10 @@ fi
 
 export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest}"
 
+# .env is sourced below and carries the Node tag of the previous run, so remember now whether
+# the user pinned one in their shell. Otherwise the tag is matched to the new app image again.
+REQUESTED_NODE_TAG="${POSTHOG_NODE_TAG:-}"
+
 echo "Checking for named postgres and clickhouse volumes to avoid data loss when upgrading from < 1.39"
 if docker volume ls | grep -Pzoq 'clickhouse-data\n(.|\n)*postgres-data\n'
 then
@@ -370,6 +374,25 @@ cp posthog/.env.services .env.services
 bash posthog/bin/helpers/render-hobby-compose.sh < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
 
+# Pick the posthog-node image built from the same source as the new app image, so both expect
+# the same database schema. The tag from the previous run in .env is not kept on purpose: it
+# matched the previous app image.
+echo "Matching the Node image to the app image..."
+NODE_TAG_WARNING=""
+NODE_TAG_LOG=$(mktemp)
+if ! NODE_TAG=$(POSTHOG_NODE_TAG="$REQUESTED_NODE_TAG" bash posthog/bin/helpers/resolve-hobby-node-tag.sh 2> "$NODE_TAG_LOG"); then
+    NODE_TAG_WARNING=$(cat "$NODE_TAG_LOG")
+fi
+cat "$NODE_TAG_LOG"
+rm -f "$NODE_TAG_LOG"
+export POSTHOG_NODE_TAG="${NODE_TAG:-latest}"
+# Persist it, so a later 'docker-compose up' without the variable exported starts the same image.
+if grep -q "^POSTHOG_NODE_TAG=" .env; then
+    sed -i "s|^POSTHOG_NODE_TAG=.*|POSTHOG_NODE_TAG=$POSTHOG_NODE_TAG|" .env
+else
+    echo "POSTHOG_NODE_TAG=$POSTHOG_NODE_TAG" >> .env
+fi
+
 docker-compose pull
 
 RUN_ASYNC_MIGRATIONS_CHECK="$ASYNC_MIGRATIONS_CHECK_NEEDED"
@@ -422,6 +445,12 @@ then
     echo ""
     echo "Before we restart the stack, you should restore data you have backed up from the previous warning."
     echo ""
+    echo ""
+fi
+
+if [ -n "$NODE_TAG_WARNING" ]; then
+    echo ""
+    echo "⚠️  $NODE_TAG_WARNING"
     echo ""
 fi
 

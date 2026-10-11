@@ -18,6 +18,8 @@ const (
 type InstallResult struct {
 	Err    error
 	Detail string
+	// Warning is a problem the install continues through, shown to the user before the stack starts.
+	Warning string
 }
 
 type InstallConfig struct {
@@ -98,6 +100,19 @@ func GetInstallSteps() []InstallStep {
 					return InstallResult{Err: err}
 				}
 				return InstallResult{Detail: "created .env"}
+			},
+		},
+		{
+			Name: "Match Node image to app image",
+			Run: func(cfg InstallConfig) InstallResult {
+				resolution := ResolveNodeImageTag(cfg.Version)
+				if err := UpdateEnvValue("POSTHOG_NODE_TAG", resolution.Tag); err != nil {
+					return InstallResult{Err: err}
+				}
+				if !resolution.Matched() {
+					return InstallResult{Detail: "none found, using latest", Warning: resolution.Reason}
+				}
+				return InstallResult{Detail: shortCommit(resolution.Tag)}
 			},
 		},
 		{

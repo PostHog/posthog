@@ -86,7 +86,9 @@ jobs:
                         - 'bin/hobby-ci.py'
                         - 'bin/upgrade-hobby'
                         - 'bin/helpers/render-hobby-compose.sh'
+                        - 'bin/helpers/resolve-hobby-node-tag.sh'
                         - 'bin/test/test_render_hobby_compose.py'
+                        - 'bin/test/test_resolve_hobby_node_tag.py'
                         - 'bin/migrate-*-hobby'
                         # Docker runtime (Dockerfile CMD chain)
                         - 'bin/docker'
@@ -136,18 +138,21 @@ jobs:
                   persist-credentials: false
                   sparse-checkout: |
                       bin/helpers/render-hobby-compose.sh
+                      bin/helpers/resolve-hobby-node-tag.sh
                       bin/test/test_render_hobby_compose.py
+                      bin/test/test_resolve_hobby_node_tag.py
                   sparse-checkout-cone-mode: false
             - name: Install envsubst
               run: sudo apt-get update && sudo apt-get install -y gettext-base
-            - name: Check upgrade rendering
+            - name: Check upgrade rendering and Node tag matching
               # Branches opened before the renderer landed have no test file yet; skip instead of failing discovery.
+              # The glob picks up the Node tag test only on branches that have it.
               run: |
                   if [ ! -f bin/test/test_render_hobby_compose.py ]; then
                       echo "Renderer test is not on this branch yet, skipping"
                       exit 0
                   fi
-                  python3 -m unittest discover -s bin/test -p test_render_hobby_compose.py
+                  python3 -m unittest discover -s bin/test -p 'test_*hobby*.py'
 
     wait-for-docker-image:
         name: Wait for Docker image build
