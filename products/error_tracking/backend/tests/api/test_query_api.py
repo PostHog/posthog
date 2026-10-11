@@ -343,15 +343,60 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert detail_response.status_code == 200
         assert detail_response.json()["severity"] == "high"
 
-    def test_rejects_hogql_property_filters(self) -> None:
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={"filterGroup": [{"key": "1 = 1", "type": "hogql", "value": "1"}]},
-            format="json",
-        )
+    @parameterized.expand(
+        [
+            ("hogql", {"key": "1 = 1", "type": "hogql", "value": "1"}, "HogQL property filters are not supported here"),
+            (
+                "event_metadata",
+                {"key": "message", "type": "event_metadata", "value": "boom"},
+                "Property filter type 'event_metadata' is not supported here",
+            ),
+            (
+                "log_entry",
+                {"key": "message", "type": "log_entry", "value": "boom"},
+                "Property filter type 'log_entry' is not supported here",
+            ),
+        ]
+    )
+    def test_rejects_unsupported_property_filter_types(
+        self, _name: str, property_filter: dict[str, object], expected_message: str
+    ) -> None:
+        for path, data in (
+            ("issues", {"filterGroup": [property_filter]}),
+            ("issue_events", {"issueId": self.issue_id, "filterGroup": [property_filter]}),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/{path}", data=data, format="json"
+            )
 
-        assert response.status_code == 400
-        assert "HogQL property filters are not supported here" in str(response.json())
+            assert response.status_code == 400
+            assert expected_message in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("missing_cohort", {"key": "id", "type": "cohort", "value": 999999}, "Cohort 999999 does not exist"),
+            (
+                "invalid_regex",
+                {"key": "$browser", "type": "event", "operator": "regex", "value": "(("},
+                "Invalid regular expression",
+            ),
+        ]
+    )
+    def test_returns_400_when_a_filter_cannot_be_resolved(
+        self, _name: str, property_filter: dict[str, object], expected_message: str
+    ) -> None:
+        self.create_issue()
+
+        for path, data in (
+            ("issues", {"filterGroup": [property_filter]}),
+            ("issue_events", {"issueId": self.issue_id, "filterGroup": [property_filter]}),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/{path}", data=data, format="json"
+            )
+
+            assert response.status_code == 400
+            assert expected_message in str(response.json())
 
     def test_rejects_invalid_person_id(self) -> None:
         response = self.client.post(

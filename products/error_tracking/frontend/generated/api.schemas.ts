@@ -1482,7 +1482,7 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
     dateRange?: ErrorTrackingDateRangeApi
     /** When true, exclude internal/test account data from results. Defaults to true. */
     filterTestAccounts?: boolean
-    /** Advanced flat AND property filters applied to sampled events. HogQL filters are rejected. */
+    /** Advanced flat AND property filters applied to sampled events. Supported types: event, person, session, cohort, element, group. */
     filterGroup?: PropertyItemApi[]
     /**
      * Search exception types, exception values, and current URL among sampled events.
@@ -1609,7 +1609,7 @@ export interface ErrorTrackingIssuesListQueryRequestApi {
      * @maxLength 500
      */
     searchQuery?: string
-    /** Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected. */
+    /** Advanced flat AND property filters. Prefer typed shortcut fields when they fit. Supported types: event, person, session, cohort, element, group. */
     filterGroup?: PropertyItemApi[]
     /** Field used to sort issues. Defaults to occurrences.
      *

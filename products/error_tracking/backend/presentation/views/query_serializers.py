@@ -72,10 +72,20 @@ class ErrorTrackingDateRangeSerializer(serializers.Serializer):
     )
 
 
+# Filter types that resolve against the events table. Other types can turn a key into a column that events lacks.
+SUPPORTED_FILTER_TYPES = ("event", "person", "session", "cohort", "element", "group")
+
+
 def validate_filter_group(value: list[dict[str, object]]) -> list[dict[str, object]]:
     for item in value:
-        if item.get("type") == "hogql":
+        filter_type = item.get("type")
+        if filter_type == "hogql":
             raise serializers.ValidationError("HogQL property filters are not supported here.")
+        if filter_type not in SUPPORTED_FILTER_TYPES:
+            raise serializers.ValidationError(
+                f"Property filter type '{filter_type}' is not supported here. "
+                f"Use one of: {', '.join(SUPPORTED_FILTER_TYPES)}."
+            )
     return value
 
 
@@ -140,7 +150,7 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
         child=PropertyItemSerializer(),
         required=False,
         default=list,
-        help_text="Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.",
+        help_text="Advanced flat AND property filters. Prefer typed shortcut fields when they fit. Supported types: event, person, session, cohort, element, group.",
     )
     orderBy = serializers.ChoiceField(
         choices=ErrorTrackingIssueOrderBy.choices,
@@ -230,7 +240,7 @@ class ErrorTrackingIssueEventsQueryRequestSerializer(serializers.Serializer):
         child=PropertyItemSerializer(),
         required=False,
         default=list,
-        help_text="Advanced flat AND property filters applied to sampled events. HogQL filters are rejected.",
+        help_text="Advanced flat AND property filters applied to sampled events. Supported types: event, person, session, cohort, element, group.",
     )
     searchQuery = serializers.CharField(
         required=False,

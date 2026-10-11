@@ -748,7 +748,9 @@ export const ErrorTrackingQueryIssueEventsCreateBody = /* @__PURE__ */ zod.objec
             })
         )
         .optional()
-        .describe('Advanced flat AND property filters applied to sampled events. HogQL filters are rejected.'),
+        .describe(
+            'Advanced flat AND property filters applied to sampled events. Supported types: event, person, session, cohort, element, group.'
+        ),
     searchQuery: zod
         .string()
         .max(errorTrackingQueryIssueEventsCreateBodySearchQueryMax)
@@ -966,7 +968,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         )
         .optional()
         .describe(
-            'Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected.'
+            'Advanced flat AND property filters. Prefer typed shortcut fields when they fit. Supported types: event, person, session, cohort, element, group.'
         ),
     orderBy: zod
         .enum(['last_seen', 'first_seen', 'occurrences', 'users', 'sessions'])

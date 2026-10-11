@@ -40481,7 +40481,7 @@ export namespace Schemas {
       dateRange?: ErrorTrackingDateRange;
       /** When true, exclude internal/test account data from results. Defaults to true. */
       filterTestAccounts?: boolean;
-      /** Advanced flat AND property filters applied to sampled events. HogQL filters are rejected. */
+      /** Advanced flat AND property filters applied to sampled events. Supported types: event, person, session, cohort, element, group. */
       filterGroup?: PropertyItem[];
       /**
          * Search exception types, exception values, and current URL among sampled events.
@@ -40769,7 +40769,7 @@ export namespace Schemas {
          * @maxLength 500
          */
       searchQuery?: string;
-      /** Advanced flat AND property filters. Prefer typed shortcut fields when they fit. HogQL filters are rejected. */
+      /** Advanced flat AND property filters. Prefer typed shortcut fields when they fit. Supported types: event, person, session, cohort, element, group. */
       filterGroup?: PropertyItem[];
       /** Field used to sort issues. Defaults to occurrences.
        *
