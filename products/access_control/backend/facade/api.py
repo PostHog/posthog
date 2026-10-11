@@ -37,6 +37,7 @@ from products.event_definitions.backend.models import effective_project_id_expr
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
+from ..models.team_access_control_config import TeamAccessControlConfig
 from ..property_access_control import (
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
     is_property_access_control_enabled,
@@ -209,6 +210,30 @@ def user_organizations_use_access_controls(*, user_id: int) -> bool:
     if not entitled:
         return False
     return AccessControl.objects.filter(team__organization_id__in=entitled).exists()
+
+
+def can_write_access_rules(*, team_id: int, user_id: int) -> bool:
+    """True when the lock is disabled, or when the user is the Terraform account. An enabled lock
+    with no account refuses everyone until the first Terraform write. The check is on the user
+    behind the request and never on a client header, because any client can send any header."""
+    config = TeamAccessControlConfig.objects.filter(team_id=team_id, is_managed_by_terraform=True).first()
+    if config is None:
+        return True
+    return config.managed_by is not None and config.managed_by.user_id == user_id
+
+
+def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
+    """False when the role has rules in a project that Terraform manages and the user is not the
+    Terraform account. AccessControl.role cascades, so the delete would remove those rules without
+    any rule endpoint running."""
+    return not (
+        TeamAccessControlConfig.objects.filter(
+            is_managed_by_terraform=True,
+            team_id__in=AccessControl.objects.filter(role_id=role_id).values("team_id"),
+        )
+        .exclude(managed_by__user_id=user_id)
+        .exists()
+    )
 
 
 def _level_rank(levels: list[AccessControlLevel], level: str) -> int:

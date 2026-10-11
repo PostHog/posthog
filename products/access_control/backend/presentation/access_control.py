@@ -18,6 +18,7 @@ from posthog.models.team.team import Team
 from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.enums import (
     RESOLVED_ACCESS_SOURCE_CHOICES,
@@ -252,9 +253,13 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
+TERRAFORM_MANAGED_MESSAGE = "Access control for this project is managed with Terraform."
+
+
 def apply_access_control_rule(
     *,
     team: Team,
+    user: User,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
 ) -> AccessControl | None:
@@ -265,6 +270,10 @@ def apply_access_control_rule(
     serializer = build_serializer(None)
     serializer.is_valid(raise_exception=True)
     params = serializer.validated_data
+
+    # Every rule write goes through here. When Terraform manages the project, only its account may write.
+    if not access_control_api.can_write_access_rules(team_id=team.id, user_id=user.id):
+        raise exceptions.PermissionDenied(TERRAFORM_MANAGED_MESSAGE)
 
     instance = AccessControl.objects.filter(
         team=team,
@@ -296,13 +305,14 @@ def apply_access_control_rule(
 def upsert_access_control(
     *,
     team: Team,
+    user: User,
     user_access_control: UserAccessControl,
     build_serializer: Callable[[AccessControl | None], AccessControlSerializer],
 ) -> Response:
     """The 200-or-204 form of `apply_access_control_rule` that the settings UI and the per-resource
     PUT actions expect."""
     rule = apply_access_control_rule(
-        team=team, user_access_control=user_access_control, build_serializer=build_serializer
+        team=team, user=user, user_access_control=user_access_control, build_serializer=build_serializer
     )
     if rule is None:
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -423,7 +433,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "minimum_access_level": minimum_access_level(resource) if not is_resource_level else "none",
             "maximum_access_level": highest_access_level(resource) if not is_resource_level else "manager",
             "user_access_level": user_access_level,
-            "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj),
+            "user_can_edit_access_levels": user_access_control.check_can_modify_access_levels_for_object(obj)
+            and access_control_api.can_write_access_rules(team_id=team.id, user_id=cast(User, request.user).id),
         }
 
         if not is_resource_level:
@@ -540,6 +551,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
 
         return upsert_access_control(
             team=team,
+            user=cast(User, request.user),
             user_access_control=self.user_access_control,  # type: ignore[attr-defined]
             build_serializer=lambda instance: self._get_access_control_serializer(instance, data=request.data),
         )
