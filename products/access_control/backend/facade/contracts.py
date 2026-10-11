@@ -133,3 +133,14 @@ class ObjectAccessControlRule:
     access_level: str
     organization_member_id: UUID | None
     role_id: UUID | None
+
+
+@frozen
+class TerraformLock:
+    """The state of the Terraform lock of one project. has_terraform_account is true when Terraform
+    wrote access rules to the project at least once. An enabled lock with no account refuses all
+    writes until that first write."""
+
+    managed: bool
+    managed_at: datetime | None
+    has_terraform_account: bool

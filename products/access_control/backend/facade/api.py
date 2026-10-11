@@ -24,11 +24,13 @@ from uuid import UUID
 from django.db import transaction
 from django.http import Http404
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
 
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 
@@ -234,6 +236,40 @@ def can_delete_role(*, role_id: UUID, user_id: int) -> bool:
         .exclude(managed_by__user_id=user_id)
         .exists()
     )
+
+
+def get_terraform_lock(*, team_id: int) -> contracts.TerraformLock:
+    config = TeamAccessControlConfig.objects.filter(team_id=team_id).first()
+    managed = config is not None and config.is_managed_by_terraform
+    return contracts.TerraformLock(
+        managed=managed,
+        managed_at=config.managed_at if config and managed else None,
+        has_terraform_account=config is not None and config.managed_by_id is not None,
+    )
+
+
+def set_terraform_lock(*, team_id: int, enabled: bool, terraform_user_id: int | None = None) -> contracts.TerraformLock:
+    """Enable or disable the lock.
+
+    With terraform_user_id, a Terraform write made the call. The owner of that API key becomes the
+    Terraform account of the project. A different account replaces the stored one, so a rotated
+    service account continues to work.
+
+    Without terraform_user_id, an admin made the call. Disable keeps the account. Enable before the
+    first Terraform write locks everyone out until that write."""
+    team = get_object_or_404(Team, id=team_id)
+    config = get_or_create_team_extension(team, TeamAccessControlConfig)
+    if terraform_user_id is not None:
+        membership = OrganizationMembership.objects.filter(
+            organization_id=team.organization_id, user_id=terraform_user_id
+        ).first()
+        if membership is not None:
+            config.managed_by = membership
+    if enabled and not config.is_managed_by_terraform:
+        config.managed_at = timezone.now()
+    config.is_managed_by_terraform = enabled
+    config.save(update_fields=["managed_by", "managed_at", "is_managed_by_terraform"])
+    return get_terraform_lock(team_id=team_id)
 
 
 def _level_rank(levels: list[AccessControlLevel], level: str) -> int:

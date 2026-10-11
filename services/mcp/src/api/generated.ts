@@ -702,6 +702,23 @@ export namespace Schemas {
       Manager: 'manager',
     } as const;
 
+    export interface AccessControlManagement {
+      /** Whether Terraform manages this project's access rules. While true, only the account behind Terraform's API key may change them. */
+      managed: boolean;
+      /**
+         * When Terraform's account started managing the project, or null.
+         * @nullable
+         */
+      managed_at: string | null;
+      /** Whether Terraform wrote access rules to this project at least once. Until then, an enabled lock refuses all writes. */
+      has_terraform_account: boolean;
+    }
+
+    export interface AccessControlManagementRequest {
+      /** False: the UI manages this project's access rules. True: only the account behind Terraform's API key can change them. Before the first Terraform write, true locks everyone out. */
+      managed: boolean;
+    }
+
     /**
      * * `object` - object
      * * `parent_object` - parent_object

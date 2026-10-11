@@ -64,6 +64,8 @@ from products.access_control.backend.models.role import Role, RoleMembership
 from .access_control import AccessControlSerializer, apply_access_control_rule, upsert_access_control
 from .serializers import (
     AccessControlDefaultsResponseSerializer,
+    AccessControlManagementRequestSerializer,
+    AccessControlManagementSerializer,
     AccessControlMemberRuleRequestSerializer,
     AccessControlMembersResponseSerializer,
     AccessControlObjectRulesResponseSerializer,
@@ -157,6 +159,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_role_properties",
             "access_control_object_search",
             "access_control_resolution_preview",
+            "access_control_management",
         ]:
             return ["access_control:read"]
         if request.method == "PUT" and self.action in [
@@ -164,6 +167,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             "access_control_default_rules",
             "access_control_member_rules",
             "access_control_role_rules",
+            "access_control_management",
         ]:
             return ["access_control:write"]
         if request.method == "POST" and self.action == "access_control_resolution_accept":
@@ -265,6 +269,38 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         return Response(
             AccessControlResolutionAcceptResponseSerializer({"uses_most_specific_access_resolution": True}).data
         )
+
+    @extend_schema(
+        methods=["GET"],
+        description="Whether Terraform manages this project's access rules.",
+        responses={200: AccessControlManagementSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
+    @extend_schema(
+        methods=["PUT"],
+        description="Enable or disable the Terraform lock. Disabled: the UI manages this project's access rules. "
+        "Enabled: only the account behind Terraform's API key can change them, and until Terraform writes for the "
+        "first time, nobody can. A Terraform write enables the lock. Project admins and organization admins can "
+        "call this.",
+        request=AccessControlManagementRequestSerializer,
+        responses={200: AccessControlManagementSerializer},
+        extensions=_SCHEMA_EXTENSIONS,
+    )
+    @action(methods=["GET", "PUT"], detail=True, url_path="access_control_management")
+    def access_control_management(self, request: Request, *args, **kwargs) -> Response:
+        team = cast(Team, self.team)  # type: ignore
+        if request.method == "PUT":
+            user_access_control = cast(UserAccessControl, self.user_access_control)  # type: ignore
+            if not user_access_control.check_can_modify_access_levels_for_object(team):
+                raise exceptions.PermissionDenied(
+                    "Only project admins and organization admins can change whether Terraform manages access control."
+                )
+            serializer = AccessControlManagementRequestSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            state = access_control_api.set_terraform_lock(team_id=team.id, enabled=serializer.validated_data["managed"])
+        else:
+            state = access_control_api.get_terraform_lock(team_id=team.id)
+        return Response(AccessControlManagementSerializer(state).data)
 
     @extend_schema(
         description="The project's default access. Returns the level that applies to the project and to each "
