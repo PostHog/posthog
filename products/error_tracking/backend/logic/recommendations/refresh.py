@@ -164,7 +164,10 @@ def refresh_teams_recommendations_batched(
     def fetch_rows() -> dict[tuple[int, str], ErrorTrackingRecommendation]:
         return {
             (obj.team_id, obj.type): obj
-            for obj in ErrorTrackingRecommendation.objects.filter(team_id__in=team_ids, type__in=types)
+            # The staleness check needs no meta, and meta is most of each row's size.
+            for obj in ErrorTrackingRecommendation.objects.filter(team_id__in=team_ids, type__in=types).only(
+                "id", "team_id", "type", "computed_at"
+            )
         }
 
     rows = fetch_rows()
