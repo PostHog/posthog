@@ -1246,6 +1246,71 @@ class TestScoutTrialLaunch(APIBaseTest):
                 connect.assert_not_called()
                 start_run.assert_not_called()
 
+    def test_obsolete_judge_plan_starts_no_remaining_scout_runs(self) -> None:
+        base = self._internal_scout_base(real_fleet_gates=True)
+        self.config.rubrics = {
+            "revision": 1,
+            "criteria": [criterion.model_dump(mode="json") for criterion in default_criteria()],
+            "reference_context": _reference_context(
+                skill_id=str(self.skill.id), skill_name=self.skill.name, instructions=self.skill.body
+            ).model_dump(mode="json"),
+            "reference_generation_id": str(uuid4()),
+        }
+        self.config.save(update_fields=["rubrics"])
+        comparison_id = str(uuid4())
+        variant_id = str(uuid4())
+        launch_ids = [str(uuid4()), str(uuid4())]
+        payload = {
+            "comparison_id": comparison_id,
+            "baseline_variant_id": variant_id,
+            "variants": [
+                {
+                    "id": variant_id,
+                    "label": "Baseline",
+                    "launch_ids": launch_ids,
+                    "model": "gpt-5.5",
+                    "reasoning_effort": "medium",
+                }
+            ],
+        }
+        module = "products.signals.backend.temporal.agentic.scout_trial_comparison"
+        with (
+            patch(
+                "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload",
+                return_value={"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 10}},
+            ),
+            patch(f"{module}.start_trial_comparison", return_value="synthetic-workflow") as dispatch,
+            patch(f"{module}.get_trial_comparison_status", return_value=TrialWorkflowStatus(status="not_started")),
+        ):
+            assert self.client.post(f"{base}trial_comparison/", payload, format="json").status_code == 202
+            dispatch.assert_called_once()
+            _make_run(self.team, metadata={"scout_trial": {"version": 1, "launch_id": launch_ids[0]}})
+            plan_key = f"signals/scout-trials/{self.team.id}/comparisons/{comparison_id}/plan.json"
+            self.documents[plan_key] = json.dumps(
+                {**json.loads(self.documents[plan_key]), "judge_prompt_version": "sandbox-3"}
+            )
+
+            resumed = self.client.post(
+                f"{base}trial_comparison_resume/", {"comparison_id": comparison_id}, format="json"
+            )
+            retry = self.client.post(f"{base}trial_comparison/", payload, format="json")
+            for response in (resumed, retry):
+                assert response.status_code == 400, response.data
+                assert "obsolete judge" in str(response.data)
+            dispatch.assert_called_once()
+            with (
+                patch("products.signals.backend.scout_harness.trial_comparison.sync_connect") as connect,
+                patch(
+                    "products.signals.backend.temporal.agentic.scout_scheduler.start_trial_signals_scout_run"
+                ) as start_run,
+                self.assertRaisesMessage(TrialEvaluationError, "obsolete judge"),
+            ):
+                dispatch_trial_comparison(self.team.id, UUID(comparison_id))
+            connect.assert_not_called()
+            start_run.assert_not_called()
+            saved = self.client.get(f"{base}trial_comparison_result/", {"comparison_id": comparison_id})
+            assert saved.status_code == 200, saved.data
+
     @parameterized.expand(["rubric", "model", "effort", "writes", "nonstaff", "invalid_id", "stale_version"])
     def test_comparison_rejects_unusable_setup_before_any_run_dispatch(self, invalid: str) -> None:
         base = self._internal_scout_base()
