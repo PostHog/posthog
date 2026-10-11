@@ -21,8 +21,9 @@ use crate::h2_window::Http2Windows;
 use personhog_proto::personhog::service::v1::person_hog_service_client::PersonHogServiceClient;
 use personhog_proto::personhog::types::v1::{
     ConsistencyLevel, FencePersonRequest, FencePersonResponse, FencePersonsRequest,
-    FencePersonsResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse, GetPersonRequest,
-    Person, ReadOptions, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest,
+    FencePersonsResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
+    GetHashKeyOverrideContextRequest, GetPersonRequest, HashKeyOverrideContext, Person,
+    ReadOptions, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseFencesRequest,
     ReleaseFencesResponse, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
@@ -179,6 +180,32 @@ impl RouterClient {
         Self::timed("GetPerson", self.client().get_person(request))
             .await
             .map(|response| response.person)
+    }
+
+    /// Hash key override read. The router sends it to the replica at every
+    /// consistency level, so it carries no routing headers. Strong reads use
+    /// the replica's primary pool.
+    pub async fn get_hash_key_override_context(
+        &self,
+        team_id: i64,
+        distinct_ids: Vec<String>,
+        consistency: ConsistencyLevel,
+    ) -> Result<Vec<HashKeyOverrideContext>, Status> {
+        let request = self.request(GetHashKeyOverrideContextRequest {
+            team_id,
+            distinct_ids,
+            check_person_exists: false,
+            read_options: Some(ReadOptions {
+                consistency: consistency.into(),
+                ..Default::default()
+            }),
+        });
+        Self::timed(
+            "GetHashKeyOverrideContext",
+            self.client().get_hash_key_override_context(request),
+        )
+        .await
+        .map(|response| response.results)
     }
 
     /// Leader-routed lifecycle fence (saga runner only): freeze the person

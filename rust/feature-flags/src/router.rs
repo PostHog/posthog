@@ -25,6 +25,7 @@ use common_redis::Client as RedisClient;
 use governor::clock;
 use lifecycle::{LivenessHandler, ReadinessHandler};
 use metrics::gauge;
+use personhog_common::client::RouterClient;
 use sqlx::PgPool;
 use tower::limit::ConcurrencyLimitLayer;
 use tower::timeout::TimeoutLayer;
@@ -136,6 +137,8 @@ pub struct State {
     /// configured (e.g. local dev without FLAGS_SECRET_KEYS/SECRET_KEY); in that
     /// case encrypted payloads cannot be served and the handler errors.
     pub flag_payload_decryptor: Option<FlagPayloadDecryptor>,
+    /// `None` when PERSONHOG_ROUTER_URL is empty.
+    pub personhog_client: Option<RouterClient>,
 }
 
 impl State {
@@ -406,6 +409,26 @@ where
         Err(e) => panic!("Invalid FLAGS_SECRET_KEYS configuration: {e}"),
     };
 
+    let personhog_client = (!config.personhog_router_url.is_empty()).then(|| {
+        RouterClient::with_channels(
+            &config.personhog_router_url,
+            Duration::from_millis(config.personhog_router_timeout_ms),
+            config.personhog_router_channels,
+        )
+        .unwrap_or_else(|e| panic!("Invalid PERSONHOG_ROUTER_URL: {e}"))
+        .with_client_name("feature-flags")
+    });
+    if personhog_client.is_none()
+        && !matches!(
+            config.personhog_hash_key_override_read_team_ids,
+            TeamIdCollection::None
+        )
+    {
+        tracing::warn!(
+            "PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS is set but PERSONHOG_ROUTER_URL is empty; hash key overrides are read from the persons DB"
+        );
+    }
+
     let state = State {
         redis_client,
         dedicated_redis_client,
@@ -433,6 +456,7 @@ where
         billing_aggregator,
         body_logger,
         flag_payload_decryptor,
+        personhog_client,
     };
 
     // Very permissive CORS policy, as old SDK versions

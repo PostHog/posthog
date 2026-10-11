@@ -444,6 +444,28 @@ pub struct Config {
     #[envconfig(from = "PERSONS_DB_DEADLINE_MS", default = "2500")]
     pub persons_db_deadline_ms: u64,
 
+    // personhog-router address, for example http://personhog-router:50052. Empty disables
+    // every personhog call.
+    #[envconfig(from = "PERSONHOG_ROUTER_URL", default = "")]
+    pub personhog_router_url: String,
+
+    // gRPC timeout on each personhog call. PERSONS_DB_DEADLINE_MS still bounds the whole
+    // persons budget of the request. Keep this below that deadline. A call that the deadline
+    // drops first is missing from the personhog client metrics, and the request reports
+    // persons_db_deadline instead of personhog_timeout.
+    #[envconfig(from = "PERSONHOG_ROUTER_TIMEOUT_MS", default = "1000")]
+    pub personhog_router_timeout_ms: u64,
+
+    // One channel is one connection to one router pod. More channels spread /flags load
+    // across more router pods.
+    #[envconfig(from = "PERSONHOG_ROUTER_CHANNELS", default = "4")]
+    pub personhog_router_channels: usize,
+
+    // Teams that read hash key overrides through personhog GetHashKeyOverrideContext instead
+    // of the direct persons DB query. Needs PERSONHOG_ROUTER_URL.
+    #[envconfig(from = "PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS", default = "none")]
+    pub personhog_hash_key_override_read_team_ids: TeamIdCollection,
+
     #[envconfig(default = "1000")]
     pub max_concurrency: usize,
 
@@ -1161,6 +1183,10 @@ impl Config {
             cohort_membership_cache_max_entries: 50_000,
             realtime_cohort_lookup_timeout_ms: 1000,
             persons_db_deadline_ms: 30_000,
+            personhog_router_url: String::new(),
+            personhog_router_timeout_ms: 1000,
+            personhog_router_channels: 4,
+            personhog_hash_key_override_read_team_ids: TeamIdCollection::None,
             max_concurrency: 1000,
             max_pg_connections: 10,
             min_non_persons_reader_connections: 0,

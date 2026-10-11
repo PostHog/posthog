@@ -90,6 +90,13 @@ const REALTIME_COHORT_DB_QUERY_BUCKETS_MS: &[f64] = &[
     0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0, 500.0, 1000.0,
 ];
 
+// Persons reads that can be served by personhog or by the persons DB. A warm
+// read can finish in under 1ms, and the 2.5s ceiling matches the
+// `PERSONS_DB_DEADLINE_MS` default that bounds every such read.
+const PERSONS_READ_BUCKETS_MS: &[f64] = &[
+    0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0,
+];
+
 /// Returns the bucket-override matrix for the feature-flags recorder.
 ///
 /// `Matcher::Suffix` is used for `_queue_time_ms` / `_pre_handler_time_ms`
@@ -151,6 +158,14 @@ pub fn bucket_overrides() -> Vec<(Matcher, &'static [f64])> {
         (
             Matcher::Full("flags_realtime_cohort_db_query_time".into()),
             REALTIME_COHORT_DB_QUERY_BUCKETS_MS,
+        ),
+        (
+            Matcher::Full("personhog_router_client_call_duration_ms".into()),
+            PERSONS_READ_BUCKETS_MS,
+        ),
+        (
+            Matcher::Full("flags_hash_key_override_read_time_ms".into()),
+            PERSONS_READ_BUCKETS_MS,
         ),
     ]
 }

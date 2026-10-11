@@ -16,6 +16,8 @@ use common_cookieless::COOKIELESS_SENTINEL_VALUE;
 use common_database::{PostgresReader, PostgresWriter};
 use common_types::{Person, PersonId, TeamId};
 use once_cell::sync::Lazy;
+use personhog_common::client::RouterClient;
+use personhog_proto::personhog::types::v1::{ConsistencyLevel, HashKeyOverrideContext};
 use rand::Rng;
 use serde_json::Value;
 use sha1::{Digest, Sha1};
@@ -38,8 +40,8 @@ use crate::{
     metrics::consts::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DATABASE_ERROR_COUNTER,
         FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
-        FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_REPLICA_CHECK, FLAG_HASH_KEY_RETRIES_COUNTER,
-        FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
+        FLAG_HASH_KEY_OVERRIDE_READ_TIME, FLAG_HASH_KEY_QUERY_RESULT, FLAG_HASH_KEY_REPLICA_CHECK,
+        FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
     },
     properties::property_models::{OperatorType, PropertyFilter},
 };
@@ -932,6 +934,41 @@ pub fn failed_flag_dependency(
         .then_some(flag_id)
 }
 
+/// Which copy of the persons data a hash key override read uses.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HashKeyOverrideRead {
+    /// The read follows a successful override write in the same request, so it must see that
+    /// write. It reads the persons writer, or the primary through personhog.
+    AfterWrite,
+    /// No write happened, so replication lag is acceptable. It reads the persons reader, or a
+    /// replica through personhog.
+    WithoutWrite,
+}
+
+impl HashKeyOverrideRead {
+    pub fn after_write(wrote_override: bool) -> Self {
+        if wrote_override {
+            Self::AfterWrite
+        } else {
+            Self::WithoutWrite
+        }
+    }
+
+    fn pool_name(self) -> &'static str {
+        match self {
+            Self::AfterWrite => pool_names::PERSONS_WRITER,
+            Self::WithoutWrite => pool_names::PERSONS_READER,
+        }
+    }
+
+    fn consistency(self) -> ConsistencyLevel {
+        match self {
+            Self::AfterWrite => ConsistencyLevel::Strong,
+            Self::WithoutWrite => ConsistencyLevel::Eventual,
+        }
+    }
+}
+
 /// Retrieves feature flag hash key overrides for a list of distinct IDs with retry logic.
 ///
 /// This function fetches any hash key overrides that have been set for feature flags
@@ -939,12 +976,14 @@ pub fn failed_flag_dependency(
 /// distinct ID in the list. The operation is retried once (2 total attempts) with
 /// exponential backoff on transient database errors.
 ///
-/// `pool_name` labels the connection metrics. Callers pass either the persons reader or the
-/// persons writer, and both arrive here as the same type, so only the caller knows which.
+/// `read` selects the pool: `persons_writer` after a write, `persons_reader` otherwise.
+/// With `personhog`, the read goes through `GetHashKeyOverrideContext` instead, and `read`
+/// selects the consistency level.
 pub async fn get_feature_flag_hash_key_overrides(
-    reader: PostgresReader,
-    pool_name: &'static str,
+    persons_reader: PostgresReader,
     persons_writer: PostgresWriter,
+    read: HashKeyOverrideRead,
+    personhog: Option<&RouterClient>,
     team_id: TeamId,
     distinct_id_and_hash_key_override: Vec<String>,
 ) -> Result<HashMap<String, String>, FlagError> {
@@ -964,9 +1003,10 @@ pub async fn get_feature_flag_hash_key_overrides(
         retry_delays,
         || {
             try_get_feature_flag_hash_key_overrides(
-                &reader,
-                pool_name,
+                &persons_reader,
                 &persons_writer,
+                read,
+                personhog,
                 team_id,
                 &distinct_id_and_hash_key_override,
             )
@@ -986,35 +1026,83 @@ pub async fn get_feature_flag_hash_key_overrides(
 /// Internal function that performs the actual hash key override retrieval.
 /// This is separated to make it easy to retry with tokio-retry.
 async fn try_get_feature_flag_hash_key_overrides(
-    reader: &PostgresReader,
-    pool_name: &'static str,
+    persons_reader: &PostgresReader,
     persons_writer: &PostgresWriter,
+    read: HashKeyOverrideRead,
+    personhog: Option<&RouterClient>,
     team_id: TeamId,
     distinct_id_and_hash_key_override: &[String],
 ) -> Result<HashMap<String, String>, FlagError> {
     let mut feature_flag_hash_key_overrides = HashMap::new();
-    let mut conn =
-        get_connection_with_metrics(reader, pool_name, "get_feature_flag_hash_key_overrides")
+    let pool_name = read.pool_name();
+    let reader = match read {
+        HashKeyOverrideRead::AfterWrite => persons_writer,
+        HashKeyOverrideRead::WithoutWrite => persons_reader,
+    };
+    let source = if personhog.is_some() {
+        "personhog"
+    } else {
+        "sql"
+    };
+
+    let (rows, query_duration) = match personhog {
+        Some(client) => {
+            let query_start = Instant::now();
+            let contexts = client
+                .get_hash_key_override_context(
+                    team_id as i64,
+                    distinct_id_and_hash_key_override.to_vec(),
+                    read.consistency(),
+                )
+                .await
+                .map_err(FlagError::personhog)?;
+            (override_rows_from_contexts(contexts), query_start.elapsed())
+        }
+        None => {
+            let mut conn = get_connection_with_metrics(
+                reader,
+                pool_name,
+                "get_feature_flag_hash_key_overrides",
+            )
             .await?;
 
-    let query_start = Instant::now();
-    let rows = fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
-    let query_duration = query_start.elapsed();
+            let query_start = Instant::now();
+            let rows =
+                fetch_override_rows(&mut conn, team_id, distinct_id_and_hash_key_override).await?;
+            let query_duration = query_start.elapsed();
 
-    // Nothing below needs the reader connection, and this function is on the hottest path.
-    drop(conn);
+            // Nothing below needs the reader connection, and this function is on the hottest path.
+            drop(conn);
+
+            let rows = rows
+                .iter()
+                .map(|row| OverrideRow {
+                    person_id: row.get("person_id"),
+                    distinct_id: row.get("distinct_id"),
+                    flag_override: row_override(row),
+                })
+                .collect::<Vec<_>>();
+            (rows, query_duration)
+        }
+    };
 
     // The join keeps a person row even when it has no override, so no rows at all means this pool
     // could not see any of the requested distinct IDs. That is a different miss from seeing at
     // least one and finding no override.
     let any_distinct_id_found = !rows.is_empty();
 
+    common_metrics::histogram(
+        FLAG_HASH_KEY_OVERRIDE_READ_TIME,
+        &[("source".to_string(), source.to_string())],
+        query_duration.as_secs_f64() * 1000.0,
+    );
+
     if query_duration.as_millis() > 200 {
         warn!(
             duration_ms = query_duration.as_millis(),
             team_id = team_id,
             distinct_id_count = distinct_id_and_hash_key_override.len(),
-            sql_summary = "SELECT person_id, hash_key overrides with LEFT JOIN",
+            source,
             "Slow hash override lookup query detected"
         );
     } else {
@@ -1022,6 +1110,7 @@ async fn try_get_feature_flag_hash_key_overrides(
             duration_ms = query_duration.as_millis(),
             team_id = team_id,
             distinct_id_count = distinct_id_and_hash_key_override.len(),
+            source,
             "Hash override lookup query completed"
         );
     }
@@ -1031,14 +1120,11 @@ async fn try_get_feature_flag_hash_key_overrides(
     let mut overrides = Vec::new();
 
     for row in rows {
-        let person_id: PersonId = row.get("person_id");
-        let distinct_id: String = row.get("distinct_id");
-
-        person_id_to_distinct_id.insert(person_id, distinct_id);
+        person_id_to_distinct_id.insert(row.person_id, row.distinct_id);
 
         // Collect overrides where they exist
-        if let Some((feature_flag_key, hash_key)) = row_override(&row) {
-            overrides.push((feature_flag_key, hash_key, person_id));
+        if let Some((feature_flag_key, hash_key)) = row.flag_override {
+            overrides.push((feature_flag_key, hash_key, row.person_id));
         }
     }
 
@@ -1128,6 +1214,44 @@ async fn check_primary_for_stale_empty(
         &[("outcome".to_string(), outcome.to_string())],
         1,
     );
+}
+
+/// A person found under a requested distinct ID, with one of its overrides if it has any.
+struct OverrideRow {
+    person_id: PersonId,
+    distinct_id: String,
+    flag_override: Option<(String, String)>,
+}
+
+/// Gives the same rows as `fetch_override_rows`: one row for each override, or one row with no
+/// override for a person that has none.
+fn override_rows_from_contexts(contexts: Vec<HashKeyOverrideContext>) -> Vec<OverrideRow> {
+    let mut rows = Vec::new();
+    for context in contexts {
+        // personhog also skips stored sentinels. This check keeps the rule if a replica without
+        // that filter serves the call.
+        let overrides: Vec<_> = context
+            .overrides
+            .into_iter()
+            .filter(|o| o.hash_key != COOKIELESS_SENTINEL_VALUE)
+            .collect();
+        if overrides.is_empty() {
+            rows.push(OverrideRow {
+                person_id: context.person_id,
+                distinct_id: context.distinct_id,
+                flag_override: None,
+            });
+            continue;
+        }
+        for o in overrides {
+            rows.push(OverrideRow {
+                person_id: context.person_id,
+                distinct_id: context.distinct_id.clone(),
+                flag_override: Some((o.feature_flag_key, o.hash_key)),
+            });
+        }
+    }
+    rows
 }
 
 /// The served read and the staleness check must agree on what counts as an override, or the
@@ -2643,6 +2767,70 @@ mod tests {
     }
 
     #[rstest]
+    #[case::after_write(true, pool_names::PERSONS_WRITER, ConsistencyLevel::Strong)]
+    #[case::without_write(false, pool_names::PERSONS_READER, ConsistencyLevel::Eventual)]
+    fn test_only_a_read_after_a_write_reads_the_primary(
+        #[case] wrote_override: bool,
+        #[case] pool_name: &str,
+        #[case] consistency: ConsistencyLevel,
+    ) {
+        let read = HashKeyOverrideRead::after_write(wrote_override);
+        assert_eq!(
+            (read.pool_name(), read.consistency()),
+            (pool_name, consistency)
+        );
+    }
+
+    fn override_context(person_id: i64, overrides: &[(&str, &str)]) -> HashKeyOverrideContext {
+        HashKeyOverrideContext {
+            person_id,
+            distinct_id: format!("user-{person_id}"),
+            overrides: overrides
+                .iter()
+                .map(
+                    |(flag, hash_key)| personhog_proto::personhog::types::v1::HashKeyOverride {
+                        feature_flag_key: flag.to_string(),
+                        hash_key: hash_key.to_string(),
+                    },
+                )
+                .collect(),
+            existing_feature_flag_keys: Vec::new(),
+        }
+    }
+
+    #[rstest]
+    #[case::no_overrides(vec![override_context(1, &[])], vec![(1, None)])]
+    #[case::stored_sentinel(
+        vec![override_context(1, &[("flag", COOKIELESS_SENTINEL_VALUE)])],
+        vec![(1, None)]
+    )]
+    #[case::sentinel_beside_real_key(
+        vec![override_context(1, &[("a", COOKIELESS_SENTINEL_VALUE), ("b", "anon")])],
+        vec![(1, Some(("b", "anon")))]
+    )]
+    #[case::one_row_per_override(
+        vec![override_context(1, &[("a", "anon"), ("b", "anon")]), override_context(2, &[])],
+        vec![(1, Some(("a", "anon"))), (1, Some(("b", "anon"))), (2, None)]
+    )]
+    fn test_personhog_contexts_give_the_same_rows_as_the_sql_read(
+        #[case] contexts: Vec<HashKeyOverrideContext>,
+        #[case] expected: Vec<(i64, Option<(&str, &str)>)>,
+    ) {
+        let rows: Vec<_> = override_rows_from_contexts(contexts)
+            .into_iter()
+            .map(|row| {
+                assert_eq!(row.distinct_id, format!("user-{}", row.person_id));
+                (row.person_id, row.flag_override)
+            })
+            .collect();
+        let expected: Vec<_> = expected
+            .into_iter()
+            .map(|(person_id, o)| (person_id, o.map(|(f, h)| (f.to_string(), h.to_string()))))
+            .collect();
+        assert_eq!(rows, expected);
+    }
+
+    #[rstest]
     #[case("1", json!(true), FlagValue::Boolean(true), true)] // filter value true, flag_value is true, so true
     #[case("1", json!(true), FlagValue::Boolean(false), false)] // filter value true, flag_value is false, so false
     #[case("1", json!(true), FlagValue::String("some-variant".to_string()), true)]
@@ -2724,8 +2912,9 @@ mod tests {
 
         let read = get_feature_flag_hash_key_overrides(
             client.clone(),
-            pool_names::PERSONS_READER,
             client.clone(),
+            HashKeyOverrideRead::WithoutWrite,
+            None,
             1,
             vec!["user".to_string()],
         )
@@ -2791,8 +2980,9 @@ mod tests {
 
         let read = get_feature_flag_hash_key_overrides(
             client.clone(),
-            pool_names::PERSONS_READER,
             client.clone(),
+            HashKeyOverrideRead::WithoutWrite,
+            None,
             1,
             vec!["user".to_string()],
         )

@@ -117,6 +117,31 @@ If `statement_timeout` cancels the query, the ping fails and sqlx closes the con
 If the database never answers, the connection stays checked out.
 Keep the persons statement timeouts below the deadline so that Postgres cancels ordinary slow queries before the deadline drops them.
 
+### Hash key override reads through personhog
+
+For teams in `PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS`, the hash key override read calls personhog `GetHashKeyOverrideContext` instead of the persons DB.
+`PERSONHOG_ROUTER_URL` must also be set.
+When it is empty, the service logs a warning at startup and every team reads from the persons DB.
+The check and the write still use the persons DB.
+The read that follows an override write uses strong consistency, so personhog-replica reads the primary.
+The read without a write uses eventual consistency, so personhog-replica reads a replica.
+A stored `$posthog_cookieless` override reads as no override, the same as the SQL read.
+
+The call stays inside `PERSONS_DB_DEADLINE_MS`.
+`PERSONHOG_ROUTER_TIMEOUT_MS` (default 1000ms) must stay below that deadline.
+Otherwise the deadline drops a slow call before the personhog client records it in its metrics.
+A failed call is not retried in feature-flags, and the read does not fall back to SQL.
+When the call fails, users see the same result as a failed SQL read:
+
+- Experience continuity flags return `hash_key_override_error`.
+- The other flags evaluate normally.
+- The request returns a 200 with `errorsWhileComputingFlags: true`.
+
+A gRPC deadline fails the call with `timeout:personhog_timeout`.
+`flags_hash_key_override_read_time_ms{source="sql"|"personhog"}` compares successful reads on the two paths.
+The `sql` value excludes the pool acquire, which `flags_db_connection_time` measures.
+`personhog_router_client_call_duration_ms{method="GetHashKeyOverrideContext"}` measures every call from feature-flags to the router, with its outcome.
+
 ### Total connection count
 
 ```text
@@ -418,6 +443,10 @@ Queries exceeding 500ms are logged at WARN level with timing information.
 | `BEHAVIORAL_COHORTS_READ_DATABASE_URL`      | empty    | Behavioral cohorts database (enables realtime cohort evaluation) |
 | `BATCH_FLAG_EVAL_SCAN_STATEMENT_TIMEOUT_MS` | 10000    | Statement timeout for the batch evaluation person scan           |
 | `PERSONS_DB_DEADLINE_MS`                    | 2500     | Deadline shared by all persons DB calls in one evaluation        |
+| `PERSONHOG_ROUTER_URL`                      | empty    | personhog-router address. Empty disables personhog calls         |
+| `PERSONHOG_ROUTER_TIMEOUT_MS`               | 1000     | gRPC timeout on each personhog call. Keep below the deadline     |
+| `PERSONHOG_ROUTER_CHANNELS`                 | 4        | Connections to personhog-router, used round-robin                |
+| `PERSONHOG_HASH_KEY_OVERRIDE_READ_TEAM_IDS` | none     | Teams that read hash key overrides through personhog             |
 
 ### Tuning guidance
 
