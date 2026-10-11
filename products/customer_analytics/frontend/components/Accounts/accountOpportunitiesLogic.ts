@@ -2,11 +2,12 @@ import { MakeLogicType, afterMount, connect, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import { parseSelect } from 'scenes/data-warehouse/editor/hogqlParserSingleton'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
+import { DataVisualizationNode, HogQLVariable, NodeKind } from '~/queries/schema/schema-general'
+import { InsightModel, InsightShortId } from '~/types'
 
 import { accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 
@@ -17,35 +18,96 @@ export interface AccountOpportunitiesLogicProps {
     instanceId?: string
 }
 
-export interface AccountOpportunity {
-    id: string
-    name: string | null
-    totalCreditAmount: number | null
-    closeDate: string | null
-    contractStartDate: string | null
-}
+// Absent from every environment except PostHog's own project, so the tab shows a not-found state there.
+export const OPPORTUNITIES_INSIGHT_SHORT_ID = 'xauPgpXt' as InsightShortId
 
-// Outcomes: a null `sfdcId` means the account isn't linked to Salesforce; `opportunities` is null when the
-// query couldn't run (the data warehouse table only exists in production), as opposed to an empty array
-// (linked account with no opportunities). `loadFailed` is set when the load itself errored (e.g. the
-// account fetch failed) — the view shows a "couldn't load" state rather than hanging on the skeleton.
+export const SALESFORCE_ACCOUNT_VARIABLE = 'salesforce_account_id'
+
 export interface AccountOpportunitiesResult {
     sfdcId: string | null
-    opportunities: AccountOpportunity[] | null
+    insight: InsightModel | null
+    variablesOverride?: Record<string, HogQLVariable>
     loadFailed?: boolean
 }
 
 // Identity used as a "not loaded yet" sentinel by the view — every loaded outcome returns a fresh object.
-export const NOT_LOADED: AccountOpportunitiesResult = { sfdcId: null, opportunities: null }
+export const NOT_LOADED: AccountOpportunitiesResult = { sfdcId: null, insight: null }
 
-const OPPORTUNITY_TABLE = 'salesforce.opportunity'
+// An untagged ClickHouse query is rejected in local dev (UntaggedQueryError), and the saved SQL carries no tags.
+function withQueryTags(insight: InsightModel): InsightModel {
+    const query = insight.query
+    if (!query || query.kind !== NodeKind.DataVisualizationNode) {
+        return insight
+    }
+    const dataViz = query as DataVisualizationNode
+    const taggedQuery: DataVisualizationNode = {
+        ...dataViz,
+        source: { ...dataViz.source, tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, ...dataViz.source.tags } },
+    }
+    return { ...insight, query: taggedQuery as InsightModel['query'] }
+}
 
-const isExpectedMissingTableError = (error: unknown): boolean => {
-    const message = error instanceof Error ? error.message : String(error ?? '')
+type AstNode = { node?: unknown; [key: string]: unknown }
+
+function asAstNode(value: unknown): AstNode | null {
+    return typeof value === 'object' && value !== null ? (value as AstNode) : null
+}
+
+function isAccountVariable(value: unknown): boolean {
+    const node = asAstNode(value)
+    const expr = asAstNode(node?.expr)
     return (
-        message.includes(OPPORTUNITY_TABLE) &&
-        (message.includes("don't have access to table") || message.includes('Unknown table'))
+        node?.node === 'Placeholder' &&
+        expr?.node === 'Field' &&
+        Array.isArray(expr.chain) &&
+        expr.chain.join('.') === `variables.${SALESFORCE_ACCOUNT_VARIABLE}`
     )
+}
+
+function isAccountIdField(value: unknown): boolean {
+    const node = asAstNode(value)
+    return node?.node === 'Field' && Array.isArray(node.chain) && node.chain[node.chain.length - 1] === 'account_id'
+}
+
+function topLevelConjuncts(value: unknown): AstNode[] {
+    const node = asAstNode(value)
+    if (!node) {
+        return []
+    }
+    return node.node === 'And' && Array.isArray(node.exprs) ? node.exprs.flatMap(topLevelConjuncts) : [node]
+}
+
+// Only an AND-ed `account_id = {variables.salesforce_account_id}` in the outer WHERE limits the table to one account.
+function filtersByAccount(value: unknown): boolean {
+    const ast = asAstNode(value)
+    if (ast?.node !== 'SelectQuery') {
+        return false
+    }
+    return topLevelConjuncts(ast.where).some(
+        (expr) =>
+            expr.node === 'CompareOperation' &&
+            expr.op === '==' &&
+            ((isAccountIdField(expr.left) && isAccountVariable(expr.right)) ||
+                (isAccountVariable(expr.left) && isAccountIdField(expr.right)))
+    )
+}
+
+async function buildVariablesOverride(
+    insight: InsightModel,
+    sfdcId: string
+): Promise<Record<string, HogQLVariable> | undefined> {
+    const query = insight.query
+    if (!query || query.kind !== NodeKind.DataVisualizationNode) {
+        return undefined
+    }
+    const source = (query as DataVisualizationNode).source
+    const variable = Object.values(source.variables ?? {}).find(
+        ({ code_name }) => code_name === SALESFORCE_ACCOUNT_VARIABLE
+    )
+    if (!variable || !filtersByAccount(JSON.parse(await parseSelect(source.query)))) {
+        return undefined
+    }
+    return { [variable.variableId]: { ...variable, value: sfdcId } }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -106,39 +168,27 @@ export const accountOpportunitiesLogic = kea<accountOpportunitiesLogicType>([
                         posthog.captureException(error as Error, {
                             scope: 'accountOpportunitiesLogic.loadOpportunities',
                         })
-                        return { sfdcId: null, opportunities: null, loadFailed: true }
+                        return { sfdcId: null, insight: null, loadFailed: true }
                     }
                     if (!sfdcId) {
-                        return { sfdcId: null, opportunities: null }
+                        return { sfdcId: null, insight: null }
                     }
                     try {
-                        const response = (await api.query({
-                            kind: NodeKind.HogQLQuery,
-                            tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
-                            query: hogql`
-                                select id, name, total_credit_amount_c, close_date, contract_start_date_c
-                                from salesforce.opportunity
-                                where account_id = ${sfdcId}
-                                order by close_date desc
-                                limit 500
-                            `,
-                        })) as HogQLQueryResponse
-                        const rows = (response.results ?? []) as unknown[][]
-                        const opportunities: AccountOpportunity[] = rows.map((row) => ({
-                            id: String(row[0]),
-                            name: (row[1] as string | null) ?? null,
-                            totalCreditAmount: (row[2] as number | null) ?? null,
-                            closeDate: (row[3] as string | null) ?? null,
-                            contractStartDate: (row[4] as string | null) ?? null,
-                        }))
-                        return { sfdcId, opportunities }
-                    } catch (error) {
-                        if (!isExpectedMissingTableError(error)) {
-                            posthog.captureException(error as Error, {
-                                scope: 'accountOpportunitiesLogic.loadOpportunities',
-                            })
+                        const insight = await insightsApi.getByShortId(OPPORTUNITIES_INSIGHT_SHORT_ID)
+                        if (!insight) {
+                            return { sfdcId, insight: null }
                         }
-                        return { sfdcId, opportunities: null }
+                        return {
+                            sfdcId,
+                            insight: withQueryTags(insight),
+                            variablesOverride: await buildVariablesOverride(insight, sfdcId),
+                        }
+                    } catch (error) {
+                        posthog.captureException(error as Error, {
+                            scope: 'accountOpportunitiesLogic.loadOpportunities',
+                            shortId: OPPORTUNITIES_INSIGHT_SHORT_ID,
+                        })
+                        return { sfdcId, insight: null, loadFailed: true }
                     }
                 },
             },
