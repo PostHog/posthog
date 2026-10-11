@@ -102,7 +102,7 @@ impl BatcherStateMachine {
             return Err("set a pack target in events or bytes".to_string());
         }
         Ok(BatcherStateMachine::Running(ActiveState {
-            keys: KeyQueues::new(packer.targets().run_cap()),
+            keys: KeyQueues::new(packer.run_cap()),
             packer,
             assigner,
             in_flight: InFlightRequests::new(),
@@ -572,6 +572,7 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use super::*;
+    use crate::batcher::key_queues::RunCap;
     use crate::batcher::packer::PackTargets;
     use crate::batcher::test_support::{message, offsets};
     use crate::routing::{Router, RoutingStrategy};
@@ -601,6 +602,14 @@ mod tests {
             bytes: None,
             latency_budget: budget,
         });
+        batcher_with(packer, max_requests_per_worker, now)
+    }
+
+    fn batcher_with(
+        packer: Packer,
+        max_requests_per_worker: usize,
+        now: Instant,
+    ) -> BatcherStateMachine {
         let assigner = WorkerAssigner::new(
             Router::new(RoutingStrategy::BinPack),
             max_requests_per_worker,
@@ -1168,6 +1177,34 @@ mod tests {
             assert_eq!(shape(&effects.sends[0]), vec![("hot", expected)]);
             request = effects.sends[0].request;
         }
+    }
+
+    #[test]
+    fn a_run_cap_above_the_target_sends_a_hot_keys_backlog_in_one_round_trip() {
+        let now = Instant::now();
+        let workers = pool(&["w"]);
+        let packer = Packer::new(PackTargets {
+            events: NonZeroUsize::new(2),
+            bytes: None,
+            latency_budget: Duration::ZERO,
+        })
+        .with_run_cap(RunCap {
+            messages: NonZeroUsize::new(6),
+            bytes: None,
+        });
+        let batcher = batcher_with(packer, 2, now);
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("hot", &[1])]);
+        let request = effects.sends[0].request;
+
+        let (batcher, effects) = batcher.on_groups(now, &workers, 0, vec![run("hot", &[2, 3, 4])]);
+        assert!(effects.sends.is_empty());
+        let (batcher, _) = batcher.on_groups(now, &workers, 0, vec![run("hot", &[5, 6, 7, 8])]);
+
+        let (_, effects) = batcher.on_request_succeeded(now, &workers, request, 1);
+        assert_eq!(
+            effects.sends.iter().map(shape).collect::<Vec<_>>(),
+            vec![vec![("hot", vec![2, 3, 4, 5, 6, 7])]]
+        );
     }
 
     #[test]

@@ -6,6 +6,7 @@ use envconfig::Envconfig;
 use rdkafka::ClientConfig;
 use tracing::info;
 
+use crate::batcher::key_queues::RunCap;
 use crate::batcher::packer::{PackTargets, Packer};
 use crate::batcher::retry_policy::RetryPolicy;
 use crate::batcher::state_machine::BatcherStateMachine;
@@ -180,19 +181,28 @@ pub struct Config {
     pub parked_retry_interval_ms: u64,
 
     /// Target request size in events for the key-table packer: once this many
-    /// events are ready, a free worker slot gets a request at once. One key's
-    /// run never holds more, so a key's backlog leaves in consecutive requests.
-    /// `0` disables the event target and the cap, and needs a byte target.
-    /// Only read under `INGESTION_SCHEDULER=key_table`.
+    /// events are ready, a free worker slot gets a request at once. Unless a
+    /// run cap is set, one key's run never holds more, so a key's backlog
+    /// leaves in consecutive requests. `0` disables the event target and the
+    /// cap, and needs a byte target. Only read under
+    /// `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PACK_TARGET_EVENTS", default = "500")]
     pub pack_target_events: usize,
 
     /// Target request size in key-plus-value bytes for the key-table packer.
-    /// One key's run never holds more. `0` (default) disables the byte target
-    /// and the cap, and needs an event target. Only read under
-    /// `INGESTION_SCHEDULER=key_table`.
+    /// Unless a run cap is set, one key's run never holds more. `0` (default)
+    /// disables the byte target and the cap, and needs an event target. Only
+    /// read under `INGESTION_SCHEDULER=key_table`.
     #[envconfig(from = "INGESTION_PACK_TARGET_BYTES", default = "0")]
     pub pack_target_bytes: usize,
+
+    /// With both run caps at `0` (default), the pack targets cap runs.
+    /// Otherwise a `0` run cap leaves that dimension uncapped.
+    #[envconfig(from = "INGESTION_RUN_CAP_EVENTS", default = "0")]
+    pub run_cap_events: usize,
+
+    #[envconfig(from = "INGESTION_RUN_CAP_BYTES", default = "0")]
+    pub run_cap_bytes: usize,
 
     /// How long ready events below the target wait for more, counted from
     /// when a worker slot is free for them, before the key-table packer sends
@@ -440,11 +450,18 @@ impl Config {
     /// un-acked cap as its per-worker request cap, the parked-retry interval
     /// for every retry, and the deferred-flush timeout as its stall timeout.
     pub fn batcher_state_machine(&self) -> Result<BatcherStateMachine, String> {
-        let packer = Packer::new(PackTargets {
+        let mut packer = Packer::new(PackTargets {
             events: NonZeroUsize::new(self.pack_target_events),
             bytes: NonZeroUsize::new(self.pack_target_bytes),
             latency_budget: Duration::from_millis(self.pack_latency_budget_ms),
         });
+        let run_cap = RunCap {
+            messages: NonZeroUsize::new(self.run_cap_events),
+            bytes: NonZeroUsize::new(self.run_cap_bytes),
+        };
+        if run_cap != RunCap::default() {
+            packer = packer.with_run_cap(run_cap);
+        }
         let assigner = WorkerAssigner::new(
             Router::new(self.routing_strategy),
             self.ingestion_worker_concurrent_batches,
