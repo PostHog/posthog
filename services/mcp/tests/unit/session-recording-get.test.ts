@@ -43,6 +43,20 @@ describe('session-recording-get', () => {
         })
     })
 
+    it.each([
+        ['an email name', 'user@example.com', {}],
+        ['a padded email name', ' user@example.com ', {}],
+        ['a plain name', 'Ada Lovelace', { name: 'Ada Lovelace' }],
+    ])('handles %s in the person summary', async (_case, name, expectedNameField) => {
+        const request = vi.fn().mockResolvedValue({ id: 'session-123', person: { id: 7, name, distinct_ids: ['d1'] } })
+
+        await expect(tool.handler(createContext(request), { id: 'session-123' })).resolves.toEqual({
+            id: 'session-123',
+            person: { id: 7, distinct_ids: ['d1'], ...expectedNameField },
+            _posthogUrl: 'https://us.posthog.com/project/42/replay/session-123',
+        })
+    })
+
     it('treats a missing recording as a normal lookup result', async () => {
         const request = vi.fn().mockRejectedValue(apiError(404, recordingUrl, '{"detail":"Recording not found"}'))
 
