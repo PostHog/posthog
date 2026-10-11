@@ -37,7 +37,9 @@ pub struct Config {
     pub read_before_write_enabled: bool,
 
     // Budget per probe query. A probe that exceeds it is abandoned and the batch is
-    // written unfiltered, so a slow reader can never stall the write path.
+    // written unfiltered, so a slow reader can never stall the write path. The read
+    // pool also sets it as the server-side statement_timeout, so the reader cancels
+    // the abandoned probe.
     #[envconfig(default = "2000")]
     pub read_before_write_timeout_ms: u64,
 
