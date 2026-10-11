@@ -1,6 +1,8 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
+import { ComponentType, Suspense, lazy } from 'react'
 
 import { IconGear, IconPlus } from '@posthog/icons'
 
@@ -16,6 +18,8 @@ import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
+import { retryImport } from 'lib/utils/retryImport'
 import { liveEventsLogic } from 'scenes/activity/live/liveEventsLogic'
 import { verifyEmailLogic } from 'scenes/authentication/verify-email/verifyEmailLogic'
 import { billingLogic, BillingAlertConfig } from 'scenes/billing/billingLogic'
@@ -35,7 +39,6 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, UserType } from '~/types'
 
 import { EventIngestionRestrictionDetails } from './EventIngestionRestrictionDetails'
-import { OrganizationMemberNoticeMessage } from './OrganizationMemberNoticeMessage'
 
 export type ProjectNoticeVariant =
     | 'billing_alert'
@@ -58,6 +61,22 @@ export interface ProjectNoticeBlueprint {
 }
 
 const NOTICE_DISMISS_PREFIX = 'project-notice-dismissed.'
+
+// This logic mounts on every authenticated page, and the notice renderer needs DOMPurify. Load the renderer
+// only when an organization sets a notice, so that DOMPurify stays off the eager graph. If the renderer cannot
+// load, show no message instead of the unsanitized HTML. The error does not go to the app error boundary,
+// because that boundary replaces the whole page for one banner.
+const OrganizationMemberNoticeMessage = lazy<ComponentType<{ html: string }>>(() =>
+    retryImport(() => import('./OrganizationMemberNoticeMessage'))
+        .then((m) => ({ default: m.OrganizationMemberNoticeMessage }))
+        .catch((error) => {
+            // A chunk that fails to load is a network or stale-deploy problem, not a bug to report.
+            if (!isChunkLoadError(error)) {
+                posthog.captureException(error)
+            }
+            return { default: () => null }
+        })
+)
 
 // The products we want every provisioned account exploring. Keys resolve in both PRODUCT_BRANDING
 // (label + docs) and PRODUCT_PUSH_DISPLAY (hog illustration), mirroring the welcome dialog's showcase.
@@ -749,7 +768,11 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                             return null
                         }
                         return {
-                            message: <OrganizationMemberNoticeMessage html={memberNotice.message} />,
+                            message: (
+                                <Suspense fallback={null}>
+                                    <OrganizationMemberNoticeMessage html={memberNotice.message} />
+                                </Suspense>
+                            ),
                             type: 'info',
                             action: memberNotice.action
                                 ? {
