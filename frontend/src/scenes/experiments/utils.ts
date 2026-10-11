@@ -75,7 +75,7 @@ export function filterLowMultipleVariant<T extends { variant: string; percentage
 
 /**
  * Resolves the effective multi-variant handling, applying the backend default when unset.
- * See posthog/hogql_queries/experiments/exposure_query_logic.py (default = `EXCLUDE`).
+ * See products/experiments/backend/hogql_queries/exposure_query_logic.py (default = `EXCLUDE`).
  */
 export function resolveMultipleVariantHandling(
     handling: 'exclude' | 'first_seen' | undefined
