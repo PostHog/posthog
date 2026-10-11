@@ -1,3 +1,4 @@
+from collections.abc import Callable, Collection, Iterable, Mapping
 from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -204,25 +205,45 @@ class UserTeamPermissions:
         if organization_membership.user_id != self.p.user.pk:
             raise ValueError("organization_membership must belong to the UserPermissions principal")
 
-        if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
-            return self._capped_at_admin(organization_membership.level)
+        return self.resolve_membership_level(
+            organization=organization,
+            organization_membership=organization_membership,
+            team_id=self.team.id,
+            load_project_rules=lambda: self.p._prefetched_access_controls.get(self.team.id, []),
+            load_role_ids=lambda: self.p._prefetched_role_ids_by_organization.get(self.team.organization_id, set()),
+        )
 
-        # Project rules for this team, from prefetched data
-        access_controls = [
-            ac
-            for ac in self.p._prefetched_access_controls.get(self.team.id, [])
-            if ac["resource_id"] == str(self.team.id)
-        ]
+    @staticmethod
+    def resolve_membership_level(
+        *,
+        organization: Organization,
+        organization_membership: OrganizationMembership,
+        team_id: int,
+        load_project_rules: Callable[[], Iterable[Mapping[str, Any]]],
+        load_role_ids: Callable[[], Collection[UUID]],
+    ) -> Optional["OrganizationMembership.Level"]:
+        """Project access of one member of the team's organization. Every project access resolver
+        calls this, so the per-user check and the bulk ones cannot disagree on precedence.
+
+        `load_project_rules` returns the team's `resource="project"` AccessControl rows as dicts with
+        `resource_id`, `organization_member_id`, `role_id` and `access_level`. `load_role_ids`
+        returns the ids of the roles the user holds in the team's organization. They are callables
+        so that a caller resolving one user skips the queries the answer does not need.
+        """
+        if not organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            return UserTeamPermissions._capped_at_admin(organization_membership.level)
+
+        access_controls = [ac for ac in load_project_rules() if ac["resource_id"] == str(team_id)]
 
         # Organization admins and owners always have access
         if organization_membership.level >= OrganizationMembership.Level.ADMIN:
-            return self._capped_at_admin(organization_membership.level)
+            return UserTeamPermissions._capped_at_admin(organization_membership.level)
 
         # Role-backed project AccessControl rows only take effect if the organization has
         # the ROLE_BASED_ACCESS feature — same gate as the UI's "Roles" block on the
         # project access settings page (and as resource-level role overrides).
         role_based_access_supported = organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS)
-        user_roles = self.p._prefetched_role_ids_by_organization.get(self.team.organization_id, set())
+        user_roles = load_role_ids()
 
         # Rules naming this user — directly, or through a role they hold. These decide on their
         # own: the highest of them wins, and an explicit "none" is a denial rather than a miss
@@ -236,7 +257,7 @@ class UserTeamPermissions:
         ]
 
         if explicit_access_levels:
-            return self._highest_membership_level(explicit_access_levels)
+            return UserTeamPermissions._highest_membership_level(explicit_access_levels)
 
         # Fall back to the default access level for this team (applies to all org members)
         default_access_level = next(
@@ -249,7 +270,7 @@ class UserTeamPermissions:
         )
 
         if default_access_level is not None:
-            return self._highest_membership_level([default_access_level])
+            return UserTeamPermissions._highest_membership_level([default_access_level])
 
         # No access control row in the database, admin by default. See: `default_access_level()` in `products/access_control/backend/facade/user_access_control.py`
         return OrganizationMembership.Level.ADMIN
@@ -270,6 +291,12 @@ class UserTeamPermissions:
         if "member" in access_levels:
             return OrganizationMembership.Level.MEMBER
         return None
+
+
+def user_can_access_team(user: User, team: Team) -> bool:
+    """Whether the user has any access to the team. Membership of the team's organization is not
+    enough on its own, because access control can restrict a project to some members."""
+    return UserPermissions(user).team(team).effective_membership_level is not None
 
 
 class UserDashboardPermissions:

@@ -407,100 +407,13 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         return self.is_staff
 
     @cached_property
-    def teams(self):
+    def teams(self) -> models.QuerySet[Team]:
         """
         All teams the user has access to on any organization, taking into account project based permissioning
         """
-        teams = Team.objects.filter(organization__members=self)
-        org_available_product_features = (
-            Organization.objects.filter(members=self).values_list("available_product_features", flat=True).first()
-        )
-        if org_available_product_features and len(org_available_product_features) > 0:
-            org_available_product_feature_keys = [feature["key"] for feature in org_available_product_features]
-            if AvailableFeature.ACCESS_CONTROL in org_available_product_feature_keys:
-                from products.access_control.backend.models.access_control import AccessControl
+        from posthog.user_permissions import UserPermissions  # noqa: PLC0415 - circular, user_permissions imports User
 
-                # Get organization memberships for this user to check access levels
-                org_memberships = OrganizationMembership.objects.filter(user=self).select_related("organization")
-
-                # Get teams that are private (have access_level="none" restrictions)
-                private_team_ids = set(
-                    AccessControl.objects.filter(
-                        resource="project", access_level="none", organization_member=None, role=None
-                    ).values_list("team_id", flat=True)
-                )
-
-                # Get teams where user has explicit access
-                accessible_private_team_ids = set(
-                    AccessControl.objects.filter(
-                        resource="project",
-                        access_level__in=["member", "admin"],
-                        organization_member__in=[membership.id for membership in org_memberships],
-                    ).values_list("team_id", flat=True)
-                )
-
-                # Get teams where user has role-based access. Only honored when the
-                # org has ROLE_BASED_ACCESS — same gate as the UI's "Roles" block on
-                # the project access settings page (and as resource-level role overrides).
-                role_based_access_supported = AvailableFeature.ROLE_BASED_ACCESS in org_available_product_feature_keys
-                if role_based_access_supported:
-                    try:
-                        from products.access_control.backend.models.role import RoleMembership
-
-                        user_roles = (
-                            RoleMembership.objects.filter(
-                                user=self, organization_member__in=[membership.id for membership in org_memberships]
-                            )
-                            .valid_for_authorization()
-                            .values_list("role_id", flat=True)
-                        )
-
-                        role_accessible_team_ids = set(
-                            AccessControl.objects.filter(
-                                resource="project", access_level__in=["member", "admin"], role__in=user_roles
-                            ).values_list("team_id", flat=True)
-                        )
-                    except ImportError:
-                        role_accessible_team_ids = set()
-                else:
-                    role_accessible_team_ids = set()
-
-                # Get organizations where user is admin or owner (have implicit access to all teams)
-                organizations_where_user_is_admin = OrganizationMembership.objects.filter(
-                    user=self, level__gte=OrganizationMembership.Level.ADMIN
-                ).values_list("organization_id", flat=True)
-
-                # Filter teams to include:
-                # - Teams that are not private (not in private_team_ids) OR
-                # - Teams where user has explicit access OR
-                # - Teams where user has role-based access OR
-                # - Teams in organizations where user is admin/owner
-                accessible_team_ids = accessible_private_team_ids | role_accessible_team_ids
-
-                # Build the list of all accessible team IDs
-                all_accessible_team_ids: set[int] = set()
-
-                # Add teams from organizations where user is admin
-                admin_teams = Team.objects.filter(
-                    organization__pk__in=organizations_where_user_is_admin, organization__members=self
-                ).values_list("pk", flat=True)
-                all_accessible_team_ids.update(admin_teams)
-
-                # Add teams that are not private
-                non_private_teams = (
-                    Team.objects.filter(organization__members=self)
-                    .exclude(pk__in=private_team_ids)
-                    .values_list("pk", flat=True)
-                )
-                all_accessible_team_ids.update(non_private_teams)
-
-                # Add teams with explicit access
-                all_accessible_team_ids.update(accessible_team_ids)
-
-                # Apply the final filter
-                teams = teams.filter(pk__in=all_accessible_team_ids)
-
-        return teams.order_by("id")
+        return Team.objects.filter(pk__in=UserPermissions(self).team_ids_visible_for_user).order_by("id")
 
     @cached_property
     def organization(self) -> Optional[Organization]:
