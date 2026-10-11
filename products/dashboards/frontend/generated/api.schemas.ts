@@ -11426,7 +11426,7 @@ export type DashboardsRunInsightsRetrieveParams = {
      */
     refresh?: DashboardsRunInsightsRetrieveRefresh
     /**
-     * Comma-separated dashboard tile IDs to run. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others. An ID that is not on this dashboard is rejected.
+     * Comma-separated numeric dashboard tile IDs to run, for example '101,102'. Get them from `tiles[].id` on the dashboard. Insight IDs and insight short IDs are not accepted. Defaults to every insight tile on the dashboard. Use it to read one tile without receiving the others. An ID that is not on this dashboard is rejected.
      */
     tile_ids?: string
     /**
