@@ -67,6 +67,7 @@ from posthog import settings
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
+from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team, User
 
 from products.signals.backend.models import (
@@ -615,9 +616,15 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     )
 
 
+@frozen
+class MemberDistinctIds:
+    by_uuid: dict[str, str]
+    by_login: dict[str, str]
+
+
 def _member_distinct_ids(
     team_id: int, user_uuids: Collection[str], github_logins: Collection[str]
-) -> tuple[dict[str, str], dict[str, str]]:
+) -> MemberDistinctIds:
     """Distinct ids of the team organization's members, keyed by uuid and by lowercased login.
 
     A uuid that names no member of that organization does not resolve: an artefact can be edited
@@ -637,7 +644,7 @@ def _member_distinct_ids(
         login: str(user.distinct_id)
         for login, user in resolve_org_github_login_to_users(team_id, github_logins).items()
     }
-    return by_uuid, by_login
+    return MemberDistinctIds(by_uuid=by_uuid, by_login=by_login)
 
 
 def reviewer_rows(
@@ -683,16 +690,19 @@ def reviewer_rows(
 
     rows: list[dict[str, Any]] = []
     for team_id, team_rows in entries_by_team.items():
-        by_uuid, by_login = _member_distinct_ids(
+        members = _member_distinct_ids(
             team_id,
             {row["user_uuid"] for row in team_rows if row["user_uuid"]},
             {row["github_login"] for row in team_rows if row["github_login"]},
         )
         for row in team_rows:
-            if row["user_uuid"] in by_uuid:
-                row["user_distinct_id"], row["identity_resolution"] = by_uuid[row["user_uuid"]], "user_uuid"
-            elif row["github_login"] in by_login:
-                row["user_distinct_id"], row["identity_resolution"] = by_login[row["github_login"]], "github_login"
+            if row["user_uuid"] in members.by_uuid:
+                row["user_distinct_id"], row["identity_resolution"] = members.by_uuid[row["user_uuid"]], "user_uuid"
+            elif row["github_login"] in members.by_login:
+                row["user_distinct_id"], row["identity_resolution"] = (
+                    members.by_login[row["github_login"]],
+                    "github_login",
+                )
             else:
                 row["user_distinct_id"], row["identity_resolution"] = None, "unresolved"
             rows.append(row)
