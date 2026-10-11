@@ -168,6 +168,18 @@ API scopes and billing access checks still apply.
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
 
+Self-driving reports are available as `system.signal_reports` and their artifacts as `system.signal_report_artifacts`.
+Join them on `signal_report_artifacts.report_id = signal_reports.id`.
+Both tables require task read access and exclude deleted reports.
+The artifacts table also excludes staff-only ranking scores.
+
+The report tables also include `system.signal_report_actions`, `system.signal_report_checks`, and `system.signal_report_pull_requests`.
+The legacy associations remain queryable as `system.signal_report_assignments` and `system.signal_report_tasks`.
+These tables require task read access and filter through visible reports or report artifacts.
+`system.task_artifacts` exposes living artifacts for tasks in public project spaces, using the same visibility rules as `system.tasks`.
+Scout configuration, runs, and findings are available as `system.signal_scout_configs`, `system.signal_scout_runs`, and `system.signal_scout_emissions`.
+The scout tables require scout read access. Query them from the parent project environment that owns the scout data.
+
 Example from the codebase:
 
 ```python
