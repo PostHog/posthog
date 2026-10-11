@@ -1447,6 +1447,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     CHESSCOM = "ChessCom", "ChessCom"
     USERBACK = "Userback", "Userback"
     REWARDFUL = "Rewardful", "Rewardful"
+    TRACKLUTION = "Tracklution", "Tracklution"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

@@ -3543,6 +3543,7 @@ export interface CredentialApi {
  * * `ChessCom` - ChessCom
  * * `Userback` - Userback
  * * `Rewardful` - Rewardful
+ * * `Tracklution` - Tracklution
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4923,6 +4924,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ChessCom: 'ChessCom',
     Userback: 'Userback',
     Rewardful: 'Rewardful',
+    Tracklution: 'Tracklution',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
