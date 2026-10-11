@@ -83,86 +83,6 @@ const contextWikiPageUpdate = (): ToolBase<
     },
 })
 
-const LoopContextWikiChannelResolveSchema = () => {
-    const ContextLayerAgentChannelPagesRetrieveParams = orvalSchemas.ContextLayerAgentChannelPagesRetrieveParams()
-    return ContextLayerAgentChannelPagesRetrieveParams.omit({ project_id: true })
-}
-
-const loopContextWikiChannelResolve = (): ToolBase<
-    ReturnType<typeof LoopContextWikiChannelResolveSchema>,
-    Schemas.ChannelWikiPage
-> => ({
-    name: 'loop-context-wiki-channel-resolve',
-    schema: LoopContextWikiChannelResolveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopContextWikiChannelResolveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ChannelWikiPage>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/channel-pages/${encodeURIComponent(String(params.channel_id))}/`,
-        })
-        return result
-    },
-})
-
-const LoopContextWikiPageRetrieveSchema = () => {
-    const ContextLayerAgentPagesRetrieveQueryParams = orvalSchemas.ContextLayerAgentPagesRetrieveQueryParams()
-    return ContextLayerAgentPagesRetrieveQueryParams.extend({ limit: WikiPageReadLimitSchema })
-}
-
-const loopContextWikiPageRetrieve = (): ToolBase<
-    ReturnType<typeof LoopContextWikiPageRetrieveSchema>,
-    Schemas.WikiPage
-> => ({
-    name: 'loop-context-wiki-page-retrieve',
-    schema: LoopContextWikiPageRetrieveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopContextWikiPageRetrieveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WikiPage>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
-            query: {
-                head_sha: params.head_sha,
-                limit: params.limit,
-                offset: params.offset,
-                path: params.path,
-            },
-        })
-        return result
-    },
-})
-
-const LoopContextWikiPageUpdateSchema = () => {
-    const ContextLayerAgentPagesUpdateBody = orvalSchemas.ContextLayerAgentPagesUpdateBody()
-    return ContextLayerAgentPagesUpdateBody
-}
-
-const loopContextWikiPageUpdate = (): ToolBase<
-    ReturnType<typeof LoopContextWikiPageUpdateSchema>,
-    Schemas.ContextLayerStatus
-> => ({
-    name: 'loop-context-wiki-page-update',
-    schema: LoopContextWikiPageUpdateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof LoopContextWikiPageUpdateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.path !== undefined) {
-            body['path'] = params.path
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.base_head !== undefined) {
-            body['base_head'] = params.base_head
-        }
-        const result = await context.api.request<Schemas.ContextLayerStatus>({
-            method: 'PUT',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/context_layer/agent/pages/`,
-            body,
-        })
-        return result
-    },
-})
-
 const TaskContextWikiChannelResolveSchema = () => {
     const ContextLayerAgentChannelPagesRetrieveParams = orvalSchemas.ContextLayerAgentChannelPagesRetrieveParams()
     return ContextLayerAgentChannelPagesRetrieveParams.omit({ project_id: true })
@@ -279,9 +199,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'context-wiki-channel-resolve': contextWikiChannelResolve,
     'context-wiki-page-retrieve': contextWikiPageRetrieve,
     'context-wiki-page-update': contextWikiPageUpdate,
-    'loop-context-wiki-channel-resolve': loopContextWikiChannelResolve,
-    'loop-context-wiki-page-retrieve': loopContextWikiPageRetrieve,
-    'loop-context-wiki-page-update': loopContextWikiPageUpdate,
     'task-context-wiki-channel-resolve': taskContextWikiChannelResolve,
     'task-context-wiki-page-propose': taskContextWikiPagePropose,
     'task-context-wiki-page-retrieve': taskContextWikiPageRetrieve,
