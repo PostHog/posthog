@@ -871,7 +871,6 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             ),
             iconPath="/static/posthog-icon.svg",
             docsUrl=None,
-            featureFlag="dwh_custom_source",
             fields=cast(
                 list[FieldType],
                 [
