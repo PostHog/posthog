@@ -112,6 +112,7 @@ describe('Hog Executor', () => {
                 recipientTokensService,
                 // No push sends in this suite - the push queue type is covered by push-notification.service.test.ts
                 pushNotificationService: undefined as any,
+                systemEmailService: undefined as any,
             }
         )
     })

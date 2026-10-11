@@ -40,6 +40,7 @@ import { MessageAssetsService } from './services/messaging/message-assets.servic
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
+import { SystemEmailService, createSystemEmailTransport } from './services/messaging/system-email.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
@@ -164,6 +165,11 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_ENDPOINT'
         | 'SES_TRACKED_CONFIGURATION_SET'
         | 'SES_UNTRACKED_CONFIGURATION_SET'
+        | 'CDP_SYSTEM_EMAIL_ENABLED_TEAMS'
+        | 'CDP_SYSTEM_EMAIL_FROM_ADDRESS'
+        | 'CDP_SYSTEM_EMAIL_FROM_NAME'
+        | 'CDP_SYSTEM_EMAIL_REPLY_TO'
+        | 'CDP_SYSTEM_EMAIL_SES_TENANT'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
@@ -465,6 +471,29 @@ export function createCdpCoreServices(
         workflowEmailRateLimiter,
         teamEmailRateLimiter
     )
+    const systemEmailService = new SystemEmailService(
+        {
+            enabledTeams: config.CDP_SYSTEM_EMAIL_ENABLED_TEAMS,
+            fromAddress: config.CDP_SYSTEM_EMAIL_FROM_ADDRESS,
+            fromName: config.CDP_SYSTEM_EMAIL_FROM_NAME,
+            replyTo: config.CDP_SYSTEM_EMAIL_REPLY_TO,
+            siteUrl: config.SITE_URL,
+        },
+        {
+            postgres: deps.postgres,
+            teamManager: deps.teamManager,
+            teamWorkflowsConfigService,
+            // The CDP pool, not the SES Valkey pool that paces workflow email. The hog workers
+            // that run internal destinations do not open the SES pool.
+            rateLimiter: new RateLimiterService(redis, { name: 'system-email' }),
+            transport: createSystemEmailTransport({
+                sesRegion: config.SES_REGION,
+                sesEndpoint: config.SES_ENDPOINT,
+                sesUntrackedConfigurationSet: config.SES_UNTRACKED_CONFIGURATION_SET,
+                sesTenant: config.CDP_SYSTEM_EMAIL_SES_TENANT,
+            }),
+        }
+    )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
     const pushNotificationService = new PushNotificationService(
@@ -506,6 +535,7 @@ export function createCdpCoreServices(
             emailService,
             recipientTokensService,
             pushNotificationService,
+            systemEmailService,
         }
     )
 

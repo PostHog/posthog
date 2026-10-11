@@ -36,6 +36,7 @@ import { template as posthogTagAccountTemplate } from './_destinations/posthog_c
 import { template as posthogUpdateAccountPropertyTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-property.template'
 import { template as posthogUpdateAccountRelationshipsTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-relationships.template'
 import { template as posthogUpdateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account.template'
+import { template as posthogEmailTemplate } from './_destinations/posthog_email/posthog-email.template'
 import { template as posthogRunScoutTemplate } from './_destinations/posthog_signals/posthog-run-scout.template'
 import { template as posthogCreateTaskTemplate } from './_destinations/posthog_tasks/posthog-create-task.template'
 import { template as posthogSetHogflowVariableTemplate } from './_destinations/posthog_workflows/posthog-set-variable.template'
@@ -99,6 +100,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     googleSheetsTemplate,
     googleTagManagerTemplate,
     emailTemplate,
+    posthogEmailTemplate,
     pushTemplate,
     beehiivTemplate,
     clickupTemplate,
