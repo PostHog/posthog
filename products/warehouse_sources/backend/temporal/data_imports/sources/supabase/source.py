@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _HOST_UNREACHABLE_ERROR,
+    _INVALID_CREDENTIALS_VALIDATION_ERROR,
     PostgresSource,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -42,6 +43,13 @@ _SUPABASE_POOLER_USERNAME_AS_HOST_ERROR = (
     "The host looks like your Supabase pooler username, not a database host. Enter the Session "
     "pooler host (aws-0-<region>.pooler.supabase.com) as the host, and postgres.<project-ref> as "
     "the user."
+)
+
+# Supabase has a separate database password, set when the project is created, and people often
+# enter their Supabase account password instead.
+_SUPABASE_INVALID_CREDENTIALS_ERROR = (
+    "The database rejected the username or password. Use your Supabase database password, not your "
+    "account password, or reset it in your project's database settings."
 )
 
 
@@ -210,4 +218,6 @@ class SupabaseSource(PostgresSource):
         success, error = super().validate_credentials(config, team_id, schema_name=schema_name, require_ssl=require_ssl)
         if not success and is_direct_host and error == _HOST_UNREACHABLE_ERROR:
             return False, _SUPABASE_DIRECT_HOST_IPV4_HINT
+        if not success and error == _INVALID_CREDENTIALS_VALIDATION_ERROR:
+            return False, _SUPABASE_INVALID_CREDENTIALS_ERROR
         return success, error
