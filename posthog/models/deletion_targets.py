@@ -123,6 +123,12 @@ class DeletionTarget:
     # Read uuids from this table when queueing a deferred deletion. False where the rows duplicate
     # another target's uuids, which would queue each one twice.
     queue_uuid_candidates: bool = True
+    # The events storage table that holds a copy of each row here, with the same uuid, while ingestion
+    # still writes the event there. None where rows have no such copy. The copy must sit on the same
+    # shard as the row, because the check for rows without a copy reads both tables shard-locally.
+    # A deferred event removal with a HogQL predicate queues the uuids of the events it matches. The
+    # drain deletes the rows here with those uuids, so only rows without a copy block the request.
+    copied_from: str | None = None
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
@@ -237,6 +243,8 @@ FLAG_EVALUATIONS = DeletionTarget(
     accepts_property_rewrite=True,
     stores_person_properties=False,
     accepts_person_id_rewrite=True,
+    # Both tables shard on sipHash64(distinct_id), so a flag call and its event share a shard.
+    copied_from=EVENTS_DATA_TABLE(),
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
     ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )

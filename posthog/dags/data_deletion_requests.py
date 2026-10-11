@@ -53,6 +53,8 @@ from posthog.models.data_deletion_request import (
     event_removal_where,
     jsonhas_expr,
     portable_event_removal_where,
+    reaches_target_through_event_uuids,
+    rows_without_events_copy_where,
     verify_queued_request,
 )
 from posthog.models.deletion_targets import (
@@ -66,6 +68,7 @@ from posthog.models.deletion_targets import (
     UnsweptRowsError,
     assert_no_unsweepable_rows,
     assert_sweep_complete,
+    count_surviving_rows,
     placement_for,
     resolve_placements,
     surviving_rows_sql,
@@ -532,6 +535,14 @@ _HOGQL_UNSWEEPABLE_REASON = (
     f"table never stores. See {COVERAGE_DOC}."
 )
 
+_HOGQL_NO_EVENTS_COPY_REASON = (
+    "the request carries a HogQL predicate, which only compiles against the events schema, and these "
+    "rows have no copy in the events table. The deferred queue deletes rows here through the uuids of "
+    "their events copies, so it cannot decide whether the predicate names these rows. Such rows belong to an "
+    "org whose flag calls are stored only in this table, or to events an earlier deletion removed without "
+    f"these rows. To proceed, re-file the request without the predicate. See {COVERAGE_DOC}."
+)
+
 
 def _refuse_unsweepable(
     cluster: ClickhouseCluster,
@@ -656,11 +667,29 @@ def _event_removal_placements(
         return placements
 
     unsweepable = [p.target for p in placements if not p.target.accepts_hogql_predicate]
-    if unsweepable:
-        criteria = portable_event_removal_where(deletion_request)
-        _refuse_unsweepable(
-            cluster, unsweepable, deletion_request, lambda _target: criteria, reason=_HOGQL_UNSWEEPABLE_REASON
-        )
+    criteria = portable_event_removal_where(deletion_request)
+
+    def rows_without_events_copy(target: DeletionTarget) -> tuple[str, dict] | NotCounted:
+        # The cheap count runs first. The copy check reads the uuid of every matching event, which is
+        # wasted work when this table holds no rows in the request's window.
+        if not count_surviving_rows(cluster, target, *criteria):
+            return NotCounted(reason="it holds no rows that match the request's other criteria")
+        return rows_without_events_copy_where(deletion_request, target)
+
+    _refuse_unsweepable(
+        cluster,
+        [t for t in unsweepable if not reaches_target_through_event_uuids(deletion_request, t)],
+        deletion_request,
+        lambda _target: criteria,
+        reason=_HOGQL_UNSWEEPABLE_REASON,
+    )
+    _refuse_unsweepable(
+        cluster,
+        [t for t in unsweepable if reaches_target_through_event_uuids(deletion_request, t)],
+        deletion_request,
+        rows_without_events_copy,
+        reason=_HOGQL_NO_EVENTS_COPY_REASON,
+    )
     return [p for p in placements if p.target.accepts_hogql_predicate]
 
 
