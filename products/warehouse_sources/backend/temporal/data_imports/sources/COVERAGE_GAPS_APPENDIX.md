@@ -5352,10 +5352,10 @@ Today (5): `activity`, `domains`, `messages`, `recipients`, `templates`
 
 Diffed against: <https://developers.mailersend.com/llms.txt>
 
-- [ ] `GET /v1/analytics/date` — opens, clicks, bounces and deliveries bucketed by date — the vendor's headline metric endpoint (high)
-- [ ] `GET /v1/suppressions/hard-bounces` — hard bounce suppression list; no suppression data is synced today (high)
-- [ ] `GET /v1/suppressions/spam-complaints` — spam complaint suppression list, a core deliverability metric (high)
-- [ ] `GET /v1/suppressions/unsubscribes` — unsubscribe suppression list needed to reconcile deliverable recipients (high)
+- [x] `GET /v1/analytics/date` — opens, clicks, bounces and deliveries bucketed by date — the vendor's headline metric endpoint (high)
+- [x] `GET /v1/suppressions/hard-bounces` — hard bounce suppression list; no suppression data is synced today (high)
+- [x] `GET /v1/suppressions/spam-complaints` — spam complaint suppression list, a core deliverability metric (high)
+- [x] `GET /v1/suppressions/unsubscribes` — unsubscribe suppression list needed to reconcile deliverable recipients (high)
 - [ ] `GET /v1/analytics/country` — geographic breakdown dimension for opens and clicks (medium)
 - [ ] `GET /v1/analytics/ua-name and /v1/analytics/ua-type` — client and device breakdown dimensions for engagement (medium)
 - [ ] `GET /v1/suppressions/blocklist` — account blocklist entries suppressing sends (medium)
