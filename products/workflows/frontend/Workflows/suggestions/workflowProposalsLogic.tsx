@@ -199,12 +199,12 @@ export interface workflowProposalsLogicActions {
         errorObject?: any
     }
     setOptimizationEnabledSuccess: (
-        optimization: HogFlowOptimizationApi,
+        optimization: HogFlowOptimizationApi | null,
         payload?: {
             enabled: boolean
         }
     ) => {
-        optimization: HogFlowOptimizationApi
+        optimization: HogFlowOptimizationApi | null
         payload?: {
             enabled: boolean
         }
