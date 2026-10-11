@@ -33,7 +33,9 @@ class SubscriptionContext(TeamScopedRootMixin, UUIDModel):
     def ref(self) -> str:
         if self.dashboard_id is not None:
             return context_ref("dashboard", self.dashboard_id)
-        return context_ref("insight", self.insight_id)
+        if self.insight_id is not None:
+            return context_ref("insight", self.insight_id)
+        raise ValueError("A subscription context needs a dashboard or an insight.")
 
     def has_target_for_team(self, team_id: int, *, include_deleted: bool) -> bool:
         if self.dashboard_id is not None:
