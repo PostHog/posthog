@@ -38,6 +38,9 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
+from products.replay_vision.backend.temporal.activities.pause_disabled_scanner_scouts import (
+    pause_disabled_scanner_scouts_activity,
+)
 from products.replay_vision.backend.temporal.activities.reap_childless_inline_scanners import (
     reap_childless_inline_scanners_activity,
 )
@@ -88,6 +91,7 @@ __all__ = [
     "mark_observation_succeeded_activity",
     "meter_scanner_read_bytes_activity",
     "pause_backfill_schedule_activity",
+    "pause_disabled_scanner_scouts_activity",
     "prepare_backfill_tick_activity",
     "prepare_observation_media_activity",
     "reap_backfill_schedules_activity",
