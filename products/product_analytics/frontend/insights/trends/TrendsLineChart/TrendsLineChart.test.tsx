@@ -656,9 +656,14 @@ describe('TrendsLineChart', () => {
                 }),
             })
 
+            await chart.hoverTooltip(2)
+            expect(chart.getTooltip()?.textContent).toContain('Click to pin, then click a series to view people')
+
             await chart.clickAtIndex(2)
 
             expect(chart.getTooltip()).toBeInTheDocument()
+            expect(chart.getTooltip()?.textContent).toContain('Click a series to view people')
+            expect(chart.getTooltip()?.textContent).not.toContain('Click to pin')
             expect(personsModal.get()).not.toBeInTheDocument()
         })
 

@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import posthog from 'posthog-js'
+import { useCallback, useEffect, useMemo } from 'react'
 
 import { DefaultTooltip, type TooltipContext } from '@posthog/quill-charts'
 
@@ -379,17 +380,27 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
         return formattedDate
     }, [context.seriesData, datumByKey, compareDates, interval, dateRange, timezone, weekStartDay, altTitle])
 
+    const seriesCount = context.seriesData.length
+    const isPinned = context.isPinned
+    useEffect(() => {
+        if (isPinned) {
+            posthog.capture('insight tooltip pinned', { series_count: seriesCount })
+        }
+        // Capture each pin once, not on every series-count change while pinned.
+    }, [isPinned]) // oxlint-disable-line react-hooks/exhaustive-deps
+
     const onUnpin = context.onUnpin
     const onRowClickEntry = useCallback(
         (entry: InsightSeriesTooltipEntry<Meta>): void => {
             const datum = datumByKey.get(entry.series.key)
             if (datum) {
+                posthog.capture('insight tooltip row clicked', { series_count: seriesCount })
                 // The drill-down opens a modal over the chart, so a pin left behind would float on top of it.
                 onUnpin?.()
                 onRowClick?.(datum)
             }
         },
-        [datumByKey, onRowClick, onUnpin]
+        [datumByKey, onRowClick, onUnpin, seriesCount]
     )
 
     return (
@@ -406,8 +417,11 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             footer={
                 footerOverride ??
                 (onRowClick
-                    ? context.seriesData.length > 1
-                        ? `Click a series to view ${groupTypeLabel}`
+                    ? seriesCount > 1
+                        ? isPinned
+                            ? `Click a series to view ${groupTypeLabel}`
+                            : // The tooltip ignores the pointer until pinned, so the user cannot hover in to click a row.
+                              `Click to pin, then click a series to view ${groupTypeLabel}`
                         : `Click to view ${groupTypeLabel}`
                     : undefined)
             }
