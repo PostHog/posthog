@@ -1,7 +1,8 @@
 """One-way copy of logs alert configurations into the skeleton shared tables.
 
-The control plane stays with the logs product: this reads, never writes back, and nothing
-keeps the copy in sync afterwards. Run it again to pick up changes.
+The control plane stays with the logs product: this reads, never writes back. Each check reads the
+logs alert's current settings, so an edit counts without a rerun. A change of check interval, and
+turning an alert back on, still need one.
 
 `legacy_configuration_id` carries the row each copy came from, so a second run updates
 rather than duplicates, and a later comparison can line the two stacks up per alert.
@@ -12,8 +13,8 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.alerts_platform.backend.facade.api import disable_configurations, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import SOURCE_CONDITION_KEY, PlatformAlertUpsert, SourceKind
-from products.logs.backend.alert_source_cycle import LogsAlertCondition
+from products.alerts_platform.backend.facade.contracts import SourceKind
+from products.logs.backend.alert_source_cycle import platform_upsert_of
 from products.logs.backend.models import LogsAlertConfiguration
 
 logger = structlog.get_logger(__name__)
@@ -27,33 +28,7 @@ class BackfillCounts:
     failed: int
 
 
-def platform_upsert_for(configuration: LogsAlertConfiguration) -> PlatformAlertUpsert:
-    """The platform copy of one logs alert configuration."""
-    return PlatformAlertUpsert(
-        legacy_configuration_id=configuration.id,
-        team_id=configuration.team_id,
-        name=configuration.name,
-        enabled=configuration.enabled,
-        source_kind=SourceKind.LOGS,
-        source_config={
-            **configuration.filters,
-            SOURCE_CONDITION_KEY: LogsAlertCondition(
-                threshold_count=configuration.threshold_count,
-                threshold_operator=configuration.threshold_operator,
-                window_minutes=configuration.window_minutes,
-            ).as_source_config(),
-        },
-        check_interval_minutes=configuration.check_interval_minutes,
-        evaluation_periods=configuration.evaluation_periods,
-        datapoints_to_alarm=configuration.datapoints_to_alarm,
-        cooldown_minutes=configuration.cooldown_minutes,
-        schedule_restriction=configuration.schedule_restriction,
-        next_check_at=configuration.next_check_at,
-        snooze_until=configuration.snooze_until,
-    )
-
-
-def is_team_sampled(team_id: int, sample_percent: int) -> bool:
+def _is_team_sampled(team_id: int, sample_percent: int) -> bool:
     """Whether a team falls inside a sample.
 
     Logs samples teams, not alerts, because one query checks a whole cohort of a team's alerts.
@@ -80,12 +55,12 @@ def backfill_platform_alert_configurations(*, team_id: int | None = None, sample
     skipped = 0
     failed = 0
     for configuration in source.iterator():
-        if not is_team_sampled(configuration.team_id, sample_percent):
+        if not _is_team_sampled(configuration.team_id, sample_percent):
             skipped += 1
             continue
         # One alert the copy rejects must not stop the rest.
         try:
-            was_created = upsert_configuration(platform_upsert_for(configuration))
+            was_created = upsert_configuration(platform_upsert_of(configuration))
         except Exception:
             logger.exception(
                 "platform_alert_backfill.failed", alert_id=str(configuration.id), team_id=configuration.team_id

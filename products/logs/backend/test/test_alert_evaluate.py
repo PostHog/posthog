@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -14,7 +15,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import due_checks, record_outcomes, slot_of
+from products.alerts_platform.backend.facade.api import due_checks, list_configurations, record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     IncidentAction,
@@ -38,25 +39,42 @@ from products.logs.backend.temporal.alert_evaluate import (
 _MODULE = "products.logs.backend.alert_source_cycle"
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
 _LOGS_OWNED_FIELDS = ("state", "consecutive_failures", "next_check_at", "last_notified_at", "snooze_until")
+# Settings a check reads from the logs alert rather than from its platform copy.
+_LEGACY_ALERT_FIELDS = ("evaluation_periods", "datapoints_to_alarm", "cooldown_minutes", "schedule_restriction")
 
 
 class TestLogsAlertEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
+        # A backfilled copy delivers to the logs alert it came from, so its destinations name that id.
+        self._legacy_ids: dict[UUID, UUID] = {}
+
+    def _legacy_alert(self, source_config: dict[str, Any], **fields: Any) -> LogsAlertConfiguration:
+        filters = {key: value for key, value in source_config.items() if key != "condition"}
+        return LogsAlertConfiguration.objects.create(
+            team=self.team, name="API errors", filters=filters, **source_config["condition"], **fields
+        )
 
     def _configuration(self, **overrides: Any) -> PlatformConfigurationSnapshot:
+        """A platform copy, with the logs alert it was copied from, since every check reads that alert."""
+        source_config = overrides.pop("source_config", {"condition": CONDITION})
+        if "legacy_configuration_id" not in overrides:
+            legacy_fields = {field: overrides[field] for field in _LEGACY_ALERT_FIELDS if field in overrides}
+            overrides["legacy_configuration_id"] = self._legacy_alert(source_config, **legacy_fields).id
         defaults: dict[str, Any] = {
             "team_id": self.team.id,
             "name": "API errors",
             "source_kind": SourceKind.LOGS,
-            "source_config": {"condition": CONDITION},
+            "source_config": source_config,
             "check_interval_minutes": 10,
             "next_check_at": self.cutoff - timedelta(minutes=1),
         }
         defaults.update(overrides)
         with team_scope(self.team.id):
-            return platform_testing.create_configuration(**defaults)
+            configuration = platform_testing.create_configuration(**defaults)
+        self._legacy_ids[configuration.id] = defaults["legacy_configuration_id"]
+        return configuration
 
     def _run(
         self,
@@ -92,7 +110,12 @@ class TestLogsAlertEvaluation(APIBaseTest):
                 "source": "internal-events",
                 "events": [{"id": "$logs_alert_incident_closed", "type": "events"}],
                 "properties": [
-                    {"key": "alert_id", "value": str(configuration.id), "operator": "exact", "type": "event"}
+                    {
+                        "key": "alert_id",
+                        "value": str(self._legacy_ids[configuration.id]),
+                        "operator": "exact",
+                        "type": "event",
+                    }
                 ],
             },
         )
@@ -269,10 +292,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
     @parameterized.expand(
         [
             ("filter_group", {"condition": CONDITION, "filterGroup": {"type": "nonsense"}}),
-            ("missing_condition", {}),
-            ("null_condition", {"condition": None}),
             ("unknown_operator", {"condition": {**CONDITION, "threshold_operator": "equals"}}),
-            ("non_numeric_window", {"condition": {**CONDITION, "window_minutes": "5"}}),
             ("zero_window", {"condition": {**CONDITION, "window_minutes": 0}}),
         ]
     )
@@ -323,6 +343,39 @@ class TestLogsAlertEvaluation(APIBaseTest):
             configuration = platform_testing.configuration(configuration.id)
             assert platform_testing.alert_for(configuration.id) is None
         assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
+
+    @parameterized.expand(
+        [
+            ("edited_since_the_backfill", "edit", True, 1000),
+            ("disabled_since_the_backfill", "disable", False, 10),
+            ("deleted_since_the_backfill", "delete", False, 10),
+        ]
+    )
+    def test_a_check_follows_the_logs_alert_as_it_is_now(
+        self, _name: str, change: str, still_runs: bool, stored_threshold: int
+    ) -> None:
+        configuration = self._configuration()
+        legacy = LogsAlertConfiguration.objects.get(id=self._legacy_ids[configuration.id])
+        if change == "edit":
+            # Copied as "above 10", which 500 logs breach. The logs alert now asks for over 1000.
+            LogsAlertConfiguration.objects.filter(id=legacy.id).update(threshold_count=1000)
+        elif change == "disable":
+            LogsAlertConfiguration.objects.filter(id=legacy.id).update(enabled=False)
+        else:
+            legacy.delete()
+
+        evaluation, query = self._run(configuration)
+        self._record(evaluation)
+
+        assert [o.kind for o in evaluation.outcomes] == [AlertEventKind.CHECK]
+        assert query.called is still_runs
+        with team_scope(self.team.id):
+            (copy,) = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.LOGS.value], limit=10, offset=0
+            ).configurations
+        assert copy.enabled is still_runs
+        # History and messages read the stored copy, so it has to state what the check evaluated.
+        assert copy.source_config["condition"]["threshold_count"] == stored_threshold
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
