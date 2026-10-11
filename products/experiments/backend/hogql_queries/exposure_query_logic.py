@@ -37,8 +37,9 @@ EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
 
 # The start of $experiment_exposure ingestion. Experiments started before this timestamp ran
 # (at least partly) without $experiment_exposure, so they must keep counting exposures via
-# $feature_flag_called even where the two overlap. Only experiments whose start_date is at or
-# after the cutoff can rely on $experiment_exposure covering their whole exposure window.
+# $feature_flag_called, and read the $experiment_exposure copy next to it
+# (exposure_event_name_filter). Only experiments whose start_date is at or after the cutoff can
+# rely on $experiment_exposure covering their whole exposure window.
 EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
 
 
@@ -47,9 +48,10 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
     Returns the event to count exposures on when the experiment doesn't configure a custom one.
 
     Experiments started at or after EXPERIMENT_EXPOSURE_EVENT_CUTOFF use $experiment_exposure,
-    provided the team is flagged into the rollout. Everything else stays on $feature_flag_called:
-    older experiments predate the new event, and because ingestion duplicates flag events into
-    $experiment_exposure, counting exactly one of the two is what avoids double counting.
+    provided the team is flagged into the rollout. Everything else resolves to
+    $feature_flag_called, because older experiments predate the new event. The exposure filters
+    read $feature_flag_called together with its $experiment_exposure copy (see
+    exposure_event_name_filter).
     """
     if start_date is None:
         return DEFAULT_EXPOSURE_EVENT
@@ -72,6 +74,29 @@ def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -
     except Exception:
         return DEFAULT_EXPOSURE_EVENT
     return EXPERIMENT_EXPOSURE_EVENT if enabled else DEFAULT_EXPOSURE_EVENT
+
+
+def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
+    """Matches the events that carry exposures for a resolved exposure event.
+
+    An experiment on $feature_flag_called also reads $experiment_exposure, unless `read_copies`
+    is False. Ingestion stops writing $feature_flag_called to events for an organization on
+    FLAG_EVALUATIONS_ONLY. For a team whose flag calls ingestion copies, the $experiment_exposure
+    copy then carries the exposures. Before that, a call and its copy are two rows for one
+    exposure. Every exposure read aggregates per entity (first exposure time, variant), so the two
+    rows give the same result as one.
+    """
+    if event == DEFAULT_EXPOSURE_EVENT and read_copies:
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=ast.Field(chain=["event"]),
+            right=ast.Constant(value=[DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT]),
+        )
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Field(chain=["event"]),
+        right=ast.Constant(value=event),
+    )
 
 
 # What a new experiment filters test accounts by when its criteria don't say. It does not follow
@@ -294,13 +319,7 @@ def _build_event_filters(
         return [_build_action_filter(int(exposure_config.id), team)]
 
     event = _get_event_name_from_config(exposure_config, default_exposure_event)
-    filters: list[ast.Expr] = [
-        ast.CompareOperation(
-            op=ast.CompareOperationOp.Eq,
-            left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=event),
-        )
-    ]
+    filters: list[ast.Expr] = [exposure_event_name_filter(event)]
 
     # $feature_flag_called and $experiment_exposure are not specific to one flag, so without the
     # flag key filter, exposures of other experiments would count too.

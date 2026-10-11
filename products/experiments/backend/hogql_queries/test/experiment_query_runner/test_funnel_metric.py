@@ -163,6 +163,56 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
+            # A pre-cutoff experiment reads $feature_flag_called with its same-timestamp
+            # $experiment_exposure copy, so the copy must not add a second exposure.
+            ("purchase_step_direct", False, "purchase"),
+            ("purchase_step_precomputed", True, "purchase"),
+            # With the flag call as the step, the copy must not act as the exposure and the call as its conversion.
+            ("flag_call_step_direct", False, "$feature_flag_called"),
+            ("flag_call_step_precomputed", True, "$feature_flag_called"),
+        ]
+    )
+    @time_machine.travel("2020-01-01T12:00:00Z", tick=False)
+    def test_funnel_metric_with_exposure_copies(self, _name: str, use_precomputation: bool, step_event: str) -> None:
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        metric = ExperimentFunnelMetric(series=[EventsNode(event=step_event)])
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        # Only user_control_returns converts: it is exposed again an hour later and purchases then.
+        for user, variant, returns in [
+            ("user_control_returns", "control", True),
+            ("user_control_once", "control", False),
+            ("user_test_once", "test", False),
+            ("user_test_once_2", "test", False),
+        ]:
+            _create_person(distinct_ids=[user], team_id=self.team.pk)
+            for timestamp in ["2020-01-02T12:00:00Z", "2020-01-02T13:00:00Z"] if returns else ["2020-01-02T12:00:00Z"]:
+                for event in ["$feature_flag_called", "$experiment_exposure"]:
+                    _create_event(
+                        team=self.team,
+                        event=event,
+                        distinct_id=user,
+                        timestamp=timestamp,
+                        properties={"$feature_flag_response": variant, "$feature_flag": feature_flag.key},
+                    )
+            if returns:
+                _create_event(team=self.team, event="purchase", distinct_id=user, timestamp="2020-01-02T13:00:00Z")
+        flush_persons_and_events()
+
+        query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
+        result = cast(ExperimentQueryResponse, ExperimentQueryRunner(query=query, team=self.team).calculate())
+
+        assert result.baseline is not None and result.variant_results is not None
+        self.assertEqual((result.baseline.number_of_samples, result.baseline.sum), (2, 1))
+        self.assertEqual((result.variant_results[0].number_of_samples, result.variant_results[0].sum), (2, 0))
+
+    @parameterized.expand(
+        [
             ("direct", False),
             # Skip precomputed - not yet supported (breakdowns/groups)
         ]

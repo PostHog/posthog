@@ -15,7 +15,7 @@ Exposure criteria determine which users are counted in the experiment analysis.
 
 Two options:
 
-1. **Default exposure event** — users are included when the experiment's default exposure event fires for the experiment's flag: `$feature_flag_called`, or `$experiment_exposure` for newer experiments. Which one applies is resolved server-side — read `resolved_exposure_event` from `experiment-get` rather than assuming either name (both events carry the same properties). This is the standard approach — it means a user is included only when they actually encounter the feature flag in your code.
+1. **Default exposure event** — users are included when the experiment's default exposure event fires for the experiment's flag: `$feature_flag_called`, or `$experiment_exposure` for newer experiments. Which one applies is resolved server-side — read `resolved_exposure_event` from `experiment-get` rather than assuming either name (both events carry the same properties). When it is `$feature_flag_called`, also read `$experiment_exposure` (`event IN ('$feature_flag_called', '$experiment_exposure')`), and count persons, not rows. This is the standard approach — it means a user is included only when they actually encounter the feature flag in your code.
 2. **Custom exposure event** — users are included when a specific custom event fires. Use this when you want tighter control over who enters the analysis (e.g., only users who actually visit the page where the experiment runs).
 
 ### Multiple variant handling

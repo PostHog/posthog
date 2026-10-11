@@ -35,6 +35,10 @@ class ExperimentQueryContext:
     # When set, an entity only counts as exposed once it emits this event at/after its first
     # default exposure event, and that activation event's timestamp becomes the exposure time.
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
+    # Whether an exposure on $feature_flag_called also reads its $experiment_exposure copy. It is
+    # False for a metric that reads $feature_flag_called: the call and its copy share a timestamp,
+    # so one of them would be the exposure and the other a conversion.
+    read_exposure_copies: bool = True
 
 
 @dataclass(frozen=True)
