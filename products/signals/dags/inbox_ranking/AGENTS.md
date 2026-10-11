@@ -6,6 +6,7 @@ Read `README.md` first for what the dataset is and how partitions behave. This f
 
 - A new ranking dag (training, eval, ...) is a **sibling subpackage** (`inbox_ranking/<name>/dag.py`) importing shared plumbing from `common.py` — don't grow `dataset/` sideways and don't duplicate the S3/partition helpers.
 - `inbox_report_title_embeddings` is a **leaf**: never add it to `inbox_report_model_data`'s `deps` or give that join a title column, or a failure in the title snapshot fails the training table. Its own `deps=[MODEL_DATA_TABLE]` exists for memory, not data — two full sets of 1536-float vectors must not be held at once in the run pod. Raising the pod memory limit is not the first resort.
+- `inbox_user_report_interactions` is a **leaf** with its own `USER_INTERACTIONS_SCHEMA_VERSION`: keep it out of `inbox_report_model_data`'s `deps`, and never stamp it with `FEATURE_SCHEMA_VERSION`, or a user-grain change sets off the labels refresh sensor. It writes a row only for a report in this region's Postgres whose team is in `training_consent_team_ids()`.
 - Register new jobs/schedules in `posthog/dags/locations/signals.py`, keep the EU gate (`is_inbox_ranking_registered()`), and remember the ci-dagster paths filter must cover every module a dag file imports (`uv run .github/scripts/check-dagster-paths.py`).
 
 ## Training dag specifics
