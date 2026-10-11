@@ -1357,7 +1357,7 @@ class ConfusionByCutoffSerializer(serializers.Serializer):
     top_10 = ConfusionCountsSerializer(help_text="Counts when the top 10% of users by score are flagged.")
     top_20 = ConfusionCountsSerializer(help_text="Counts when the top 20% of users by score are flagged.")
     likely = ConfusionCountsSerializer(
-        help_text=f"Counts when users with a score of {api.LIKELY_THRESHOLD} or higher (the Likely segment) are flagged."
+        help_text=("Counts when users in the Likely segment, with a score of likely_threshold or higher, are flagged.")
     )
 
 
@@ -1426,6 +1426,13 @@ class OnlinePerformanceRowSerializer(serializers.Serializer):
             "Null for dates validated before this metric existed."
         ),
     )
+    likely_threshold = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "The Likely cut point the 'likely' confusion counts used for this date, from the base rate of the "
+            "dates checked before it. Null when confusion is null."
+        ),
+    )
     calibration_bins = CalibrationBinSerializer(
         many=True,
         allow_null=True,
@@ -1442,6 +1449,50 @@ class OnlinePerformanceRowSerializer(serializers.Serializer):
     validated_at = serializers.DateTimeField(allow_null=True, help_text="When the validation run completed.")
 
 
+class PredictionSegmentThresholdsSerializer(serializers.Serializer):
+    likely_threshold = serializers.FloatField(
+        help_text=(
+            "Users with a score at or above this probability are in the Likely segment: likely_lift times the "
+            "base rate, capped halfway between the base rate and 1. A fixed cut point when base_rate is null."
+        )
+    )
+    possible_threshold = serializers.FloatField(
+        help_text=(
+            "Users with a score at or above this probability and below likely_threshold are in the Possible "
+            "segment, and users below it are Unlikely. Equal to base_rate, or a fixed cut point when base_rate is null."
+        )
+    )
+    likely_lift = serializers.FloatField(
+        help_text="How many times the base rate a score must reach to be in the Likely segment."
+    )
+    base_rate = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "Fraction of the champion's scored users who did the target event, pooled over the newest checked "
+            "dates. Null, and the fixed cut points apply, until those dates hold enough positives."
+        ),
+    )
+    base_rate_dates = serializers.IntegerField(help_text="Number of checked prediction dates the base rate pools.")
+    champion_mean_p_y = serializers.FloatField(
+        allow_null=True,
+        help_text=(
+            "The current champion's mean predicted probability over the checked dates it scored as champion. "
+            "Null until those dates hold enough positives."
+        ),
+    )
+    champion_base_rate = serializers.FloatField(
+        allow_null=True,
+        help_text="The real rate of the target event over the same dates as champion_mean_p_y.",
+    )
+    scores_miscalibrated = serializers.BooleanField(
+        help_text=(
+            "True when champion_mean_p_y is far above or below champion_base_rate. The scores "
+            "are then not probabilities (for example after class weighting in train.py), so a score of likely_lift "
+            "times the base rate does not mean the user is that many times as likely to convert."
+        )
+    )
+
+
 class OnlinePerformanceSerializer(serializers.Serializer):
     rows = OnlinePerformanceRowSerializer(
         many=True,
@@ -1449,6 +1500,12 @@ class OnlinePerformanceSerializer(serializers.Serializer):
             "One row per model per validated prediction date, newest date first. "
             "Empty until a prediction horizon has elapsed and online validation has run."
         ),
+    )
+    segment_thresholds = PredictionSegmentThresholdsSerializer(
+        help_text=(
+            "The current cut points between the Likely, Possible and Unlikely segments, set by lift over the "
+            "realized base rate. They do not depend on limit."
+        )
     )
 
 

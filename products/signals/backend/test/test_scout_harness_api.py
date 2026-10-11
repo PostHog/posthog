@@ -258,6 +258,24 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert row["emitted_report_ids"] == ["r-1"]
         assert row["edited_report_ids"] == ["r-2"]
 
+    @parameterized.expand([("list",), ("detail",)])
+    def test_deleted_reports_drop_out_of_the_touched_report_ids(self, surface: str) -> None:
+        live = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
+        deleted_author = SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
+        deleted_edit = SignalReport.objects.create(team=self.team, status=SignalReport.Status.DELETED)
+        run = _make_run(
+            self.team,
+            emitted_report_ids=[str(live.id), str(deleted_author.id)],
+            edited_report_ids=[str(deleted_edit.id)],
+        )
+        url = self._list_url() if surface == "list" else self._detail_url(str(run.id))
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        row = body[0] if surface == "list" else body
+        assert row["emitted_report_ids"] == [str(live.id)]
+        assert row["edited_report_ids"] == []
+
     @parameterized.expand([("emitted_true", "true"), ("emitted_false", "false")])
     def test_list_emitted_filter_keeps_only_the_matching_runs(self, _name: str, emitted_param: str) -> None:
         emitting = _make_run(self.team, emitted_count=1, emitted_finding_ids=["f-x"])
@@ -1764,6 +1782,215 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert config.allowed_mcp_tools == ["dashboard-create"]
 
 
+class TestScoutHarnessConfigLifecycleLockAPI(APIBaseTest):
+    def _list_url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/configs/"
+
+    def _detail_url(self, config_id: str) -> str:
+        return f"{self._list_url()}{config_id}/"
+
+    def _config(self, **kwargs) -> SignalScoutConfig:
+        return SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-hygiene", **kwargs)
+
+    def _authored_by(self, user: User) -> None:
+        LLMSkill.objects.create(team=self.team, name="signals-scout-hygiene", description="", body="", created_by=user)
+
+    def _other_member(self) -> User:
+        return User.objects.create_and_join(self.organization, "other@example.com", None)
+
+    def _become_admin(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    @parameterized.expand(
+        [
+            ("pause", {"enabled": False}),
+            ("stop_emitting", {"emit": False}),
+        ]
+    )
+    def test_a_locked_scout_refuses_a_lifecycle_write_from_another_member(self, _name: str, body: dict) -> None:
+        # The gap this closes: `signal_scout:write` is project-wide, so anyone holding it — a
+        # teammate, or an agent running on their credential — could silence any scout in the
+        # fleet. Resuming passes the enabled-scout maximum, so the pause does not undo in one step.
+        config = self._config(lifecycle_locked=True)
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(self._detail_url(str(config.id)), data=body, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        config.refresh_from_db()
+        assert config.enabled is True
+        assert config.emit is True
+
+    @parameterized.expand(
+        [
+            # The runs act as whoever authored the scout body, so that person keeps the lifecycle.
+            ("scout_author", True, False, status.HTTP_200_OK),
+            ("project_admin", False, True, status.HTTP_200_OK),
+            ("plain_member", False, False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_pausing_a_locked_scout_needs_the_acting_user_or_an_admin(
+        self, _name: str, is_author: bool, is_admin: bool, expected: int
+    ) -> None:
+        config = self._config(lifecycle_locked=True)
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_admin:
+            self._become_admin()
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
+
+        assert response.status_code == expected, response.json()
+        config.refresh_from_db()
+        assert config.enabled is (expected != status.HTTP_200_OK)
+
+    def test_an_unlocked_scout_keeps_the_plain_scope_bar(self) -> None:
+        # The lock is opt-in: without it the fleet must behave exactly as before, or every project
+        # that never asked for the guard loses its own pause button.
+        config = self._config()
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.enabled is False
+
+    def test_a_locked_scout_still_takes_an_ordinary_edit_that_resends_its_lifecycle(self) -> None:
+        # Clients resend whole config objects, so an unchanged `enabled` must not turn a schedule
+        # edit into a permission error.
+        config = self._config(lifecycle_locked=True)
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"enabled": True, "emit": True, "lifecycle_locked": True, "run_interval_minutes": 720},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        config.refresh_from_db()
+        assert config.run_interval_minutes == 720
+
+    @parameterized.expand(
+        [
+            # Turning the lock on decides who may turn it off, so it asks for the claim from the
+            # start — otherwise a member locks a scout out from under its author.
+            ("locking", False, True),
+            ("unlocking", True, False),
+        ]
+    )
+    def test_changing_the_lock_needs_the_acting_user_or_an_admin(self, _name: str, current: bool, requested: bool):
+        config = self._config(lifecycle_locked=current)
+        self._authored_by(self._other_member())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"lifecycle_locked": requested}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        config.refresh_from_db()
+        assert config.lifecycle_locked is current
+
+    def test_deleting_a_locked_scout_needs_the_acting_user_or_an_admin(self) -> None:
+        # Deletion is the one lifecycle action no cap or status can undo.
+        config = self._config(lifecycle_locked=True)
+        self._authored_by(self._other_member())
+
+        response = self.client.delete(self._detail_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert SignalScoutConfig.objects.filter(id=config.id).exists()
+
+    def test_the_create_upsert_cannot_pause_a_locked_scout(self) -> None:
+        # The create endpoint upserts, so a create body lands on the existing row as an edit —
+        # a gate only on PATCH would leave the same pause one POST away.
+        config = self._config(lifecycle_locked=True)
+        self._authored_by(self._other_member())
+
+        response = self.client.post(
+            self._list_url(),
+            data={"skill_name": "signals-scout-hygiene", "enabled": False},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        config.refresh_from_db()
+        assert config.enabled is True
+
+    def _archive_url(self) -> str:
+        return f"/api/projects/{self.team.id}/llm_skills/name/signals-scout-hygiene/archive"
+
+    def test_archiving_the_skill_cannot_delete_a_locked_scout_behind_the_lock(self) -> None:
+        # The delete flow archives the scout's skill first and only then deletes its config, so a
+        # gate on the config alone still let a non-owner stop a locked scout for good — and there
+        # is no unarchive. The archive has to refuse before it tombstones anything.
+        config = self._config(lifecycle_locked=True)
+        self._authored_by(self._other_member())
+
+        response = self.client.post(self._archive_url())
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert LLMSkill.objects.filter(name="signals-scout-hygiene", deleted=False).exists()
+        config.refresh_from_db()
+        assert config.enabled is True
+
+    @parameterized.expand(
+        [
+            ("scout_author", True, False, status.HTTP_204_NO_CONTENT),
+            ("project_admin", False, True, status.HTTP_204_NO_CONTENT),
+            ("plain_member", False, False, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_archiving_a_locked_scouts_skill_needs_the_acting_user_or_an_admin(
+        self, _name: str, is_author: bool, is_admin: bool, expected: int
+    ) -> None:
+        self._config(lifecycle_locked=True)
+        self._authored_by(self.user if is_author else self._other_member())
+        if is_admin:
+            self._become_admin()
+
+        response = self.client.post(self._archive_url())
+
+        assert response.status_code == expected, response.content
+        archived = not LLMSkill.objects.filter(name="signals-scout-hygiene", deleted=False).exists()
+        assert archived is (expected == status.HTTP_204_NO_CONTENT)
+
+    def test_archiving_an_unlocked_scouts_skill_keeps_the_plain_bar(self) -> None:
+        # The lock is opt-in, so a project that never turned it on must keep deleting scouts the
+        # way it always did.
+        self._config()
+        self._authored_by(self._other_member())
+
+        response = self.client.post(self._archive_url())
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not LLMSkill.objects.filter(name="signals-scout-hygiene", deleted=False).exists()
+
+    def test_archiving_an_ordinary_skill_is_untouched_by_the_guard(self) -> None:
+        # The guard runs on every archive in the project, so a skill that is not a scout at all
+        # must not pay for it.
+        LLMSkill.objects.create(team=self.team, name="not-a-scout", description="", body="")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/llm_skills/name/not-a-scout/archive")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not LLMSkill.objects.filter(name="not-a-scout", deleted=False).exists()
+
+    def test_the_owner_locks_the_scout_and_the_read_surfaces_it(self) -> None:
+        # Wiring guard: the flag has to round-trip through the update serializer and the read
+        # shape, or the settings UI cannot show or set the lock at all.
+        config = self._config()
+        self._authored_by(self.user)
+
+        response = self.client.patch(self._detail_url(str(config.id)), data={"lifecycle_locked": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["lifecycle_locked"] is True
+        config.refresh_from_db()
+        assert config.lifecycle_locked is True
+
+
 class TestWriteScopesValidation(SimpleTestCase):
     @parameterized.expand(
         [
@@ -2725,6 +2952,30 @@ class TestRunCronScheduleValidation(SimpleTestCase):
 
         assert serializer.is_valid()
         assert serializer.validated_data["run_cron_schedule"] is None
+
+
+_PRECHECK_QUERY = "SELECT 1 FROM events WHERE timestamp > {since} AND timestamp <= {now}"
+
+
+class TestPrecheckQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("placeholders", _PRECHECK_QUERY, True, _PRECHECK_QUERY),
+            ("padded", "  SELECT 1  ", True, "SELECT 1"),
+            ("blank_turns_it_off", "   ", True, None),
+            ("syntax_error", "SELEC 1", False, None),
+            ("unknown_placeholder", "SELECT 1 WHERE {nope}", False, None),
+            ("not_a_select", "DELETE FROM events", False, None),
+        ]
+    )
+    def test_precheck_query_validation(self, _name: str, query: str, valid: bool, expected: str | None) -> None:
+        serializer = SignalScoutConfigUpdateSerializer(data={"precheck_query": query}, partial=True)
+
+        assert serializer.is_valid() is valid
+        if valid:
+            assert serializer.validated_data["precheck_query"] == expected
+        else:
+            assert "precheck_query" in serializer.errors
 
 
 class TestScoutHarnessConfigAPI(APIBaseTest):

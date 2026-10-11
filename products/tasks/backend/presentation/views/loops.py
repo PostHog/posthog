@@ -140,7 +140,7 @@ def _content_length(request) -> int:
 @extend_schema(tags=["loops"])
 class LoopViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """API for managing loops — named, cloud-executed agent automations triggered by
-    schedule, GitHub events or authenticated API calls. See `products/tasks/docs/LOOPS.md`."""
+    schedule, GitHub events or authenticated API calls."""
 
     authentication_classes = [
         ProjectSecretAPIKeyAuthentication,

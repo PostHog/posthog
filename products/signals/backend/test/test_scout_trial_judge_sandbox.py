@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
+from threading import Event
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -149,6 +150,37 @@ class TestSandboxJudgeDispatch(BaseTest):
         )
         self.assertEqual(TaskRun.objects.filter(team_id=self.team.id, task=run.task).count(), 1)
         self.dispatch.assert_called_once()
+
+    def test_collecting_saved_output_does_not_block_the_event_loop(self) -> None:
+        self.assertIsNone(async_to_sync(judge_trial_run)(self.snapshot, self.evidence))
+        run = TaskRun.objects.get(team_id=self.team.id, task__origin_key__startswith="scout-trial-judge:")
+        run.status = TaskRun.Status.COMPLETED
+        run.output = self.output.model_dump(mode="json")
+        run.save(update_fields=["status", "output"])
+
+        async def collect_with_concurrent_work() -> None:
+            loop = asyncio.get_running_loop()
+            parser_started = asyncio.Event()
+            concurrent_work_finished = Event()
+
+            def blocking_parse(*_args: object, **_kwargs: object) -> TrialJudgeVerdicts:
+                loop.call_soon_threadsafe(parser_started.set)
+                self.assertTrue(concurrent_work_finished.wait(timeout=5), "Parsing blocked the event loop")
+                return self.output
+
+            async def concurrent_work() -> None:
+                await parser_started.wait()
+                concurrent_work_finished.set()
+
+            with patch(f"{MODULE}.parse_trial_judgment", side_effect=blocking_parse):
+                result, _ = await asyncio.gather(
+                    judge_trial_run(self.snapshot, self.evidence),
+                    concurrent_work(),
+                )
+            assert result is not None
+            self.assertEqual((result.status, result.criteria), ("judged", self.output.criteria))
+
+        async_to_sync(collect_with_concurrent_work)()
 
     @parameterized.expand([("no_output", False), ("output_saved_without_completion", True)])
     @time_machine.travel("2026-08-01T12:00:00Z", tick=False)

@@ -123,6 +123,7 @@ post_delete:products.tasks.backend.models.delete_task_session_object
 post_delete:products.tasks.backend.search_index.channel_deleted
 post_delete:products.web_analytics.backend.heatmap_history_expiry.delete_request_images
 post_delete:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_deleted
+post_delete:products.workflows.backend.receivers.optimization_deleted
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_oauth
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_secret_key
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_user
@@ -259,6 +260,7 @@ post_save:products.workflows.backend.models.hog_flow.hog_flow.action_saved_for_h
 post_save:products.workflows.backend.models.hog_flow.hog_flow.hog_flow_saved
 post_save:products.workflows.backend.models.hog_flow.hog_flow.team_saved_for_hog_flows
 post_save:products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.handle_hog_flow_batch_job_created
+post_save:products.workflows.backend.receivers.workflow_saved
 pre_delete:ee.models.scim_provisioned_user.clear_scim_provisioned_user_config
 pre_delete:posthog.models.activity_logging.signal_handlers.handle_experiment_holdout_delete
 pre_delete:posthog.models.activity_logging.signal_handlers.handle_experiment_saved_metric_delete

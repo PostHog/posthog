@@ -3,6 +3,7 @@ import uuid
 import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -1226,7 +1227,9 @@ def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str
         return False
     with transaction.atomic():
         try:
-            archive_skill(team, config.skill_name)
+            # No acting user: the owning product retires its own object's scout and has already
+            # authorized that against the object, so the per-scout lifecycle lock does not apply.
+            archive_skill(team, config.skill_name, acting_user=None)
         except LLMSkillNotFoundError:
             pass  # Already archived; the config is the orphan being cleaned up.
         config.delete()
@@ -1400,3 +1403,183 @@ def scout_creation_available(*, team_id: int, user_id: int) -> bool:
     if not team_is_enrolled(canonical_team.id):
         return False
     return can_create_scout(user, canonical_team)
+
+
+def enable_scout_for_product(
+    *,
+    team: "Team",
+    skill_name: str,
+    source_product: str,
+    acting_user: "User",
+    write_scopes: Sequence[str] = (),
+) -> bool:
+    """Switch a canonical scout on for a project because a person asked for it in another product.
+
+    The project gets that one skill and an enabled config the product owns. `acting_user` becomes
+    the person the runs act as, because they turned the feature on. `write_scopes` is limited to
+    `SCOUT_GRANTABLE_WRITE_SCOPES`. The caller must already have checked that this person may
+    grant those scopes. It applies the same rules as the scout config API: the person needs editor
+    access to skills, a new scout must fit the project's enabled-scout limit, and only a project
+    admin or the person the runs act as may give a new scout write scopes or widen an existing grant.
+    Returns False without writing when a rule refuses, when the organization has not approved AI data processing, when the scout
+    is paused by a person or by the system, or when another product owns its config.
+    """
+    from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the facade's import path
+        SCOUT_GRANTABLE_WRITE_SCOPES,
+    )
+
+    from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415 — keeps access control off the facade's import path
+        UserAccessControl,
+    )
+    from products.signals.backend.scout_harness.config_registry import (  # noqa: PLC0415 — keeps the scout registry off the facade's import path
+        enabled_scout_count,
+    )
+    from products.signals.backend.scout_harness.lazy_seed import (  # noqa: PLC0415 — keeps the skill seeding modules off the facade's import path
+        canonical_config_tags_for,
+        canonical_display_name_for,
+        canonical_skill_names,
+        canonical_structured_output_schema_for,
+        sync_canonical_skills,
+    )
+    from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — keeps the flag payload reader off the facade's import path
+        max_enabled_scouts_for_team,
+    )
+
+    if skill_name not in canonical_skill_names():
+        raise ValueError(f"{skill_name} is not a canonical scout")
+    if team.organization.is_ai_data_processing_approved is not True:
+        return False
+    scopes = sorted(set(write_scopes) & SCOUT_GRANTABLE_WRITE_SCOPES)
+    if not UserAccessControl(user=acting_user, team=team).check_access_level_for_resource("llm_skill", "editor"):
+        return False
+
+    sync_canonical_skills(team, withheld_skill_names=canonical_skill_names() - {skill_name})
+    defaults: dict[str, Any] = {
+        "source_product": source_product,
+        "enabled": True,
+        "write_scopes": scopes,
+        "created_by": acting_user,
+        "enabled_by": acting_user,
+    }
+    if tags := canonical_config_tags_for(skill_name):
+        defaults["tags"] = list(tags)
+    if display_name := canonical_display_name_for(skill_name):
+        defaults["display_name"] = display_name
+    if schema := canonical_structured_output_schema_for(skill_name):
+        defaults["structured_output_schema"] = schema
+    # Resolved before the transaction, so the flag read never happens while the row lock is held.
+    max_enabled_scouts = max_enabled_scouts_for_team(team.id)
+    with transaction.atomic():
+        config = SignalScoutConfig.objects.for_team(team.id).select_for_update().filter(skill_name=skill_name).first()
+        if config is None:
+            if enabled_scout_count(team.id, exclude_skill=skill_name) >= max_enabled_scouts:
+                return False
+            if scopes and not _may_grant_scout_scopes(
+                team=team, skill_name=skill_name, config=None, acting_user=acting_user
+            ):
+                return False
+            config, created = SignalScoutConfig.objects.for_team(team.id).get_or_create(
+                team_id=team.id, skill_name=skill_name, defaults=defaults
+            )
+            if created:
+                return True
+        # A config this product did not create is somebody's own scout, and its write access is theirs to grant.
+        # A paused config stays paused, whether a person or a system breaker paused it.
+        if config.source_product != source_product or not config.enabled:
+            return False
+        granted = sorted(set(config.write_scopes or []) | set(scopes))
+        if granted != sorted(config.write_scopes or []):
+            if not _may_grant_scout_scopes(team=team, skill_name=skill_name, config=config, acting_user=acting_user):
+                return False
+            config.write_scopes = granted
+            config.save(update_fields=["write_scopes", "updated_at"])
+    return True
+
+
+def _may_grant_scout_scopes(
+    *, team: "Team", skill_name: str, config: SignalScoutConfig | None, acting_user: "User"
+) -> bool:
+    """Whether this person may give a scout write access, given that its runs act as the person `resolve_scout_acting_user_id` names."""
+    from posthog.models.organization import (
+        OrganizationMembership,  # noqa: PLC0415 — keeps the membership model off the facade's import path
+    )
+    from posthog.user_permissions import (
+        UserPermissions,  # noqa: PLC0415 — keeps the permission resolver off the facade's import path
+    )
+
+    from products.signals.backend.scout_harness.skill_loader import (  # noqa: PLC0415 — keeps the skill loader off the facade's import path
+        resolve_scout_acting_user_id,
+    )
+
+    level = UserPermissions(user=acting_user, team=team).current_team.effective_membership_level
+    if level is not None and level >= OrganizationMembership.Level.ADMIN:
+        return True
+    acting_user_id = resolve_scout_acting_user_id(team, skill_name, config)
+    # A new config records the requester as its enabler, so without a skill author its runs act as them.
+    if config is None and acting_user_id is None:
+        return True
+    return acting_user_id == acting_user.pk
+
+
+class ScoutEnableRefusal(StrEnum):
+    AI_NOT_APPROVED = "ai_not_approved"
+    NO_SKILL_ACCESS = "no_skill_access"
+    AT_LIMIT = "at_limit"
+    NOT_SKILL_AUTHOR = "not_skill_author"
+
+
+def scout_enable_refusal_for_product(
+    *, team: "Team", skill_name: str, acting_user: "User", write_scopes: Sequence[str] = ()
+) -> ScoutEnableRefusal | None:
+    """Why `enable_scout_for_product` would create no scout for this person, without writing anything.
+
+    Returns None when the project already has a config for the skill, paused or not, because switching
+    the feature on then creates nothing new. A caller asks before it saves the person's choice, so a
+    refused choice is never stored.
+    """
+    from products.signals.backend.scout_harness.config_registry import (  # noqa: PLC0415 — keeps the scout registry off the facade's import path
+        enabled_scout_count,
+    )
+    from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — keeps the flag payload reader off the facade's import path
+        max_enabled_scouts_for_team,
+    )
+
+    if SignalScoutConfig.objects.for_team(team.id).filter(skill_name=skill_name).exists():
+        return None
+    if team.organization.is_ai_data_processing_approved is not True:
+        return ScoutEnableRefusal.AI_NOT_APPROVED
+    if not UserAccessControl(user=acting_user, team=team).check_access_level_for_resource("llm_skill", "editor"):
+        return ScoutEnableRefusal.NO_SKILL_ACCESS
+    if enabled_scout_count(team.id, exclude_skill=skill_name) >= max_enabled_scouts_for_team(team.id):
+        return ScoutEnableRefusal.AT_LIMIT
+    if write_scopes and not _may_grant_scout_scopes(
+        team=team, skill_name=skill_name, config=None, acting_user=acting_user
+    ):
+        return ScoutEnableRefusal.NOT_SKILL_AUTHOR
+    return None
+
+
+def scout_status_for_product(*, team_id: int, skill_name: str) -> str | None:
+    """The scout config's status for the skill, or None when the project has no config for it."""
+    return (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name)
+        .values_list("status", flat=True)
+        .first()
+    )
+
+
+def disable_scout_for_product(*, team_id: int, skill_name: str, source_product: str) -> bool:
+    """Remove the config a product created when it switched a scout on.
+
+    A config the product did not create is left alone, so a scout a person set up keeps running. A
+    paused config is kept, whether a person or the system paused it, so the pause still holds if the
+    product switches the scout on again. A lifecycle-locked config is kept too, because only a project
+    admin or the person its runs act as may remove it. The run history stays. Returns False when nothing was removed.
+    """
+    deleted, _ = (
+        SignalScoutConfig.objects.for_team(team_id)
+        .filter(skill_name=skill_name, source_product=source_product, enabled=True, lifecycle_locked=False)
+        .delete()
+    )
+    return deleted > 0

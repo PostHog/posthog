@@ -1,6 +1,6 @@
 """Daily modeling dataset for the Self-driving Inbox report-ranking model.
 
-Six assets on one daily partition, each writing Parquet under the configured S3 prefix:
+Seven assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
     inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
@@ -8,11 +8,14 @@ Six assets on one daily partition, each writing Parquet under the configured S3 
     inbox_report_model_data/v1/dt=D/        materialized join of the three, plus a rewritten latest/
     inbox_signal_embeddings/v1/dt=D/        one row per signal emission during D, for the group-level model
     inbox_report_title_embeddings/v1/dt=D/  the same shape, for the title-only rendering
+    inbox_report_reviewers/v1/dt=D/         one row per suggested reviewer of each spine report
 
 The first four are report grain and feed one table. inbox_signal_embeddings is signal grain and is
 read on its own, joined to the others by report_id at training time. inbox_report_title_embeddings
 is a report-grain leaf: nothing joins it, and the training side pairs it to inbox_report_embeddings
-by report_id when it measures one rendering against the other.
+by report_id when it measures one rendering against the other. inbox_report_reviewers is a
+(report, reviewer) leaf with its own schema version: nothing joins it, and the training side pairs
+it to the report tables by report_id.
 
 Partition dt=D is a full snapshot of the eligible report inventory (promoted or ever-labeled),
 with every label aggregate bounded `event_time < D+1 00:00 UTC`. Label columns are cumulative,
@@ -43,7 +46,11 @@ Point-in-time caveats, per source:
   values: promoted_at is cleared on suppression and snooze, so a report promoted before the cutoff
   and suppressed after it drops out of the spine unless a label event referenced it in time. A
   spine derived from immutable promotion history (the status telemetry carries promoted_at) is the
-  fix, and is a v2 change.
+  fix, and is a v2 change;
+- suggested reviewers are current-state-only too. The source index is rebuilt in full on every
+  reviewer change, and the reviewer artefacts can be edited in place or deleted, so no record of an
+  earlier set survives. A forward-run partition holds the set at run time, and a backfilled
+  partition holds today's set, flagged by features_observed_at.
 """
 
 import json
@@ -60,8 +67,15 @@ from posthog import settings
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries
 from posthog.dags.common import dagster_tags
+from posthog.dataclasses import frozen
+from posthog.models import OrganizationMembership, Team, User
 
-from products.signals.backend.models import SignalReport, SignalReportAction, SignalReportArtefact
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalReportArtefact,
+    SignalReportSuggestedReviewer,
+)
 from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.report_embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -69,6 +83,7 @@ from products.signals.backend.report_embeddings import (
     EMBEDDING_RENDERING_TITLE,
     EMBEDDING_RENDERING_TITLE_SUMMARY,
 )
+from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.signals.backend.signal_metadata import (
     SIGNAL_DOCUMENT_PRODUCT,
     SIGNAL_DOCUMENT_RENDERING,
@@ -126,6 +141,11 @@ TITLE_EMBEDDINGS_TABLE = "inbox_report_title_embeddings"
 LABELS_TABLE = "inbox_report_labels"
 MODEL_DATA_TABLE = "inbox_report_model_data"
 SIGNAL_EMBEDDINGS_TABLE = "inbox_signal_embeddings"
+REVIEWERS_TABLE = "inbox_report_reviewers"
+
+# The reviewers asset is a leaf with its own columns, so its schema moves apart from
+# FEATURE_SCHEMA_VERSION. The same rule applies: additive nullable columns bump it.
+REVIEWERS_SCHEMA_VERSION = 1
 
 COMMON_ASSET_KWARGS: dict[str, Any] = {
     "group_name": "inbox_ranking",
@@ -208,6 +228,21 @@ _SIGNAL_EMBEDDING_FIELDS: list[tuple[str, pa.DataType]] = [
     ("rejected_signal_count", pa.int32()),
 ]
 SIGNAL_EMBEDDINGS_SCHEMA = pa.schema(_SIGNAL_EMBEDDING_FIELDS)
+
+_REVIEWER_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("snapshot_date", pa.date32()),
+    ("features_observed_at", _TIMESTAMP),
+    ("report_id", pa.string()),
+    ("report_team_id", pa.int64()),
+    ("artefact_id", pa.string()),
+    ("artefact_created_at", _TIMESTAMP),
+    ("artefact_actor_kind", pa.string()),
+    ("github_login", pa.string()),
+    ("user_uuid", pa.string()),
+    ("user_distinct_id", pa.string()),
+    ("identity_resolution", pa.string()),
+]
+REVIEWERS_SCHEMA = pa.schema(_REVIEWER_FIELDS)
 
 # What makes one emission distinct from another, so a re-run can tell a row it already archived from
 # a genuinely new one. embedding_inserted_at is the version: the source keys a signal by
@@ -576,6 +611,154 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                 len(spine_teams) - len(ordered_spine_ids)
             ),
             "excluded_no_training_consent_teams": dagster.MetadataValue.int(len(excluded_teams)),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
+@frozen
+class MemberDistinctIds:
+    by_uuid: dict[str, str]
+    by_login: dict[str, str]
+
+
+def _member_distinct_ids(
+    team_id: int, user_uuids: Collection[str], github_logins: Collection[str]
+) -> MemberDistinctIds:
+    """Distinct ids of the team organization's members, keyed by uuid and by lowercased login.
+
+    A uuid that names no member of that organization does not resolve: an artefact can be edited
+    through the API, so its uuid is claimed and not proven.
+    """
+    by_uuid: dict[str, str] = {}
+    org_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if user_uuids and org_id is not None:
+        by_uuid = {
+            str(user_uuid): str(distinct_id)
+            for user_uuid, distinct_id in User.objects.filter(
+                uuid__in=sorted(user_uuids),
+                id__in=OrganizationMembership.objects.filter(organization_id=org_id).values("user_id"),
+            ).values_list("uuid", "distinct_id")
+        }
+    by_login = {
+        login: str(user.distinct_id)
+        for login, user in resolve_org_github_login_to_users(team_id, github_logins).items()
+    }
+    return MemberDistinctIds(by_uuid=by_uuid, by_login=by_login)
+
+
+def reviewer_rows(
+    report_teams: Mapping[str, int],
+    *,
+    snapshot_date: datetime.date,
+    features_observed_at: datetime.datetime,
+) -> list[dict[str, Any]]:
+    """One row per entry of each report's current reviewer index, for the reports given.
+
+    `user_distinct_id` comes from the uuid when it names a member, and from the login otherwise.
+    An entry that maps to no member stays as a row with a null distinct id, so a reviewer with no
+    history is counted and not dropped.
+    """
+    entries_by_team: dict[int, list[dict[str, Any]]] = {}
+    for chunk in _chunked(sorted(report_teams)):
+        for entry in (
+            SignalReportSuggestedReviewer.all_teams.filter(report_id__in=chunk)
+            .values(
+                "report_id",
+                "team_id",
+                "artefact_id",
+                "artefact__created_at",
+                "artefact__actor_kind",
+                "github_login",
+                "user_uuid",
+            )
+            .iterator(chunk_size=2000)
+        ):
+            entries_by_team.setdefault(entry["team_id"], []).append(
+                {
+                    "snapshot_date": snapshot_date,
+                    "features_observed_at": features_observed_at,
+                    "report_id": str(entry["report_id"]),
+                    "report_team_id": entry["team_id"],
+                    "artefact_id": str(entry["artefact_id"]),
+                    "artefact_created_at": ensure_utc(entry["artefact__created_at"]),
+                    "artefact_actor_kind": entry["artefact__actor_kind"],
+                    "github_login": entry["github_login"].lower() if entry["github_login"] else None,
+                    "user_uuid": str(entry["user_uuid"]) if entry["user_uuid"] else None,
+                }
+            )
+
+    rows: list[dict[str, Any]] = []
+    for team_id, team_rows in entries_by_team.items():
+        members = _member_distinct_ids(
+            team_id,
+            {row["user_uuid"] for row in team_rows if row["user_uuid"]},
+            {row["github_login"] for row in team_rows if row["github_login"]},
+        )
+        for row in team_rows:
+            if row["user_uuid"] in members.by_uuid:
+                row["user_distinct_id"], row["identity_resolution"] = members.by_uuid[row["user_uuid"]], "user_uuid"
+            elif row["github_login"] in members.by_login:
+                row["user_distinct_id"], row["identity_resolution"] = (
+                    members.by_login[row["github_login"]],
+                    "github_login",
+                )
+            else:
+                row["user_distinct_id"], row["identity_resolution"] = None, "unresolved"
+            rows.append(row)
+    rows.sort(
+        key=lambda row: (
+            row["report_id"],
+            row["artefact_created_at"],
+            row["github_login"] or "",
+            row["user_uuid"] or "",
+        )
+    )
+    return rows
+
+
+@dagster.asset(name=REVIEWERS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_report_reviewers(context: dagster.AssetExecutionContext) -> None:
+    """The suggested reviewers of every spine report, for the (report, reviewer) affinity model.
+
+    A leaf with its own schema version: nothing joins it, so a failure here leaves the training
+    table alone. The source is current-state-only, so a backfilled partition carries today's set,
+    flagged by features_observed_at. Only forward-run partitions record the set near the cutoff.
+    """
+    if skip_unconfigured(context):
+        return
+    partition_key = context.partition_key
+    _, snapshot_end = snapshot_bounds(partition_key)
+    snapshot_date = datetime.date.fromisoformat(partition_key)
+    features_observed_at = datetime.datetime.now(datetime.UTC)
+
+    consent_team_ids = training_consent_team_ids()
+    spine_teams = {
+        str(report_id): team_id
+        for report_id, team_id in SignalReport.objects.filter(spine_report_filter(snapshot_end)).values_list(
+            "id", "team_id"
+        )
+    }
+    report_teams = {report_id: team_id for report_id, team_id in spine_teams.items() if team_id in consent_team_ids}
+    rows = reviewer_rows(report_teams, snapshot_date=snapshot_date, features_observed_at=features_observed_at)
+
+    bucket = dataset_bucket()
+    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, REVIEWERS_TABLE, partition_key)
+    write_parquet(
+        s3_client(),
+        bucket,
+        key,
+        pa.Table.from_pylist(rows, schema=REVIEWERS_SCHEMA),
+        schema_version=REVIEWERS_SCHEMA_VERSION,
+    )
+    context.add_output_metadata(
+        {
+            "rows": dagster.MetadataValue.int(len(rows)),
+            "reports_with_reviewers": dagster.MetadataValue.int(len({row["report_id"] for row in rows})),
+            "unresolved_rows": dagster.MetadataValue.int(
+                sum(1 for row in rows if row["identity_resolution"] == "unresolved")
+            ),
+            "excluded_no_training_consent_reports": dagster.MetadataValue.int(len(spine_teams) - len(report_teams)),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
     )
@@ -1052,6 +1235,7 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         LABELS_TABLE,
         MODEL_DATA_TABLE,
         TITLE_EMBEDDINGS_TABLE,
+        REVIEWERS_TABLE,
     ],
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and
