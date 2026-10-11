@@ -38,6 +38,7 @@ from products.exports.backend.facade.api import export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
+    FAILURE_TYPE_USER,
     BrowserlessUnavailable,
     InvalidExportContext,
     classify_failure_type,
@@ -704,6 +705,7 @@ def export_image(
                         "dashboard_id": exported_asset.dashboard_id,
                     },
                 )
-            else:
+            # A broken saved query is the user's to fix, and the asset already records it.
+            elif classify_failure_type(e) != FAILURE_TYPE_USER:
                 capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             raise
