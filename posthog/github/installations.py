@@ -96,13 +96,8 @@ def installation_team_ids(payload: dict) -> list[int]:
     if external_id is None:
         return []
 
-    # One installation can map to multiple teams; order_by makes attribution deterministic.
-    return list(
-        Integration.objects.using(SCOPE_DB_ALIAS)
-        .filter(kind="github", integration_id=external_id)
-        .order_by("team_id")
-        .values_list("team_id", flat=True)
-    )
+    # One installation can map to multiple teams; the ordering makes attribution deterministic.
+    return [integration.team_id for integration in installation_integrations(external_id)]
 
 
 def _resolve_external_team(payload: dict) -> Team | None:

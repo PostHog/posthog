@@ -4,7 +4,7 @@ Code about GitHub that more than one product needs and that is neither transport
 Inbound transport is `posthog/ingress/github/`, outbound calls are `posthog/egress/github/`, and neither imports the other.
 Both may import this package.
 
-- `installations.py` reads the installation id off a payload and resolves the teams linked to it. Inside `installation_lookup_scope()`, `installation_integrations()` runs once per installation, which is how the GitHub webhook consumers share it. Outside a scope every call reads fresh rows.
+- `installations.py` reads the installation id off a payload and resolves the teams linked to it. Inside `installation_lookup_scope()` the lookup runs once per installation, which is how the GitHub webhook consumers share it. Outside a scope every call reads fresh rows.
 - `attribution.py` resolves a GitHub login to an organization member, under a bounded statement timeout, so a slow lookup degrades to no attribution.
 - `pull_request_events.py` emits the canonical `pr_created`, `pr_closed`, `pr_merged` and `pr_reviewed` analytics events.
 - `metrics.py` holds the Prometheus counters for dropped events and attribution outcomes.
