@@ -767,7 +767,9 @@ export const columnTileConfig: {
 ) as any
 
 function buildNativeCostExpr(mappings: SourceColumnMappings): string {
-    return mappings.costNeedsDivision ? `toFloat(${mappings.cost} / 1000000)` : `toFloat(${mappings.cost})`
+    // Some sources sync their cost column as a string, so cast before the division
+    const costExpr = safeFloat(mappings.cost)
+    return mappings.costNeedsDivision ? `${costExpr} / 1000000` : costExpr
 }
 
 function buildNativeTileNode(
