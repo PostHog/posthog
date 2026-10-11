@@ -60,12 +60,6 @@ _WINDOW_END = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 _RESPONSE: dict = {"results": [], "columns": []}
 
 
-@pytest.fixture(autouse=True)
-def _charts_flag_on():
-    with patch(f"{_RP}.charts_enabled", return_value=True):
-        yield
-
-
 def _test_window() -> ReportWindow:
     return ReportWindow(start=_WINDOW_END - timedelta(days=1), end=_WINDOW_END)
 
@@ -1084,39 +1078,40 @@ async def test_only_a_spec_invalid_chart_drop_blocks_freezing(
 
 @parameterized.expand(
     [
-        ("flag_off", False, True, False),
-        ("flag_on", True, True, True),
-        # A report that hides its charts closes the same gate as an unflagged team, so it
+        ("no_distinct_id", None, True, False),
+        ("enabled", "user-1", True, True),
+        # A report that hides its charts closes the same gate as a user without a distinct_id, so it
         # builds no chart candidate and renders no PNG.
-        ("charts_not_included", True, False, False),
+        ("charts_not_included", "user-1", False, False),
     ]
 )
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
-@patch(f"{_RP}.charts_enabled")
 @patch(f"{_RP}.render_charts", new_callable=AsyncMock)
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
-async def test_charts_render_only_for_a_flagged_team_that_includes_them(
+async def test_charts_render_only_for_an_enabled_user_whose_report_includes_them(
     _name: str,
-    enabled: bool,
+    distinct_id: str | None,
     include_charts: bool,
     expected: bool,
     mock_bep: MagicMock,
     mock_run: AsyncMock,
     mock_render: AsyncMock,
-    mock_enabled: MagicMock,
     mock_chat: MagicMock,
     _capture: MagicMock,
 ) -> None:
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = _charted_run()
-    mock_enabled.return_value = enabled
     mock_render.return_value = ([], [])
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
     await generate_ai_report(
-        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), include_charts=include_charts
+        team=MagicMock(),
+        user=MagicMock(distinct_id=distinct_id),
+        prompt="x",
+        window=_test_window(),
+        include_charts=include_charts,
     )
 
     assert mock_run.call_args.kwargs["charts_enabled_for_team"] is expected
