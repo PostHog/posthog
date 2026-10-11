@@ -226,6 +226,18 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         help_text="Incremental materialization progress: watermark, definition_fingerprint, "
         "last_full_refresh_at, last_run_mode. System-written, not user-editable.",
     )
+    snapshot_config = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="Snapshot materialization settings: unique_key. Null means snapshot mode is disabled.",
+    )
+    snapshot_state = models.JSONField(
+        default=None,
+        null=True,
+        blank=True,
+        help_text="System-written snapshot generation and observation state.",
+    )
 
     def _validate_models_namespace(self) -> None:
         if self.name == "models":

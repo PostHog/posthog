@@ -53,7 +53,7 @@ from products.warehouse_sources.backend.facade.hogql import (
 )
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
-from . import incremental_config, sync_cadence, view_description, view_state
+from . import incremental_config, snapshot_config, sync_cadence, view_description, view_state
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -238,6 +238,20 @@ class DataWarehouseSavedQuerySerializer(
     has_incremental_history = serializers.SerializerMethodField(
         help_text="Whether incremental settings participated in any materialization run."
     )
+    snapshot = snapshot_config.SnapshotConfigSerializer(
+        source="snapshot_config",
+        required=False,
+        allow_null=True,
+        help_text="Keep a history of changes observed each time this query runs.",
+    )
+    snapshot_state = snapshot_config.SnapshotStateSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="System-written snapshot observation and generation state.",
+    )
+    materialization_mode = serializers.SerializerMethodField(
+        help_text="Effective materialization mode: full_refresh, incremental, or snapshot."
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -249,6 +263,9 @@ class DataWarehouseSavedQuerySerializer(
             "incremental",
             "incremental_state",
             "has_incremental_history",
+            "snapshot",
+            "snapshot_state",
+            "materialization_mode",
             "created_by",
             "created_at",
             "updated_at",
@@ -543,6 +560,32 @@ class DataWarehouseSavedQuerySerializer(
                 raise exceptions.NotFound("Not found.")
             before_update = copy.copy(locked_instance)
 
+            # validate() read the row before the lock, so a first generation can publish after it.
+            if (
+                "snapshot_config" in validated_data
+                and locked_instance.snapshot_state
+                and validated_data["snapshot_config"] != locked_instance.snapshot_config
+            ):
+                raise serializers.ValidationError(
+                    {"snapshot": "Snapshot configuration cannot change after history exists. Create another model."}
+                )
+
+            if inferred_columns is not None and locked_instance.snapshot_state:
+                # Every later run compares against the first generation's schema and fails on drift,
+                # so a query whose output changed would save now and break at the next run.
+                def _shape(columns: object) -> dict[str, object]:
+                    if not isinstance(columns, dict):
+                        return {}
+                    return {
+                        str(name): column.get("clickhouse") if isinstance(column, dict) else column
+                        for name, column in columns.items()
+                    }
+
+                if _shape(inferred_columns) != _shape(locked_instance.columns):
+                    raise serializers.ValidationError(
+                        {"query": "Output columns cannot change after snapshot history exists. Create another model."}
+                    )
+
             query_changed = "query" in validated_data and validated_data["query"] != locked_instance.query
 
             if query_changed and not soft_update and locked_instance.query_revision is not None:
@@ -708,6 +751,30 @@ class DataWarehouseSavedQuerySerializer(
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+
+        snapshot = attrs.get("snapshot_config", self.instance.snapshot_config if self.instance is not None else None)
+        incremental = attrs.get(
+            "incremental_config", self.instance.incremental_config if self.instance is not None else None
+        )
+        if isinstance(snapshot, dict) and snapshot and isinstance(incremental, dict) and incremental.get("enabled"):
+            raise serializers.ValidationError(
+                {"snapshot": "Snapshot and incremental materialization cannot be enabled together."}
+            )
+        # A config the model already has stays editable when the flag is off; the worker then refuses its runs.
+        stored_snapshot = self.instance.snapshot_config if self.instance is not None else None
+        if (
+            isinstance(snapshot, dict)
+            and snapshot
+            and snapshot != stored_snapshot
+            and not modeling_api.snapshot_materialization_enabled(self.context["team_id"])
+        ):
+            raise serializers.ValidationError(
+                {"snapshot": "Snapshot materialization isn't available for this project yet."}
+            )
+        if self.instance is not None and self.instance.snapshot_state and snapshot != self.instance.snapshot_config:
+            raise serializers.ValidationError(
+                {"snapshot": "Snapshot configuration cannot change after history exists. Create another model."}
+            )
 
         # Falls back to the stored config so editing the query of an already-incremental view is
         # checked too. Otherwise a query that incremental cannot serve would save while the view

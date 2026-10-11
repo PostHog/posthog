@@ -85,6 +85,8 @@ NON_RETRYABLE_ERRORS = [
     "EmptyHogQLResponseColumnsError",
     "DuplicateOutputColumnError",
     "UnstorableIntegerError",
+    "SnapshotValidationError",
+    "SnapshotPublicationConflict",
 ]
 
 CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH = "data-modeling-clickhouse-run-without-trino-shadow"
@@ -304,6 +306,8 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                     file_uris=materialize_result.file_uris,
                     row_count=materialize_result.row_count,
                     incremental=materialize_result.incremental,
+                    snapshot_generation_uri=materialize_result.snapshot_generation_uri,
+                    snapshot_state=materialize_result.snapshot_state,
                 )
                 if quality_audit == QUALITY_AUDIT_GATE:
                     stage_result: StageQueryableFilesResult = await temporalio.workflow.execute_activity(

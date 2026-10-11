@@ -62,6 +62,7 @@ from products.customer_analytics.backend.facade.temporal import stage_warehouse_
 from products.customer_analytics.backend.facade.temporal_contracts import StageAccountPropertySyncInput
 from products.data_modeling.backend.facade.api import (
     TRINO_INCREMENTAL_SCOPE,
+    SnapshotPublicationConflict,
     compute_enrichment_hash,
     definition_fingerprint,
     get_incremental_config,
@@ -151,6 +152,20 @@ class TestMaterializeViewManagedWarehouseActivity:
             is_ready.assert_called_once_with(organization_id=ateam.organization_id)
         else:
             is_ready.assert_not_called()
+
+    async def test_shadow_skips_snapshot_models(self, activity_environment, ateam, anode, adag) -> None:
+        # Snapshot history is built only on ClickHouse; a shadow engine would rebuild the view or
+        # fail on every run and get the node suspended for that engine.
+        saved_query = await database_sync_to_async(lambda: anode.saved_query)()
+        saved_query.snapshot_config = {"unique_key": ["id"]}
+        await database_sync_to_async(saved_query.save)(update_fields=["snapshot_config"])
+        inputs = ManagedWarehouseShadowEligibilityInputs(team_id=ateam.pk, node_id=str(anode.id), dag_id=str(adag.id))
+        module = "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse"
+        with (
+            unittest.mock.patch(f"{module}._is_managed_warehouse_shadow_flag_enabled", return_value=True),
+            unittest.mock.patch(f"{module}.is_data_modeling_shadow_ready", return_value=True),
+        ):
+            assert await activity_environment.run(check_managed_warehouse_shadow_eligibility_activity, inputs) is False
 
     @pytest.mark.parametrize(
         "compile_fails,alias_dispatch_fails",
@@ -1331,6 +1346,131 @@ class TestPrepareQueryableTableActivity:
             )
         await database_sync_to_async(warehouse_table.delete)()
 
+    async def test_serves_a_snapshot_generation_in_place_without_copying(
+        self, activity_environment, ateam, asaved_query, ajob
+    ):
+        generation_uri = (
+            f"{settings.BUCKET_URL}/{asaved_query.folder_path}/{asaved_query.normalized_name}"
+            "/snapshot-generations/1791000000_job_1"
+        )
+        inputs = PrepareQueryableTableInputs(
+            team_id=ateam.pk,
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
+            table_uri="s3://test-bucket/test_table",
+            file_uris=[f"{generation_uri}/part-0.parquet"],
+            row_count=3,
+            snapshot_generation_uri=generation_uri,
+            snapshot_state={"generation_uri": generation_uri},
+        )
+        warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam, name="test_snapshot_table", format="Delta"
+        )
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
+            ) as mock_prepare,
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
+            ) as mock_create_table,
+        ):
+            mock_create_table.return_value = CreateTableResult(
+                table=warehouse_table, storage_delta_mib=None, total_storage_mib=None
+            )
+            await activity_environment.run(prepare_queryable_table_activity, inputs)
+            mock_prepare.assert_not_called()
+            mock_create_table.assert_called_once_with(
+                str(ajob.id),
+                str(asaved_query.id),
+                ateam.pk,
+                f"{asaved_query.normalized_name}/snapshot-generations/1791000000_job_1",
+            )
+        await database_sync_to_async(warehouse_table.delete)()
+
+    @pytest.mark.parametrize(
+        "concurrent_change, published",
+        [("another_run_publishes", "winner"), ("unique_key_changes", "parent")],
+    )
+    async def test_snapshot_conflict_leaves_the_table_on_the_published_generation(
+        self, activity_environment, ateam, asaved_query, ajob, concurrent_change, published
+    ):
+        root = f"{settings.BUCKET_URL}/{asaved_query.folder_path}/{asaved_query.normalized_name}/snapshot-generations"
+        parent, winner, loser = (f"{root}/1791000000_{name}_1" for name in ("parent", "winner", "loser"))
+        asaved_query.snapshot_state = {"generation_uri": parent, "last_run_id": "parent"}
+        asaved_query.snapshot_config = {"unique_key": ["id"]}
+        await database_sync_to_async(asaved_query.save)()
+        warehouse_table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+            team=ateam, name="test_snapshot_table", format="Delta"
+        )
+        inputs = PrepareQueryableTableInputs(
+            team_id=ateam.pk,
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
+            table_uri="s3://test-bucket/test_table",
+            file_uris=[],
+            row_count=3,
+            snapshot_generation_uri=loser,
+            snapshot_state={
+                "generation_uri": loser,
+                "parent_generation_uri": parent,
+                "last_run_id": "loser",
+                "unique_key": ["id"],
+            },
+        )
+
+        def create_table_while_another_run_publishes(*args):
+            # The loser repoints the table, then the saved query changes before the loser takes the lock.
+            DataWarehouseTable.objects.filter(pk=warehouse_table.pk).update(queryable_folder=args[3])
+            if concurrent_change == "another_run_publishes":
+                DataWarehouseSavedQuery.objects.filter(pk=asaved_query.pk).update(
+                    snapshot_state={"generation_uri": winner, "parent_generation_uri": parent, "last_run_id": "winner"}
+                )
+            else:
+                DataWarehouseSavedQuery.objects.filter(pk=asaved_query.pk).update(
+                    snapshot_config={"unique_key": ["other_id"]}
+                )
+            warehouse_table.refresh_from_db()
+            return CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None)
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query",
+            side_effect=database_sync_to_async(create_table_while_another_run_publishes),
+        ):
+            with pytest.raises(SnapshotPublicationConflict):
+                await activity_environment.run(prepare_queryable_table_activity, inputs)
+
+        await database_sync_to_async(warehouse_table.refresh_from_db)()
+        assert (
+            warehouse_table.queryable_folder
+            == f"{asaved_query.normalized_name}/snapshot-generations/1791000000_{published}_1"
+        )
+        await database_sync_to_async(asaved_query.refresh_from_db)()
+        assert asaved_query.snapshot_state["last_run_id"] != "loser"
+        await database_sync_to_async(warehouse_table.delete)()
+
+    async def test_snapshot_conflict_is_refused_before_the_table_is_touched(
+        self, activity_environment, ateam, asaved_query, ajob
+    ):
+        root = f"{settings.BUCKET_URL}/{asaved_query.folder_path}/{asaved_query.normalized_name}/snapshot-generations"
+        asaved_query.snapshot_state = {"generation_uri": f"{root}/1791000000_winner_1", "last_run_id": "winner"}
+        await database_sync_to_async(asaved_query.save)()
+        inputs = PrepareQueryableTableInputs(
+            team_id=ateam.pk,
+            job_id=str(ajob.id),
+            saved_query_id=str(asaved_query.id),
+            table_uri="s3://test-bucket/test_table",
+            file_uris=[],
+            row_count=3,
+            snapshot_generation_uri=f"{root}/1791000000_loser_1",
+            snapshot_state={"parent_generation_uri": f"{root}/1791000000_parent_1", "last_run_id": "loser"},
+        )
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
+        ) as mock_create_table:
+            with pytest.raises(SnapshotPublicationConflict):
+                await activity_environment.run(prepare_queryable_table_activity, inputs)
+            mock_create_table.assert_not_called()
+
     async def test_passes_refresh_file_uris_that_re_reads_the_delta_table(
         self, activity_environment, ateam, asaved_query, ajob
     ):
@@ -1671,8 +1811,24 @@ class TestMaterializeViewActivity:
             assert materialized.column_names == camel_case_names
             assert materialized.num_rows == 6
 
+    @pytest.mark.parametrize(
+        "snapshot,expected_columns",
+        [
+            (False, ["id", "name"]),
+            (True, ["id", "name", "valid_from", "valid_to", "_ph_snapshot_version_id"]),
+        ],
+    )
     async def test_zero_row_materialization_writes_empty_parquet(
-        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
+        self,
+        activity_environment,
+        ateam,
+        anode,
+        asaved_query,
+        ajob,
+        bucket_name,
+        adag,
+        snapshot: bool,
+        expected_columns: list[str],
     ):
         # regression: a zero-row query must still produce a queryable empty table.
         #
@@ -1694,6 +1850,10 @@ class TestMaterializeViewActivity:
 
             return async_generator()
 
+        if snapshot:
+            asaved_query.snapshot_config = {"unique_key": ["id"]}
+            await database_sync_to_async(asaved_query.save)(update_fields=["snapshot_config"])
+
         with (
             override_settings(
                 BUCKET_URL=f"s3://{bucket_name}",
@@ -1703,6 +1863,10 @@ class TestMaterializeViewActivity:
             ),
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+            ),
+            unittest.mock.patch(
+                "products.data_modeling.backend.logic.incremental_plan.snapshot_materialization_enabled",
+                return_value=True,
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -1715,17 +1879,20 @@ class TestMaterializeViewActivity:
             assert result.row_count == 0
             assert len(result.file_uris) == 1
             assert result.file_uris[0].endswith(".parquet")
+            # A snapshot serves its generation folder, so the empty file must land there.
+            delta_uri = result.snapshot_generation_uri if snapshot else result.table_uri
+            assert result.file_uris[0].startswith(f"{delta_uri}/")
             # delta log carries the schema so deltaLake() reads in get_columns succeed
-            delta_table = deltalake.DeltaTable(result.table_uri, storage_options=get_aws_storage_options())
+            delta_table = deltalake.DeltaTable(delta_uri, storage_options=get_aws_storage_options())
             pyarrow_table = delta_table.to_pyarrow_table()
             assert pyarrow_table.num_rows == 0
-            assert set(pyarrow_table.column_names) == {"id", "name"}
+            assert set(pyarrow_table.column_names) == set(expected_columns)
             # ClickHouse rejects a parquet containing a 0-row row group, so the file must be metadata-only
             s3 = get_s3_client()
             with s3.open(result.file_uris[0], "rb") as f:
                 empty_parquet = pq.ParquetFile(BytesIO(f.read()))
             assert empty_parquet.metadata.num_row_groups == 0
-            assert empty_parquet.schema_arrow.names == ["id", "name"]
+            assert empty_parquet.schema_arrow.names == expected_columns
 
     async def test_write_failure_surfaces(self, activity_environment, ateam, anode, ajob, bucket_name, adag):
         # regression: a failure in a per-batch write_deltalake call must surface from the
@@ -2442,3 +2609,23 @@ class TestAwsStorageOptions:
         assert options["proxy_excludes"] == "posthog-s3-datawarehouse-us-east-1.s3.us-east-1.amazonaws.com"
         assert options["AWS_S3_ADDRESSING_STYLE"] == "virtual"
         assert options["AWS_S3_ALLOW_UNSAFE_RENAME"] == "true"
+
+
+def test_prepare_queryable_table_inputs_survive_the_temporal_payload_round_trip():
+    from temporalio.converter import DataConverter
+
+    inputs = PrepareQueryableTableInputs(
+        team_id=1,
+        job_id="job",
+        saved_query_id="query",
+        table_uri="s3://bucket/table",
+        file_uris=["s3://bucket/table/part-0.parquet"],
+        row_count=3,
+        snapshot_generation_uri="s3://bucket/table/snapshot-generations/job",
+        snapshot_state={"generation_uri": "s3://bucket/table/snapshot-generations/job", "inserted": 3},
+    )
+
+    converter = DataConverter.default.payload_converter
+    [decoded] = converter.from_payloads(converter.to_payloads([inputs]), [PrepareQueryableTableInputs])
+
+    assert decoded == inputs

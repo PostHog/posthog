@@ -6392,6 +6392,26 @@ export interface DataWarehouseSavedQuery {
     incremental_state?: DataWarehouseSavedQueryIncrementalState | null
     /** Whether incremental settings participated in any materialization run. */
     has_incremental_history?: boolean
+    snapshot?: DataWarehouseSavedQuerySnapshot | null
+    snapshot_state?: DataWarehouseSavedQuerySnapshotState | null
+    materialization_mode?: 'full_refresh' | 'incremental' | 'snapshot'
+}
+
+export interface DataWarehouseSavedQuerySnapshot {
+    unique_key: string[]
+}
+
+export interface DataWarehouseSavedQuerySnapshotState {
+    generation?: string | null
+    definition_fingerprint?: string | null
+    first_observation_at?: string | null
+    last_observation_at?: string | null
+    last_run_id?: string | null
+    inserted?: number
+    changed?: number
+    removed?: number
+    unchanged?: number
+    rows_scanned?: number
 }
 
 export interface DataWarehouseSavedQueryIncremental {
