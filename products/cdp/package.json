@@ -6,7 +6,8 @@
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-subscriptions": "catalog:"
+        "kea-subscriptions": "catalog:",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
         "@storybook/react": "catalog:",
@@ -17,6 +18,7 @@
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@types/react": "*",
+        "@xyflow/react": "*",
         "clsx": "*",
         "react": "*"
     }
