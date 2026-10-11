@@ -153,7 +153,8 @@ AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET
 # The GitHub App's bot login (`<app slug>[bot]`) ReviewHog posts as. When set, the marker-based
 # idempotency scans only trust comments/reviews authored by this exact identity — otherwise any
 # installed bot could paste a public marker and suppress a publish (or get its comment PATCHed).
-# Unset trusts no author in production, and any Bot-typed author in local development and tests.
+# Unset, production falls back to `<GITHUB_APP_SLUG>[bot]` and trusts no author when that is also unset.
+# Local development and tests trust any Bot-typed author.
 REVIEWHOG_GITHUB_BOT_LOGIN: str = get_from_env("REVIEWHOG_GITHUB_BOT_LOGIN", "")
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions
