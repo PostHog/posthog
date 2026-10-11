@@ -60965,6 +60965,11 @@ export namespace Schemas {
       Never: 'never',
     } as const;
 
+    export interface LatestValidSymbolSetResponse {
+      /** Newest symbol set with an uploaded source map, or null if none exists. */
+      symbol_set: ErrorTrackingSymbolSet | null;
+    }
+
     /**
      * * `preserve` - preserve
      * * `two_column` - two_column
