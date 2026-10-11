@@ -10,6 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 import { htmlGenerationPlugin } from './plugins/vite-html-plugin'
 import { posthogJsPlugin } from './plugins/vite-posthog-js-plugin'
 import { publicAssetsPlugin } from './plugins/vite-public-assets-plugin'
+import { zodJitlessPlugin } from './plugins/vite-zod-jitless-plugin'
 
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -25,6 +26,7 @@ export default defineConfig(({ mode }) => {
             publicAssetsPlugin(),
             // Copy posthog-js files from node_modules to dist for development
             posthogJsPlugin(),
+            zodJitlessPlugin(),
             {
                 name: 'startup-message',
                 configureServer(server) {
@@ -162,6 +164,10 @@ export default defineConfig(({ mode }) => {
             // which pre-bundling rewrites to .vite/deps/ where the images don't exist — hoggie
             // art silently 404s in dev serve (production builds are unaffected).
             exclude: ['snappy-wasm', '@posthog/brand'],
+            // Pre-bundled deps skip the main plugin list, and zod is pre-bundled.
+            rolldownOptions: {
+                plugins: [zodJitlessPlugin()],
+            },
         },
     }
 })
