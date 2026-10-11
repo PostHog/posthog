@@ -89,7 +89,7 @@ export const CommentComposer = ({ variant = 'footer', ...props }: CommentCompose
         <div className="flex flex-col gap-2">
             <LemonRichContentEditor
                 key={key}
-                logicKey="discussions"
+                surface="discussions"
                 placeholder={placeholder}
                 initialContent={currentComposerDraft}
                 onCreate={setRichContentEditor}

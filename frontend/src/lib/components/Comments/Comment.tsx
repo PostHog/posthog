@@ -144,6 +144,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
     return (
         <div className="deprecated-space-y-2">
             <LemonRichContentEditor
+                surface="discussions-edit"
                 placeholder="Edit comment"
                 // Seed from the in-progress edit so collapsing/expanding the thread mid-edit loses nothing
                 initialContent={editingComment?.rich_content ?? comment.rich_content}
