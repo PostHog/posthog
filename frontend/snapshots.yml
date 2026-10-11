@@ -840,6 +840,10 @@ snapshots:
         hash: v1.k794b7964.2014d85e0e0f2eaee80d7ac27bbed9b816151836e22ddb54b3144552a5ba4f2d.66aPnDPxPzkxxC9x7SVRcTe0ZfnWvct1oJoIxASu8RM
     components-errors-collapsibleframe--no-context--light:
         hash: v1.k794b7964.196237a32d3041a831f2c8f9c654eb07c54d88ab95f0923d01eb2f266785f28a.bBMfmO_AzY90MhlKlfRUtfPYirEtPu8RMHNXdJtM-oE
+    components-errors-collapsibleframe--python-frame-without-variables--dark:
+        hash: v1.k794b7964.aa85472f353f780f7d19630f6faeb8dd2e12f704b3ceef2adf36e6946207f347.psPGOeBCvmEwngbSHp4GfOmV9RD8qxoK7vfzWiIFDas
+    components-errors-collapsibleframe--python-frame-without-variables--light:
+        hash: v1.k794b7964.c5dadb314ff273b6b20d779702c78ea836b577df3f4aeae84d6616a979ca4739.IvDhZGLYMJpZU5YcAaEs_AbdvkjX3-TRkpXMScgkzUk
     components-errors-collapsibleframe--rust-frame-with-context--dark:
         hash: v1.k794b7964.399f38c3d856602ed1fc9440e3eb6b8f67a2ec8ef1ad3effbdb0a197c8c54810.SRlaE7DNBAQIzbakDZISA2lFWTrvrVa6mZepiVStVm0
     components-errors-collapsibleframe--rust-frame-with-context--light:
