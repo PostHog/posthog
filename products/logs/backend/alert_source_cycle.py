@@ -22,11 +22,14 @@ from itertools import batched
 from typing import Final, cast
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
 from products.alerts_platform.backend.facade.api import due_checks, refresh_settings, slot_of
@@ -105,6 +108,11 @@ BATCH_QUERY_BUDGET_SECONDS = 25
 MAX_QUERY_SECONDS = 20
 # Below this there is no point starting another query; the cohort keeps its due time instead.
 MIN_QUERY_SECONDS = 2
+
+INFLIGHT_KEY = "alerts:platform:logs:batches:inflight"
+# Taken inside the evaluation activity, so it only has to outlast that activity's start-to-close. Short
+# enough that a worker that dies mid-batch frees its slot within a minute.
+BATCH_SLOT_LEASE_SECONDS = 60
 
 
 @frozen
@@ -706,6 +714,28 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     if not checks:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
+    # One slot per batch, because a batch runs its cohort queries one after another, so the batches
+    # in flight bound the parallel run's concurrent queries across the fleet. A batch the pool turns
+    # away records nothing, so its checks stay due and a later tick finds them again.
+    member = f"{team_id}:{slot}"
+    held_until = hold_evaluation_slot(
+        member,
+        limit=settings.ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES,
+        lease_seconds=BATCH_SLOT_LEASE_SECONDS,
+        key=INFLIGHT_KEY,
+    )
+    if held_until is None:
+        logger.info("Deferred a platform logs batch over the pool limit", team_id=team_id, slot=slot)
+        return SourceBatchEvaluation(outcomes=(), deliveries=(), omitted=len(checks))
+    try:
+        return _evaluate_admitted(team_id, slot, cutoff, checks, started_at=started_at)
+    finally:
+        release_evaluation_slot(member, held_until=held_until, key=INFLIGHT_KEY)
+
+
+def _evaluate_admitted(
+    team_id: int, slot: str, cutoff: datetime, checks: Sequence[PlatformAlertCheckInput], *, started_at: float
+) -> SourceBatchEvaluation:
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())

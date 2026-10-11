@@ -477,6 +477,7 @@ Run it only after the evaluation worker's chart sets `CLICKHOUSE_ALERTS_PLATFORM
 Insight checks tag their queries with `ClickHouseUser.ALERTS_PLATFORM_INSIGHT`, a user of their own, so the parallel run never takes from the per-user budget of the user that production insight alerts query as.
 Without that env the tag resolves to the worker's default user, which other workloads on the same servers already push against its concurrent query limit.
 Logs checks use their own user, `alerts_platform_logs`, on the logs cluster.
+Logs checks also wait for room in a fleet-wide pool of batches, `ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES` (default 5). A batch runs its cohort queries one after another, so this bounds the parallel run's concurrent logs queries however many teams are copied. A batch the pool turns away keeps its due time and a later tick picks it up, so a pool that is too small shows up as scheduler lag for `source=logs`.
 
 Every copy adds ClickHouse load beside production's, so roll it out in steps.
 A full logs backfill hit ClickHouse's per-user concurrent query limit and had to be removed.

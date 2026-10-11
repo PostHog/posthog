@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -6,13 +7,15 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog import redis
 from posthog.models.scoping import team_scope
+from posthog.temporal.alerts.admission import admit_evaluation_slots
 
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import due_checks, list_configurations, record_outcomes, slot_of
@@ -27,7 +30,12 @@ from products.alerts_platform.backend.facade.lifecycle import AlertState
 from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
-from products.logs.backend.alert_source_cycle import BATCH_QUERY_BUDGET_SECONDS, MAX_QUERY_SECONDS, evaluate_logs_batch
+from products.logs.backend.alert_source_cycle import (
+    BATCH_QUERY_BUDGET_SECONDS,
+    INFLIGHT_KEY,
+    MAX_QUERY_SECONDS,
+    evaluate_logs_batch,
+)
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
 from products.logs.backend.temporal.alert_evaluate import (
@@ -49,6 +57,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         self.cutoff = datetime(2026, 9, 16, 10, tzinfo=UTC)
         # A backfilled copy delivers to the logs alert it came from, so its destinations name that id.
         self._legacy_ids: dict[UUID, UUID] = {}
+        redis.get_client().delete(INFLIGHT_KEY)
 
     def _legacy_alert(self, source_config: dict[str, Any], **fields: Any) -> LogsAlertConfiguration:
         filters = {key: value for key, value in source_config.items() if key != "condition"}
@@ -376,6 +385,21 @@ class TestLogsAlertEvaluation(APIBaseTest):
         assert copy.enabled is still_runs
         # History and messages read the stored copy, so it has to state what the check evaluated.
         assert copy.source_config["condition"]["threshold_count"] == stored_threshold
+
+    def test_a_batch_waits_for_room_in_the_fleet_pool_and_frees_its_slot_when_done(self) -> None:
+        configuration = self._configuration()
+        admit_evaluation_slots(["another-team:slot"], limit=1, expires_at=time.time() + 60, key=INFLIGHT_KEY)
+
+        with override_settings(ALERTS_PLATFORM_LOGS_MAX_INFLIGHT_BATCHES=1):
+            deferred, query = self._run(configuration)
+            assert (deferred.outcomes, deferred.omitted, query.called) == ((), 1, False)
+
+            redis.get_client().delete(INFLIGHT_KEY)
+            first, _ = self._run(configuration)
+            # The first batch gave its slot back, or a pool of one would turn this one away.
+            second, _ = self._run(configuration)
+
+        assert [len(first.outcomes), len(second.outcomes)] == [1, 1]
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
