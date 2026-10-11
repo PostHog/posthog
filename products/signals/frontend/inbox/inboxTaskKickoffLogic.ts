@@ -63,13 +63,17 @@ const OPTIMISTIC_REPORT_STREAM = 'optimistic-report-stream'
 
 type SubmissionDisposables = Parameters<typeof submitWithWarmRunRetry>[1]
 
-export interface ReportRunRef {
+export interface ReportWarmLease {
     reportId: string
     taskId: string
     runId: string
 }
 
-export type ReportWarmLease = ReportRunRef
+export interface ReportRunRef {
+    reportId: string
+    taskId: string
+    runId: string
+}
 
 export interface ReportChatContext {
     report: SignalReport
