@@ -179,7 +179,6 @@ export type {
     VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape30,
     VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape31,
     VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape32,
-    VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape33,
     VisualReviewVisualReviewRunsQuarantineLiftsListData,
     VisualReviewVisualReviewRunsQuarantineLiftsListOutput,
 } from './visual-review-runs-quarantine-lifts-list.js'

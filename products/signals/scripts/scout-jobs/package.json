@@ -1,0 +1,11 @@
+{
+    "name": "@posthog/scout-job-examples",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "test": "node --experimental-strip-types --test jobs.test.ts"
+    },
+    "dependencies": {
+        "@posthog/sdk": "file:../../../../packages/sdk"
+    }
+}

@@ -236,10 +236,6 @@ export interface VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape32 
     [key: string]: JsonValue | null
 }
 
-export interface VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape33 {
-    [key: string]: JsonValue | null
-}
-
 export interface VisualReviewVisualReviewRunsQuarantineLiftsListData {
     /** Gets or sets the length of the array. This is a number one higher than the highest index in the array. */
     length: number
@@ -318,7 +314,6 @@ export interface VisualReviewVisualReviewRunsQuarantineLiftsListData {
     /** Returns a new array with all sub-array elements concatenated into it recursively up to the
      * specified depth. */
     flat: VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape32
-    at: VisualReviewVisualReviewRunsQuarantineLiftsListResponseShape33
     __formatted_results_override: string
     __informational_response: true
 }
