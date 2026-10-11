@@ -19,6 +19,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
 import { projectLogic } from 'scenes/projectLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -29,6 +30,8 @@ import { hogFlowsResumeEmailSending } from 'products/workflows/frontend/generate
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import { loadEntrySource, saveEntrySource } from '../Broadcasts/broadcastUsage'
+import { resolveDefaultEmailSender } from '../Channels/defaultEmailSender'
+import { parseMessageDraftPrefill } from '../MessageAudience/messageDrafts'
 import { getRegisteredTriggerTypes } from './hogflows/registry/triggers/triggerTypeRegistry'
 import {
     DEFAULT_STATE,
@@ -54,6 +57,7 @@ import {
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
+import { prefilledWorkflow, withEmailSender } from './workflowEmailPrefill'
 import { workflowSceneLogic } from './workflowSceneLogic'
 import { workflowsLogic } from './workflowsLogic'
 import { parseWorkflowTriggerPrefill } from './workflowTriggerPrefill'
@@ -63,6 +67,7 @@ export interface WorkflowLogicProps {
     templateId?: string
     editTemplateId?: string
     triggerPrefill?: string
+    emailPrefill?: string
     entrySource?: string
 }
 
@@ -123,6 +128,28 @@ export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'r
 // row, and an internal event are all things no PostHog person is attached to. Keep in sync with
 // the backend's ROW_SCOPED_TRIGGER_TYPES, which is the authoritative check.
 export const ROW_SCOPED_TRIGGER_TYPES = new Set(['data-warehouse-table', 'data-warehouse-view', 'internal-event'])
+
+async function withDefaultEmailSender(workflow: HogFlow): Promise<HogFlow> {
+    try {
+        const team = teamLogic.findMounted()?.values.currentTeam
+        const sender = resolveDefaultEmailSender(
+            (await api.integrations.list()).results,
+            team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
+        )
+        if (!sender) {
+            return workflow
+        }
+        const result = withEmailSender(workflow, sender.integrationId)
+        if (result.filled) {
+            // pinned: analytics event name
+            posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
+        }
+        return result.workflow
+    } catch {
+        // The sender is a convenience. The person can still pick one, so a failed lookup doesn't block the editor.
+        return workflow
+    }
+}
 
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
@@ -3079,7 +3106,7 @@ export const workflowLogic = kea<workflowLogicType>([
     props({ id: 'new' } as WorkflowLogicProps),
     key(
         (props) =>
-            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}`
+            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}`
     ),
     connect(() => ({
         values: [userLogic, ['user'], projectLogic, ['currentProjectId']],
@@ -3165,17 +3192,17 @@ export const workflowLogic = kea<workflowLogicType>([
                             delete (newWorkflow as any).updated_at
                             delete (newWorkflow as any).created_by
 
-                            return newWorkflow
+                            return (await withDefaultEmailSender(newWorkflow as HogFlow)) as typeof newWorkflow
                         }
                         const triggerConfig = parseWorkflowTriggerPrefill(props.triggerPrefill)
                         if (triggerConfig) {
-                            const prefilled: HogFlow = {
-                                ...NEW_WORKFLOW,
-                                actions: NEW_WORKFLOW.actions.map((action) =>
-                                    action.type === 'trigger' ? { ...action, config: triggerConfig } : action
-                                ),
-                            }
-                            return prefilled
+                            return await withDefaultEmailSender(
+                                prefilledWorkflow(
+                                    NEW_WORKFLOW,
+                                    triggerConfig,
+                                    parseMessageDraftPrefill(props.emailPrefill)
+                                )
+                            )
                         }
                         return { ...NEW_WORKFLOW }
                     }
