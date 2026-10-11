@@ -220,12 +220,18 @@ def validate_hogql_query_for_batch_export(
         raise UnsupportedHogQLQueryError(f"Invalid HogQL query: {e}") from e
 
 
-def load_hogql_modifiers(stored: dict[str, typing.Any] | None) -> HogQLQueryModifiers | None:
-    """Load the HogQL modifiers a batch export stored, dropping keys that no longer exist.
+def drop_unknown_hogql_modifiers(stored: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """Return the stored HogQL modifiers without keys that `HogQLQueryModifiers` no longer has.
 
     `HogQLQueryModifiers` forbids unknown keys, so a modifier removed from the schema after
-    an export stored it would fail every run. No code reads a removed modifier anymore, so
+    an export stored it would fail validation. No code reads a removed modifier anymore, so
     dropping it keeps the output the same.
+    """
+    return {key: value for key, value in stored.items() if key in HogQLQueryModifiers.model_fields}
+
+
+def load_hogql_modifiers(stored: dict[str, typing.Any] | None) -> HogQLQueryModifiers | None:
+    """Load the HogQL modifiers a batch export stored, dropping keys that no longer exist.
 
     Raises:
         UnsupportedHogQLQueryError: If a stored modifier has a value that is not valid.
@@ -233,7 +239,7 @@ def load_hogql_modifiers(stored: dict[str, typing.Any] | None) -> HogQLQueryModi
     if stored is None:
         return None
 
-    known = {key: value for key, value in stored.items() if key in HogQLQueryModifiers.model_fields}
+    known = drop_unknown_hogql_modifiers(stored)
     if unknown := sorted(stored.keys() - known.keys()):
         LOGGER.warning("Dropping unknown HogQL modifiers", modifiers=unknown)
 

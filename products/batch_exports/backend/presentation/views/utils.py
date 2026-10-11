@@ -10,6 +10,8 @@ from posthog.schema import HogQLQueryModifiers
 
 from posthog.models import Team
 
+from products.batch_exports.backend.facade.api import drop_unknown_hogql_modifiers
+
 HOGQL_MODIFIERS_HELP_TEXT = (
     "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. "
     "Each modifier set here overrides the project modifier with the same name, and the project "
@@ -71,3 +73,10 @@ class HogQLModifiersField(serializers.JSONField):
         else:
             self.loaded = modifiers
         return modifiers.model_dump(mode="json", exclude_none=True)
+
+    def to_representation(self, value: typing.Any) -> typing.Any:
+        # Runs drop modifiers removed from the schema, so responses drop them too: a client that sends back
+        # what it read must not fail validation on a key it never set.
+        if isinstance(value, dict):
+            value = drop_unknown_hogql_modifiers(value)
+        return super().to_representation(value)
