@@ -53969,6 +53969,7 @@ export namespace Schemas {
     /**
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
+     * * `ideas` - Ideas
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -53976,6 +53977,7 @@ export namespace Schemas {
     export const HogFlowOriginProductEnum = {
       Loops: 'loops',
       Broadcasts: 'broadcasts',
+      Ideas: 'ideas',
     } as const;
 
     export interface HogFlowMasking {
@@ -54293,7 +54295,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `ideas` - Ideas */
       origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -54834,7 +54837,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `ideas` - Ideas */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -80235,7 +80239,8 @@ export namespace Schemas {
       /** Product surface that owns this workflow. This value cannot change after creation.
        *
        * * `loops` - Loops
-       * * `broadcasts` - Broadcasts */
+       * * `broadcasts` - Broadcasts
+       * * `ideas` - Ideas */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -113033,6 +113038,115 @@ export namespace Schemas {
       latest_ci_engine?: CIEngineEnum | null;
     }
 
+    /**
+     * The workflow to create, in the shape the workflow create endpoint takes. Nothing is saved until the caller creates it there and then calls accept.
+     */
+    export type WorkflowIdeaDefinition = { [key: string]: unknown };
+
+    /**
+     * * `revenue` - Revenue
+     * * `activation` - Activation
+     * * `retention` - Retention
+     * * `engagement` - Engagement
+     */
+    export type WorkflowIdeaValueTierEnum = typeof WorkflowIdeaValueTierEnum[keyof typeof WorkflowIdeaValueTierEnum];
+
+
+    export const WorkflowIdeaValueTierEnum = {
+      Revenue: 'revenue',
+      Activation: 'activation',
+      Retention: 'retention',
+      Engagement: 'engagement',
+    } as const;
+
+    /**
+     * * `suggested` - Suggested
+     * * `accepted` - Accepted
+     * * `dismissed` - Dismissed
+     */
+    export type WorkflowIdeaStatusEnum = typeof WorkflowIdeaStatusEnum[keyof typeof WorkflowIdeaStatusEnum];
+
+
+    export const WorkflowIdeaStatusEnum = {
+      Suggested: 'suggested',
+      Accepted: 'accepted',
+      Dismissed: 'dismissed',
+    } as const;
+
+    export interface WorkflowIdeaEvidence {
+      /** The project event that starts the workflow. */
+      trigger_event: string;
+      /** Events that count as the workflow's goal. Reaching one exits it. */
+      goal_events: string[];
+      /**
+         * Share of people who reach the goal within 7 days with no message, from 0 to 1. Null when unmeasured.
+         * @nullable
+         */
+      baseline_rate: number | null;
+      /** People a month with an email address who hit the trigger and did not reach the goal. */
+      reachable_people: number;
+      /** ISO date the numbers were measured. */
+      measured_at: string;
+    }
+
+    export interface WorkflowIdea {
+      /** The idea's id. */
+      readonly id: string;
+      /** Stable name of the idea within the project. */
+      key: string;
+      /** Short name of the suggested workflow. */
+      title: string;
+      /** Why this workflow is worth running. */
+      rationale: string;
+      /** How close the workflow's goal is to revenue.
+       *
+       * * `revenue` - Revenue
+       * * `activation` - Activation
+       * * `retention` - Retention
+       * * `engagement` - Engagement */
+      value_tier: WorkflowIdeaValueTierEnum;
+      /** Where the idea stands.
+       *
+       * * `suggested` - Suggested
+       * * `accepted` - Accepted
+       * * `dismissed` - Dismissed */
+      status: WorkflowIdeaStatusEnum;
+      /** The numbers behind the idea. */
+      evidence: WorkflowIdeaEvidence;
+      /** The workflow to create, in the shape the workflow create endpoint takes. Nothing is saved until the caller creates it there and then calls accept. */
+      definition: WorkflowIdeaDefinition;
+      /** When PostHog made the idea. */
+      readonly created_at: string;
+      /**
+         * The draft workflow made from this idea, once it is used.
+         * @nullable
+         */
+      readonly hog_flow_id: string | null;
+    }
+
+    export interface WorkflowIdeaAccept {
+      /** The draft workflow created from this idea's definition, with origin_product 'ideas'. */
+      hog_flow_id: string;
+    }
+
+    export interface WorkflowIdeaDismiss {
+      /**
+         * Optional reason the person gave.
+         * @maxLength 2000
+         */
+      reason?: string;
+    }
+
+    export interface WorkflowIdeaList {
+      /** Ideas still waiting for a decision, the one to try first at the top. */
+      results: WorkflowIdea[];
+    }
+
+    export interface WorkflowIdeaViewed {
+      /** Ideas that were shown on screen. */
+      ids: string[];
+    }
+
     export interface WorkflowJobStep {
       /** 1-based position of the step in the job. */
       number: number;
@@ -123277,6 +123391,7 @@ export namespace Schemas {
 
     export const HogFlowsListOriginProduct = {
       Broadcasts: 'broadcasts',
+      Ideas: 'ideas',
       Loops: 'loops',
     } as const;
 

@@ -8,6 +8,7 @@ from posthog.utils import opt_slash_path
 from products.workflows.backend.presentation.views import (
     hog_flow,
     hog_flow_template,
+    workflow_ideas,
     workflow_scout_runs,
     workflow_tasks,
 )
@@ -26,6 +27,12 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"hog_flows", hog_flow.HogFlowViewSet, "project_hog_flows", ["team_id"])
     routers.projects.register(
         r"workflow_tasks", workflow_tasks.WorkflowTaskViewSet, "project_workflow_tasks", ["team_id"]
+    )
+    routers.projects.register(
+        r"workflow_ideas",
+        workflow_ideas.WorkflowIdeaViewSet,
+        "project_workflow_ideas",
+        ["team_id"],
     )
     routers.projects.register(
         r"workflow_scout_runs",
