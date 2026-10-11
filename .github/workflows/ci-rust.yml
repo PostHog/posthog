@@ -49,6 +49,7 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
+            all_crates: ${{ steps.filter.outputs.all_crates || 'false' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -83,11 +84,16 @@ jobs:
                         - 'posthog/migrations/**'
                         - 'ee/migrations/**'
                         - 'docker-compose.dev.yml'
+                        - 'docker-compose.base.yml'
                         # Hypercache contract: Python serializer changes may break Rust deserialization
                         - 'posthog/api/feature_flag.py'
                         - 'posthog/models/feature_flag/flags_cache.py'
                         - 'posthog/models/feature_flag/feature_flag.py'
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
+                      all_crates:
+                        # Pins the service images that every crate's tests run against.
+                        # A determinator rule would also rebuild and deploy every Rust image.
+                        - 'docker-compose.base.yml'
 
     # Compute affected crates and test shards. Only runs when Rust changes
     # are detected, keeping the lightweight `changes` job fast for non-Rust PRs.
@@ -127,7 +133,7 @@ jobs:
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
-                  rebuild-all: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
+                  rebuild-all: ${{ (github.event_name == 'workflow_dispatch' || needs.changes.outputs.all_crates == 'true') && 'true' || 'false' }}
 
             # Bin-pack affected packages into balanced test shards.
             - name: Compute test shards
