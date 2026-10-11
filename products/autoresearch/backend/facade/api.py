@@ -13,7 +13,7 @@ import json
 import base64
 import asyncio
 import hashlib
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -41,6 +41,7 @@ from ..dataset.validation import (
 )
 from ..evaluation.history import latest_validation_runs, realized_auc_trends
 from ..evaluation.online_validation import LIKELY_THRESHOLD as LIKELY_THRESHOLD
+from ..inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from ..models import (
     AutoresearchIteration,
     AutoresearchModel,
@@ -879,11 +880,6 @@ def _require_resolvable_target(pipeline: AutoresearchPipeline) -> None:
         raise AutoresearchConflict("The pipeline's target action no longer exists or has no steps.")
 
 
-# A run still marked running after the inference workflow's own timeout lost its worker, so it
-# must not block a new run forever.
-_INFERENCE_RUN_STALE_AFTER = timedelta(hours=5)
-
-
 class _InferenceAlreadyStarted(Exception):
     pass
 
@@ -895,7 +891,8 @@ def _running_inference_run(team_id: int, pipeline: AutoresearchPipeline) -> Auto
             pipeline=pipeline,
             run_type=AutoresearchRun.RunType.INFERENCE,
             status=AutoresearchRun.Status.RUNNING,
-            started_at__gte=django_timezone.now() - _INFERENCE_RUN_STALE_AFTER,
+            # A run older than the workflow timeout lost its worker, so it must not block a new run.
+            started_at__gte=django_timezone.now() - INFERENCE_WORKFLOW_TIMEOUT,
         )
         # A shadow model's run belongs to the champion's cadence, not to a scoring the caller can poll.
         .exclude(metrics__has_key="shadow")
@@ -976,7 +973,6 @@ def _start_inference_workflow(
     from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
 
     from ..temporal.workflows import (  # noqa: PLC0415
-        _INFERENCE_WORKFLOW_TIMEOUT,
         AutoresearchInferenceWorkflow,
         InferenceWorkflowInput,
         inference_workflow_id,
@@ -997,7 +993,7 @@ def _start_inference_workflow(
                 id=inference_workflow_id(pipeline_id, prediction_date),
                 task_queue=settings.AUTORESEARCH_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=_INFERENCE_WORKFLOW_TIMEOUT,
+                execution_timeout=INFERENCE_WORKFLOW_TIMEOUT,
             )
         )
     except WorkflowAlreadyStartedError as exc:

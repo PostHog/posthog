@@ -32,6 +32,7 @@ with workflow.unsafe.imports_passed_through():
     from products.autoresearch.backend.access import has_autoresearch_access
     from products.autoresearch.backend.dataset.labeling import build_target_condition
     from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
+    from products.autoresearch.backend.inference.failures import INFERENCE_WORKFLOW_TIMEOUT, fail_stale_inference_runs
     from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
     from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
     from products.autoresearch.backend.models import (
@@ -108,7 +109,8 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
     with the new champion instead of failing again on the archived one.
 
     A manual run (``run_id`` set) fills the row the API created, and a refusal fails that row,
-    so the caller that polls it sees the outcome.
+    so the caller that polls it sees the outcome. A retry of a scheduled run fills the row the
+    first attempt created, so a lost attempt does not leave a second row for the same date.
     """
     with HeartbeaterSync(), team_scope(inp.team_id):
         pipeline = AutoresearchPipeline.objects.select_related("team__organization", "created_by").get(
@@ -136,7 +138,7 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
             model=model,
             prediction_date=date.fromisoformat(inp.prediction_date),
             user=user,
-            run=manual_run,
+            run=manual_run or _open_scheduled_run(pipeline, inp.prediction_date),
             query_context=BATCH_QUERY,
             scheduled=manual_run is None,
         )
@@ -145,6 +147,22 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
         rows_scored=run.rows_scored or 0,
         status=run.status,
         error=run.error or None,
+    )
+
+
+def _open_scheduled_run(pipeline: AutoresearchPipeline, prediction_date: str) -> AutoresearchRun | None:
+    """The RUNNING row an earlier attempt of this scheduled run created, or None on the first attempt."""
+    return (
+        AutoresearchRun.objects.filter(
+            pipeline=pipeline,
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            scheduled=True,
+            status=AutoresearchRun.Status.RUNNING,
+            started_at__gte=django_timezone.now() - INFERENCE_WORKFLOW_TIMEOUT,
+            metrics__prediction_date=prediction_date,
+        )
+        .order_by("-started_at")
+        .first()
     )
 
 
@@ -199,8 +217,7 @@ _SCORE_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(second
 _SCORE_ATTEMPT_TIMEOUT = timedelta(hours=2)
 # A lost worker is detected in minutes rather than at the end of a multi-hour attempt.
 _HEARTBEAT_TIMEOUT = timedelta(minutes=2)
-# Covers both attempts plus their backoff, so the child never cuts off a retry.
-_INFERENCE_WORKFLOW_TIMEOUT = timedelta(hours=5)
+# INFERENCE_WORKFLOW_TIMEOUT covers both attempts plus their backoff, so the child never cuts off a retry.
 
 
 @workflow.defn(name="autoresearch-inference")
@@ -298,7 +315,8 @@ _VALIDATION_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(s
 # sweep, so the attempt completes instead of timing out part-way.
 _VALIDATION_ATTEMPT_TIMEOUT = timedelta(hours=2)
 _VALIDATION_DATE_RESERVE = timedelta(minutes=70)
-# Covers both attempts plus their backoff, as for inference.
+# Covers both attempts plus their backoff, as for inference. Online validation treats a RUNNING
+# row older than INFERENCE_WORKFLOW_TIMEOUT as dead, so keep this no longer than that.
 _VALIDATION_WORKFLOW_TIMEOUT = timedelta(hours=5)
 
 
@@ -483,7 +501,10 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     dispatched, because every scheduled query and training run acts as the creator. A pipeline
     outside the ``autoresearch`` rollout is skipped but stays live, so it resumes when the rollout
     reaches it again.
+
+    It also fails every inference run that its lost worker left RUNNING.
     """
+    fail_stale_inference_runs()
     today = django_timezone.now().date()
     # unscoped() because the coordinator's job is exactly to sweep every team. The
     # pipelines it returns carry their team so the downstream activities can scope.
@@ -710,7 +731,7 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
                             pipeline_id=pipeline_id, team_id=pipeline.team_id, prediction_date=run_date
                         ),
                         id=inference_workflow_id(pipeline_id, run_date),
-                        execution_timeout=_INFERENCE_WORKFLOW_TIMEOUT,
+                        execution_timeout=INFERENCE_WORKFLOW_TIMEOUT,
                     )
                 ),
             )
