@@ -72,9 +72,15 @@ class TestLimitsEndpoint(ProvisioningTestBase):
 
         assert res.status_code == expected
 
-    def test_deactivated_partner_bearer_is_rejected(self):
+    @parameterized.expand(
+        [
+            ("deactivated", {"active": False}),
+            ("pays_without_a_private_key", {"pays_for_customers": True}),
+        ]
+    )
+    def test_bearer_is_rejected_after_partner_config_changes(self, _name: str, change: dict[str, bool]) -> None:
         token = self._request_bearer_token().json()["access_token"]
-        self.partner.update_provisioning(active=False)
+        self.partner.update_provisioning(**change)
 
         res = self.client.post(LIMITS_URL, HTTP_AUTHORIZATION=f"Bearer {token}")
 

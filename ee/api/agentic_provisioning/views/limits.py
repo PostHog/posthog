@@ -21,8 +21,10 @@ from posthog.models.oauth import OAuthApplication
 
 from ee.api.agentic_provisioning.authentication import (
     CLIENT_NOT_REGISTERED_MESSAGE,
+    PRIVATE_KEY_REQUIRED_MESSAGE,
     BearerTokenError,
     ProvisioningAuthentication,
+    is_paying_partner_without_private_key,
     resolve_bearer_access_token,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
@@ -64,6 +66,8 @@ class LimitsView(ProvisioningAPIView):
                 raise ProvisioningError("unauthorized", "Authentication failed", status=401)
             if not app.provisioning.active:
                 raise ProvisioningError("unauthorized", "Partner is deactivated", status=401)
+            if is_paying_partner_without_private_key(app):
+                raise ProvisioningError("unauthorized", PRIVATE_KEY_REQUIRED_MESSAGE, status=401)
             return app
 
         try:

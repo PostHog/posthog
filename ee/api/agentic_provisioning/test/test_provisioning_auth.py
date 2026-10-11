@@ -16,7 +16,7 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
+from ee.api.agentic_provisioning.authentication import PRIVATE_KEY_REQUIRED_MESSAGE, ProvisioningAuthentication
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase, provisioning_config
 
 WIZARD_CLIENT_ID = "test-wizard-client"
@@ -166,6 +166,40 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         assert res.status_code == 401
         assert res.json()["error"]["code"] == "unauthorized"
 
+    # --- a paying partner signs with a private key ---
+
+    @parameterized.expand([("public_client_id", False), ("client_secret", True)])
+    def test_paying_partner_without_a_private_key_cannot_create_accounts(self, name: str, confidential: bool) -> None:
+        email = f"paying-{name}@example.com"
+        _, challenge = self._pkce_pair()
+        body = {
+            "id": f"req_paying_{name}",
+            "email": email,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+        if confidential:
+            self.partner.update_provisioning(pays_for_customers=True)
+            res = self._post_with_client_secret("/api/agentic/provisioning/account_requests", body)
+        else:
+            public_partner = OAuthApplication.objects.create(
+                client_id="paying-public-partner",
+                name="Paying public partner",
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://partner.example.com/callback",
+                algorithm="RS256",
+                is_provisioning_partner=True,
+                _provisioning_config=provisioning_config(pays_for_customers=True),
+            )
+            res = self._post_api(
+                "/api/agentic/provisioning/account_requests", {**body, "client_id": public_partner.client_id}
+            )
+
+        assert res.status_code == 401
+        assert res.json()["error"] == {"code": "unauthorized", "message": PRIVATE_KEY_REQUIRED_MESSAGE}
+        assert not User.objects.filter(email=email).exists()
+
     # --- apps that aren't flagged as partners are fail-closed ---
 
     @parameterized.expand(
@@ -314,15 +348,23 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
         assert res.status_code == 401
 
-    # --- can_provision_resources enforcement ---
+    # --- partner config changes apply to tokens minted before them ---
 
-    def test_partner_without_can_provision_resources_rejected(self):
+    @parameterized.expand(
+        [
+            ("cannot_provision_resources", {"can_provision_resources": False}, 403),
+            ("pays_without_a_private_key", {"pays_for_customers": True}, 401),
+        ]
+    )
+    def test_bearer_rejected_after_partner_config_changes(
+        self, _name: str, change: dict[str, bool], expected_status: int
+    ) -> None:
         token = self._get_bearer_token()
 
-        self.partner.update_provisioning(can_provision_resources=False)
+        self.partner.update_provisioning(**change)
 
         res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
-        assert res.status_code == 403
+        assert res.status_code == expected_status
 
     # --- CIMD URL-based PKCE identification ---
 

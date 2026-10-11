@@ -23,6 +23,14 @@ from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, ProvisioningCo
 # Derived from the pydantic schema so a capability added there shows up here automatically.
 PROVISIONING_FIELD_PREFIX = "provisioning_"
 PROVISIONING_RATE_LIMIT_PREFIX = "provisioning_rate_limit_"
+PAYS_FOR_CUSTOMERS_FIELD = f"{PROVISIONING_FIELD_PREFIX}pays_for_customers"
+
+
+def _is_paying_partner_without_private_key(
+    *, is_provisioning_partner: bool, pays_for_customers: bool, client_type: str, jwks_uri: str | None
+) -> bool:
+    signs_with_key = OAuthApplication(client_type=client_type, jwks_uri=jwks_uri).uses_private_key_jwt_auth
+    return is_provisioning_partner and pays_for_customers and not signs_with_key
 
 
 def _provisioning_form_fields() -> dict[str, forms.Field]:
@@ -133,9 +141,40 @@ class OAuthApplicationForm(forms.ModelForm):
                 "themselves. Use the generated value, or an ID that is not a URL.",
             )
 
+    def _reject_paying_partner_without_private_key(self, cleaned: dict) -> None:
+        """Keep a provisioning partner from paying for its customers until it signs with a key.
+
+        Provisioning auth refuses every request from such a partner. Only the edit that creates the
+        combination is refused: a partner already in it, such as a CIMD client whose metadata dropped
+        its key, stays editable, so staff can still switch it off without unticking the billing flag.
+        An app that is not a provisioning partner never authenticates through provisioning auth, which
+        leaves the HMAC-signed Stripe Projects app free to pay.
+        """
+        before = self.instance
+        refused_before = _is_paying_partner_without_private_key(
+            is_provisioning_partner=before.is_provisioning_partner,
+            pays_for_customers=before.provisioning.pays_for_customers,
+            client_type=before.client_type,
+            jwks_uri=before.jwks_uri,
+        )
+        refused_after = _is_paying_partner_without_private_key(
+            is_provisioning_partner=cleaned.get("is_provisioning_partner", before.is_provisioning_partner),
+            pays_for_customers=bool(cleaned.get(PAYS_FOR_CUSTOMERS_FIELD)),
+            client_type=cleaned.get("client_type", before.client_type),
+            jwks_uri=cleaned.get("jwks_uri", before.jwks_uri),
+        )
+        if refused_after and not refused_before:
+            self.add_error(
+                PAYS_FOR_CUSTOMERS_FIELD,
+                "A provisioning partner that pays for its customers must sign its requests with a private key. "
+                "Without one, anyone holding its client ID, or its client ID and secret, could create "
+                "organizations it pays for. Make it a confidential client with a jwks_uri first.",
+            )
+
     def clean(self):
         cleaned = super().clean() or {}
         self._reject_cimd_shaped_client_id(cleaned)
+        self._reject_paying_partner_without_private_key(cleaned)
         for field_name in self._rate_limit_field_names():
             # 0 is rejected rather than meaning "unlimited": that footgun is why the
             # unlimited sentinel is -1 (UNLIMITED_OVERRIDE).
