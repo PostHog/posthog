@@ -7,6 +7,12 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    TargetType,
+    create_notification,
+)
 from products.workflows.backend.facade.contracts import (
     NewWorkflowIdea,
     WorkflowIdeaAlreadyResolved,
@@ -89,6 +95,33 @@ def create_ideas(
         if was_created:
             created.append(_record(row))
     return created
+
+
+def notify_new_ideas(*, team_id: int, idea_ids: Iterable[UUID]) -> bool:
+    """Tells the project once about ideas it has not heard about yet."""
+    pending = list(
+        WorkflowIdea.objects.for_team(team_id)
+        .filter(id__in=list(idea_ids), notified_at__isnull=True, status=WorkflowIdea.Status.SUGGESTED)
+        .order_by("created_at")
+    )
+    if not pending:
+        return False
+    count = len(pending)
+    event = create_notification(
+        NotificationData(
+            team_id=team_id,
+            notification_type=NotificationType.WORKFLOW_IDEAS,
+            title=f"PostHog drafted {count} email workflow{'s' if count != 1 else ''} from your events",
+            body="; ".join(row.title for row in pending) + ". Review the emails and turn on the ones you want.",
+            target_type=TargetType.TEAM,
+            target_id=str(team_id),
+            source_url="/workflows",
+        )
+    )
+    if event is None:
+        return False
+    WorkflowIdea.objects.for_team(team_id).filter(id__in=[row.id for row in pending]).update(notified_at=timezone.now())
+    return True
 
 
 def _lock_open(team_id: int, idea_id: str) -> WorkflowIdea:
