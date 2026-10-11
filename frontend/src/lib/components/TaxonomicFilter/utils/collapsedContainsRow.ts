@@ -17,6 +17,16 @@ export const COLLAPSED_TO_CONTAINS_ROW: ReadonlySet<TaxonomicFilterGroupType> = 
     TaxonomicFilterGroupType.PageviewEvents,
 ])
 
+const URL_SHAPED_QUERY = /[/.:]/
+
+/** In a property filter's mixed list, page URLs offer the "URL contains" row only for a query like
+ *  `/pricing` or `example.com`. A plain word such as `email` usually names a property, and people
+ *  often picked the row for it by mistake. Series pickers and the dedicated Pageview URLs tab offer
+ *  the row for any query. Shared by both surfaces. */
+export function offersUrlContainsRow(groupType: TaxonomicFilterGroupType, query: string): boolean {
+    return groupType !== TaxonomicFilterGroupType.PageviewUrls || URL_SHAPED_QUERY.test(query)
+}
+
 export function urlContainsRowLabel(query: string): string {
     return `URL contains "${query}"`
 }
