@@ -55,14 +55,24 @@ describe("PostHogAPIClient", () => {
     },
   );
 
-  it.each(["posthog_mobile", "posthog_web"] as const)(
-    "sends %s provenance when it creates a task",
-    async (provenance) => {
-      const fetch = vi
-        .fn()
-        .mockResolvedValue(
-          new Response(JSON.stringify({ id: "task-1" }), { status: 201 }),
-        );
+  it.each([
+    { provenance: "posthog_mobile", action: "creates" },
+    { provenance: "posthog_web", action: "creates" },
+    { provenance: "posthog_mobile", action: "warms" },
+    { provenance: "posthog_web", action: "warms" },
+  ] as const)(
+    "sends $provenance provenance when it $action a task",
+    async ({ provenance, action }) => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "task-1",
+            task_id: "task-1",
+            run_id: "run-1",
+          }),
+          { status: 201 },
+        ),
+      );
       const client = new PostHogAPIClient(
         "https://app.posthog.test",
         async () => "token",
@@ -71,7 +81,11 @@ describe("PostHogAPIClient", () => {
         { fetch, taskClientProvenance: provenance },
       );
 
-      await client.createTask({ description: "Create a task" });
+      if (action === "creates") {
+        await client.createTask({ description: "Create a task" });
+      } else {
+        await client.warmTask({ repository: null, github_integration: null });
+      }
 
       const request = fetch.mock.calls[0]?.[1];
       expect(
