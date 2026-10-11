@@ -284,8 +284,9 @@ class UserSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Currently covers "
-            "sidebar section and item visibility. Send the complete object: it replaces the stored value "
+            "Per-user UI customization, validated against the `UserUIConfiguration` schema. Covers sidebar "
+            "section and item visibility, and SQL editor settings such as Vim mode and the vimrc. "
+            "Send the complete object: it replaces the stored value "
             "wholesale. Null means no customization; absent keys mean the element is shown. Once "
             "`sidebar.starred_products_setup_completed` is true, an update that omits it keeps it true."
         ),
@@ -437,9 +438,10 @@ class UserSerializer(serializers.ModelSerializer):
             return self.instance.email
         reject_plus_addressed_email(value)
         # Excluding the editor lets a legacy '+' account holder drop their own alias.
+        exclude_user_id = self.instance.pk if self.instance else None
         if EmailValidationHelper.user_exists_with_stripped_alias(
-            value, exclude_user_id=self.instance.pk if self.instance else None
-        ):
+            value, exclude_user_id=exclude_user_id
+        ) or EmailValidationHelper.user_exists_with_gmail_canonical(value, exclude_user_id=exclude_user_id):
             raise serializers.ValidationError("There is already an account with this email address.", code="unique")
         # The alias check above reads active accounts, so a deactivated holder of the same folded
         # address passes it. Resolve on the fold every lookup shares, across every account.
@@ -1268,6 +1270,7 @@ class UserViewSet(
             # Anyone can claim the address while the change waits for this code.
             taken = (
                 EmailValidationHelper.user_exists_with_stripped_alias(new_email, exclude_user_id=user.pk)
+                or EmailValidationHelper.user_exists_with_gmail_canonical(new_email, exclude_user_id=user.pk)
                 or EmailLookupHandler.users_matching_email(new_email, User.objects.all()).exclude(pk=user.pk).exists()
             )
             if taken:

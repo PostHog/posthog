@@ -1,4 +1,5 @@
-import type { InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
+import { isRankingSortField, RANKING_SORT_HEADS } from '../filterOptions'
+import type { InboxRankingSortField, InboxSortDirection, InboxSortField } from '../logics/inboxFiltersLogic'
 import { SignalReport, SignalReportStatus } from '../types'
 
 /**
@@ -46,6 +47,23 @@ function timestampKey(value: string): string {
     return value.includes('.') ? value : value.replace(/(Z|[+-]\d\d:?\d\d)$/, '.000000$1')
 }
 
+/** The served probability a model sort orders by, or null when the report has no score for that head or the score is stale. */
+export function rankingSortScore(report: SignalReport, field: InboxRankingSortField): number | null {
+    if (report.ranking?.stale) {
+        return null
+    }
+    const score = report.ranking?.scores[RANKING_SORT_HEADS[field].head]
+    return typeof score === 'number' ? score : null
+}
+
+// The server puts unscored reports after every scored report, in both directions.
+function compareRankingScores(a: number | null, b: number | null, dir: number): number {
+    if (a === null || b === null) {
+        return a === b ? 0 : a === null ? 1 : -1
+    }
+    return dir * (a - b)
+}
+
 /** Comparator over reports for the given sort selection. Stable input order breaks remaining ties. */
 export function compareSignalReports(
     field: InboxSortField,
@@ -53,12 +71,19 @@ export function compareSignalReports(
 ): (a: SignalReport, b: SignalReport) => number {
     const dir = direction === 'desc' ? -1 : 1
     return (a, b) => {
-        const primary =
-            field === 'priority'
-                ? compareStrings(priorityKey(a), priorityKey(b))
-                : compareStrings(timestampKey(a[field]), timestampKey(b[field]))
-        if (primary !== 0) {
-            return dir * primary
+        if (isRankingSortField(field)) {
+            const ranking = compareRankingScores(rankingSortScore(a, field), rankingSortScore(b, field), dir)
+            if (ranking !== 0) {
+                return ranking
+            }
+        } else {
+            const primary =
+                field === 'priority'
+                    ? compareStrings(priorityKey(a), priorityKey(b))
+                    : compareStrings(timestampKey(a[field]), timestampKey(b[field]))
+            if (primary !== 0) {
+                return dir * primary
+            }
         }
         const rank = statusRank(a) - statusRank(b)
         if (rank !== 0) {

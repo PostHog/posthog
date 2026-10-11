@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
@@ -6,8 +8,10 @@ import { Provider } from 'kea'
 import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import * as featureFlagLogicModule from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -107,6 +111,20 @@ async function openedCategoryPopup(): Promise<HTMLElement> {
         }
         return popup
     })
+}
+
+function setFlagEvaluationsMode(mode: FlagEvaluationsModeEnumApi): void {
+    teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
+}
+
+const ANNOUNCEMENT_URL = 'https://example.com/announcement'
+
+function setMoveNotices(enabled: boolean, url: string | null): void {
+    featureFlagLogicModule.featureFlagLogic.mount()
+    featureFlagLogicModule.featureFlagLogic.actions.setFeatureFlags([], {
+        [FEATURE_FLAGS.FLAG_CALLED_MOVE_NOTICES]: enabled,
+    })
+    jest.spyOn(featureFlagLogicModule, 'getFeatureFlagPayload').mockReturnValue({ url })
 }
 
 describe('MenuFilterCombobox', () => {
@@ -1141,36 +1159,46 @@ describe('MenuFilterCombobox', () => {
     // Parity with the legacy picker, whose half lives in TaxonomicFilter.test.tsx. Nothing enforces
     // that the two agree, so the same rule is asserted on both.
     describe('an event hidden because its data is moving', () => {
-        let unmountFeatureFlagLogic: (() => void) | null = null
-
         beforeEach(() => {
             apiGet.mockResolvedValue({ results: [], count: 0 })
-            unmountFeatureFlagLogic = featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS], {
-                [FEATURE_FLAGS.HIDE_EVENTS_IN_QUERY_BUILDERS]: true,
-            })
+            setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
         })
 
         afterEach(() => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
-            unmountFeatureFlagLogic?.()
-            unmountFeatureFlagLogic = null
+            jest.restoreAllMocks()
+            localStorage.clear()
         })
 
-        it('explains the absence, and drops recovery buttons that cannot recover it', async () => {
-            renderAll({
-                groupTypes: [TaxonomicFilterGroupType.Events],
-                searchQuery: '$feature_flag_called',
-            })
+        it.each([
+            ['links the announcement', true, ANNOUNCEMENT_URL, ANNOUNCEMENT_URL],
+            [
+                'links the announcement when its URL has leading whitespace',
+                true,
+                ` ${ANNOUNCEMENT_URL}`,
+                ANNOUNCEMENT_URL,
+            ],
+            ['has no link while the announcement has no URL', true, null, undefined],
+            ['has no link while the move notices are off', false, ANNOUNCEMENT_URL, undefined],
+        ])(
+            'explains the absence, drops recovery buttons that cannot recover it, and %s',
+            async (_label, moveNoticesOn, url, expectedHref) => {
+                setMoveNotices(moveNoticesOn, url)
+                renderAll({
+                    groupTypes: [TaxonomicFilterGroupType.Events],
+                    searchQuery: '$feature_flag_called',
+                })
 
-            const empty = await waitFor(() => screen.getByTestId('menu-filter-empty'))
-            expect(within(empty).getByText(/\$feature_flag_called isn't available here/)).toBeInTheDocument()
-            expect(screen.queryByTestId('menu-filter-include-stale-events')).not.toBeInTheDocument()
-            expect(screen.queryByTestId('menu-filter-check-other-categories')).not.toBeInTheDocument()
-        })
+                const empty = await waitFor(() => screen.getByTestId('menu-filter-empty'))
+                expect(within(empty).getByText(/\$feature_flag_called isn't available here/)).toBeInTheDocument()
+                expect(screen.queryByTestId('menu-filter-include-stale-events')).not.toBeInTheDocument()
+                expect(screen.queryByTestId('menu-filter-check-other-categories')).not.toBeInTheDocument()
+                const link = within(empty).queryByTestId('taxonomic-hidden-event-announcement')
+                expect(link?.getAttribute('href')).toBe(expectedHref)
+            }
+        )
 
-        it('reports no matches as usual once the kill switch is off', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], {})
+        it('reports no matches as usual for a team on the Events mode', async () => {
+            setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number0)
 
             renderAll({
                 groupTypes: [TaxonomicFilterGroupType.Events],

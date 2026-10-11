@@ -45,6 +45,45 @@ describe('modelPickerLogic', () => {
     })
 
     describe('loadByokModels', () => {
+        it.each(['example-judge-v1', 'custom-model'])(
+            'offers System One model %s only to evaluation model pickers',
+            async (model) => {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                            results: [
+                                { id: 'key-system-one', provider: 'system_one', name: 'System One', state: 'ok' },
+                            ],
+                        },
+                        '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
+                        '/api/llm_proxy/models/': ({ request }) =>
+                            new URL(request.url).searchParams.get('provider_key_id')
+                                ? [
+                                      200,
+                                      [
+                                          {
+                                              id: model,
+                                              name: model,
+                                              provider: 'System One',
+                                              is_recommended: true,
+                                          },
+                                      ],
+                                  ]
+                                : [200, []],
+                    },
+                })
+                logic = modelPickerLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.evaluationProviderModelGroups[0].models[0].id).toBe(model)
+                expect(logic.values.providerModelGroups).toEqual([])
+                expect(logic.values.generativeByokModels).toEqual([])
+                expect(logic.values.hasByokKeys).toBe(false)
+                expect(logic.values.evaluationModelNotice).toBeNull()
+            }
+        )
+
         it('should load and attach providerKeyId to models from valid keys', async () => {
             useMocks({
                 get: {
@@ -74,9 +113,40 @@ describe('modelPickerLogic', () => {
                     provider: m.provider,
                     description: m.description,
                     isRecommended: true,
+                    supportsDecisions: false,
                     providerKeyId: 'key-1',
                 }))
             )
+        })
+
+        it('offers OpenRouter decisions to evaluations alongside chat models, but not to generative pickers', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                        results: [{ id: 'key-openrouter', provider: 'openrouter', name: 'OpenRouter', state: 'ok' }],
+                    },
+                    '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
+                    '/api/llm_proxy/models/': ({ request }) => [
+                        200,
+                        new URL(request.url).searchParams.get('provider_key_id')
+                            ? [
+                                  { id: 'typesafe/jev-1.13', provider: 'OpenRouter', supports_decisions: true },
+                                  { id: 'typesafe/jev-router', provider: 'OpenRouter', supports_decisions: false },
+                              ]
+                            : [],
+                    ],
+                },
+            })
+            logic = modelPickerLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.evaluationProviderModelGroups[0].models.map((model) => model.id)).toEqual([
+                'typesafe/jev-1.13',
+                'typesafe/jev-router',
+            ])
+            expect(logic.values.providerModelGroups[0].models.map((model) => model.id)).toEqual(['typesafe/jev-router'])
+            expect(logic.values.generativeByokModels.map((model) => model.id)).toEqual(['typesafe/jev-router'])
         })
 
         it('should map is_recommended correctly for both true and false values', async () => {
@@ -205,6 +275,7 @@ describe('modelPickerLogic', () => {
                     description: m.description,
                     isRecommended: true,
                     providerKeyId: 'key-2',
+                    supportsDecisions: false,
                 }))
             )
             expect(logic.values.providerModelGroups.find((g) => g.providerKeyId === 'key-1')).toEqual({

@@ -165,17 +165,10 @@
             "description": "List of quick filter IDs associated with this dashboard."
         },
         "restriction_level": {
-            "anyOf": [
-                {
-                    "const": 21,
-                    "type": "number"
-                },
-                {
-                    "const": 37,
-                    "type": "number"
-                }
-            ],
-            "description": "Who can edit this dashboard.\n\n* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit"
+            "description": "Set to 21 for everyone in the project to edit. Legacy value 37 is deprecated and rejected by the API.",
+            "maximum": 21,
+            "minimum": 21,
+            "type": "number"
         },
         "tags": {
             "items": {
@@ -255,6 +248,10 @@
                         },
                         "required": ["sm"],
                         "type": "object"
+                    },
+                    "show_description": {
+                        "description": "Whether to show the tile's description underneath its title on the dashboard. Works for every tile type. The description itself is unaffected and still comes from the tile's insight, text, or widget content — this only toggles whether it renders on the dashboard.",
+                        "type": "boolean"
                     },
                     "widget": {
                         "description": "Nested widget row updates.",
@@ -1253,6 +1250,22 @@
                                             }
                                         },
                                         "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "canvasId": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ],
+                                                "description": "Canvas to render in the tile. Null until the user picks one in the widget settings."
+                                            }
+                                        },
+                                        "type": "object"
                                     }
                                 ],
                                 "description": "Widget-specific configuration. Shape depends on the tile's widget_type."
@@ -1278,9 +1291,10 @@
                                 "description": "Optional custom display name for the widget tile."
                             },
                             "widget_type": {
-                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `notebook_widget` - notebook_widget\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
+                                "description": "Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `canvas_app` - canvas_app\n* `conversations_recent_tickets` - conversations_recent_tickets\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `logs_list` - logs_list\n* `notebook_widget` - notebook_widget\n* `session_replay_list` - session_replay_list\n* `survey_results` - survey_results",
                                 "enum": [
                                     "activity_events_list",
+                                    "canvas_app",
                                     "conversations_recent_tickets",
                                     "error_tracking_list",
                                     "experiment_results",

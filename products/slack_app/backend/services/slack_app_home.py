@@ -33,8 +33,13 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
-from products.slack_app.backend.models import SlackSettings, SlackUserProfileCache, UntaggedFollowupMode
+from products.slack_app.backend.feature_flags import is_slack_app_model_router_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.models import (
+    ChannelWelcomeMode,
+    SlackSettings,
+    SlackUserProfileCache,
+    UntaggedFollowupMode,
+)
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
 from products.slack_app.backend.services.model_catalogue import (
     COST_BASELINE_MODEL,
@@ -63,7 +68,14 @@ from products.slack_app.backend.services.slack_app_home_stats import (
     build_stats_state,
     coerce_window_days,
 )
-from products.slack_app.backend.services.slack_settings import AIPreferences, resolve_untagged_followup_mode
+from products.slack_app.backend.services.slack_settings import (
+    AIPreferences,
+    resolve_auto_model_choice,
+    resolve_channel_welcome_mode,
+    resolve_untagged_followup_mode,
+    set_auto_model_choice,
+    set_channel_welcome_mode,
+)
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
 
@@ -89,6 +101,8 @@ ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
+ACTION_SET_CHANNEL_WELCOME_MODE = "slack_app_home:set_channel_welcome_mode"
+ACTION_SET_AUTO_MODEL_CHOICE = "slack_app_home:set_auto_model_choice"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
 # only ack — the ids exist so the clicks still reach the usage-analytics capture.
 ACTION_GITHUB_SETTINGS = "slack_app_home:github_settings"
@@ -114,6 +128,8 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_STATS_WINDOW,
         ACTION_STATS_REFRESH,
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        ACTION_SET_CHANNEL_WELCOME_MODE,
+        ACTION_SET_AUTO_MODEL_CHOICE,
         ACTION_GITHUB_SETTINGS,
         ACTION_CONNECT_ACCOUNT,
     }
@@ -425,6 +441,8 @@ def render_home_view(
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
     untagged_followup_mode: UntaggedFollowupMode | None = None,
+    channel_welcome_mode: ChannelWelcomeMode | None = None,
+    auto_model_choice: bool | None = None,
     has_project_access: bool = True,
     account_settings_url: str | None = None,
 ) -> dict:
@@ -462,6 +480,9 @@ def render_home_view(
     blocks.append({"type": "divider"})
     blocks.extend(_active_model_blocks(run_defaults))
     blocks.extend(_personal_section_blocks(run_defaults))
+    # `None` means the `slack-app-model-router` flag is off for this viewer.
+    if auto_model_choice is not None:
+        blocks.extend(_auto_model_choice_blocks(auto_model_choice))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
     # threads you started reach PostHog on their own.
@@ -469,14 +490,19 @@ def render_home_view(
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
 
-    # Section 5 — linked accounts: PostHog and GitHub side by side, shown
+    # Section 5 — channel welcome: a workspace setting, so only admins see it.
+    if is_admin and channel_welcome_mode is not None:
+        blocks.append({"type": "divider"})
+        blocks.extend(_channel_welcome_section_blocks(channel_welcome_mode))
+
+    # Section 6 — linked accounts: PostHog and GitHub side by side, shown
     # before Tasks so the connect prompts are visible while the Tasks list
     # is still empty. The PostHog half is flag-gated.
     if (account_state and account_state.enabled) or github_state is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_linked_accounts_section_blocks(account_state, github_state))
 
-    # Section 6 — your tasks: a quiet list of tasks the calling user
+    # Section 7 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
     # the bot pinging the activity feed for every transition.
     if tasks_state is not None:
@@ -883,6 +909,42 @@ def _personal_section_blocks(run_defaults: RunDefaultsState) -> list[dict]:
     ]
 
 
+AUTO_MODEL_CHOICE_VALUE = "on"
+
+
+def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
+    option = {
+        "text": {"type": "mrkdwn", "text": "*Use auto model choice*"},
+        # Slack caps an option description at 75 characters and rejects the whole
+        # `views.publish` call over it, so the caveats go in the context line below.
+        "description": {
+            "type": "mrkdwn",
+            "text": "PostHog picks the model for each new task you start.",
+        },
+        "value": AUTO_MODEL_CHOICE_VALUE,
+    }
+    checkbox: dict[str, Any] = {
+        "type": "checkboxes",
+        "action_id": ACTION_SET_AUTO_MODEL_CHOICE,
+        "options": [option],
+    }
+    if enabled:
+        checkbox["initial_options"] = [option]
+    return [
+        _subsection_label("Auto model choice"),
+        {"type": "actions", "elements": [checkbox]},
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": "A model you name in your message still wins, and follow-ups keep the model of their task.",
+                }
+            ],
+        },
+    ]
+
+
 UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
     UntaggedFollowupMode.AUTO: "Pick them up automatically",
     UntaggedFollowupMode.ASK: "Ask them first",
@@ -915,6 +977,38 @@ def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]
         {
             "type": "context",
             "elements": [{"type": "mrkdwn", "text": "Applies to every reply in those threads, yours included."}],
+        },
+    ]
+
+
+CHANNEL_WELCOME_MODE_LABELS: dict[str, str] = {
+    ChannelWelcomeMode.CHANNEL: "Post it in the channel",
+    ChannelWelcomeMode.INVITER: "Show it only to the person who added me",
+    ChannelWelcomeMode.OFF: "Don't send it",
+}
+
+
+def _channel_welcome_section_blocks(mode: ChannelWelcomeMode) -> list[dict]:
+    """Admin picker for where the welcome goes when someone adds the app to a channel."""
+    return [
+        _section_title(
+            "📣 Channel welcome",
+            "What I do when someone adds me to a channel in this workspace.",
+        ),
+        {
+            "type": "actions",
+            "elements": [
+                _static_select(
+                    action_id=ACTION_SET_CHANNEL_WELCOME_MODE,
+                    placeholder="Post it in the channel",
+                    pairs=CHANNEL_WELCOME_MODE_LABELS.items(),
+                    selected=mode.value,
+                )
+            ],
+        },
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": "Applies to everyone in this Slack workspace."}],
         },
     ]
 
@@ -1536,6 +1630,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
             integration,
             "slack app home opened",
             slack_user_id=slack_user_id,
+            posthog_user=_analytics_home_user(integration, slack_user_id),
             account_linked=bool(render.account_state.linked_email),
             has_project_access=render.has_project_access,
         )
@@ -1557,6 +1652,7 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         integration,
         "slack app home action clicked",
         slack_user_id=slack_user_id,
+        posthog_user=_analytics_home_user(integration, slack_user_id),
         action=action_id,
         # Which option the control carried: the follow-up mode, the picked project id,
         # the stats window, the tasks page, or the GitHub button's connect/manage state.
@@ -1601,6 +1697,30 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
 
     if action_id == ACTION_SET_UNTAGGED_FOLLOWUP_MODE:
         _apply_untagged_followup_mode_pick(integration, slack_user_id, action)
+        republish()
+        return HttpResponse(status=200)
+
+    if action_id == ACTION_SET_AUTO_MODEL_CHOICE:
+        # A stale view must not turn the router on for someone the flag no longer covers.
+        if _auto_model_choice_offered(integration, slack_user_id):
+            enabled = any(
+                option.get("value") == AUTO_MODEL_CHOICE_VALUE for option in action.get("selected_options") or []
+            )
+            set_auto_model_choice(integration.integration_id, slack_user_id, enabled)
+            capture_slack_event(
+                integration, "slack app auto model choice toggled", slack_user_id=slack_user_id, enabled=enabled
+            )
+        republish()
+        return HttpResponse(status=200)
+
+    if action_id == ACTION_SET_CHANNEL_WELCOME_MODE:
+        slack = SlackIntegration(integration)
+        if not _is_admin(slack, integration, slack_user_id):
+            _post_ephemeral_admin_only(slack, payload)
+            return HttpResponse(status=200)
+        picked = (action.get("selected_option") or {}).get("value")
+        if picked in ChannelWelcomeMode.values:
+            set_channel_welcome_mode(integration.integration_id, ChannelWelcomeMode(picked))
         republish()
         return HttpResponse(status=200)
 
@@ -1679,6 +1799,7 @@ def handle_app_home_view_submission(payload: dict) -> HttpResponse | JsonRespons
         integration,
         "slack app ai preferences saved",
         slack_user_id=slack_user_id,
+        posthog_user=_analytics_home_user(integration, slack_user_id),
         runtime_adapter=runtime_adapter,
         model=model,
         reasoning_effort=reasoning_effort,
@@ -1971,7 +2092,7 @@ def _clear_project_personal(integration: Integration, slack_user_id: str) -> Non
     ).first()
     if row is None:
         return
-    if not row.untagged_followup_mode:
+    if not row.untagged_followup_mode and not row.auto_model_choice:
         row.delete()
         return
     row.default_integration = None
@@ -2032,6 +2153,12 @@ def _build_home_view(
         tasks_state=tasks_state,
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
+        channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
+        auto_model_choice=(
+            resolve_auto_model_choice(integration.integration_id, slack_user_id)
+            if _auto_model_choice_offered(integration, slack_user_id)
+            else None
+        ),
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
@@ -2279,6 +2406,13 @@ def _resolve_run_defaults_state(
     )
 
 
+def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> bool:
+    home_user = _resolve_home_user(integration, slack_user_id)
+    if home_user is None:
+        return False
+    return is_slack_app_model_router_enabled(integration, distinct_id=home_user.distinct_id)
+
+
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:
     slack_team_id = integration.integration_id
     if not is_slack_app_oauth_enabled(integration):
@@ -2349,6 +2483,15 @@ def _resolve_home_user(integration: Integration, slack_user_id: str) -> User | N
         .first()
     )
     return membership.user if membership else None
+
+
+def _analytics_home_user(integration: Integration, slack_user_id: str) -> User | None:
+    # Attribution is best-effort, so a failed lookup must not cost the reader the publish or the click.
+    try:
+        return _resolve_home_user(integration, slack_user_id)
+    except Exception:
+        logger.warning("slack_app_home_analytics_user_unresolved", exc_info=True)
+        return None
 
 
 def _resolve_github_state(integration: Integration, slack_user_id: str) -> GitHubState:
@@ -2637,7 +2780,7 @@ def _post_ephemeral_admin_only(slack: SlackIntegration, payload: dict) -> None:
     slack_user_id = (payload.get("user") or {}).get("id", "")
     if not slack_user_id:
         return
-    text = "Only Slack workspace admins can change the PostHog workspace default."
+    text = "Only Slack workspace admins can change PostHog workspace settings."
     channel = (payload.get("channel") or {}).get("id") or (payload.get("container") or {}).get("channel_id")
     try:
         if channel:

@@ -18,14 +18,16 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { accountPropertyUpdatesLogic } from '../../scenes/CustomerAnalyticsAccountScene/accountPropertyUpdatesLogic'
 import { canEditEmailMatching, cleanDomains, cleanEmails } from './accountEmailMatching'
 import { accountLinksLogic } from './accountLinksLogic'
+import { getTileString, type AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 
 // Matches the Users tab, the other server-side-paginated account tab.
 export const PAGE_SIZE = 10
 
-export interface AccountMeetingsLogicProps {
+export interface AccountMeetingsLogicProps extends AccountViewTileLogicProps {
     accountId: string
 }
 
@@ -129,7 +131,7 @@ export type accountMeetingsLogicType = MakeLogicType<
 export const accountMeetingsLogic = kea<accountMeetingsLogicType>([
     path((key) => ['scenes', 'customerAnalytics', 'accounts', 'accountMeetingsLogic', key]),
     props({} as AccountMeetingsLogicProps),
-    key((props) => props.accountId),
+    key((props) => `${props.accountId}:${props.instanceId ?? 'default'}`),
     connect((props: AccountMeetingsLogicProps) => ({
         values: [
             teamLogic,
@@ -173,7 +175,7 @@ export const accountMeetingsLogic = kea<accountMeetingsLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(({ props }) => ({
         matchingEditorOpen: [
             false,
             {
@@ -201,7 +203,7 @@ export const accountMeetingsLogic = kea<accountMeetingsLogicType>([
             },
         ],
         searchTerm: [
-            '',
+            getTileString(props.initialConfig, 'searchTerm'),
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
             },
@@ -220,7 +222,7 @@ export const accountMeetingsLogic = kea<accountMeetingsLogicType>([
                     state.includes(meetingId) ? state.filter((id) => id !== meetingId) : [...state, meetingId],
             },
         ],
-    }),
+    })),
     selectors({
         canEditMeetingMatching: [
             (selectors) => [selectors.currentTeam],
@@ -231,6 +233,7 @@ export const accountMeetingsLogic = kea<accountMeetingsLogicType>([
         setPage: () => actions.loadMeetings(),
         setSearchTerm: async ({ searchTerm }, breakpoint) => {
             await breakpoint(300)
+            props.onConfigChange?.({ searchTerm: values.searchTerm })
             actions.loadMeetings()
             posthog.capture(AccountsEvents.MeetingsSearched, {
                 has_query: searchTerm.trim().length > 0,
@@ -258,6 +261,9 @@ export const accountMeetingsLogic = kea<accountMeetingsLogicType>([
                         known_emails: emails,
                     } as PatchedAccountApiProperties,
                 })
+                if (values.currentTeamId) {
+                    accountPropertyUpdatesLogic.actions.accountUpdated(values.currentTeamId, updated)
+                }
                 actions.loadAccountSuccess(updated)
                 actions.closeMatchingEditor()
                 lemonToast.success('Meeting matching updated')

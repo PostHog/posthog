@@ -9,7 +9,8 @@ export function restoreUnmovedItemPositions(
     layout: Layout,
     baseline: Layout,
     activeItemId: string,
-    baselineById: Map<string, LayoutItem> = new Map(baseline.map((item) => [item.i, item]))
+    baselineById: Map<string, LayoutItem> = new Map(baseline.map((item) => [item.i, item])),
+    restoreCollidingItems = false
 ): Layout {
     const activeItem = layout.find((item) => item.i === activeItemId)
 
@@ -20,7 +21,7 @@ export function restoreUnmovedItemPositions(
         }
 
         const restoredItem = { ...item, x: baselineItem.x, y: baselineItem.y }
-        if (activeItem && itemsOverlap(restoredItem, activeItem)) {
+        if (!restoreCollidingItems && activeItem && itemsOverlap(restoredItem, activeItem)) {
             return item
         }
         return restoredItem

@@ -296,10 +296,14 @@ def _run_row(
     head_branch: str = "main",
     commit_message: str | None = None,
     actor: str = "alice",
+    workflow_id: int | None = None,
+    event: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": run_id,
         "name": name,
+        "workflow_id": workflow_id,
+        "event": event,
         "head_sha": head_sha,
         "head_branch": head_branch,
         "status": status,

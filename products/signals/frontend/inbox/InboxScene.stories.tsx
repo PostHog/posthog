@@ -16,6 +16,7 @@ import {
     mockReviewers,
     mockSignals,
     mockSourceConfigs,
+    mockSourceMetadata,
     mockTask,
     mockTeamConfig,
     pullRequestReports,
@@ -76,6 +77,9 @@ const sceneMocks = mswDecorator({
         '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, []],
         '/api/projects/:id/external_data_sources': () => [200, { results: [], count: 0 }],
         '/api/projects/:id/external_data_sources/': () => [200, { results: [], count: 0 }],
+    },
+    post: {
+        '/api/projects/:id/signals/reports/source_metadata/': mockSourceMetadata(allReports),
     },
 })
 
@@ -155,7 +159,12 @@ const LEGACY_FLAGS = {
 export const Legacy: Story = {
     parameters: {
         featureFlags: LEGACY_FLAGS,
-        testOptions: { waitForLoadersToDisappear: true },
+        testOptions: {
+            waitForLoadersToDisappear: true,
+            // The setup rail loads its own team config and integrations, sometimes after the loader wait.
+            // This button renders only after both loads finish.
+            waitForSelector: '[data-attr="signals-issue-tracker-connect"]',
+        },
     },
     decorators: [routeTo(urls.inbox('pulls'))],
 }

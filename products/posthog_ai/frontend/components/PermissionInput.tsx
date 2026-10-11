@@ -8,13 +8,16 @@ import { PostHogErrorBoundary } from '@posthog/react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { cn } from 'lib/utils/css-classes'
 
+import { useThreadSkin } from '../hooks/useThreadSkin'
 import { runStreamLogic } from '../logics/runStreamLogic'
 import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { getPermissionDisplay } from '../policy/permissionDisplayUtils'
+import { FEEDBACK_PLACEHOLDER, isFeedbackOption, optionRowLabel, optionSublabel } from '../policy/permissionOptionCopy'
 import { isPlanPermissionRequest, mapPermissionOptions, type ApprovalCardOption } from '../policy/permissionUtils'
 import type { PermissionRequestRecord } from '../types/streamTypes'
 import { resolveToolCall } from '../utils/toolResolver'
 import { isPlanApprovalModeOptionId, InlineEditableText, PlanApprovalSelector } from './PlanApprovalActions'
+import { QuillPermissionQuestionnaire } from './quill/QuillPermissionQuestionnaire'
 import { DiffStats } from './tool/DiffStats'
 import { FilePath } from './tool/FilePath'
 import { LazyDiffEditor } from './tool/LazyDiffEditor'
@@ -29,8 +32,6 @@ interface PermissionInputProps {
 
 /** Collapsed height of the payload preview, in lines — enough to scan, never enough to bury the choices. */
 const PAYLOAD_COLLAPSED_LINES = 12
-
-const FEEDBACK_PLACEHOLDER = 'Tell the agent what to do differently'
 
 interface PermissionEvidenceProps {
     request: PermissionRequestRecord
@@ -80,7 +81,8 @@ function PayloadPermissionEvidence({ label, payload }: PayloadPermissionEvidence
         <div className="flex flex-col gap-1 min-w-0">
             {label && <div className="text-xs text-secondary font-medium">{label}</div>}
             <div className={cn(showAll && 'max-h-96 overflow-y-auto')}>
-                <CodeSnippet language={language} className="text-xs" compact>
+                {/* Wrapped, so the whole request is visible before approving it. The padding keeps text clear of the copy button. */}
+                <CodeSnippet language={language} className="text-xs [&_pre]:pr-9" compact wrap>
                     {visible}
                 </CodeSnippet>
             </div>
@@ -111,33 +113,6 @@ function PermissionEvidence({ request, label, payload }: PermissionEvidenceProps
     }
 
     return <PayloadPermissionEvidence label={label} payload={payload} />
-}
-
-/** A decline that relays feedback is answered through its inline textarea, not a plain click. */
-function isFeedbackOption(option: ApprovalCardOption): boolean {
-    return option.requiresFeedback || option.supportsFeedback
-}
-
-function optionRowLabel(option: ApprovalCardOption): string {
-    // The wire's feedback option describes the interaction ("Type here to tell the agent…") instead of
-    // naming the choice; the textarea placeholder carries that instruction, the row just needs a name.
-    if (isFeedbackOption(option) && /^type here\b/i.test(option.label)) {
-        return 'Do it differently…'
-    }
-    return option.label
-}
-
-function optionSublabel(option: ApprovalCardOption): string | null {
-    if (option.requiresFeedback) {
-        return 'The agent adjusts and continues instead of stopping this turn.'
-    }
-    if (option.supportsFeedback) {
-        return 'With a note the agent adjusts and continues. Without one, declining stops this turn.'
-    }
-    if (option.decision === 'declined') {
-        return 'Stops this turn. Send a follow-up to redirect the agent.'
-    }
-    return null
 }
 
 interface PermissionOptionRowsProps {
@@ -460,6 +435,7 @@ function GenericPermissionInput({
     responding,
     onRespond,
 }: GenericPermissionInputProps): JSX.Element {
+    const skin = useThreadSkin()
     const display = getPermissionDisplay(request)
     // Only a genuine wire-level description that says more than the tool title becomes the
     // headline; a title-only request keeps the derived tool title as its headline (and the
@@ -476,31 +452,46 @@ function GenericPermissionInput({
         />
     )
 
+    const preview = PermissionPreview ? (
+        <PostHogErrorBoundary
+            key={`${streamKey}:${request.requestId}`}
+            additionalProperties={{ feature: 'posthog_ai_permission_preview' }}
+            fallback={evidence}
+        >
+            <Suspense fallback={evidence}>
+                <PermissionPreview request={request} fallback={evidence} />
+            </Suspense>
+        </PostHogErrorBoundary>
+    ) : (
+        evidence
+    )
+    const headline = headlineBody ? (
+        <div className="max-h-60 overflow-y-auto min-w-0 flex-1">
+            <MarkdownMessage content={headlineBody} id={`permission-${request.requestId}`} />
+        </div>
+    ) : (
+        <span>{display.title ?? 'Approval required'}</span>
+    )
+
+    if (skin === 'quill') {
+        return (
+            <QuillPermissionQuestionnaire
+                headline={headline}
+                evidence={preview}
+                options={options}
+                responding={responding}
+                onRespond={onRespond}
+            />
+        )
+    }
+
     return (
         <div className="flex flex-col gap-2.5 p-3">
             <div className="flex items-start gap-2 text-sm font-medium">
                 <IconWarning className="text-warning size-4 mt-0.5 shrink-0" />
-                {headlineBody ? (
-                    <div className="max-h-60 overflow-y-auto min-w-0 flex-1">
-                        <MarkdownMessage content={headlineBody} id={`permission-${request.requestId}`} />
-                    </div>
-                ) : (
-                    <span>{display.title ?? 'Approval required'}</span>
-                )}
+                {headline}
             </div>
-            {PermissionPreview ? (
-                <PostHogErrorBoundary
-                    key={`${streamKey}:${request.requestId}`}
-                    additionalProperties={{ feature: 'posthog_ai_permission_preview' }}
-                    fallback={evidence}
-                >
-                    <Suspense fallback={evidence}>
-                        <PermissionPreview request={request} fallback={evidence} />
-                    </Suspense>
-                </PostHogErrorBoundary>
-            ) : (
-                evidence
-            )}
+            {preview}
             <PermissionOptionRows options={options} responding={responding} onRespond={onRespond} />
         </div>
     )

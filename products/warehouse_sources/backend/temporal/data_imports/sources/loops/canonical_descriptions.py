@@ -118,4 +118,30 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "lmx": "The component's LMX markup.",
         },
     },
+    "campaign_metrics": {
+        "description": "All-time email engagement counters for a sent campaign. Opens and clicks count sends, not events.",
+        "docs_url": "https://loops.so/docs/api-reference/get-campaign-metrics",
+        "columns": {
+            "campaignId": "The ID of the campaign the metrics belong to.",
+            "sends": "Number of sends.",
+            "opens": "Number of sends that were opened at least once.",
+            "clicks": "Number of sends where at least one link was clicked.",
+            "unsubscribes": "Number of unsubscribes.",
+            "spamReports": "Number of sends reported as spam.",
+            "hardBounces": "Number of sends that hard bounced.",
+            "softBounces": "Number of sends that soft bounced.",
+        },
+    },
+    "transactional_email_metrics": {
+        "description": "All-time delivery counters for a transactional email, totalled across every published version.",
+        "docs_url": "https://loops.so/docs/api-reference/get-transactional-email-metrics",
+        "columns": {
+            "transactionalId": "The ID of the transactional email the metrics belong to.",
+            "sends": "Number of sends.",
+            "deliveries": "Number of sends delivered.",
+            "spamReports": "Number of sends reported as spam.",
+            "hardBounces": "Number of sends that hard bounced.",
+            "softBounces": "Number of sends that soft bounced.",
+        },
+    },
 }

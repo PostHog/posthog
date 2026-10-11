@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconLetter } from '@posthog/icons'
@@ -17,22 +17,28 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowBatchJobApi, HogFlowConversionApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
+import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
+import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
+import { broadcastPath } from './broadcastUsage'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
+import { ComposerDraftFeedback } from './ComposerDraftFeedback'
 
 const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
     waiting: 'default',
@@ -269,9 +275,13 @@ export function BroadcastSummary(): JSX.Element {
         duplicating,
         summaryStatus,
         summaryTab,
+        goalEnabled,
+        conversion,
     } = useValues(broadcastWizardLogic)
     const { moveToDraft, duplicateBroadcast, setSummaryTab, archiveBroadcast, restoreBroadcast, deleteBroadcast } =
         useActions(broadcastWizardLogic)
+    const { props } = useMountedLogic(broadcastWizardLogic)
+    const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const pendingSchedule = broadcast?.schedules?.find((schedule) => schedule.status === 'active')
 
     const confirmMoveToDraft = (): void => {
@@ -371,6 +381,20 @@ export function BroadcastSummary(): JSX.Element {
         <SceneContent className="@container min-h-full w-full shrink-0" data-attr="broadcast-summary">
             <BroadcastSceneHeader nameSuffix={<BroadcastStatusTag status={summaryStatus} />} actions={actionsMenu} />
             <div className="mx-auto w-full max-w-6xl space-y-4">
+                {broadcastPath(broadcastId) === 'composer' ? <ComposerDraftFeedback /> : null}
+                {broadcast?.status === 'draft' ? (
+                    <LemonBanner
+                        type="info"
+                        action={{
+                            children: 'Open in workflow editor',
+                            to: urls.workflow(broadcastId ?? '', 'workflow'),
+                            'data-attr': 'broadcast-draft-open-in-workflow-editor',
+                        }}
+                    >
+                        This draft has steps or an audience the broadcast editor can't show, so it opens here read-only.
+                        Edit it in the workflow editor.
+                    </LemonBanner>
+                ) : null}
                 {summaryStatus === 'failed' && !latestBatchJob && !batchJobsLoading ? (
                     <LemonBanner
                         type="warning"
@@ -398,10 +422,20 @@ export function BroadcastSummary(): JSX.Element {
                             label: 'Overview',
                             content: (
                                 <div className="flex flex-col gap-4">
-                                    <div className="grid grid-cols-1 gap-4 rounded-lg border border-border bg-surface-primary p-4 @2xl:grid-cols-3">
+                                    <div
+                                        className={cn(
+                                            'grid grid-cols-1 gap-4 rounded-lg border border-border bg-surface-primary p-4',
+                                            goalEnabled ? '@2xl:grid-cols-4' : '@2xl:grid-cols-3'
+                                        )}
+                                    >
                                         <SummaryRow label="Audience">
                                             {audienceProperties.length > 0 ? (
-                                                <PropertyFiltersDisplay filters={audienceProperties} />
+                                                <div className="flex flex-col gap-2">
+                                                    {nonCohortAudience.length > 0 ? (
+                                                        <PropertyFiltersDisplay filters={nonCohortAudience} />
+                                                    ) : null}
+                                                    <BroadcastAudienceCohorts />
+                                                </div>
                                             ) : (
                                                 <span className="text-muted">Everyone</span>
                                             )}
@@ -428,6 +462,7 @@ export function BroadcastSummary(): JSX.Element {
                                         <SummaryRow label="Subject">
                                             {email.subject || <span className="text-muted">No subject</span>}
                                         </SummaryRow>
+                                        {goalEnabled && <SummaryRow label="Goal">{goalSummary(conversion)}</SummaryRow>}
                                     </div>
                                     <div className="flex flex-col gap-2">
                                         <h2 className="m-0 text-base font-semibold">
@@ -437,6 +472,7 @@ export function BroadcastSummary(): JSX.Element {
                                             <BroadcastPerformance
                                                 runId={latestBatchJob.id}
                                                 runStartedAt={latestBatchJob.created_at}
+                                                hasGoal={goalEnabled}
                                             />
                                         ) : (
                                             <span className="text-muted">
@@ -473,6 +509,22 @@ export function BroadcastSummary(): JSX.Element {
             </div>
         </SceneContent>
     )
+}
+
+const WINDOW_UNITS: Record<string, string> = { m: 'minute', h: 'hour', d: 'day', w: 'week' }
+
+function goalSummary(conversion: HogFlowConversionApi): string {
+    const events = (conversion.events?.[0]?.filters?.events ?? []).map(
+        (event: { name?: string; id?: string }) => event.name || String(event.id)
+    )
+    const target = events.length > 0 ? events.join(' or ') : 'Matches the goal filters'
+    const match = /^(\d+)([mhdw])$/.exec(conversion.window ?? '')
+    if (!match) {
+        return target
+    }
+    const amount = Number(match[1])
+    const unit = WINDOW_UNITS[match[2]]
+    return `${target} within ${amount} ${unit}${amount === 1 ? '' : 's'}`
 }
 
 function SummaryRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {

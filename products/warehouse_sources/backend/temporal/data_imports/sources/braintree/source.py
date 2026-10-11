@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.braintree.
     BRAINTREE_VERSION_2026_07_14,
     BRAINTREE_VERSION_2026_08_04,
     BRAINTREE_VERSION_2026_08_13,
+    BRAINTREE_VERSION_2026_10_06,
     BraintreeResumeConfig,
     braintree_source,
     validate_credentials as validate_braintree_credentials,
@@ -47,8 +48,9 @@ class BraintreeSource(ResumableSource[BraintreeSourceConfig, BraintreeResumeConf
         BRAINTREE_VERSION_2026_07_14,
         BRAINTREE_VERSION_2026_08_04,
         BRAINTREE_VERSION_2026_08_13,
+        BRAINTREE_VERSION_2026_10_06,
     )
-    default_version = BRAINTREE_VERSION_2026_08_13
+    default_version = BRAINTREE_VERSION_2026_10_06
     api_docs_url = "https://graphql.braintreepayments.com/"
 
     @property

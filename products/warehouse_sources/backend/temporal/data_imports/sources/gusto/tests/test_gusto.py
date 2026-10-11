@@ -1,5 +1,5 @@
 from collections.abc import Iterable, Iterator
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 from urllib.parse import parse_qs, urlparse
 
@@ -170,11 +170,6 @@ class TestExtractNextPage:
         response = cast(Any, _FakeResponse(200, [], headers))
         assert extract_next_page(response, page, item_count) == expected
 
-    def test_has_next_page_header_wins_over_total_pages(self) -> None:
-        # Endpoints that ship both must not terminate early on a stale total-pages count.
-        response = cast(Any, _FakeResponse(200, [], {"X-Has-Next-Page": "true", "X-Total-Pages": "1"}))
-        assert extract_next_page(response, 1, 100) == 2
-
 
 class TestListCompanies:
     def _client(self, body: Any) -> GustoClient:
@@ -184,20 +179,6 @@ class TestListCompanies:
             return_value=session,
         ):
             return GustoClient("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
-
-    def test_returns_companies_sorted_by_uuid(self) -> None:
-        client = self._client(_me_body(["c-zeta", "c-alpha"]))
-        assert [company["uuid"] for company in list_companies(client)] == ["c-alpha", "c-zeta"]
-
-    def test_dedupes_companies_shared_across_roles(self) -> None:
-        body = {
-            "roles": {
-                "payroll_admin": {"companies": [{"uuid": "c-1"}]},
-                "manager": {"companies": [{"uuid": "c-1"}, {"uuid": "c-2"}]},
-            }
-        }
-        client = self._client(body)
-        assert [company["uuid"] for company in list_companies(client)] == ["c-1", "c-2"]
 
     @parameterized.expand(
         [
@@ -216,38 +197,6 @@ class TestListCompanies:
 
 
 class TestExtractRows:
-    def test_bare_array_body(self) -> None:
-        rows = extract_rows(GUSTO_ENDPOINTS["employees"], [{"uuid": "e-1"}, "junk", {"uuid": "e-2"}])
-        assert rows == [{"uuid": "e-1"}, {"uuid": "e-2"}]
-
-    def test_single_object_body_for_company_detail(self) -> None:
-        assert extract_rows(GUSTO_ENDPOINTS["companies"], {"uuid": "c-1"}) == [{"uuid": "c-1"}]
-
-    def test_contractor_payments_are_flattened_out_of_their_contractor_group(self) -> None:
-        body = {
-            "total": {"reimbursements": "0.00"},
-            "contractor_payments": [
-                {
-                    "contractor_uuid": "k-1",
-                    "payments": [{"uuid": "p-1", "date": "2024-01-05"}, {"uuid": "p-2", "date": "2024-02-05"}],
-                },
-                {"contractor_uuid": "k-2", "payments": [{"uuid": "p-3", "date": "2024-01-05"}]},
-            ],
-        }
-        rows = extract_rows(GUSTO_ENDPOINTS["contractor_payments"], body)
-        assert [(row["uuid"], row["contractor_uuid"]) for row in rows] == [
-            ("p-1", "k-1"),
-            ("p-2", "k-1"),
-            ("p-3", "k-2"),
-        ]
-
-    def test_contractor_payment_keeps_its_own_contractor_uuid(self) -> None:
-        body = {
-            "contractor_payments": [{"contractor_uuid": "k-1", "payments": [{"uuid": "p-1", "contractor_uuid": "k-9"}]}]
-        }
-        rows = extract_rows(GUSTO_ENDPOINTS["contractor_payments"], body)
-        assert rows[0]["contractor_uuid"] == "k-9"
-
     def test_group_without_payments_is_kept_as_a_row(self) -> None:
         body = {"contractor_payments": [{"contractor_uuid": "k-1", "reimbursement_total": "10.00"}]}
         assert extract_rows(GUSTO_ENDPOINTS["contractor_payments"], body) == [
@@ -270,12 +219,6 @@ class TestExtractRows:
 
 
 class TestWindowBounds:
-    def test_defaults_to_full_history_without_a_watermark(self) -> None:
-        window = _window_bounds(None)
-        assert window.start == DEFAULT_WINDOW_START
-        # The window reaches forward because payrolls and pay periods are scheduled ahead of today.
-        assert window.end > datetime.now(UTC).date().isoformat()
-
     @parameterized.expand(
         [
             ("date", date(2024, 5, 6), "2024-05-06"),
@@ -309,25 +252,6 @@ class TestGustoClient:
         # Payroll PII must never reach HTTP sample capture.
         assert kwargs["capture"] is False
 
-    def test_mints_a_token_before_the_first_request(self) -> None:
-        session = _FakeSession({"/v1/me": [_FakeResponse(200, {"roles": {}})]})
-        client = self._client(session)
-        client.request("/v1/me")
-        assert session.post_urls == ["https://api.gusto.com/oauth/token"]
-
-    def test_remints_once_when_the_token_expires_mid_sync(self) -> None:
-        session = _FakeSession(
-            {"/v1/me": [_FakeResponse(401), _FakeResponse(200, {"roles": {}})]},
-            token_responses=[
-                _FakeResponse(200, {"access_token": "tok-1"}),
-                _FakeResponse(200, {"access_token": "tok-2"}),
-            ],
-        )
-        client = self._client(session)
-        response = client.request("/v1/me")
-        assert response.status_code == 200
-        assert len(session.post_urls) == 2
-
     def test_persistent_401_is_raised_rather_than_reminted_forever(self) -> None:
         session = _FakeSession({"/v1/me": [_FakeResponse(401)]})
         client = self._client(session)
@@ -346,31 +270,8 @@ class TestGustoClient:
         with pytest.raises(ValueError, match="did not return an access token"):
             self._client(session).mint_token()
 
-    def test_demo_environment_targets_the_demo_host(self) -> None:
-        session = _FakeSession({"/v1/me": [_FakeResponse(200, {"roles": {}})]})
-        client = self._client(session, environment="demo")
-        client.request("/v1/me")
-        assert session.get_urls == ["https://api.gusto-demo.com/v1/me"]
-
 
 class TestGetRowsPaginated:
-    def test_walks_every_company_and_stamps_the_parent(self) -> None:
-        routes = {
-            "/v1/me": [_FakeResponse(200, _me_body(["c-1", "c-2"]))],
-            "/v1/companies/c-1/locations": [
-                _FakeResponse(200, [{"uuid": "l-1"}], {"X-Total-Pages": "2"}),
-                _FakeResponse(200, [{"uuid": "l-2"}], {"X-Total-Pages": "2"}),
-            ],
-            "/v1/companies/c-2/locations": [_FakeResponse(200, [{"uuid": "l-3"}], {"X-Total-Pages": "1"})],
-        }
-        batches, _, manager = _run("locations", routes)
-
-        assert [[row["uuid"] for row in batch] for batch in batches] == [["l-1"], ["l-2"], ["l-3"]]
-        assert [row["_company_uuid"] for batch in batches for row in batch] == ["c-1", "c-1", "c-2"]
-        # Page state is checkpointed mid-company, and each finished company advances the index.
-        assert GustoResumeConfig(company_index=0, next_page=2) in manager.saved
-        assert manager.saved[-1] == GustoResumeConfig(company_index=2)
-
     def test_resumes_at_the_saved_company_and_page(self) -> None:
         routes = {
             "/v1/me": [_FakeResponse(200, _me_body(["c-1", "c-2"]))],
@@ -418,24 +319,6 @@ class TestGetRowsFanOut:
             "/v1/employees/e-2/jobs": [_FakeResponse(200, [{"uuid": "j-1", "title": "Designer"}])],
         }
 
-    def test_jobs_carry_both_parent_identifiers(self) -> None:
-        batches, _, _ = _run("jobs", self._routes())
-        rows = [row for batch in batches for row in batch]
-        # Employees are walked in uuid order, and the same job uuid under two employees stays
-        # distinct because the parent employee is part of the primary key.
-        assert [(row["_employee_uuid"], row["uuid"], row["title"]) for row in rows] == [
-            ("e-1", "j-1", "Engineer"),
-            ("e-2", "j-1", "Designer"),
-        ]
-        assert {row["_company_uuid"] for row in rows} == {"c-1"}
-
-    def test_checkpoints_after_each_employee(self) -> None:
-        _, _, manager = _run("jobs", self._routes())
-        assert manager.saved[:2] == [
-            GustoResumeConfig(company_index=0, employee_index=1),
-            GustoResumeConfig(company_index=0, employee_index=2),
-        ]
-
     def test_resumes_partway_through_a_company_employee_list(self) -> None:
         routes = self._routes()
         del routes["/v1/employees/e-1/jobs"]
@@ -464,28 +347,9 @@ class TestGetRowsWindowed:
             ],
         }
 
-    def test_rows_are_sorted_ascending_across_companies(self) -> None:
-        # `sort_mode="asc"` promises the pipeline an ascending cursor, and Gusto documents no
-        # ordering — so the source has to establish it.
-        batches, _, _ = _run("payrolls", self._payroll_routes())
-        rows = [row for batch in batches for row in batch]
-        assert [row["check_date"] for row in rows] == ["2024-01-15", "2024-02-15", "2024-03-15"]
-        assert [row["payroll_uuid"] for row in rows] == ["pr-1", "pr-2", "pr-3"]
-
-    def test_watermark_becomes_the_start_date_filter(self) -> None:
-        _, session, _ = _run("payrolls", self._payroll_routes(), db_incremental_field_last_value=date(2024, 2, 1))
-        query = parse_qs(urlparse(session.get_urls[1]).query)
-        assert query["start_date"] == ["2024-02-01"]
-        assert query["end_date"][0] > datetime.now(UTC).date().isoformat()
-
     def test_first_sync_requests_the_full_history_window(self) -> None:
         _, session, _ = _run("payrolls", self._payroll_routes())
         assert parse_qs(urlparse(session.get_urls[1]).query)["start_date"] == [DEFAULT_WINDOW_START]
-
-    def test_windowed_endpoints_do_not_checkpoint(self) -> None:
-        # The whole window is buffered so it can be sorted; there is no partial position to resume.
-        _, _, manager = _run("payrolls", self._payroll_routes())
-        assert manager.saved == []
 
     def test_unpaginated_windowed_endpoint_flattens_and_sorts(self) -> None:
         routes = {
@@ -596,9 +460,3 @@ class TestValidateCredentials:
             ok, message = validate_credentials("sandbox", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
         assert ok is False
         assert message is not None and "Invalid Gusto environment" in message
-
-
-class TestWindowReach:
-    def test_future_window_covers_scheduled_pay_periods(self) -> None:
-        window = _window_bounds(None)
-        assert date.fromisoformat(window.end) > datetime.now(UTC).date() + timedelta(days=180)

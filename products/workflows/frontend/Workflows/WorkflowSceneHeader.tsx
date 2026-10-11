@@ -24,10 +24,13 @@ import { ScenePanel, ScenePanelActionsSection, ScenePanelDivider } from '~/layou
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
+import { WorkflowSuggestionsMenuItem } from './suggestions/WorkflowSuggestionsMenuItem'
+import { WorkflowSuggestionsPanelToggle } from './suggestions/WorkflowSuggestionsPanelToggle'
 import { SaveAsTemplateModal } from './templates/SaveAsTemplateModal'
 import { workflowTemplateLogic } from './templates/workflowTemplateLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
+import { parseWorkflowTriggerPrefill, TRIGGER_PREFILL_PARAM } from './workflowTriggerPrefill'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const {
@@ -61,9 +64,11 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isCreatedFromTemplate = props.id === 'new' && !!templateId
+    const isCreatedFromLink = props.id === 'new' && !!parseWorkflowTriggerPrefill(searchParams[TRIGGER_PREFILL_PARAM])
     const isManualWorkflow = ['manual', 'batch'].includes(workflow?.trigger?.type || '')
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const selfOptimisingEnabled = !!featureFlags[FEATURE_FLAGS.SELF_OPTIMISING_WORKFLOWS]
     const [displayStatus, setDisplayStatus] = useState(workflow?.status)
     const [isTransitioning, setIsTransitioning] = useState(false)
     const prevStatusRef = useRef(workflow?.status)
@@ -184,6 +189,12 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                             <IconClock />
                             Version history
                         </SceneMenuBarItem>
+                        {selfOptimisingEnabled && (
+                            <>
+                                <SceneMenuBarSeparator />
+                                <WorkflowSuggestionsMenuItem id={props.id!} />
+                            </>
+                        )}
                     </SceneMenuBarMenu>
                 </SceneMenuBar>
             )}
@@ -232,6 +243,14 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                 </AccessControlAction>
                                 <LemonDivider vertical />
                                 <ScenePanel>
+                                    {selfOptimisingEnabled && (
+                                        <>
+                                            <ScenePanelActionsSection>
+                                                <WorkflowSuggestionsPanelToggle id={props.id!} />
+                                            </ScenePanelActionsSection>
+                                            <ScenePanelDivider />
+                                        </>
+                                    )}
                                     <ScenePanelActionsSection>
                                         <ButtonPrimitive
                                             menuItem
@@ -318,7 +337,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         disabledReason={
                                             workflowHasErrors
                                                 ? 'Some fields still need work'
-                                                : isCreatedFromTemplate
+                                                : isCreatedFromTemplate || isCreatedFromLink
                                                   ? undefined
                                                   : hasUnsavedChanges
                                                     ? undefined

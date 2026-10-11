@@ -36,6 +36,15 @@ def effective_project_id_expr() -> Coalesce:
     return Coalesce(F("project_id"), F("team_id"), output_field=models.BigIntegerField())
 
 
+def group_type_index_key_expr() -> Coalesce:
+    """
+    `group_type_index` as `posthog_propdef_proj_uniq` and `index_property_def_query_proj` store it, with -1 for no group.
+
+    A filter or an ordering must use this exact expression, or Postgres cannot use those index columns for it.
+    """
+    return Coalesce(F("group_type_index"), -1, output_field=models.IntegerField())
+
+
 class PropertyFormat(models.TextChoices):
     UnixTimestamp = "unix_timestamp", "Unix Timestamp in seconds"
     UnixTimestampMilliseconds = (
@@ -58,13 +67,18 @@ class PropertyDefinition(Taggable, UUIDTModel):
         GROUP = 3, "group"
         SESSION = 4, "session"
 
+    # No index of its own: posthog_pro_team_id_eac36d_idx (team_id, type, is_numerical) leads with team_id.
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         related_name="property_definitions",
         related_query_name="team",
+        db_index=False,
     )
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
+    # No automatic index: the named Meta index on `project` covers project_id.
+    project = models.ForeignKey(
+        "posthog.Project", on_delete=models.CASCADE, null=True, related_name="+", db_index=False
+    )
     name = models.CharField(max_length=400)
     is_numerical = models.BooleanField(
         default=False

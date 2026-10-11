@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
+from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     UNVERSIONED_API_VERSION,
     FieldType,
@@ -25,8 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     GOOGLE_SHEETS_API_VERSION_V4,
-    get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
-    get_schemas as get_google_sheets_schemas,
+    discover_worksheet_schemas,
     google_sheets_client,
     google_sheets_source,
 )
@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     api_docs_url = "https://developers.google.com/sheets/api"
+    uses_stable_schema_resource_ids = True
 
     # "v1" is the framework's legacy UNVERSIONED default kept so pre-existing sources stay pinned
     # and unchanged; "v4" names Google's current stable REST API version and is the default for new
@@ -110,26 +111,20 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Listing worksheets is version-agnostic (gspread's `worksheets()`), but the per-worksheet
-        # header read goes through `_get_worksheet`, whose memoization key includes the version —
-        # so discovery must resolve the pin rather than let it default.
-        resolved_version = self.resolve_api_version(api_version)
-        sheets = get_google_sheets_schemas(config)
-
-        if names is not None:
-            names_set = set(names)
-            sheets = [(name, row_count) for name, row_count in sheets if name in names_set]
-
         schemas: list[SourceSchema] = []
-        for name, _ in sheets:
-            incremental_fields = get_google_sheets_schema_incremental_fields(config, name, resolved_version)
+        for discovered in discover_worksheet_schemas(config, names=names):
+            worksheet = discovered.worksheet
+            incremental_fields = discovered.incremental_fields
 
             schemas.append(
                 SourceSchema(
-                    name=name,
+                    name=worksheet.name,
+                    label=worksheet.title,
                     supports_incremental=len(incremental_fields) > 0,
                     supports_append=len(incremental_fields) > 0,
                     incremental_fields=incremental_fields,
+                    # The sheet id survives a rename, so it keeps a renamed worksheet on its stored schema.
+                    schema_metadata={SCHEMA_RESOURCE_ID_METADATA_KEY: str(worksheet.worksheet_id)},
                 )
             )
 
@@ -144,6 +139,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             if inputs.should_use_incremental_field
             else None,
             api_version=self.resolve_api_version(inputs.api_version),
+            worksheet_id=_stored_worksheet_id(inputs),
         )
 
     def validate_credentials(
@@ -244,3 +240,11 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
             ),
             featured=True,
         )
+
+
+def _stored_worksheet_id(inputs: SourceInputs) -> int | None:
+    resource_id = (inputs.schema_metadata or {}).get(SCHEMA_RESOURCE_ID_METADATA_KEY)
+    try:
+        return int(resource_id) if resource_id is not None else None
+    except (TypeError, ValueError):
+        return None

@@ -1,6 +1,8 @@
 import time
+import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
-from typing import Any, Optional
+from datetime import UTC, datetime
+from typing import Any, Optional, cast
 
 import structlog
 from requests import Request, Response, Session
@@ -20,12 +22,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     BasePaginator,
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.settings import (
     INTERCOM_ENDPOINTS,
@@ -38,6 +42,51 @@ INTERCOM_API_BASE = "https://api.intercom.io"
 INTERCOM_API_VERSION = "2.13"
 
 logger = structlog.get_logger(__name__)
+
+
+@dataclasses.dataclass(frozen=True)
+class IntercomResumeConfig:
+    # List endpoints whose `pages.next` is a link: the next page to fetch.
+    next_url: str | None = None
+    # Search endpoints, cursor list endpoints, and the conversation_parts parent walk: the
+    # `starting_after` cursor of the next page to fetch.
+    cursor: str | None = None
+    # The `updated_at >` filter value the search cursor belongs to. A cursor only continues the
+    # query that issued it, so a resume replays this value even when the watermark has moved.
+    query_value: int | None = None
+    # conversation_parts: conversations in the page at `cursor` whose parts are already yielded.
+    completed_conversation_ids: list[str] = dataclasses.field(default_factory=list)
+    # company_segments: every company id that sorts at or before this one is already yielded.
+    last_company_id: str | None = None
+    # Page-number list endpoints: the next page to fetch.
+    page: int | None = None
+
+
+def _load_resume_state(
+    resumable_source_manager: ResumableSourceManager[IntercomResumeConfig] | None,
+) -> IntercomResumeConfig | None:
+    if resumable_source_manager is None or not resumable_source_manager.can_resume():
+        return None
+    return resumable_source_manager.load_state()
+
+
+def _is_invalid_resume_cursor(exc: HTTPError) -> bool:
+    """Whether Intercom rejected a persisted pagination cursor rather than the request itself."""
+    response = exc.response
+    if response is None or response.status_code not in (400, 404, 410):
+        return False
+    # Persisted next-page URLs can expire without naming their internal cursor in the response.
+    if response.status_code in (404, 410):
+        return True
+    try:
+        body = response.json()
+    except Exception:
+        body = response.text
+    text = str(body).lower()
+    names_pagination = any(marker in text for marker in ("cursor", "starting_after", "pagination", "page token"))
+    return names_pagination and any(
+        marker in text for marker in ("invalid", "expired", "not found", "parameter_invalid")
+    )
 
 
 def _is_not_found(exc: HTTPError) -> bool:
@@ -155,11 +204,23 @@ class IntercomSearchPaginator(BasePaginator):
             self._next_cursor = None
             self._has_next_page = False
 
+    def init_request(self, request: Request) -> None:
+        self.update_request(request)
+
     def update_request(self, request: Request) -> None:
         if self._next_cursor is None or request.json is None:
             return
         pagination = request.json.setdefault("pagination", {})
         pagination["starting_after"] = self._next_cursor
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"cursor": self._next_cursor} if self._has_next_page and self._next_cursor is not None else None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._next_cursor = cursor
+            self._has_next_page = True
 
 
 class IntercomPagesPaginator(BaseNextUrlPaginator):
@@ -202,6 +263,9 @@ class IntercomPagesPaginator(BaseNextUrlPaginator):
         self._cursor = cursor or None
         self._has_next_page = bool(cursor)
 
+    def init_request(self, request: Request) -> None:
+        self.update_request(request)
+
     def update_request(self, request: Request) -> None:
         if self._next_url is not None:
             super().update_request(request)
@@ -211,8 +275,39 @@ class IntercomPagesPaginator(BaseNextUrlPaginator):
                 request.params = {}
             request.params["starting_after"] = self._cursor
 
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        if not self._has_next_page:
+            return None
+        if self._next_url is not None:
+            return {"next_url": self._next_url}
+        if self._cursor is not None:
+            return {"cursor": self._cursor}
+        return None
+
+    def set_resume_state(self, state: dict[str, Any]) -> None:
+        if state.get("next_url") is not None:
+            super().set_resume_state(state)
+            return
+        cursor = state.get("cursor")
+        if cursor is not None:
+            self._cursor = cursor
+            self._has_next_page = True
+
     def __str__(self) -> str:
         return "IntercomPagesPaginator()"
+
+
+def _to_unix_seconds(value: Any) -> int:
+    """Coerce a watermark to the Unix seconds Intercom's query-param filters expect.
+
+    Most Intercom timestamps are epoch integers, but macros carry ISO 8601 strings, so their
+    watermark arrives as a datetime.
+    """
+    if isinstance(value, datetime):
+        return int((value if value.tzinfo else value.replace(tzinfo=UTC)).timestamp())
+    if isinstance(value, str) and not value.lstrip("-").isdigit():
+        return _to_unix_seconds(datetime.fromisoformat(value.replace("Z", "+00:00")))
+    return int(value)
 
 
 def _build_search_body(
@@ -248,6 +343,8 @@ def _build_paginator(cfg: IntercomEndpointConfig) -> BasePaginator:
         return JSONResponsePaginator(next_url_path="pages.next")
     if cfg.paginator_kind == "pages":
         return IntercomPagesPaginator()
+    if cfg.paginator_kind == "page_number":
+        return PageNumberPaginator(base_page=1, total_path="total_pages")
     return SinglePagePaginator()
 
 
@@ -273,14 +370,14 @@ def get_resource(
         # `value: 0` matches every record. Default to "updated_at" (the only
         # cursor Intercom search endpoints support) when no field is passed.
         endpoint["json"] = _build_search_body(cfg, incremental_field or "updated_at", db_incremental_field_last_value)
-    elif cfg.paginator_kind in ("cursor", "next_url", "pages"):
+    elif cfg.paginator_kind in ("cursor", "next_url", "pages", "page_number"):
         params: dict[str, Any] = {"per_page": cfg.page_size, **cfg.extra_params}
         if cfg.incremental_query_param:
             # Intercom's `/admins/activity_logs` returns a much smaller default
             # window when called without `created_at_after`, so we always set
             # the param. `0` matches every record (Unix epoch start).
             if should_use_incremental_field and db_incremental_field_last_value is not None:
-                params[cfg.incremental_query_param] = int(db_incremental_field_last_value)
+                params[cfg.incremental_query_param] = _to_unix_seconds(db_incremental_field_last_value)
             else:
                 params[cfg.incremental_query_param] = 0
         endpoint["params"] = params
@@ -382,46 +479,70 @@ def _intercom_post(session: Session, path_or_url: str, body: dict[str, Any]) -> 
     return _request_with_rate_limit_retry(do)
 
 
-def _iter_conversations(
+def _conversation_parts_generator(
     session: Session,
     incremental_field: str,
     db_incremental_field_last_value: Optional[Any],
+    resumable_source_manager: ResumableSourceManager[IntercomResumeConfig] | None = None,
 ) -> Iterator[dict[str, Any]]:
-    """Walk `POST /conversations/search` honoring the same `updated_at >`
-    server-side filter the conversations endpoint uses, so substreams only
-    refetch parents whose timestamp advanced."""
+    """Yield each conversation part. Parents come from `POST /conversations/search`
+    with the same `updated_at >` server-side filter the conversations endpoint uses,
+    so only parents whose timestamp advanced are refetched. The part rows carry their
+    own `updated_at`, so the pipeline's cursor watermark advances per-part.
+    `conversation_id` is injected onto each row for joinability.
+
+    The resume cursor is the parent page plus the conversations in it that are done,
+    staged after each conversation's parts are yielded. A resume refetches that page
+    and skips the done conversations."""
     body = _build_search_body(INTERCOM_ENDPOINTS["conversations"], incremental_field, db_incremental_field_last_value)
+    completed: list[str] = []
+    resume = _load_resume_state(resumable_source_manager)
+    if resume is not None and resume.query_value is not None:
+        body["query"]["value"] = resume.query_value
+        if resume.cursor is not None:
+            body["pagination"]["starting_after"] = resume.cursor
+        completed = list(resume.completed_conversation_ids)
+    query_value = body["query"]["value"]
+
+    def stage(page_cursor: str | None, done: list[str]) -> None:
+        if resumable_source_manager is None:
+            return
+        resumable_source_manager.save_state(
+            IntercomResumeConfig(cursor=page_cursor, query_value=query_value, completed_conversation_ids=list(done))
+        )
+        # Every part the staged cursor covers is yielded and nothing is buffered here. Many
+        # conversations have no parts, so the walk can make many requests between rows.
+        resumable_source_manager.safe_point()
+
     while True:
+        page_cursor = body["pagination"].get("starting_after")
         payload = _intercom_post(session, "/conversations/search", body)
-        yield from (payload.get("conversations") or [])
+        done_ids = set(completed)
+        for conv in payload.get("conversations") or []:
+            conversation_id = str(conv["id"])
+            if conversation_id in done_ids:
+                continue
+            try:
+                full = _intercom_get(session, f"/conversations/{conv['id']}")
+            except HTTPError as exc:
+                if not _is_not_found(exc):
+                    raise
+                logger.warning("intercom_conversation_not_found", conversation_id=conv["id"])
+            else:
+                parts = (full.get("conversation_parts") or {}).get("conversation_parts") or []
+                for part in parts:
+                    part["conversation_id"] = conv["id"]
+                    yield part
+            completed.append(conversation_id)
+            done_ids.add(conversation_id)
+            stage(page_cursor, completed)
         next_block = (payload.get("pages") or {}).get("next") or {}
         cursor = next_block.get("starting_after") if isinstance(next_block, dict) else None
         if not cursor:
             return
         body["pagination"]["starting_after"] = cursor
-
-
-def _conversation_parts_generator(
-    session: Session,
-    incremental_field: str,
-    db_incremental_field_last_value: Optional[Any],
-) -> Iterator[dict[str, Any]]:
-    """Yield each conversation part. Parents are server-filtered by
-    `updated_at >`; the part rows themselves carry their own `updated_at`,
-    so the pipeline's cursor watermark advances per-part. `conversation_id`
-    is injected onto each row for joinability."""
-    for conv in _iter_conversations(session, incremental_field, db_incremental_field_last_value):
-        try:
-            full = _intercom_get(session, f"/conversations/{conv['id']}")
-        except HTTPError as exc:
-            if _is_not_found(exc):
-                logger.warning("intercom_conversation_not_found", conversation_id=conv["id"])
-                continue
-            raise
-        parts = (full.get("conversation_parts") or {}).get("conversation_parts") or []
-        for part in parts:
-            part["conversation_id"] = conv["id"]
-            yield part
+        completed = []
+        stage(cursor, completed)
 
 
 # Intercom expires an idle companies scroll after ~1 minute, so a stale scroll
@@ -498,7 +619,7 @@ def _open_companies_scroll(session: Session) -> dict[str, Any]:
     raise AssertionError("unreachable")
 
 
-def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
+def _iter_companies(session: Session, after_page: Callable[[], None] | None = None) -> Iterator[dict[str, Any]]:
     """Walk every company via `GET /companies/scroll` (full refresh).
 
     `POST /companies/list` is hard-capped at 10,000 companies — paging past
@@ -518,12 +639,14 @@ def _iter_companies(session: Session) -> Iterator[dict[str, Any]]:
         if not data:
             return
         yield from data
+        if after_page is not None:
+            after_page()
         scroll_param = payload.get("scroll_param")
         if not scroll_param:
             return
 
 
-def _drain_company_ids(session: Session) -> list[str]:
+def _drain_company_ids(session: Session, after_page: Callable[[], None] | None = None) -> list[str]:
     """Walk the whole companies scroll and collect every id, restarting the walk
     from the beginning if the scroll cursor expires mid-drain (404 on a
     continuation — see `_SCROLL_EXPIRED_MAX_RETRIES`).
@@ -536,7 +659,7 @@ def _drain_company_ids(session: Session) -> list[str]:
     and Temporal restarts the whole run from a freshly-wiped table instead.)"""
     for attempt in range(_SCROLL_EXPIRED_MAX_RETRIES + 1):
         try:
-            return [company["id"] for company in _iter_companies(session)]
+            return [company["id"] for company in _iter_companies(session, after_page)]
         except HTTPError as exc:
             if _is_scroll_expired(exc) and attempt < _SCROLL_EXPIRED_MAX_RETRIES:
                 logger.warning("intercom_companies_scroll_expired_restart", attempt=attempt + 1)
@@ -546,7 +669,10 @@ def _drain_company_ids(session: Session) -> list[str]:
     raise AssertionError("unreachable")
 
 
-def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
+def _company_segments_generator(
+    session: Session,
+    resumable_source_manager: ResumableSourceManager[IntercomResumeConfig] | None = None,
+) -> Iterator[dict[str, Any]]:
     """Walk all companies and yield each attached segment with `company_id`
     injected. Full refresh — Intercom has no server-side timestamp filter on
     either parent or child.
@@ -558,19 +684,34 @@ def _company_segments_generator(session: Session) -> Iterator[dict[str, Any]]:
     Draining first keeps the scroll requests back-to-back so it stays alive;
     only the ids are held, not the full company payloads, so the memory
     footprint stays small. If the cursor is still invalidated mid-drain,
-    `_drain_company_ids` restarts the walk from scratch."""
-    company_ids = _drain_company_ids(session)
+    `_drain_company_ids` restarts the walk from scratch.
+
+    The ids are sorted so that each attempt walks them in the same order, whatever
+    order its scroll returns. The resume cursor is the last company whose segments
+    are yielded, and a resume skips every id that sorts at or before it."""
+    resume = _load_resume_state(resumable_source_manager)
+    last_company_id = resume.last_company_id if resume is not None else None
+    # No row is yielded during the drain, and nothing is staged yet, so a hand-off here
+    # resumes from the cursor the previous attempt committed.
+    safe_point = resumable_source_manager.safe_point if resumable_source_manager is not None else None
+    company_ids = sorted(_drain_company_ids(session, safe_point))
     for company_id in company_ids:
+        if last_company_id is not None and company_id <= last_company_id:
+            continue
         try:
             payload = _intercom_get(session, f"/companies/{company_id}/segments")
         except HTTPError as exc:
-            if _is_not_found(exc):
-                logger.warning("intercom_company_not_found", company_id=company_id)
-                continue
-            raise
-        for seg in payload.get("data", []) or []:
-            seg["company_id"] = company_id
-            yield seg
+            if not _is_not_found(exc):
+                raise
+            logger.warning("intercom_company_not_found", company_id=company_id)
+        else:
+            for seg in payload.get("data", []) or []:
+                seg["company_id"] = company_id
+                yield seg
+        if resumable_source_manager is not None:
+            resumable_source_manager.save_state(IntercomResumeConfig(last_company_id=company_id))
+            # Most companies have no segments, so the fan-out can make many requests between rows.
+            resumable_source_manager.safe_point()
 
 
 def _substream_items(
@@ -578,6 +719,7 @@ def _substream_items(
     endpoint: str,
     incremental_field: str | None,
     db_incremental_field_last_value: Optional[Any],
+    resumable_source_manager: ResumableSourceManager[IntercomResumeConfig] | None = None,
 ) -> Iterator[dict[str, Any]]:
     if endpoint == "conversation_parts":
         if not incremental_field:
@@ -585,9 +727,11 @@ def _substream_items(
             # walk every conversation. `updated_at` is the only declared
             # cursor, so default to it for the parent search filter.
             incremental_field = "updated_at"
-        return _conversation_parts_generator(session, incremental_field, db_incremental_field_last_value)
+        return _conversation_parts_generator(
+            session, incremental_field, db_incremental_field_last_value, resumable_source_manager
+        )
     if endpoint == "company_segments":
-        return _company_segments_generator(session)
+        return _company_segments_generator(session, resumable_source_manager)
     raise ValueError(f"Unknown Intercom substream endpoint: {endpoint}")
 
 
@@ -627,32 +771,96 @@ def validate_credentials(
     return False, f"HTTP {response.status_code}: {response.text[:200]}"
 
 
+def _rest_resume_state(cfg: IntercomEndpointConfig, resume: IntercomResumeConfig | None) -> dict[str, Any] | None:
+    if resume is None:
+        return None
+    if cfg.paginator_kind == "search":
+        # A search cursor without the filter it was issued under cannot be replayed safely.
+        return {"cursor": resume.cursor} if resume.cursor is not None and resume.query_value is not None else None
+    if cfg.paginator_kind in ("cursor", "next_url", "pages"):
+        if resume.next_url is not None:
+            return {"next_url": resume.next_url}
+        if resume.cursor is not None:
+            return {"cursor": resume.cursor}
+    if cfg.paginator_kind == "page_number" and resume.page is not None:
+        return {"page": resume.page}
+    return None
+
+
 def intercom_source(
     access_token: str,
     endpoint: str,
     team_id: int,
     job_id: str,
     api_version: str,
+    resumable_source_manager: ResumableSourceManager[IntercomResumeConfig],
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     cfg = INTERCOM_ENDPOINTS[endpoint]
+    if cfg.api_versions is not None and api_version not in cfg.api_versions:
+        raise ValueError(
+            f"Intercom table {endpoint} requires Intercom API version {', '.join(cfg.api_versions)}, "
+            f"but this source is pinned to {api_version}"
+        )
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
+    supports_resume = True
 
     if cfg.paginator_kind == "substream":
         # One session built here is reused across the parent walk and every
         # per-row child fetch, so urllib3 keeps the connection alive instead
         # of re-handshaking per request.
         session = _make_intercom_session(access_token, api_version)
-        items = lambda: _substream_items(session, endpoint, incremental_field, db_incremental_field_last_value)
+
+        def iter_substream() -> Iterator[Any]:
+            had_resume_state = resumable_source_manager.can_resume()
+            try:
+                yield from _substream_items(
+                    session, endpoint, incremental_field, db_incremental_field_last_value, resumable_source_manager
+                )
+            except HTTPError as exc:
+                if had_resume_state and _is_invalid_resume_cursor(exc):
+                    resumable_source_manager.clear_state()
+                raise
+
+        items = iter_substream
     elif cfg.paginator_kind == "scroll":
         # The Scroll API doesn't fit the framework paginators (the cursor is a
         # `scroll_param`, not a request mutation), so `companies` walks it with a
         # custom iterator. One session is reused across the whole scroll walk.
         session = _make_intercom_session(access_token, api_version)
         items = lambda: _iter_companies(session)
+        # A scroll expires after about a minute idle and only restarts from the beginning,
+        # so no cursor outlives the hand-off to another worker.
+        supports_resume = False
     else:
+        resource_config = get_resource(
+            endpoint,
+            should_use_incremental_field,
+            incremental_field,
+            db_incremental_field_last_value,
+        )
+        search_body = cast(dict[str, Any], resource_config["endpoint"]).get("json")
+        resume = _load_resume_state(resumable_source_manager)
+        initial_paginator_state = _rest_resume_state(cfg, resume)
+        if search_body is not None and initial_paginator_state is not None and resume is not None:
+            search_body["query"]["value"] = resume.query_value
+        query_value: int | None = search_body["query"]["value"] if search_body is not None else None
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            # The framework calls this after it yields a page, with the state of the next page.
+            if not state:
+                return
+            if state.get("next_url"):
+                resumable_source_manager.save_state(IntercomResumeConfig(next_url=state["next_url"]))
+            elif state.get("cursor"):
+                resumable_source_manager.save_state(
+                    IntercomResumeConfig(cursor=state["cursor"], query_value=query_value)
+                )
+            elif state.get("page"):
+                resumable_source_manager.save_state(IntercomResumeConfig(page=state["page"]))
+
         config: RESTAPIConfig = {
             "client": {
                 "base_url": INTERCOM_API_BASE,
@@ -663,17 +871,28 @@ def intercom_source(
                 "headers": _default_headers(api_version),
             },
             "resource_defaults": {},
-            "resources": [
-                get_resource(
-                    endpoint,
-                    should_use_incremental_field,
-                    incremental_field,
-                    db_incremental_field_last_value,
-                )
-            ],
+            "resources": [resource_config],
         }
-        resource = rest_api_resource(config, team_id, job_id, db_incremental_field_last_value)
-        items = lambda: resource
+        resource = rest_api_resource(
+            config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+
+        def iter_resource() -> Iterator[Any]:
+            try:
+                yield from resource
+            except HTTPError as exc:
+                if initial_paginator_state is not None and _is_invalid_resume_cursor(exc):
+                    # Fail this attempt after invalidating the poisoned cursor. The next Temporal
+                    # attempt restarts from the durable watermark (or from the beginning).
+                    resumable_source_manager.clear_state()
+                raise
+
+        items = iter_resource
 
     return SourceResponse(
         name=endpoint,
@@ -685,4 +904,5 @@ def intercom_source(
         partition_count=cfg.partition_count,
         partition_size=cfg.partition_size,
         sort_mode=cfg.sort_mode,
+        supports_resume=supports_resume,
     )

@@ -35,14 +35,17 @@ export interface SourceCatalogProps {
 const SourceTile = memo(function SourceTile({
     item,
     accessDisabledReason,
+    interestRegistered,
     onNotify,
     onSelect,
 }: {
     item: CatalogItem
     accessDisabledReason: string | null
+    interestRegistered: boolean
     onNotify: (item: CatalogItem) => void
     onSelect: (item: CatalogItem) => void
 }): JSX.Element {
+    const comingSoon = item.status === 'coming_soon'
     const content = (
         <>
             <div className="shrink-0">
@@ -53,18 +56,15 @@ const SourceTile = memo(function SourceTile({
                 {item.description && (
                     <div className="text-xs text-secondary leading-snug line-clamp-2">{item.description}</div>
                 )}
-                {item.status === 'coming_soon' ? (
+                {comingSoon ? (
                     <>
                         <LemonTag type="warning">Coming soon</LemonTag>
-                        <LemonButton
-                            type="secondary"
-                            size="xsmall"
-                            icon={<IconMegaphone />}
-                            onClick={() => onNotify(item)}
-                            data-attr="catalog-notify-me"
+                        <LemonTag
+                            type={interestRegistered ? 'success' : 'primary'}
+                            icon={interestRegistered ? undefined : <IconMegaphone />}
                         >
-                            Notify me
-                        </LemonButton>
+                            {interestRegistered ? "We'll let you know" : 'Notify me'}
+                        </LemonTag>
                     </>
                 ) : (
                     <div className="flex flex-wrap items-center gap-1">
@@ -85,10 +85,26 @@ const SourceTile = memo(function SourceTile({
         </>
     )
 
-    if (item.status === 'coming_soon') {
+    if (comingSoon) {
+        if (interestRegistered) {
+            return (
+                <Tooltip title="We'll let you know when this source launches.">
+                    <div className={`${CATALOG_TILE_CLASS} cursor-default`}>{content}</div>
+                </Tooltip>
+            )
+        }
+        // A whole tile that only reacts on its small inner button reads as broken: people click
+        // the tile, nothing happens, and they move on without asking to be told about the source.
         return (
-            <Tooltip title="This source isn't available yet. Choose 'Notify me' and we'll let you know when it launches.">
-                <div className={`${CATALOG_TILE_CLASS} cursor-default`}>{content}</div>
+            <Tooltip title="This source isn't available yet. Select it and we'll let you know when it launches.">
+                <button
+                    type="button"
+                    className={`${CATALOG_TILE_CLASS} hover:border-primary cursor-pointer`}
+                    onClick={() => onNotify(item)}
+                    data-attr="catalog-notify-me"
+                >
+                    {content}
+                </button>
             </Tooltip>
         )
     }
@@ -139,7 +155,9 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
         categoriesWithCounts,
         search,
         selectedCategory,
+        selectedCategoryLabel,
         hasCrossCategoryMatches,
+        registeredInterestSources,
         sourceRequestModalOpen,
         sourceRequestText,
     } = useValues(logic)
@@ -198,7 +216,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                     <div className="flex flex-col gap-1">
                         {hasCrossCategoryMatches ? (
                             <div className="text-muted text-sm">
-                                No sources match "{search.trim()}" in {selectedCategory}.{' '}
+                                No sources match "{search.trim()}" in {selectedCategoryLabel}.{' '}
                                 <Link onClick={() => setSelectedCategory('all')}>Search all categories</Link> or request
                                 one below.
                             </div>
@@ -231,6 +249,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
                             key={item.name}
                             item={item}
                             accessDisabledReason={accessDisabledReason}
+                            interestRegistered={registeredInterestSources.includes(item.name)}
                             onNotify={registerInterest}
                             onSelect={selectSourceType}
                         />

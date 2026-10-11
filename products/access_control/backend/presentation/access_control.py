@@ -15,12 +15,14 @@ from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
+from posthog.scopes import GRANTABLE_API_SCOPE_OBJECTS, APIScopeObjectOrNotSupported
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.enums import (
     RESOLVED_ACCESS_SOURCE_CHOICES,
     RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES,
+    SCOPE_OBJECT_CHOICES,
 )
 from products.access_control.backend.facade.object_names import display_model
 from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
@@ -92,7 +94,9 @@ class ResolvedAccessSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Whose rule decided: a member's own, a role's, or the default for everyone in the project. Null when no rule did.",
     )
-    source_resource = serializers.CharField(help_text="The resource the deciding rule belongs to.")
+    source_resource = serializers.ChoiceField(
+        choices=SCOPE_OBJECT_CHOICES, help_text="The resource the deciding rule belongs to."
+    )
     source_resource_id = serializers.CharField(
         allow_null=True,
         help_text="The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).",
@@ -149,9 +153,10 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return field_class, field_kwargs
 
     def validate_resource(self, resource):
-        if resource not in API_SCOPE_OBJECTS or resource in INTERNAL_API_SCOPE_OBJECTS:
-            allowed = tuple(s for s in API_SCOPE_OBJECTS if s not in INTERNAL_API_SCOPE_OBJECTS)
-            raise serializers.ValidationError("Invalid resource. Must be one of: {}".format(allowed))
+        if resource not in GRANTABLE_API_SCOPE_OBJECTS:
+            raise serializers.ValidationError(
+                "Invalid resource. Must be one of: {}".format(GRANTABLE_API_SCOPE_OBJECTS)
+            )
 
         return resource
 
@@ -622,9 +627,12 @@ class UserAccessControlSerializerMixin(serializers.Serializer):
 
         return None
 
-    def get_user_access_level(self, obj: Model) -> Optional[str]:
+    def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
         if not self.user_access_control:
             return None
+
+        if isinstance(obj, ObjectAccessRef):
+            return self.user_access_control.access_level_for_ref(obj)
 
         # Check if self.instance is a list - if so we want to preload the user access controls
         if not self._preloaded_access_controls and isinstance(self.instance, list):
