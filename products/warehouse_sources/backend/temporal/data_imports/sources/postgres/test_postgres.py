@@ -3,7 +3,7 @@ import errno
 import socket
 import threading
 from collections.abc import Generator, Iterable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
 
@@ -55,6 +55,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
+    CLIENT_DEADLINE_ERROR,
+    ClientDeadlineExceededError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
     ForeignServerUnreachableError,
     XminUnsupportedError,
@@ -80,12 +84,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
     _MIN_RECOVERY_CONFLICT_CHUNK_SIZE,
     _SSH_HANDSHAKE_EOF_ERROR,
+    _STREAM_SERVER_CURSOR,
+    _TCP_LIVENESS_KWARGS,
+    EXPLAIN_CLIENT_DEADLINE_SECONDS,
     FORCE_UTF8_CLIENT_ENCODING,
     METADATA_STATEMENT_TIMEOUT_MS,
     MIN_SIZE_SAMPLE_PERCENT,
     SIZE_SAMPLE_MAX_ROWS,
     SIZE_SAMPLE_TARGET_ROWS,
     SSL_REQUIRED_AFTER_DATE,
+    UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
     NetworkAsStringLoader,
@@ -485,6 +493,9 @@ class TestPostgresSourceNonRetryableErrors:
             # Distinct from the transient "not yet accepting connections" startup refusal above (which
             # reads "not yet", not "not currently"). Host/db are invented, not a real value.
             'connection failed: connection to server at "db.example.com", port 5432 failed: FATAL:  database "postgres" is not currently accepting connections',
+            # A serverless provider refuses every connect while the branch is hibernated, until the
+            # customer reactivates it. Host and IP are invented, not real values.
+            'connection failed: connection to server at "203.0.113.7", port 5432 failed: FATAL:  branch is hibernated, reactivate it to continue',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -523,6 +534,22 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches, "a dropped relation must be classified non-retryable"
         assert matches[0] is not None, "a dropped relation must surface an actionable message, not raw driver text"
         assert "no longer exists" in matches[0].lower()
+
+    def test_hibernated_branch_wins_over_a_generic_refusal_for_another_address(self, source):
+        # Host and IPs are invented, not real values.
+        error_msg = (
+            'connection failed: connection to server at "203.0.113.7", port 5432 failed: Connection refused '
+            'Multiple connection attempts failed. All failures were: - host: "db.example.com", port: "5432", '
+            'hostaddr: "203.0.113.8": connection failed: connection to server at "203.0.113.8", port 5432 '
+            "failed: FATAL:  branch is hibernated, reactivate it to continue"
+        )
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches and matches[0] is not None
+        assert "reactivate the branch" in matches[0].lower()
 
     def test_connect_timeout_surfaces_actionable_message(self, source):
         # A persistently timing-out connect stays non-retryable, but must surface firewall/reachability
@@ -3512,8 +3539,8 @@ class TestServerCursorStatementTimeout:
     """
 
     class _Cursor:
-        def __init__(self, raise_on_fetch: bool):
-            self._raise_on_fetch = raise_on_fetch
+        def __init__(self, fetch_error: BaseException | None):
+            self._fetch_error = fetch_error
             col = mock.Mock()
             col.name = "id"
             self.description = [col]
@@ -3522,8 +3549,8 @@ class TestServerCursorStatementTimeout:
             return None
 
         def fetchmany(self, _n: int):
-            if self._raise_on_fetch:
-                raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+            if self._fetch_error is not None:
+                raise self._fetch_error
             return []
 
         def __enter__(self):
@@ -3533,7 +3560,8 @@ class TestServerCursorStatementTimeout:
             return False
 
     class _Connection:
-        def __init__(self):
+        def __init__(self, fetch_error: BaseException):
+            self._fetch_error = fetch_error
             self.autocommit = False
             self.closed = False
             # Real psycopg connections expose `broken`; the setup path probes it via
@@ -3544,7 +3572,7 @@ class TestServerCursorStatementTimeout:
         def cursor(self, *args, **kwargs):
             # A named cursor (`name=...`) is the streaming server cursor that must
             # raise the timeout; the unnamed setup cursor stays benign.
-            return TestServerCursorStatementTimeout._Cursor(raise_on_fetch="name" in kwargs)
+            return TestServerCursorStatementTimeout._Cursor(self._fetch_error if "name" in kwargs else None)
 
         def commit(self):
             return None
@@ -3558,7 +3586,7 @@ class TestServerCursorStatementTimeout:
         def __exit__(self, *args):
             return False
 
-    def _run(self, *, should_use_incremental_field: bool):
+    def _run(self, *, should_use_incremental_field: bool, fetch_error: BaseException):
         from contextlib import contextmanager
 
         @contextmanager
@@ -3573,8 +3601,8 @@ class TestServerCursorStatementTimeout:
 
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
-            patch(f"{module}.psycopg.connect", return_value=self._Connection()),
-            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(raise_on_fetch=False)),
+            patch(f"{module}.psycopg.connect", return_value=self._Connection(fetch_error)),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(None)),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=False),
             patch(f"{module}._is_duckdb_connection", return_value=False),
@@ -3604,19 +3632,28 @@ class TestServerCursorStatementTimeout:
             )
             list(cast(Iterable[Any], response.items()))
 
+    _SERVER_TIMEOUT = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+    _CLIENT_DEADLINE = ClientDeadlineExceededError(660)
+
     @pytest.mark.parametrize(
-        "should_use_incremental_field,expected_exception,expected_substr",
+        "should_use_incremental_field,fetch_error,expected_exception,expected_substr",
         [
             # Incremental syncs map the FETCH timeout to a non-retryable QueryTimeoutException.
-            (True, QueryTimeoutException, "updated_at"),
+            (True, _SERVER_TIMEOUT, QueryTimeoutException, "updated_at"),
             # Full-table syncs have no stable ORDER BY, so they stay retryable to let a fresh
             # re-sync reorder rows rather than giving up — with a message that names the fix.
-            (False, Exception, "incremental replication"),
+            (False, _SERVER_TIMEOUT, Exception, "incremental replication"),
+            # The client deadline reports a server that stopped answering, so it must reach the
+            # activity unchanged for both sync types, and never as the permanent index advice.
+            (True, _CLIENT_DEADLINE, ClientDeadlineExceededError, CLIENT_DEADLINE_ERROR),
+            (False, _CLIENT_DEADLINE, ClientDeadlineExceededError, CLIENT_DEADLINE_ERROR),
         ],
     )
-    def test_statement_timeout_handling(self, should_use_incremental_field, expected_exception, expected_substr):
+    def test_statement_timeout_handling(
+        self, should_use_incremental_field, fetch_error, expected_exception, expected_substr
+    ):
         with pytest.raises(expected_exception) as exc_info:
-            self._run(should_use_incremental_field=should_use_incremental_field)
+            self._run(should_use_incremental_field=should_use_incremental_field, fetch_error=fetch_error)
         if expected_substr is not None:
             assert expected_substr in str(exc_info.value)
 
@@ -4056,6 +4093,101 @@ class TestOffsetChunkingConnectTimeout:
         assert connect_mock.call_count == 5
 
 
+class TestStreamingConnectionDeadlines:
+    class _PageCursor(TestOffsetChunkingConnectRecoveryConflict._OffsetCursor):
+        def execute(self, *args, **kwargs):
+            raise ClientDeadlineExceededError(660)
+
+    class _Connection(TestOffsetChunkingConnectRecoveryConflict._Connection):
+        def __init__(self, setup_cursor: Any):
+            super().__init__()
+            self._setup_cursor = setup_cursor
+            self.server_cursor_factory: Any = None
+
+        def cursor(self, *args, **kwargs):
+            return self._setup_cursor
+
+    def _source(self, page_cursor: type, *, count_error: Exception | None = None) -> SourceResponse:
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = [PostgreSQLColumn(name="id", data_type="integer", nullable=False)]
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        def execute(query: Any, *args: Any, **kwargs: Any) -> None:
+            if count_error is not None and "COUNT(*)" in str(query):
+                raise count_error
+
+        setup_cursor = mock.MagicMock()
+        setup_cursor.__enter__.return_value = setup_cursor
+        setup_cursor.connection.broken = False
+        setup_cursor.connection.closed = False
+        setup_cursor.execute.side_effect = execute
+        self.connection = self._Connection(setup_cursor)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with ExitStack() as stack:
+            self.connect_mock = stack.enter_context(patch(f"{module}.psycopg.connect", return_value=self.connection))
+            for target, value in {
+                "_get_table": fake_table,
+                "_is_read_replica": False,
+                "_is_duckdb_connection": False,
+                "_get_primary_keys": ["id"],
+                "_is_partitioned_table": False,
+                "_get_table_chunk_size": _TableChunking(batch_rows=1000, fetch_rows=1000),
+                "_role_subject_to_rls": False,
+                "_get_partition_settings": None,
+                "_explain_query": None,
+                "_estimated_row_count": 4321,
+            }.items():
+                stack.enter_context(patch(f"{module}.{target}", return_value=value))
+            stack.enter_context(patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: page_cursor()))
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            list(cast(Iterable[Any], response.items()))
+        return response
+
+    def test_keyset_page_deadline_ends_the_attempt_without_an_in_process_retry(self):
+        with pytest.raises(ClientDeadlineExceededError):
+            self._source(self._PageCursor)
+
+        # 1 setup + 1 catalog re-read + 1 keyset read. A retry on the same silent server would hold
+        # the worker for one more deadline each time.
+        assert self.connect_mock.call_count == 3
+        assert self.connection.closed is True
+
+    def test_every_connection_gets_the_connect_and_tcp_limits_and_the_deadline_cursor(self):
+        self._source(TestOffsetChunkingConnectRecoveryConflict._OffsetCursor)
+
+        for call in self.connect_mock.call_args_list:
+            assert call.kwargs["connect_timeout"] == 15
+            assert {name: call.kwargs[name] for name in _TCP_LIVENESS_KWARGS} == _TCP_LIVENESS_KWARGS
+        assert self.connection.server_cursor_factory is _STREAM_SERVER_CURSOR
+
+    def test_full_table_count_past_its_deadline_reports_the_catalog_estimate(self):
+        response = self._source(
+            TestOffsetChunkingConnectRecoveryConflict._OffsetCursor,
+            count_error=ClientDeadlineExceededError(UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS),
+        )
+
+        assert response.rows_to_sync == 4321
+
+
 def _fake_column(name: str):
     column = mock.Mock()
     column.name = name
@@ -4083,6 +4215,15 @@ class TestChunkedRereadAfterRecoveryConflict:
         def __init__(self, rows: list[tuple[Any, ...]]):
             self._rows = rows
             self._statements = 0
+            self.limits: list[int] = []
+            self.lock_timeout_before_each_page = False
+            self._lock_timeout_due = True
+
+        def take_lock_timeout(self) -> bool:
+            if not self.lock_timeout_before_each_page:
+                return False
+            due, self._lock_timeout_due = self._lock_timeout_due, not self._lock_timeout_due
+            return due
 
         def rows_for(self, totally_ordered: bool) -> list[tuple[Any, ...]]:
             if totally_ordered:
@@ -4092,14 +4233,19 @@ class TestChunkedRereadAfterRecoveryConflict:
             return self._rows[pivot:] + self._rows[:pivot]
 
     class _PageCursor:
-        def __init__(self, scan, column_names: list[str], column_type: str):
+        def __init__(self, scan, column_names: list[str], column_type: str, error: BaseException | None = None):
             self.description = [_fake_column(name) for name in column_names]
             self._scan = scan
             self._column_type = column_type
+            self._error = error
             self._result: list[tuple[Any, ...]] = []
 
         def execute(self, query, *args, **kwargs):
+            if self._error is not None:
+                raise self._error
             text = query.as_string()
+            if "LIMIT" in text and "EXPLAIN" not in text and self._scan.take_lock_timeout():
+                raise psycopg.errors.LockNotAvailable("canceling statement due to lock timeout")
             # Only an ORDER BY that reaches the primary key is total. Anything short of it leaves
             # rows tied, and each page is its own statement, so the pages overlap and skip.
             rows = self._scan.rows_for('"id"' in text.partition("ORDER BY")[2])
@@ -4115,6 +4261,8 @@ class TestChunkedRereadAfterRecoveryConflict:
             if offset:
                 rows = rows[int(offset.group(1)) :]
             limit = re.search(r"LIMIT (\d+)", text)
+            if limit:
+                self._scan.limits.append(int(limit.group(1)))
             self._result = rows[: int(limit.group(1))] if limit else rows
 
         def fetchall(self):
@@ -4186,6 +4334,9 @@ class TestChunkedRereadAfterRecoveryConflict:
         pages_to_take: int | None = None,
         arrow_schema: pa.Schema | None = None,
         column_type: str = "integer",
+        chunking: _TableChunking | None = None,
+        lock_timeout_before_each_page: bool = False,
+        page_error: BaseException | None = None,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4208,13 +4359,16 @@ class TestChunkedRereadAfterRecoveryConflict:
         # `get_rows` inserts `_ph_xmin` ahead of the discovered columns, matching the SELECT.
         column_names = [XMIN_PROJECTED_COLUMN, "id"] if is_xmin else ["id"]
         scan = self._Scan(list(rows))
+        scan.lock_timeout_before_each_page = lock_timeout_before_each_page
+        self.last_scan = scan
         connection = self._Connection(self._NamedCursor(rows_before_conflict, scan, column_names))
 
         module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
         with (
             patch(f"{module}.psycopg.connect", return_value=connection),
             patch(
-                f"{module}.psycopg.Cursor", side_effect=lambda _conn: self._PageCursor(scan, column_names, column_type)
+                f"{module}.psycopg.Cursor",
+                side_effect=lambda _conn: self._PageCursor(scan, column_names, column_type, page_error),
             ),
             patch(f"{module}._get_table", return_value=fake_table),
             patch(f"{module}._is_read_replica", return_value=True),
@@ -4222,7 +4376,10 @@ class TestChunkedRereadAfterRecoveryConflict:
             patch(f"{module}._get_primary_keys", return_value=primary_keys),
             patch(f"{module}._has_duplicate_primary_keys", return_value=has_duplicate_pks),
             patch(f"{module}._is_partitioned_table", return_value=False),
-            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=2, fetch_rows=2)),
+            patch(
+                f"{module}._get_table_chunk_size",
+                return_value=chunking or _TableChunking(batch_rows=2, fetch_rows=2),
+            ),
             patch(f"{module}._get_rows_to_sync", return_value=len(rows)),
             patch(f"{module}._capture_xmin_ceiling", return_value=self._XMIN_BOUNDS),
             patch(f"{module}._role_subject_to_rls", return_value=False),
@@ -4303,6 +4460,22 @@ class TestChunkedRereadAfterRecoveryConflict:
         )
 
         assert sorted(ids) == [1, 2, 3, 4, 5, 6]
+
+    def test_xmin_reread_that_times_out_is_non_retryable(self):
+        # The replica canceled the server cursor with a recovery conflict, and the chunked re-read
+        # then hit the statement timeout as well. A whole-activity retry would re-read into the same
+        # replica, so the error must be the non-retryable one that names the replica settings.
+        with pytest.raises(QueryTimeoutException) as exc_info:
+            self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                is_xmin=True,
+                page_error=psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+            )
+
+        assert "max_standby_streaming_delay" in str(exc_info.value)
+        assert type(exc_info.value).__name__ in PostgresSource().get_non_retryable_errors()
 
     def test_retried_full_refresh_seeks_instead_of_reopening_the_cursor(self):
         # The first attempt re-raised past its first row, so a second server cursor conflicts at the
@@ -4498,6 +4671,57 @@ class TestChunkedRereadAfterRecoveryConflict:
         # Rows at or below the checkpoint are never re-read, which is what makes a resumed load
         # append-safe: the pipeline appends after batch 0 rather than overwriting.
         assert ids and all(isinstance(row_id, int) and row_id > 2 for row_id in ids)
+
+    # One id column measures 16 bytes, so a 40-byte budget holds two rows per batch.
+    _TWO_ROW_BUDGET = 40
+
+    def test_a_seek_page_never_asks_for_more_than_the_measured_page_size(self):
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self._TWO_ROW_BUDGET):
+            ids = self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                chunking=_TableChunking(batch_rows=6, fetch_rows=4),
+            )
+
+        assert ids == [row[0] for row in self._ROWS]
+        # A page of the 6-row batch size would hold the whole table in one statement.
+        assert self.last_scan.limits[0] == 4
+        assert max(self.last_scan.limits) == 4
+        # Once a page shows what a row weighs, a page holds no more than one batch budget.
+        assert self.last_scan.limits[-1] == 2
+
+    def test_a_batch_that_ends_inside_a_page_checkpoints_its_own_last_row(self):
+        # The first page reads rows 1 to 4, and the byte budget closes the first batch after row 2.
+        # A checkpoint on the read position would resume past rows 3 and 4, which nothing wrote.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", self._TWO_ROW_BUDGET):
+            ids = self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                resumable_source_manager=manager,
+                chunking=_TableChunking(batch_rows=6, fetch_rows=4),
+                pages_to_take=2,
+            )
+
+        assert ids == [1, 2, 3, 4]
+        assert [saved.args[0] for saved in manager.save_state.call_args_list] == [
+            KeysetResumeState(last_key=2, last_keys=[2])
+        ]
+
+    def test_a_lock_timeout_on_every_page_does_not_exhaust_the_retries_of_a_long_walk(self):
+        ids = self._read_ids(
+            should_use_incremental_field=False,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            chunking=_TableChunking(batch_rows=1, fetch_rows=1),
+            lock_timeout_before_each_page=True,
+        )
+
+        assert ids == [row[0] for row in self._ROWS]
 
 
 class TestCheckKeysetPagePlan:
@@ -5050,6 +5274,25 @@ class TestValidateCredentialsErrorMapping:
                 'repeated authentication failures ("too many authentication failures"). This usually '
                 "means the username or password is wrong. Check your credentials and try again.",
             ),
+            # Supavisor rejects a client IP outside the project's network restrictions.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: '
+                "FATAL:  (EADDRNOTALLOWED) address not in tenant allow_list: {192, 0, 2, 1}",
+                "Your database provider rejected the connection because PostHog's IP address isn't on its IP "
+                "allow list. Add PostHog's IP addresses to that allow list, then try again.",
+            ),
+            (
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: '
+                "FATAL:  (EAUTHQUERY) user not found in the database",
+                "Your database doesn't have a user with the username you entered. Check the user for this "
+                "source and try again.",
+            ),
+            (
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: '
+                "FATAL:  (EAUTHQUERY) unsupported or invalid secret format",
+                "Your connection pooler can't check this user's password because of how your database "
+                "stores it. Reset the user's password in your database, then try again.",
+            ),
             # A proxy/pooler in front of some providers rejects bad credentials during its own
             # database-identification step, wrapping the rejection in its own sentence instead of
             # libpq's "password authentication failed for user".
@@ -5058,6 +5301,22 @@ class TestValidateCredentialsErrorMapping:
                 "Failed to identify your database: Your Postgres credentials are incorrect. "
                 "Please check your username and password and try again.",
                 "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
+            (
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                'FATAL:  PAM authentication failed for user "example_user"',
+                "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
+            (
+                'connection failed: connection to server at "10.0.0.1", port 6543 failed: FATAL:  no such user',
+                "Your connection pooler doesn't recognize this username. Use the username your pooler "
+                "expects, such as postgres.<project-ref> for Supabase, then try again.",
+            ),
+            (
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                'FATAL:  role "example_user" is not permitted to log in',
+                "Your database user isn't allowed to sign in. Grant it the LOGIN privilege or use a "
+                "different user, then try again.",
             ),
             (
                 f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
@@ -5280,6 +5539,35 @@ class TestValidateCredentialsErrorMapping:
         assert valid is False
         assert host not in (error or "")
         assert "port field" in (error or "")
+
+    @pytest.mark.parametrize("port", [-5432, 0, 65536])
+    @pytest.mark.parametrize("ssh_tunnel_enabled", [False, True])
+    def test_out_of_range_port_rejected_before_connecting(self, source, port, ssh_tunnel_enabled):
+        config = source.parse_config(
+            {
+                "host": "db.example.com",
+                "port": port,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": ssh_tunnel_enabled,
+                    "host": "bastion.example.com",
+                    "port": "22",
+                    "auth": {"selection": "password", "username": "tunnel", "password": "tunnel"},
+                },
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", return_value=(True, None)),
+            mock.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect")),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert "between 1 and 65535" in (error or "")
 
     def test_railway_private_host_named_as_such_instead_of_a_spelling_error(self, source):
         config = source.parse_config(
@@ -7294,6 +7582,94 @@ class TestGetRowsToSync:
                 )
 
         mock_capture.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "estimate_on_timeout,expected",
+        [
+            (lambda: 1234, 1234),
+            # No statistics yet for the table, and a view has none at all.
+            (lambda: None, 0),
+            # An xmin count has no catalog estimate, so it stays unknown.
+            (None, 0),
+        ],
+        ids=["catalog_estimate", "no_statistics", "no_estimator"],
+    )
+    def test_unfiltered_count_past_its_deadline_gives_the_estimate(self, estimate_on_timeout, expected):
+        cursor = self._cursor_past_the_count_deadline(connection_lost=False)
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        rows = _get_rows_to_sync(
+            cast(Any, cursor), count_query, structlog.get_logger(), estimate_on_timeout=estimate_on_timeout
+        )
+
+        assert rows == expected
+
+    @staticmethod
+    def _cursor_past_the_count_deadline(*, connection_lost: bool) -> mock.MagicMock:
+        cursor = mock.MagicMock()
+        cursor.connection.broken = connection_lost
+        cursor.connection.closed = connection_lost
+        cursor.execute.side_effect = [None, ClientDeadlineExceededError(UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS)]
+        return cursor
+
+    def test_unfiltered_count_deadline_that_cost_the_connection_ends_the_attempt(self):
+        # After the socket shutdown no statement can run, so an estimate of 0 here would send the
+        # setup into its reconnect loop, which runs the same count again.
+        cursor = self._cursor_past_the_count_deadline(connection_lost=True)
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with pytest.raises(ClientDeadlineExceededError):
+            _get_rows_to_sync(cast(Any, cursor), count_query, structlog.get_logger(), estimate_on_timeout=lambda: 1234)
+
+    def test_incremental_count_past_the_client_deadline_stays_retryable(self):
+        # The incremental handlers read `QueryCanceled` as "add an index", which stops the sync.
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = [None, ClientDeadlineExceededError(660)]
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with pytest.raises(ClientDeadlineExceededError):
+            _get_rows_to_sync(
+                cast(Any, cursor),
+                count_query,
+                structlog.get_logger(),
+                should_use_incremental_field=True,
+                estimate_on_timeout=lambda: 1234,
+            )
+
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,expected_deadlines",
+        [
+            # The `EXPLAIN` has its own limit for both. Only the unfiltered count gets the short one.
+            (False, [EXPLAIN_CLIENT_DEADLINE_SECONDS, UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS]),
+            (True, [EXPLAIN_CLIENT_DEADLINE_SECONDS]),
+        ],
+        ids=["full_table", "incremental"],
+    )
+    def test_only_the_unfiltered_count_gets_the_short_deadline(self, should_use_incremental_field, expected_deadlines):
+        deadlines: list[float] = []
+
+        @contextmanager
+        def record_deadline(_connection: Any, timeout_seconds: float, **_kwargs: Any) -> Iterator[None]:
+            deadlines.append(timeout_seconds)
+            yield
+
+        cursor = mock.MagicMock()
+        cursor.fetchone.return_value = (7,)
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.client_side_deadline",
+            record_deadline,
+        ):
+            rows = _get_rows_to_sync(
+                cast(Any, cursor),
+                count_query,
+                structlog.get_logger(),
+                should_use_incremental_field=should_use_incremental_field,
+            )
+
+        assert rows == 7
+        assert deadlines == expected_deadlines
 
 
 class TestPartitionedTableChunkSizing:

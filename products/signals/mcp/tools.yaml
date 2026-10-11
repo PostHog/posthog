@@ -1,23 +1,12 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product signals
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product signals
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Signals
 feature: signals
 url_prefix: /inbox
 ui_apps: {}
 tools:
-    inbox-processing-list:
-        operation: signals_processing_list
-        enabled: false
-    inbox-processing-pause-destroy:
-        operation: signals_processing_pause_destroy
-        enabled: false
-    inbox-processing-pause-update:
-        operation: signals_processing_pause_update
-        enabled: false
     inbox-report-artefacts-create:
         operation: signals_report_artefacts_create
         enabled: true
@@ -40,12 +29,13 @@ tools:
             types are latest-wins — appending a new version supersedes the previous one as the report's canonical
             status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation,
             actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason),
-            `suggested_reviewers` (a list of {github_login}). Status judgments are consequential, not advisory: the
-            canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses
-            them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is
-            validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate
-            the work with your current claim; stale or foreign claims are rejected. Returns the created artefact
-            including its id.
+            `suggested_reviewers` (a list of {github_login}), `source_suggestion` (product, reason: a product the
+            project does not use that would have given this report better evidence; the inbox hides it once the product
+            is in use). Status judgments are consequential, not advisory: the canonical priority/actionability steer
+            what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act
+            on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are
+            attributed to your task automatically. Pass claim_id to associate the work with your current claim; stale or
+            foreign claims are rejected. Returns the created artefact including its id.
     inbox-report-artefacts-delete:
         operation: signals_report_artefacts_destroy
         enabled: true
@@ -227,6 +217,26 @@ tools:
             id:
                 aliases:
                     - report_id
+    inbox-reports-leave-reviewers:
+        operation: signals_reports_reviewers_me_destroy
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Step off a report's suggested reviewers
+        description: >
+            Take the authenticated user off this report's suggested reviewers, leaving the other reviewers in place. Use
+            it when a report was routed to them by mistake, so it stops reaching them without closing it for anyone
+            else. The report's own state does not change: it stays open for whoever is left, and for the project.
+            Succeeds whether or not the user was on the list, so a repeat call is safe. To change who else reviews a
+            report, edit its `suggested_reviewers` artefact instead.
+        param_overrides:
+            id:
+                aliases:
+                    - report_id
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -246,25 +256,28 @@ tools:
             search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers,
             `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick
             work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently
-            suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this
-            when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` /
-            `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses
-            are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's
-            full work log, including signal findings, judgments, and log entries, is readable via
-            inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
-            '-is_suggested_reviewer,status,-updated_at' by default. To answer "what should I look at next", pass
-            `view=actionable` with `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready,
-            actionable reports that have no implementation PR yet, at or above the requesting user's personal
-            PR-generation threshold, falling back to the project threshold. `use_priority_preference` selects which
-            priorities to include, and does not order them, so pass `sort=priority` to put P0 first; the default
-            ordering can put a recently updated P4 above an older P0. Without `limit` a page holds up to 100 reports,
-            each with its summary. The other views are `needs_input` (waiting on a human), `needs_decision` (failed
-            reports, plus actionable ready or pending-input reports without an implementation PR), `monitoring` (an
-            implementation PR is open), `resolved`, `dismissed`, `not_actionable`, and `all`. Narrow by reviewer with
-            `scope=for_me`, or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every
-            report. `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving
-            reports for one source record — e.g. what the inbox already investigated for a specific support ticket —
-            pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket:
+            suppressed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating
+            against the full inbox state, and read each row's `status` (plus `suppression_source`, `dismissal_reason`,
+            and `dismissal_note` on suppressed rows) before acting. A suppressed row's `suppression_source` says whether
+            someone dismissed it (`dismissed`) or a judge held it back before anyone saw it (`safety_judge`,
+            `not_actionable`, `system`). For picking up work, filter to `ready` — earlier statuses are still moving
+            through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log,
+            including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it
+            before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at'
+            by default. To answer "what should I look at next", pass `view=actionable` with
+            `use_priority_preference=true`, `sort=priority`, and `limit=10`: that returns ready, actionable reports that
+            have no implementation PR yet, at or above the requesting user's personal PR-generation threshold, falling
+            back to the project threshold. `use_priority_preference` selects which priorities to include, and does not
+            order them, so pass `sort=priority` to put P0 first; the default ordering can put a recently updated P4
+            above an older P0. Without `limit` a page holds up to 100 reports, each with its summary. The other views
+            are `needs_input` (waiting on a human), `needs_decision` (failed reports, plus actionable ready or
+            pending-input reports without an implementation PR), `monitoring` (an implementation PR is open),
+            `resolved`, `dismissed` (suppressed by a person, an agent, a merge, or a closed PR), `held_back` (suppressed
+            by a judge, with nobody's review yet), `not_actionable`, and `all`. Narrow by reviewer with `scope=for_me`,
+            or `scope=teammate` plus `teammate_uuid`; the default `scope=entire_project` searches every report.
+            `priority`, `source_product`, and `scout` each take a comma-separated list. To find the self-driving reports
+            for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that
+            record's id as `source_id` together with exactly one `source_product` (for a support ticket:
             `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to
             include dismissed ones. Each row includes typed impact metric metadata and any accessible cached snapshot,
             but omits live query definitions and comparisons. Queryless legacy or malformed metrics are always redacted.
@@ -292,6 +305,8 @@ tools:
                 - already_addressed
                 - dismissal_reason
                 - dismissal_note
+                - suppression_source
+                - suppression_explanation
                 - signal_count
                 - total_weight
                 - source_products
@@ -451,9 +466,6 @@ tools:
             instead. For `source_product=linear`, `source_type=issue`, pass `config.linear_team_ids` (a list of Linear
             team ids from `integrations-linear-teams-retrieve`) so only issues from those Linear teams become signals;
             the warehouse still syncs the whole workspace. Omit it to use every team.
-    inbox-source-configs-destroy:
-        operation: signals_source_configs_destroy
-        enabled: false
     inbox-source-configs-list:
         operation: signals_source_configs_list
         enabled: true
@@ -614,6 +626,24 @@ tools:
             tick. Use this to see which scouts run, how often, whether they emit findings to the inbox, and where those
             findings are delivered. Pass `search` to narrow the list to the scouts matching a substring of either name.
             Pair with `scout-config-update` to tune them.
+    scout-config-precheck-test:
+        operation: signals_scout_config_precheck_test
+        enabled: true
+        scopes:
+            - signal_scout:read
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Test a scout pre-check
+        description: >
+            Run a scout's pre-check query once by its config `id` and return the rows, without starting a run and
+            without saving anything. Pass `precheck_query` to try a query before you save it with `scout-config-update`,
+            or omit it to try the saved one. The query gets the same `{since}` (the start of the last run that ran) and
+            `{now}` values the next scheduled run would get. `would_run` and `reason` say whether that run would start
+            (`rows`, `query_error`) or skip (`no_rows`, `false_value`). `rows_text` is the text the scout reads, one
+            JSON object per line. A query error comes back in `error`: fix the query and test again.
     scout-config-sync:
         operation: signals_scout_config_sync
         enabled: true
@@ -649,7 +679,10 @@ tools:
             minutes apart; set null to return to the rolling interval. You can also configure
             `output_destinations.slack` with a Slack integration plus either a `channel` to post into or `users` to DM
             directly (handy for personal scouts) — find channel ids with integrations-channels-retrieve and member ids
-            with integrations-users-retrieve. `skill_name` is fixed. Enabling records who flipped it on and is
+            with integrations-users-retrieve. Set `precheck_query` to a HogQL `SELECT` so a scheduled run starts only
+            when the query returns something: no rows, or one false value such as a zero `count()`, skips the run;
+            `{since}` and `{now}` bind the last run that ran and the current time. Try the query with
+            `scout-config-precheck-test` first. `skill_name` is fixed. Enabling records who flipped it on and is
             activity-logged, since running a scout drives spend.
     scout-create:
         operation: signals_scout_create
@@ -1066,12 +1099,6 @@ tools:
             deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run
             surfaced (`scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it
             exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
-    scout-runs-emission-reports-batch:
-        operation: signals_scout_runs_emission_reports_batch
-        enabled: false
-    scout-runs-emissions-batch:
-        operation: signals_scout_runs_emissions_batch
-        enabled: false
     scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
         enabled: true
@@ -1089,9 +1116,6 @@ tools:
             (`run:<run_id>:finding:<finding_id>`) that joins back to the underlying signal. Use this to see *what* a run
             actually surfaced, not just how many (`emitted_count`) or which ids (`emitted_finding_ids`). Strictly
             team-scoped — a run UUID belonging to another team returns 404.
-    scout-runs-findings-summary:
-        operation: signals_scout_runs_findings_summary
-        enabled: false
     scout-runs-list:
         operation: signals_scout_runs_list
         enabled: true
@@ -1212,87 +1236,41 @@ tools:
             `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or
             `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from
             returning every entry's full prose. Results capped at 1000.
-    signals-config-create:
-        operation: signals_config_create
-        enabled: false
-    signals-config-list:
-        operation: signals_config_list
-        enabled: false
-    signals-report-artefacts-diff:
-        operation: signals_report_artefacts_diff
-        enabled: false
-    signals-report-checks-approve-create:
-        operation: signals_report_checks_approve_create
-        enabled: false
-    signals-report-checks-destroy:
-        operation: signals_report_checks_destroy
-        enabled: false
-    signals-report-pr-checks:
-        operation: signals_report_pr_checks
-        enabled: false
-    signals-report-pr-comments:
-        operation: signals_report_pr_comments
-        enabled: false
-    signals-report-pr-review-comment-destroy:
-        operation: signals_report_pr_review_comment_destroy
-        enabled: false
-    signals-report-pr-review-comment-reaction-destroy:
-        operation: signals_report_pr_review_comment_reaction_destroy
-        enabled: false
-    signals-report-pr-review-comment-reactions-create:
-        operation: signals_report_pr_review_comment_reactions_create
-        enabled: false
-    signals-report-pr-review-comment-update:
-        operation: signals_report_pr_review_comment_update
-        enabled: false
-    signals-report-pr-review-comments-create:
-        operation: signals_report_pr_review_comments_create
-        enabled: false
-    signals-reports-available-reviewers-retrieve:
-        operation: signals_reports_available_reviewers_retrieve
-        enabled: false
-    signals-reports-destroy:
-        operation: signals_reports_destroy
-        enabled: false
-    signals-reports-feedback-create:
-        operation: signals_reports_feedback_create
-        enabled: false
-    signals-reports-for-you-retrieve:
-        operation: signals_reports_for_you_retrieve
-        enabled: false
-    signals-reports-pr-ci-statuses:
-        operation: signals_reports_pr_ci_statuses
-        enabled: false
-    signals-reports-read-state-create:
-        operation: signals_reports_read_state_create
-        enabled: false
-    signals-reports-refresh-metrics-create:
-        operation: signals_reports_refresh_metrics_create
-        enabled: false
-    signals-reports-refund-create:
-        operation: signals_reports_refund_create
-        enabled: false
-    signals-reports-refund-summary-retrieve:
-        operation: signals_reports_refund_summary_retrieve
-        enabled: false
-    signals-reports-reingest-create:
-        operation: signals_reports_reingest_create
-        enabled: false
-    signals-reports-reviewers-update:
-        operation: signals_reports_reviewers_update
-        enabled: false
-    signals-reports-signals-retrieve:
-        operation: signals_reports_signals_retrieve
-        enabled: false
-    signals-reports-source-metadata-create:
-        operation: signals_reports_source_metadata_create
-        enabled: false
-    signals-reports-viewed-create:
-        operation: signals_reports_viewed_create
-        enabled: false
-    signals-scout-chat-tasks-create:
-        operation: signals_scout_chat_tasks_create
-        enabled: false
+    scout-trial-create:
+        operation: signals_scout_config_trial
+        enabled: true
+        scopes:
+            - signal_scout:write
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Run a private scout variant
+        description: >
+            Launch one prompt, model, or effort variant of an existing scout against live data. Memory changes and
+            authored reports stay private to the run. The source scout is unchanged. Requires a deployment configured
+            for private trial capture and skill editor access. Reuse launch_id only to retry the exact same request.
+            Reuse the returned context_id for other variants and repetitions so their initial memory, notes, and source
+            settings match. Poll scout-trial-get for results. Unsupported write actions invalidate the comparison.
+        feature_flag: scout-trials
+    scout-trial-get:
+        operation: signals_scout_config_trial_result
+        enabled: true
+        scopes:
+            - signal_scout:write
+            - llm_skill:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read a private scout result
+        description: >
+            Read an operator-owned trial's status, privately captured report payloads, proposed edits, and memory
+            changes. These combine saved context with protected execution state and are available only through this API,
+            not SQL. A null cost means unknown. Sandbox agents cannot use this tool to inspect trials. Use the returned
+            task and run IDs with ordinary log tools.
+        feature_flag: scout-trials
     signals-scout-config-create:
         operation: signals_scout_config_create
         enabled: true
@@ -1348,9 +1326,6 @@ tools:
         description:
             'DEPRECATED: renamed to scout-config-sync. This alias forwards to the same endpoint and will be removed.
             Call scout-config-sync directly with the same arguments.'
-    signals-scout-config-tool-catalogue:
-        operation: signals_scout_config_tool_catalogue
-        enabled: false
     signals-scout-config-update:
         operation: signals_scout_config_update
         enabled: true
@@ -1434,18 +1409,6 @@ tools:
         description:
             'DEPRECATED: renamed to scout-project-profile-get. This alias forwards to the same endpoint and will be
             removed. Call scout-project-profile-get directly with the same arguments.'
-    signals-scout-report-checks-list:
-        operation: signals_scout_report_checks_list
-        enabled: false
-    signals-scout-rubrics-generate:
-        operation: signals_scout_rubrics_generate
-        enabled: false
-    signals-scout-rubrics-retrieve:
-        operation: signals_scout_rubrics_retrieve
-        enabled: false
-    signals-scout-rubrics-update:
-        operation: signals_scout_rubrics_update
-        enabled: false
     signals-scout-run-now:
         operation: signals_scout_config_run
         enabled: true
@@ -1459,9 +1422,6 @@ tools:
         description:
             'DEPRECATED: renamed to scout-run-now. This alias forwards to the same endpoint and will be removed. Call
             scout-run-now directly with the same arguments.'
-    signals-scout-runs-costs:
-        operation: signals_scout_runs_costs
-        enabled: false
     signals-scout-runs-emission-reports:
         operation: signals_scout_runs_emission_reports
         enabled: true
@@ -1519,9 +1479,6 @@ tools:
         description:
             'DEPRECATED: renamed to scout-runs-recent-emissions. This alias forwards to the same endpoint and will be
             removed. Call scout-runs-recent-emissions directly with the same arguments.'
-    signals-scout-runs-recent-per-scout:
-        operation: signals_scout_runs_recent_per_scout
-        enabled: false
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
@@ -1535,9 +1492,6 @@ tools:
         description:
             'DEPRECATED: renamed to scout-runs-retrieve. This alias forwards to the same endpoint and will be removed.
             Call scout-runs-retrieve directly with the same arguments.'
-    signals-scout-runs-token-costs:
-        operation: signals_scout_runs_token_costs
-        enabled: false
     signals-scout-scratchpad-forget:
         operation: signals_scout_scratchpad_forget
         enabled: true
@@ -1578,21 +1532,3 @@ tools:
         description:
             'DEPRECATED: renamed to scout-scratchpad-search. This alias forwards to the same endpoint and will be
             removed. Call scout-scratchpad-search directly with the same arguments.'
-    signals-scout-suggestions-dismiss:
-        operation: signals_scout_suggestions_dismiss
-        enabled: false
-    signals-scout-suggestions-list:
-        operation: signals_scout_suggestions_list
-        enabled: false
-    signals-scout-suggestions-refresh:
-        operation: signals_scout_suggestions_refresh
-        enabled: false
-    users-signal-autonomy-create:
-        operation: users_signal_autonomy_create
-        enabled: false
-    users-signal-autonomy-destroy:
-        operation: users_signal_autonomy_destroy
-        enabled: false
-    users-signal-autonomy-retrieve:
-        operation: users_signal_autonomy_retrieve
-        enabled: false

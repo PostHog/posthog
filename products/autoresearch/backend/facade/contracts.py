@@ -71,6 +71,37 @@ class ArtifactStorageUnavailable(RuntimeError):
 # ── Model-backed read contracts ────────────────────────────────────────────
 
 
+@dataclass(frozen=True)
+class LiveTrainingRun:
+    """Progress of the pipeline's pending or running training run, read from its live iteration rows."""
+
+    id: UUID
+    iteration_budget: int
+    experiment_count: int
+    best_holdout_score: float | None
+    latest_agent_description: str
+
+
+@dataclass(frozen=True)
+class PredictionCoverage:
+    """How much of the inference population had a champion score when a live run scored, and how old the scores were."""
+
+    population: int
+    with_score: int
+    never_scored: int
+    age_days_avg: float | None
+    age_days_p50: float | None
+    age_days_p90: float | None
+    age_days_max: float | None
+    lookback_days: int
+
+
+@dataclass(frozen=True)
+class RealizedAucPoint:
+    prediction_date: date
+    realized_auc: float
+
+
 @dataclass(frozen=True, config={"arbitrary_types_allowed": True})
 class Pipeline:
     """One prediction pipeline: a target, a population, and a horizon.
@@ -102,6 +133,14 @@ class Pipeline:
     last_scored_at: datetime | None
     champion_holdout_auc: float | None
     champion_realized_auc: float | None
+    champion_lift_at_10: float | None
+    champion_is_preliminary: bool | None
+    champion_realized_auc_trend: list[RealizedAucPoint]
+    people_scored: int | None
+    coverage: PredictionCoverage | None
+    training_run_count: int
+    experiment_count: int
+    live_training_run: LiveTrainingRun | None
 
 
 @dataclass(frozen=True)
@@ -127,6 +166,7 @@ class Model:
     archived_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    in_shadow_set: bool
 
 
 @dataclass(frozen=True)
@@ -235,6 +275,7 @@ class Run:
     status: str
     rows_scored: int | None
     metrics: dict[str, Any]
+    coverage: PredictionCoverage | None
     error: str
     started_at: datetime | None
     completed_at: datetime | None
@@ -343,6 +384,84 @@ class TrainingRunHistory:
     runs: list[TrainingRunHistoryEntry]
 
 
+# ── Online performance ─────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class CalibrationBin:
+    n: int
+    mean_p_y: float
+    positive_rate: float
+
+
+@dataclass(frozen=True)
+class ConfusionCounts:
+    tp: int
+    fp: int
+    fn: int
+    tn: int
+    n_flagged: int
+    precision: float | None
+    recall: float | None
+
+
+@dataclass(frozen=True)
+class ConfusionByCutoff:
+    top_10: ConfusionCounts
+    top_20: ConfusionCounts
+    likely: ConfusionCounts
+
+
+@dataclass(frozen=True)
+class OnlinePerformanceRow:
+    """One model's realized metrics for one validated prediction date."""
+
+    validation_run_id: UUID
+    prediction_date: date
+    horizon_days: int
+    weekday: int
+    model_id: UUID
+    emitted_role: str
+    current_role: str
+    n_scored: int
+    n_positive: int
+    base_rate: float
+    mean_p_y: float | None
+    realized_auc: float | None
+    realized_auc_ci_low: float | None
+    realized_auc_ci_high: float | None
+    brier_score: float | None
+    calibration_error: float | None
+    lift_at_10: float | None
+    lift_at_20: float | None
+    average_precision: float | None
+    confusion: ConfusionByCutoff | None
+    likely_threshold: float | None
+    calibration_bins: list[CalibrationBin] | None
+    warning: str | None
+    validated_at: datetime | None
+
+
+@dataclass(frozen=True)
+class PredictionSegmentThresholds:
+    """The pipeline's current cut points between the Likely, Possible and Unlikely segments."""
+
+    likely_threshold: float
+    possible_threshold: float
+    likely_lift: float
+    base_rate: float | None
+    base_rate_dates: int
+    champion_mean_p_y: float | None
+    champion_base_rate: float | None
+    scores_miscalibrated: bool
+
+
+@dataclass(frozen=True)
+class OnlinePerformance:
+    rows: list[OnlinePerformanceRow]
+    segment_thresholds: PredictionSegmentThresholds
+
+
 # ── Artifact bundle ────────────────────────────────────────────────────────
 
 
@@ -388,3 +507,6 @@ class MaterializedFeatures:
     n_holdout: int
     n_features: int
     feature_cols: list[str]
+    elapsed_s: float
+    rows_read: int
+    hints: list[str]

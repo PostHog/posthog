@@ -116,6 +116,10 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(response_data["organization"]["name"], self.organization.name)
         self.assertEqual(response_data["organization"]["membership_level"], 1)
+        self.assertEqual(
+            response_data["organization"]["membership_joined_at"],
+            self.organization_membership.joined_at.isoformat(),
+        )
         self.assertEqual(response_data["organization"]["teams"][0]["id"], self.team.id)
         self.assertEqual(response_data["organization"]["teams"][0]["name"], self.team.name)
         self.assertNotIn(
@@ -2808,6 +2812,9 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("activity_not_customizable", {"version": 1, "sidebar": {"items": {"activity": {"visible": False}}}}),
             ("non_boolean_visible", {"version": 1, "sidebar": {"items": {"home": {"visible": "nope"}}}}),
             ("unknown_node_key", {"version": 1, "sidebar": {"items": {"home": {"visible": False, "size": 1}}}}),
+            ("non_boolean_vim_mode", {"version": 1, "sql_editor": {"vim_mode_enabled": "nope"}}),
+            ("non_string_vimrc", {"version": 1, "sql_editor": {"vimrc": ["imap jj <Esc>"]}}),
+            ("vimrc_too_long", {"version": 1, "sql_editor": {"vimrc": "x" * 10001}}),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2842,6 +2849,13 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
                 },
             ),
             ("new_user_default", default_ui_configuration_for_new_users()),
+            (
+                "sql_editor",
+                {
+                    "version": 1,
+                    "sql_editor": {"vim_mode_enabled": True, "vimrc": "imap jj <Esc>\nset cursorblink"},
+                },
+            ),
         ]
     )
     def test_valid_ui_configuration_is_accepted(self, _name, value):

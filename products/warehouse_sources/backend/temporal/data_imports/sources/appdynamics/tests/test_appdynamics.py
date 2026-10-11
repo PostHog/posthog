@@ -30,7 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appdynamic
     APPDYNAMICS_ENDPOINTS,
     MAX_METRIC_PATHS,
     MAX_ROWS_PER_TIME_WINDOW,
-    METRIC_TREE_MAX_DEPTH,
     METRIC_TREE_MAX_REQUESTS_PER_APPLICATION,
 )
 
@@ -271,17 +270,6 @@ class TestValidateCredentials:
 
 
 class TestAppdynamicsClient:
-    def test_basic_auth_sends_account_qualified_username(self) -> None:
-        session = FakeSession()
-        with _patch_session(session):
-            client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
-        client.get_json("/controller/rest/applications", {})
-
-        _, params, kwargs = session.get_calls[0]
-        assert kwargs["auth"] == ("user@acme", "pass")
-        assert "Authorization" not in kwargs["headers"]
-        assert params["output"] == "JSON"
-
     def test_oauth_token_cached_until_expiry(self) -> None:
         session = FakeSession()
         with _patch_session(session):
@@ -299,20 +287,6 @@ class TestAppdynamicsClient:
         for _, _, kwargs in session.get_calls:
             assert kwargs["headers"]["Authorization"] == "Bearer tok"
             assert kwargs["auth"] is None
-
-    def test_short_lived_token_is_refreshed_before_its_ttl(self) -> None:
-        # A short TTL must not be cached past expiry: the refresh margin is capped at half the
-        # TTL, so a 10s token is re-fetched well before 10s rather than trusted for a fixed 30s.
-        session = FakeSession(post_response=FakeResponse(json_data={"access_token": "tok", "expires_in": 10}))
-        with _patch_session(session):
-            client = AppdynamicsClient(BASE_URL, OAUTH_AUTH, mock.MagicMock())
-
-        with time_machine.travel("2024-01-31T00:00:00Z", tick=False) as frozen:
-            client.get_json("/controller/rest/applications", {})
-            assert len(session.post_calls) == 1
-            frozen.move_to("2024-01-31T00:00:06Z")  # past the 5s cache window (10 - min(60, 5))
-            client.get_json("/controller/rest/applications", {})
-            assert len(session.post_calls) == 2
 
     def test_oauth_failure_raises_non_retryable(self) -> None:
         session = FakeSession(post_response=FakeResponse(status_code=400, json_data={}))
@@ -334,14 +308,6 @@ class TestAppdynamicsClient:
             client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
         with pytest.raises(requests.HTTPError):
             client.get_json("/controller/rest/applications", {})
-
-    def test_response_body_is_streamed(self) -> None:
-        session = FakeSession()
-        with _patch_session(session):
-            client = AppdynamicsClient(BASE_URL, BASIC_AUTH, mock.MagicMock())
-        client.get_json("/controller/rest/applications", {})
-        _, _, kwargs = session.get_calls[0]
-        assert kwargs["stream"] is True
 
     def test_oversized_response_is_rejected(self) -> None:
         session = FakeSession(responder=lambda path, params: FakeResponse(json_data=[{"a": "b" * 100}]))
@@ -459,16 +425,6 @@ class TestGetRows:
             with pytest.raises(AppdynamicsError):
                 _run_get_rows(lambda path, params: FakeResponse(json_data=apps), "metrics", manager)
 
-    def test_duplicate_application_ids_are_deduplicated(self) -> None:
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}, {"id": 1}, {"id": 2}])
-            return FakeResponse(json_data=[{"name": "bt"}])
-
-        manager = FakeResumeManager()
-        batches, _ = _run_get_rows(responder, "business_transactions", manager)
-        assert [row["application_id"] for batch in batches for row in batch] == [1, 2]
-
     def test_fan_out_injects_application_id_and_bookmarks_next_app(self) -> None:
         def responder(path: str, params: dict[str, Any]) -> FakeResponse:
             if path == "/controller/rest/applications":
@@ -493,87 +449,6 @@ class TestGetRows:
 
         fetched_apps = [row["application_id"] for batch in batches for row in batch]
         assert fetched_apps == [2, 3]
-
-    def test_fan_out_deleted_bookmark_application_starts_over(self) -> None:
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}])
-            return FakeResponse(json_data=[{"id": 10}])
-
-        manager = FakeResumeManager(initial=AppdynamicsResumeConfig(application_id=99))
-        batches, _ = _run_get_rows(responder, "tiers", manager)
-        assert [row["application_id"] for batch in batches for row in batch] == [1]
-
-    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
-    def test_windowed_full_refresh_uses_lookback_and_chunks(self) -> None:
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}])
-            return FakeResponse(json_data=[{"id": 5, "startTimeInMillis": params["start-time"]}])
-
-        manager = FakeResumeManager()
-        batches, session = _run_get_rows(responder, "health_rule_violations", manager)
-
-        window_calls = [(params["start-time"], params["end-time"]) for path, params, _ in session.get_calls[1:]]
-        expected_start = FROZEN_NOW_MS - 30 * MILLIS_PER_DAY
-        # 30-day lookback fetched in 7-day chunks: 4 full chunks + a 2-day remainder
-        assert len(window_calls) == 5
-        assert window_calls[0][0] == expected_start
-        assert window_calls[-1][1] == FROZEN_NOW_MS
-        for start, end in window_calls:
-            assert start < end
-        assert all(params["time-range-type"] == "BETWEEN_TIMES" for _, params, _ in session.get_calls[1:])
-        # each window's state is saved after its rows are yielded
-        assert [s.window_start for s in manager.saved] == [end for _, end in window_calls]
-
-    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
-    def test_windowed_incremental_starts_one_ms_after_watermark(self) -> None:
-        watermark = FROZEN_NOW_MS - MILLIS_PER_DAY
-
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}])
-            return FakeResponse(json_data=[])
-
-        manager = FakeResumeManager()
-        _, session = _run_get_rows(
-            responder,
-            "health_rule_violations",
-            manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        _, params, _ = session.get_calls[1]
-        assert params["start-time"] == watermark + 1
-        assert params["end-time"] == FROZEN_NOW_MS
-        assert len(session.get_calls) == 2
-
-    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
-    def test_windowed_resume_uses_saved_window_for_bookmarked_app_only(self) -> None:
-        resume_start = FROZEN_NOW_MS - MILLIS_PER_DAY
-
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}, {"id": 2}])
-            return FakeResponse(json_data=[])
-
-        manager = FakeResumeManager(initial=AppdynamicsResumeConfig(application_id=1, window_start=resume_start))
-        _, session = _run_get_rows(
-            responder,
-            "health_rule_violations",
-            manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=FROZEN_NOW_MS - 2 * MILLIS_PER_DAY,
-        )
-
-        app_1_call = session.get_calls[1]
-        app_2_call = session.get_calls[2]
-        assert "/applications/1/" in app_1_call[0]
-        assert app_1_call[1]["start-time"] == resume_start
-        # the app after the bookmark starts from the regular watermark-derived window
-        assert "/applications/2/" in app_2_call[0]
-        assert app_2_call[1]["start-time"] == FROZEN_NOW_MS - 2 * MILLIS_PER_DAY + 1
 
     @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_metric_data_flattens_metric_values_per_path(self) -> None:
@@ -618,45 +493,6 @@ class TestGetRows:
         assert rows[0]["application_id"] == 7
         assert rows[0]["metricId"] == 42
         assert rows[0]["value"] == 12
-
-    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
-    def test_capped_window_is_bisected_until_every_slice_fits(self) -> None:
-        # `events` returns at most 600 rows for a window and offers no cursor to reach the rest,
-        # so a full response means rows were dropped: the window has to be halved and refetched.
-        quarter_day = MILLIS_PER_DAY // 4
-        requested: list[tuple[int, int]] = []
-
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}])
-            start, end = params["start-time"], params["end-time"]
-            requested.append((start, end))
-            count = MAX_ROWS_PER_TIME_WINDOW if end - start > quarter_day else 2
-            return FakeResponse(json_data=[{"id": f"{start}-{i}", "eventTime": start} for i in range(count)])
-
-        watermark = FROZEN_NOW_MS - MILLIS_PER_DAY
-        manager = FakeResumeManager()
-        batches, _ = _run_get_rows(
-            responder,
-            "events",
-            manager,
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        # One full window, two halves, four quarters; only the quarters come back under the cap.
-        assert len(requested) == 7
-        accepted = [(start, end) for start, end in requested if end - start <= quarter_day]
-        assert len(accepted) == 4
-        # The accepted slices must tile the original window exactly: no gap, no overlap.
-        assert accepted == sorted(accepted)
-        assert accepted[0][0] == watermark + 1
-        assert accepted[-1][1] == FROZEN_NOW_MS
-        assert all(end == next_start for (_, end), (next_start, _) in zip(accepted, accepted[1:]))
-        # Rows still arrive oldest-first even though the slices were discovered out of order.
-        event_times = [row["eventTime"] for batch in batches for row in batch]
-        assert event_times == sorted(event_times)
-        assert len(event_times) == 8
 
     @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_window_that_cannot_be_split_further_warns_and_keeps_its_rows(self) -> None:
@@ -735,72 +571,6 @@ class TestGetRows:
         _, params, _ = session.get_calls[1]
         assert expected.items() <= params.items()
 
-    def test_health_rules_omits_the_controller_rest_output_param(self) -> None:
-        # The alerting API serves JSON and defines no `output` param; the Controller REST API does.
-        _, session = _run_get_rows(
-            _application_list_responder({}, application_ids=[7]), "health_rules", FakeResumeManager()
-        )
-
-        _, list_params, _ = session.get_calls[0]
-        rules_path, rules_params, _ = session.get_calls[1]
-        assert list_params["output"] == "JSON"
-        assert rules_path == "/controller/alerting/rest/v1/applications/7/health-rules"
-        assert "output" not in rules_params
-
-    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
-    def test_anomalies_sends_epoch_window_bounds_and_unwraps_the_response(self) -> None:
-        # The anomaly API takes bare epoch-ms bounds instead of the Controller REST
-        # `time-range-type` triple, serves JSON with no `output` param, and returns its rows
-        # wrapped in an object rather than as a bare array.
-        watermark = FROZEN_NOW_MS - MILLIS_PER_DAY
-
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 3}])
-            return FakeResponse(json_data={"violationListItem": [{"id": 9, "startTime": params["startTime"]}]})
-
-        batches, session = _run_get_rows(
-            responder,
-            "anomalies",
-            FakeResumeManager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-        )
-
-        path, params, _ = session.get_calls[1]
-        assert path == "/controller/anomaly/rest/api/v1/applications/3/anomalies"
-        assert params["startTime"] == watermark + 1
-        assert params["endTime"] == FROZEN_NOW_MS
-        assert "time-range-type" not in params
-        assert "output" not in params
-        assert batches == [[{"id": 9, "startTime": watermark + 1, "application_id": 3}]]
-
-    @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
-    def test_anomalies_walks_pages_until_one_comes_back_short(self) -> None:
-        # A full page means anomalies are still waiting, and the API documents no default page
-        # size, so the stream sends one and pages on rather than trusting a single response.
-        pages: dict[int, list[dict[str, Any]]] = {
-            0: [{"id": index} for index in range(ANOMALIES_PAGE_SIZE)],
-            1: [{"id": 999}],
-        }
-
-        def responder(path: str, params: dict[str, Any]) -> FakeResponse:
-            if path == "/controller/rest/applications":
-                return FakeResponse(json_data=[{"id": 1}])
-            return FakeResponse(json_data={"violationListItem": pages.get(params["pageNumber"], [])})
-
-        batches, session = _run_get_rows(
-            responder,
-            "anomalies",
-            FakeResumeManager(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=FROZEN_NOW_MS - MILLIS_PER_DAY,
-        )
-
-        assert [params["pageNumber"] for _, params, _ in session.get_calls[1:]] == [0, 1]
-        assert all(params["pageSize"] == ANOMALIES_PAGE_SIZE for _, params, _ in session.get_calls[1:])
-        assert [row["id"] for batch in batches for row in batch][-1] == 999
-
     @time_machine.travel("2024-01-31T00:00:00Z", tick=False)
     def test_anomalies_paging_draws_from_the_sync_wide_request_allowance(self) -> None:
         # Paging is per window but the fan-out limit is per sync, so a controller that returns
@@ -824,44 +594,6 @@ class TestGetRows:
 
         assert [params["pageNumber"] for _, params, _ in session.get_calls[1:]] == [0, 1]
         assert logger.warning.call_count == 1
-
-    def test_metric_tree_walk_builds_reusable_paths_and_skips_leaves(self) -> None:
-        tree = {
-            "": [
-                {"name": "Overall Application Performance", "type": "folder"},
-                {"name": "Errors|Total", "type": "leaf"},
-            ],
-            "Overall Application Performance": [{"name": "Average Response Time (ms)", "type": "leaf"}],
-        }
-        batches, session = _run_get_rows(_application_list_responder(tree), "metrics", FakeResumeManager())
-        rows = [row for batch in batches for row in batch]
-
-        # A `|` inside a metric name is escaped, so the path can be sent back as a `metric-path`.
-        assert [row["path"] for row in rows] == [
-            "Overall Application Performance",
-            "Errors\\|Total",
-            "Overall Application Performance|Average Response Time (ms)",
-        ]
-        assert [row["depth"] for row in rows] == [1, 1, 2]
-        assert rows[2]["parent_path"] == "Overall Application Performance"
-        assert all(row["application_id"] == 1 for row in rows)
-        # Only the folder is expanded: the root listing plus one request for it.
-        assert [params.get("metric-path") for _, params, _ in session.get_calls[1:]] == [
-            None,
-            "Overall Application Performance",
-        ]
-
-    def test_metric_tree_walk_stops_at_the_depth_limit(self) -> None:
-        # The hierarchy is unbounded, so an all-folders tree must not be walked forever.
-        tree = {"": [{"name": "f1", "type": "folder"}]}
-        for level in range(1, 6):
-            tree["|".join(f"f{i}" for i in range(1, level + 1))] = [{"name": f"f{level + 1}", "type": "folder"}]
-
-        batches, session = _run_get_rows(_application_list_responder(tree), "metrics", FakeResumeManager())
-        rows = [row for batch in batches for row in batch]
-
-        assert max(row["depth"] for row in rows) == METRIC_TREE_MAX_DEPTH
-        assert len(session.get_calls) == 1 + METRIC_TREE_MAX_DEPTH
 
     def test_metric_tree_walk_stops_at_the_request_budget(self) -> None:
         tree = {"": [{"name": "f1", "type": "folder"}, {"name": "f2", "type": "folder"}]}

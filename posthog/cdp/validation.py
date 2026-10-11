@@ -293,8 +293,8 @@ class TemplateGlobalsValidator(TraversingVisitor):
     """
 
     invalid_globals: set[str]
-    # Calls the Node runtime would refuse for their argument count, as messages. Only checked for
-    # names the runtime table knows, so a name it does not know is left to the globals check.
+    # Calls the Node runtime would refuse, as messages: a name it does not have, or the wrong
+    # argument count for one it does.
     invalid_calls: list[str]
 
     def __init__(
@@ -346,6 +346,12 @@ class TemplateGlobalsValidator(TraversingVisitor):
             return
         arity = FILTER_FUNCTIONS.get(node.name)
         if arity is None:
+            # The globals check never sees this name, because a call is not a field. Without this the
+            # template compiles, and the VM refuses the call on every event that reaches it.
+            # print is left out of the runtime table, but the Node VM has it. The async functions
+            # (fetch, postHogCapture, product ones) are not exempt: inputs run without them.
+            if node.name != "print":
+                self.invalid_calls.append(f"{node.name} is not a function inputs can use")
             return
         minimum, maximum = arity
         count = len(node.args)
@@ -643,6 +649,59 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     # TODO Validate choices if type=choice
 
 
+DUPLICATE_INPUT_KEYS_ERROR = "Each input key must be unique. Remove duplicate keys."
+
+
+def duplicate_input_keys(schemas: Any) -> set[str]:
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for schema in schemas or []:
+        if not isinstance(schema, dict) or "key" not in schema:
+            continue
+        key = str(schema["key"]).strip()
+        if key in seen:
+            duplicates.add(key)
+        seen.add(key)
+    return duplicates
+
+
+def added_duplicate_input_keys(schemas: Any, stored_schemas: Any) -> set[str]:
+    """Keys the schema repeats more often than the stored schema already did."""
+
+    def counts(items: Any) -> dict[str, int]:
+        result: dict[str, int] = {}
+        for schema in items or []:
+            if isinstance(schema, dict) and "key" in schema:
+                key = str(schema["key"]).strip()
+                result[key] = result.get(key, 0) + 1
+        return result
+
+    stored = counts(stored_schemas)
+    return {key for key, count in counts(schemas).items() if count > 1 and count > stored.get(key, 0)}
+
+
+class InputsSchemaSerializer(serializers.ListField):
+    """A function's input schema.
+
+    Turn `unique_keys` off wherever the caller does not always send the schema. The hog function
+    serializer injects the stored schema into every update, so a row saved before this rule would
+    fail a request that only disables or deletes it. That serializer checks uniqueness itself and
+    compares against the stored schema.
+    """
+
+    child = InputsSchemaItemSerializer()
+
+    def __init__(self, *args: Any, unique_keys: bool = True, **kwargs: Any) -> None:
+        self.unique_keys = unique_keys
+        super().__init__(*args, **kwargs)
+
+    def to_internal_value(self, data: Any) -> list[dict[str, Any]]:
+        schemas = super().to_internal_value(data)
+        if self.unique_keys and duplicate_input_keys(schemas):
+            raise serializers.ValidationError(DUPLICATE_INPUT_KEYS_ERROR)
+        return schemas
+
+
 @extend_schema_field({})
 class AnyInputField(serializers.Field):
     def to_internal_value(self, data):
@@ -897,6 +956,9 @@ class InputsSerializer(serializers.DictField):
         except:
             raise serializers.ValidationError("Missing inputs_schema.")
 
+        assert isinstance(parent_serializer, serializers.Serializer)
+        inputs_schema = parent_serializer.fields["inputs_schema"].run_validation(inputs_schema)
+
         # Validate each input against the schema
         for schema in inputs_schema:
             key = str(schema["key"])
@@ -1122,15 +1184,36 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         return data
 
 
-class MappingsSerializer(serializers.Serializer):
-    name = serializers.CharField(required=False)
-    inputs_schema = serializers.ListField(child=InputsSchemaItemSerializer(), required=False)
+class FunctionInputsSerializer(serializers.Serializer):
+    inputs_schema = InputsSchemaSerializer(required=False)
     inputs = InputsSerializer(required=False)
-    filters = HogFunctionFiltersSerializer(required=False)
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
         self.initial_data = data
+        return super().to_internal_value(data)
+
+
+class MappingsSerializer(FunctionInputsSerializer):
+    name = serializers.CharField(required=False)
+    filters = HogFunctionFiltersSerializer(required=False)
+    # The hog function serializer compares repeated keys against the stored mappings, because the UI
+    # resends every mapping on each save and some stored mappings already repeat a key.
+    inputs_schema = InputsSchemaSerializer(required=False, unique_keys=False)
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict) and "inputs_schema" in data:
+            try:
+                inputs_schema = self.fields["inputs_schema"].run_validation(data["inputs_schema"])
+            except ValidationError as error:
+                raise serializers.ValidationError({"inputs_schema": error.detail}) from error
+            if any(schema.get("secret") for schema in inputs_schema):
+                raise serializers.ValidationError(
+                    {
+                        "inputs_schema": "Mappings do not support secret inputs. Set secrets in the destination inputs instead."
+                    }
+                )
+            data = {**data, "inputs_schema": inputs_schema}
         return super().to_internal_value(data)
 
 

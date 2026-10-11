@@ -35,6 +35,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.exceptions import ProcessTaskFatalError, TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.temporal.process_task.activities import provision_sandbox
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -240,22 +241,34 @@ class TestGetTaskProcessingContextActivity:
         task.soft_delete()
 
     @pytest.mark.django_db(transaction=True)
-    @pytest.mark.parametrize("subscription", [False, True])
-    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription):
+    @pytest.mark.parametrize("subscription,is_trial", [(False, False), (True, False), (False, True)])
+    def test_get_task_processing_context_success(self, activity_environment, test_task, subscription, is_trial):
         owner = User.objects.create_user(
             email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
         )
         OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
-        task_run = test_task.create_run(
-            acting_user_id=owner.id,
-            extra_state={"claude_model_access": "own-subscription"} if subscription else {},
-        )
+        extra_state: dict[str, object] = {"claude_model_access": "own-subscription"} if subscription else {}
+        if is_trial:
+            test_task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+            test_task.origin_key = "scout-trial:11111111-1111-1111-1111-111111111111"
+            test_task.save(update_fields=["origin_product", "origin_key"])
+        task_run = test_task.create_run(acting_user_id=owner.id, extra_state=extra_state)
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=False,
-        ) as flag:
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+                return_value=False,
+            ) as flag,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context._is_agent_otel_telemetry_enabled",
+                return_value=True,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.context_layer_facade.is_context_layer_enabled",
+                return_value=True,
+            ),
+        ):
             flag.side_effect = lambda key, distinct_id=None, **kwargs: (
                 key == CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG and distinct_id == owner.distinct_id
             )
@@ -269,6 +282,9 @@ class TestGetTaskProcessingContextActivity:
         assert result.repository == "posthog/posthog-js"
         assert result.create_pr is True
         assert result.claude_model_access == ("own-subscription" if subscription else "posthog-gateway")
+        assert result.agent_otel_telemetry_enabled is (not is_trial)
+        assert result.context_layer_enabled is (not is_trial)
+        assert result.state is not None
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
@@ -703,15 +719,17 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "flag_value,expected_state",
+        "flag_value,include_live_context,expected_state",
         [
-            (True, "resolved"),
-            (False, []),
-            (None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
+            (True, None, "resolved"),
+            (False, None, []),
+            (None, None, "untouched"),  # a flag-service outage must not clear stubs a resumed sandbox still has
+            (True, False, []),
+            (None, False, []),
         ],
     )
     def test_store_skills_state_follows_the_sandbox_flag(
-        self, activity_environment, test_task, user, flag_value, expected_state
+        self, activity_environment, test_task, user, mocker, flag_value, include_live_context, expected_state
     ):
         LLMSkill.objects.create(
             team=test_task.team,
@@ -722,16 +740,40 @@ class TestGetTaskProcessingContextActivity:
             is_latest=True,
             created_by=user,
         )
-        task_run = test_task.create_run()
+        task_run = test_task.create_run(
+            extra_state={"include_live_context": include_live_context} if include_live_context is not None else {}
+        )
         TaskRun.update_state_atomic(task_run.id, updates={STORE_SKILLS_STATE_KEY: [{"name": "from-last-session"}]})
         input_data = GetTaskProcessingContextInput(run_id=str(task_run.id))
 
-        with patch(
-            "products.tasks.backend.logic.services.store_skills.posthog_feature_flag_value",
-            return_value=flag_value,
+        with (
+            patch(
+                "products.tasks.backend.logic.services.store_skills.posthog_feature_flag_value",
+                return_value=flag_value,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.context_layer_facade.is_context_layer_enabled",
+                return_value=True,
+            ),
         ):
-            async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+            result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
+        assert result.context_layer_enabled is (include_live_context is not False)
+        if include_live_context is False:
+            assert result.state is not None
+            assert result.state[STORE_SKILLS_STATE_KEY] == []
+        for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+            mocker.patch.object(provision_sandbox, name, return_value={})
+        mocker.patch.object(provision_sandbox, "get_sandbox_jwt_public_key", return_value="public-key")
+        mocker.patch.object(
+            provision_sandbox.context_layer_facade,
+            "sandbox_environment_variables",
+            return_value={"POSTHOG_CONTEXT_LAYER_PATH": "/tmp/workspace/context"},
+        )
+        environment = provision_sandbox._build_environment_variables(result, test_task, "", "fake-token")
+        assert environment.get("POSTHOG_CONTEXT_LAYER_PATH") == (
+            "/tmp/workspace/context" if include_live_context is not False else None
+        )
         stored = TaskRun.objects.get(id=task_run.id).state[STORE_SKILLS_STATE_KEY]
         if expected_state == "untouched":
             assert stored == [{"name": "from-last-session"}]

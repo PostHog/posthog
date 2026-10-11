@@ -41,6 +41,7 @@ import { alertConfigurationActivityDescriber } from 'products/alerts/frontend/co
 import { annotationActivityDescriber } from 'products/annotations/frontend/activityDescriptions'
 import { canvasActivityDescriber } from 'products/canvas/frontend/activityDescriber'
 import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
+import { crossProjectDashboardActivityDescriber } from 'products/cross_project_dashboards/frontend/crossProjectDashboardActivityDescriber'
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
 import { groupActivityDescriber } from 'products/groups/frontend/activityDescriptions'
@@ -69,6 +70,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return exportedAssetActivityDescriber
         case ActivityScope.DASHBOARD:
             return dashboardActivityDescriber
+        case ActivityScope.CROSS_PROJECT_DASHBOARD:
+            return crossProjectDashboardActivityDescriber
         case ActivityScope.FEATURE_FLAG:
             return flagActivityDescriber
         case ActivityScope.HOG_FUNCTION:

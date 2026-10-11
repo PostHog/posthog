@@ -42,7 +42,10 @@ CREATE TABLE posthog.kafka_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
-  inserted_at DateTime64(6, 'UTC')
+  person_properties String,
+  person_created_at DateTime64(3),
+  inserted_at DateTime64(6, 'UTC'),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2)
 ) ENGINE = Kafka(warpstream_ingestion) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_flag_evaluations', kafka_max_block_size = 10000, kafka_num_consumers = 1, kafka_poll_max_batch_size = 10000, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_topic_list = 'clickhouse_flag_evaluations';
 CREATE TABLE posthog.kafka_heatmaps (
   session_id String,
@@ -301,7 +304,10 @@ CREATE TABLE posthog.writable_flag_evaluations (
   distinct_id String,
   created_at DateTime64(6, 'UTC'),
   person_id UUID,
+  person_properties String DEFAULT '{}',
+  person_created_at DateTime64(3),
   inserted_at DateTime64(6, 'UTC') DEFAULT timestamp,
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
@@ -461,7 +467,7 @@ CREATE MATERIALIZED VIEW posthog.cohort_membership_mv TO posthog.writable_cohort
 FROM posthog.kafka_cohort_membership;
 CREATE MATERIALIZED VIEW posthog.distinct_id_usage_mv TO posthog.writable_distinct_id_usage (team_id Int64, distinct_id String, minute DateTime('UTC'), event_count UInt8) AS SELECT team_id, distinct_id, toStartOfMinute(timestamp) AS minute, 1 AS event_count
 FROM posthog.kafka_distinct_id_usage;
-CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, inserted_at Nullable(DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_evaluations (uuid UUID, event LowCardinality(String), properties String, timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_created_at DateTime64(3), inserted_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   uuid,
   event,
   properties,
@@ -470,7 +476,10 @@ CREATE MATERIALIZED VIEW posthog.flag_evaluations_mv TO posthog.writable_flag_ev
   distinct_id,
   created_at,
   person_id,
-  if(inserted_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'), _timestamp, inserted_at) AS inserted_at,
+  if(empty(person_properties), '{}', person_properties) AS person_properties,
+  person_created_at,
+  now64() AS inserted_at,
+  person_mode,
   _timestamp,
   _offset,
   _partition

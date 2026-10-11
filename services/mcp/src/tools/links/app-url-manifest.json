@@ -49,11 +49,6 @@
         "params": [],
         "scope": "project"
     },
-    "aiGateway": {
-        "template": "/ai-gateway",
-        "params": [],
-        "scope": "project"
-    },
     "aiHistory": {
         "template": "/ai/history",
         "params": [],
@@ -299,6 +294,21 @@
         "params": [],
         "scope": "project"
     },
+    "businessIntelligence": {
+        "template": "/bi",
+        "params": [],
+        "scope": "project"
+    },
+    "businessIntelligenceNew": {
+        "template": "/bi/new",
+        "params": [],
+        "scope": "project"
+    },
+    "businessIntelligenceWorksheet": {
+        "template": "/bi/{insightShortId}",
+        "params": ["insightShortId"],
+        "scope": "project"
+    },
     "businessKnowledge": {
         "template": "/business-knowledge",
         "params": [],
@@ -331,6 +341,11 @@
     },
     "canvasNew": {
         "template": "/canvases/new",
+        "params": [],
+        "scope": "project"
+    },
+    "canvases": {
+        "template": "/canvases",
         "params": [],
         "scope": "project"
     },
@@ -413,6 +428,16 @@
         "template": "/account/credential-review",
         "params": [],
         "scope": "global"
+    },
+    "crossProjectDashboard": {
+        "template": "/cross-project-dashboards/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "crossProjectDashboards": {
+        "template": "/cross-project-dashboards",
+        "params": [],
+        "scope": "project"
     },
     "customCss": {
         "template": "/themes/custom-css",
@@ -652,6 +677,11 @@
     "engineeringAnalyticsAuthors": {
         "template": "/engineering-analytics/authors",
         "params": [],
+        "scope": "project"
+    },
+    "engineeringAnalyticsCIExplorer": {
+        "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}/ci-explorer",
+        "params": ["repoOwner", "repoName", "number"],
         "scope": "project"
     },
     "engineeringAnalyticsDeploys": {
@@ -924,6 +954,11 @@
         "params": ["skillName"],
         "scope": "project"
     },
+    "inboxScoutTrials": {
+        "template": "/inbox/scout-trials",
+        "params": [],
+        "scope": "project"
+    },
     "inboxScratchpad": {
         "template": "/inbox/scouts/scratchpad",
         "params": [],
@@ -1051,21 +1086,6 @@
     },
     "legalDocuments": {
         "template": "/legal",
-        "params": [],
-        "scope": "project"
-    },
-    "link": {
-        "template": "/link/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "links": {
-        "template": "/links",
-        "params": [],
-        "scope": "project"
-    },
-    "liveDebugger": {
-        "template": "/live-debugger",
         "params": [],
         "scope": "project"
     },
@@ -1324,6 +1344,16 @@
         "params": [],
         "scope": "project"
     },
+    "platformAlert": {
+        "template": "/platform-alerts/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "platformAlerts": {
+        "template": "/platform-alerts",
+        "params": [],
+        "scope": "project"
+    },
     "precomputeDebug": {
         "template": "/debug/precompute",
         "params": [],
@@ -1444,11 +1474,6 @@
         "params": ["id"],
         "scope": "project"
     },
-    "replayVisionScannerSelfDriving": {
-        "template": "/replay-vision/{id}/self-driving",
-        "params": ["id"],
-        "scope": "project"
-    },
     "replayVisionScannerTemplate": {
         "template": "/replay-vision/{id}/template",
         "params": ["id"],
@@ -1457,6 +1482,11 @@
     "replayVisionScannerTriggers": {
         "template": "/replay-vision/{id}/triggers",
         "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionTab": {
+        "template": "/replay-vision",
+        "params": [],
         "scope": "project"
     },
     "replayVisionTemplates": {
@@ -1761,21 +1791,6 @@
     },
     "unsubscribe": {
         "template": "/unsubscribe",
-        "params": [],
-        "scope": "project"
-    },
-    "userInterview": {
-        "template": "/user_research/{id}",
-        "params": ["id"],
-        "scope": "project"
-    },
-    "userInterviewResponse": {
-        "template": "/user_research/{topicId}/response/{responseId}",
-        "params": ["topicId", "responseId"],
-        "scope": "project"
-    },
-    "userInterviews": {
-        "template": "/user_research",
         "params": [],
         "scope": "project"
     },

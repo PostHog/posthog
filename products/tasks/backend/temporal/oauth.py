@@ -291,6 +291,15 @@ def create_oauth_access_token_for_run(
         actor_user = get_task_run_credential_user(locked_task, state)
         loop_id = (state or {}).get("loop_id")
         effective_scopes = scopes
+        trial_origin = locked_task.is_scout_experiment
+        if trial_origin or "scout_experiment_internal:read" in resolve_scopes(scopes):
+            if not trial_origin:
+                raise TaskInvalidStateError(
+                    "The scout trial has no trusted execution context.",
+                    {"task_id": task.id},
+                    cause=RuntimeError("missing scout trial context"),
+                )
+            effective_scopes = "signals_scout_experiment"
         credential_owner_kind: str | None = None
         if locked_task.origin_product == Task.OriginProduct.WORKFLOW:
             effective_scopes = _workflow_run_scopes(scopes, state)

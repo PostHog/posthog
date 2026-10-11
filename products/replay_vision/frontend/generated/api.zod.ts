@@ -927,41 +927,6 @@ export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
- * Apply this suggestion: write a config to the scanner (the prompt plus any type-specific config such as classifier tags or the monitor allow_inconclusive flag), bumping the scanner version, and mark the suggestion applied. Pass `config` to apply an edited subset of the recommendation; omit it to apply the full suggested config. Only the current pending suggestion can be applied. Requires session recording edit access.
- */
-export const VisionScannersPromptSuggestionsApplyCreateBody = /* @__PURE__ */ zod.object({
-    config: zod
-        .unknown()
-        .optional()
-        .describe(
-            "The edited config to apply, assembled from the recommendation's approved fields. Omit to apply the full suggested config unchanged."
-        ),
-})
-
-/**
- * Test this suggestion before applying it: re-run the scanner with the suggested prompt against already-rated sessions in the background and compare each fresh output with the stored one. Results land on the suggestion's `evaluation` field. Poll `current` while status is running. `session_limit` controls how many rated sessions are re-run (thumbs-down prioritized, up to `evaluation_session_cap`). Each successful re-run charges credits like a normal observation of the same model. The request is refused with 402 when the planned credits exceed what is left for the current billing period, either the org's limit or this scanner's own. Monitor and classifier scanners get a kept/fixed/regressed classification, while scorer and summarizer scanners show the raw before and after output. Requires session recording edit access.
- */
-export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault = 10
-export const visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax = 100
-
-export const VisionScannersPromptSuggestionsEvaluateCreateBody = /* @__PURE__ */ zod.object({
-    session_limit: zod
-        .number()
-        .min(1)
-        .max(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitMax)
-        .default(visionScannersPromptSuggestionsEvaluateCreateBodySessionLimitDefault)
-        .describe(
-            'How many rated sessions to re-run, thumbs-down prioritized. Each successful re-run charges credits like a normal observation of the same model. Defaults to 10. The maximum is `evaluation_session_cap`.'
-        ),
-    config: zod
-        .unknown()
-        .optional()
-        .describe(
-            "The edited config to test, assembled from the recommendation's approved fields. Omit to test the full suggested config."
-        ),
-})
-
-/**
  * Create a scout that watches this scanner, recorded as belonging to it.
  */
 export const visionScannersScoutsCreateBodyDisplayNameMax = 200
@@ -982,6 +947,8 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
 export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 10
 
+export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
+
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMin = 30
 export const visionScannersScoutsCreateBodyConfigOneRunIntervalMinutesMax = 43200
 
@@ -996,6 +963,8 @@ export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOn
 
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = true
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
+
+export const visionScannersScoutsCreateBodyVariantAnalysisDefault = false
 
 export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1064,6 +1033,32 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .optional()
                     .describe(
                         "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                    ),
+                lifecycle_locked: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker."
+                    ),
+                allowed_mcp_tools: zod
+                    .array(zod.string())
+                    .nullish()
+                    .describe(
+                        'Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.'
+                    ),
+                tool_preset: zod
+                    .enum(['read_only', 'support_notes'])
+                    .describe('\* `read_only` - Read only\n\* `support_notes` - Support notes')
+                    .optional()
+                    .describe(
+                        'Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.\n\n\* `read_only` - Read only\n\* `support_notes` - Support notes'
+                    ),
+                precheck_query: zod
+                    .string()
+                    .max(visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax)
+                    .nullish()
+                    .describe(
+                        "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
                     ),
                 enabled: zod
                     .boolean()
@@ -1179,6 +1174,12 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional schedule, enablement, dry-run posture, and delivery settings. Defaults to an enabled, emitting scout on the daily interval with no external destination.'
             ),
+        variant_analysis: zod
+            .boolean()
+            .default(visionScannersScoutsCreateBodyVariantAnalysisDefault)
+            .describe(
+                "Make this the experiment scanner's variant analysis scout: its runs record a structured comparison of the variants, which the scanner's variants readout shows. Experiment scanners only."
+            ),
     })
     .describe(
         "A scout to stand up for this scanner. The scanner comes from the URL, never the body: it is\nwhat the caller's access is checked against, and what the scout is recorded as belonging to.\n\nInherits the Signals scout definition so a scout created here clears the same name and prompt-size\nbars as one created through the generic endpoint."
@@ -1218,6 +1219,8 @@ export const visionScannersEstimateCreateBodySamplingRateMax = 1
 export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
 export const visionScannersEstimateCreateBodyModelDefault = `gemini-3-flash-preview`
 export const visionScannersEstimateCreateBodyExperimentTargetingOneVariantMax = 400
+
+export const visionScannersEstimateCreateBodyExperimentOneVariantsItemMax = 400
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -1277,6 +1280,22 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Proposed experiment targeting, merged into the query as its exposure filter the same way a saved scanner derives it. The estimate then runs as the requesting user.'
+            ),
+        experiment: zod
+            .union([
+                zod.object({
+                    experiment_id: zod.number().min(1).describe('The experiment an experiment scanner watches.'),
+                    variants: zod
+                        .array(zod.string().max(visionScannersEstimateCreateBodyExperimentOneVariantsItemMax))
+                        .min(1)
+                        .nullish()
+                        .describe('The variant keys it watches. Null or omitted means every variant.'),
+                }),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'For an experiment scanner: the `experiment_id` and `variants` it will keep in its config, merged into the query as its exposure filter so the estimate counts only exposed sessions. Not combined with `experiment_targeting`.'
             ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')

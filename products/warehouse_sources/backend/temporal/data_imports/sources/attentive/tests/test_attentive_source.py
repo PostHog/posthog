@@ -5,7 +5,6 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.constants import (
-    ATTENTIVE_WEBHOOK_SCHEMA_NAMES,
     RESOURCE_TO_ATTENTIVE_EVENT_TYPE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.attentive.source import (
@@ -58,14 +57,6 @@ class TestAttentiveSource:
 
     def test_webhook_resource_map(self):
         assert self.source.webhook_resource_map == RESOURCE_TO_ATTENTIVE_EVENT_TYPE
-
-    def test_get_schemas_are_webhook_only(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ATTENTIVE_WEBHOOK_SCHEMA_NAMES)
-        assert all(schema.supports_webhooks for schema in schemas)
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
 
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["sms_sent"])

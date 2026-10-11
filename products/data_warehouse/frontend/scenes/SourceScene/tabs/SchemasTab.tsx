@@ -12,11 +12,13 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
+    LemonTagType,
     Spinner,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -74,6 +76,40 @@ const schemaEditDisabledReason = (schema: ExternalDataSourceSchema): string | nu
 // Only data columns use this, so the sync toggle and row actions still look clickable on a schema that is not syncing.
 const dimWhenNotSyncing = (_: unknown, schema: ExternalDataSourceSchema): string =>
     schema.should_sync ? '' : 'opacity-60'
+
+interface SchemaStatusDisplay {
+    type: LemonTagType
+    label: string
+    tooltip: string | null
+}
+
+const schemaStatusDisplay = (
+    schema: ExternalDataSourceSchema,
+    status: ExternalDataSchemaStatus
+): SchemaStatusDisplay => {
+    // An empty table after a completed sync usually means a row filter that matches nothing, a missing
+    // permission, or an empty source. An incremental sync that finds no new rows still leaves rows in
+    // the table, so it doesn't trigger this.
+    const completedWithNoRows =
+        status === ExternalDataSchemaStatus.Completed &&
+        !!schema.last_synced_at &&
+        (schema.table ? schema.table.row_count === 0 : true)
+    if (completedWithNoRows) {
+        const filterHint = schema.row_filters?.length
+            ? ' Check that the row filters on this table match some rows.'
+            : ''
+        return {
+            type: 'warning',
+            label: 'Completed, no rows',
+            tooltip: `The sync finished but brought in no rows. Check that the source has data and that the account you connected can read it.${filterHint} Open the sync logs for details.`,
+        }
+    }
+    return {
+        type: StatusTagSetting[status] || 'default',
+        label: status,
+        tooltip: status === ExternalDataSchemaStatus.Failed ? (schema.latest_error ?? null) : null,
+    }
+}
 
 export interface SchemasTabProps {
     id: string
@@ -404,6 +440,9 @@ function ManagedSchemaTable({
                         return (
                             <LemonTableLink
                                 to={urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id)}
+                                // Renders the description outside the anchor, so a click on the copy button
+                                // copies the table name and does not open the schema page.
+                                truncateDescription
                                 title={
                                     <div className="flex items-center gap-1">
                                         <span>{name}</span>
@@ -416,7 +455,17 @@ function ManagedSchemaTable({
                                 }
                                 description={((): JSX.Element | undefined => {
                                     const tableName = schema.table?.hogql_name ?? schema.table?.name
-                                    return tableName ? <code>{tableName}</code> : undefined
+                                    return tableName ? (
+                                        <CopyToClipboardInline
+                                            explicitValue={tableName}
+                                            description="table name"
+                                            selectable
+                                            iconSize="xsmall"
+                                            data-attr="source-schema-table-name-copy"
+                                        >
+                                            <code>{tableName}</code>
+                                        </CopyToClipboardInline>
+                                    ) : undefined
                                 })()}
                             />
                         )
@@ -439,17 +488,14 @@ function ManagedSchemaTable({
                                 }).url
                             )
                         }
+                        const { type, label, tooltip } = schemaStatusDisplay(schema, schema.status)
                         const tagContent = (
-                            <LemonTag
-                                type={StatusTagSetting[schema.status] || 'default'}
-                                forceClickable
-                                onClick={openSyncsForSchema}
-                            >
-                                {schema.status}
+                            <LemonTag type={type} forceClickable onClick={openSyncsForSchema}>
+                                {label}
                             </LemonTag>
                         )
-                        return schema.latest_error && schema.status === 'Failed' ? (
-                            <Tooltip title={schema.latest_error} interactive>
+                        return tooltip ? (
+                            <Tooltip title={tooltip} interactive>
                                 {tagContent}
                             </Tooltip>
                         ) : (

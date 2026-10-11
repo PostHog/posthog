@@ -1205,7 +1205,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 
     # Rollout gate (absent flag = off). Gated teams are never stamped, so when the
     # flag opens up the catch-up delivers their currently-failing schemas naturally.
-    # group_properties mirror the warehouse-pipelines-v3 gate (create_job_model.py):
+    # group_properties mirror the warehouse-multi-destination gate (destinations/enablement.py):
     # without them, release conditions on the project/organization group can't match,
     # because the analytics group records are keyed by uuid rather than team_id/org_id.
     if not settings.TEST and not posthoganalytics.feature_enabled(
@@ -1264,6 +1264,72 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
     else:
         EXTERNAL_DATA_FAILURE_DIGEST_COUNTER.labels(outcome="send_failed").inc()
     return delivered
+
+
+def _filter_members_by_external_data_source_access(
+    memberships: list[OrganizationMembership], team: Team
+) -> list[OrganizationMembership]:
+    """Drop members who cannot view destinations, which `ExternalDataDestinationViewSet` gates on `external_data_source`.
+
+    Falls back to the unfiltered list when the check fails: not being able to check must not silently stop the email.
+    """
+    if not memberships:
+        return memberships
+    try:
+        if not UserAccessControl(memberships[0].user, team).access_controls_supported:
+            return memberships
+        return [
+            membership
+            for membership in memberships
+            if UserAccessControl(membership.user, team).check_access_level_for_resource(
+                "external_data_source", "viewer"
+            )
+        ]
+    except Exception:
+        logger.exception("Destination access check failed, sending to all subscribed members", team_id=team.id)
+        return memberships
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_warehouse_destination_paused(
+    team_id: int, destination_id: str, destination_name: str, latest_error: str, paused_at: str
+) -> None:
+    """Tell a project that PostHog paused a data warehouse destination after repeated configuration errors.
+
+    The destination stays paused until someone edits it, so one email per pause is enough. The
+    caller passes the details so this module does not read the warehouse product's models.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return
+
+    memberships_to_email = get_members_to_notify_for_pipeline_error(
+        team, failure_rate=1.0, pipeline_id=f"warehouse_destination:{destination_id}"
+    )
+    memberships_to_email = _filter_members_by_external_data_source_access(memberships_to_email, team)
+    if not memberships_to_email:
+        return
+
+    message = EmailMessage(
+        campaign_key=f"warehouse_destination_paused_{destination_id}_{paused_at}",
+        subject=(
+            f"[Alert] Data warehouse destination '{single_line(destination_name)}' paused in project "
+            f"'{single_line(team.name)}'"
+        ),
+        template_name="warehouse_destination_paused",
+        template_context={
+            "team": team,
+            "destination_name": destination_name,
+            "latest_error": latest_error,
+            "destinations_url": f"{settings.SITE_URL}/project/{team.id}/data-management/warehouse-destinations",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
 
 
 MAX_VIEWS_PER_DIGEST_EMAIL = 30

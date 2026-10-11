@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import math
 import uuid
 import base64
@@ -23,7 +24,7 @@ from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.database import Database
-from pymongo.errors import CursorNotFound, OperationFailure, PyMongoError, ServerSelectionTimeoutError
+from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
@@ -54,6 +55,27 @@ from products.warehouse_sources.backend.types import IncrementalFieldType, Parti
 # Schema inference settings
 SCHEMA_INFERENCE_LIMIT = 10_000  # First 10k documents
 SCHEMA_INFERENCE_TIMEOUT_MS = 45_000  # 45 seconds
+
+# Server-side limits (`maxTimeMS`) on the metadata commands that run before the first document is
+# read. The count runs the whole pipeline of a view, or scans a collection that has no index for
+# the filter, and each attempt of the import runs it again. Its result is only a progress estimate.
+ROW_COUNT_TIMEOUT_MS = 60_000
+COLLECTION_STATS_TIMEOUT_MS = 30_000
+
+# Client-side limits of each connection. pymongo has no socket timeout by default, so a server that
+# stops answering holds a `find` or a `getMore` for as long as the socket stays open.
+SERVER_SELECTION_TIMEOUT_MS = 10_000
+CONNECT_TIMEOUT_MS = 10_000
+# The wait for one answer from the server: the first batch of a cursor, or one `getMore`. A read
+# that keeps returning batches starts a new wait with each one, so this is not a limit on the read.
+# The data cursor gets no `maxTimeMS`, because the server counts that limit over the cursor as a
+# whole and it would end a long read that is in good health.
+SOCKET_TIMEOUT_MS = 10 * 60 * 1000
+# A limit that the connection string sets itself is kept.
+_CONNECTION_TIMEOUT_DEFAULTS: dict[str, int] = {
+    "connectTimeoutMS": CONNECT_TIMEOUT_MS,
+    "socketTimeoutMS": SOCKET_TIMEOUT_MS,
+}
 
 # Mongo yields whole documents (the full doc rides along under `data`), so a collection of large
 # documents can OOM the worker when a chunk is materialised into a PyArrow table — before any Delta
@@ -310,12 +332,21 @@ def _make_safe_server_selector(team_id: int) -> Callable[[list[ServerDescription
     return selector
 
 
+def connection_timeouts(connection_string: str) -> dict[str, int]:
+    """The connect and socket timeouts to pass to `MongoClient`, less those the connection string sets."""
+    option_keys = {
+        option.partition("=")[0].lower() for option in re.split(r"[&;]", connection_string.partition("?")[2])
+    }
+    return {name: value for name, value in _CONNECTION_TIMEOUT_DEFAULTS.items() if name.lower() not in option_keys}
+
+
 @contextlib.contextmanager
 def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
     # rpartition strips credentials; multiple hosts stay comma-joined as-is.
     log_connection_open(db_host=urlparse(connection_string).netloc.rpartition("@")[2], team_id=team_id)
     kwargs: dict[str, Any] = {
-        "serverSelectionTimeoutMS": 10000,
+        "serverSelectionTimeoutMS": SERVER_SELECTION_TIMEOUT_MS,
+        **connection_timeouts(connection_string),
         "tls": True,
         "tlsCAFile": certifi.where(),
         "server_selector": _make_safe_server_selector(team_id),
@@ -381,7 +412,7 @@ def _get_partition_settings(
     """Get partition settings for given MongoDB collection."""
     try:
         # Get collection stats
-        stats = collection.database.command("collStats", collection_name)
+        stats = collection.database.command("collStats", collection_name, maxTimeMS=COLLECTION_STATS_TIMEOUT_MS)
 
         collection_size = stats.get("size", 0)  # size in bytes
         row_count = stats.get("count", 0)
@@ -618,7 +649,7 @@ def _get_avg_document_size(collection: Collection, logger: FilteringBoundLogger)
     default chunk size. Never raises: chunk sizing is best-effort tuning, not correctness.
     """
     try:
-        stats = collection.database.command("collStats", collection.name)
+        stats = collection.database.command("collStats", collection.name, maxTimeMS=COLLECTION_STATS_TIMEOUT_MS)
         avg_obj_size = stats.get("avgObjSize")
         return int(avg_obj_size) if avg_obj_size else None
     except _UNREACHABLE_CLUSTER_ERRORS:
@@ -628,13 +659,35 @@ def _get_avg_document_size(collection: Collection, logger: FilteringBoundLogger)
         return None
 
 
+def _estimate_rows_to_sync(collection: Collection, query: dict[str, Any], logger: FilteringBoundLogger) -> int:
+    """Row estimate for a collection whose exact count ran past `ROW_COUNT_TIMEOUT_MS`.
+
+    The collection metadata holds a document count that costs no scan, but it counts the whole
+    collection, so it stands in only for an unfiltered read. A filtered read, and a view, which has
+    no such metadata, report 0. That is what a failed count reports too.
+    """
+    if not query:
+        try:
+            estimate = collection.estimated_document_count(maxTimeMS=COLLECTION_STATS_TIMEOUT_MS)
+            logger.debug(f"_get_rows_to_sync: count timed out, using estimate rows_to_sync={estimate}")
+            return estimate
+        except _UNREACHABLE_CLUSTER_ERRORS:
+            raise
+        except PyMongoError as e:
+            logger.debug(f"_get_rows_to_sync: count timed out and no estimate is available ({e})")
+    logger.warning(f"_get_rows_to_sync: the count did not finish in {ROW_COUNT_TIMEOUT_MS} ms. Using 0 as rows to sync")
+    return 0
+
+
 def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: FilteringBoundLogger) -> int:
     try:
-        rows_to_sync = collection.count_documents(query)
+        rows_to_sync = collection.count_documents(query, maxTimeMS=ROW_COUNT_TIMEOUT_MS)
         logger.debug(f"_get_rows_to_sync: rows_to_sync={rows_to_sync}")
         return rows_to_sync
     except _UNREACHABLE_CLUSTER_ERRORS:
         raise
+    except ExecutionTimeout:
+        return _estimate_rows_to_sync(collection, query, logger)
     except PyMongoError as e:
         # rows_to_sync is only a progress estimate, so a failed count degrades to 0
         # rather than failing the sync. Connectivity/auth failures here are expected
