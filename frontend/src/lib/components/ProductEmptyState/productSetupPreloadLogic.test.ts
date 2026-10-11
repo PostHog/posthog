@@ -10,6 +10,7 @@ jest.mock('products/event_definitions/frontend/generated/api', () => ({
 
 describe('productSetupPreloadLogic', () => {
     beforeEach(() => {
+        jest.clearAllMocks()
         jest.useFakeTimers()
         initKeaTests()
     })
@@ -24,5 +25,17 @@ describe('productSetupPreloadLogic', () => {
         productSetupPreloadLogic.mount()
 
         expect(eventDefinitionsList).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        ['is still running', (): Promise<never> => new Promise(() => {}), 1],
+        ['failed', (): Promise<never> => Promise.reject(new Error('offline')), 2],
+    ])('sends the idle retry only if the mount request failed, not when it %s', async (_, response, calls) => {
+        jest.mocked(eventDefinitionsList).mockImplementationOnce(response)
+
+        productSetupPreloadLogic.mount()
+        await jest.runOnlyPendingTimersAsync()
+
+        expect(eventDefinitionsList).toHaveBeenCalledTimes(calls)
     })
 })
