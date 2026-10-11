@@ -414,6 +414,19 @@ def get_survey_conditions_with_actions(
     return conditions
 
 
+def survey_flags_should_be_active(survey: "Survey") -> bool:
+    return bool(survey.start_date) and not survey.end_date and not survey.archived
+
+
+def sync_survey_flags_active_state(survey: "Survey") -> None:
+    # Mirrors only the active state of the survey's own flags. Their filters stay unchanged.
+    should_be_active = survey_flags_should_be_active(survey)
+    for flag in (survey.targeting_flag, survey.internal_targeting_flag):
+        if flag is not None and flag.active != should_be_active:
+            flag.active = should_be_active
+            flag.save()
+
+
 @extend_schema_field(
     {
         "oneOf": [
@@ -1999,7 +2012,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         instance.save()
 
     def _should_survey_flags_be_active(self, instance: Survey) -> bool:
-        return bool(instance.start_date) and not instance.end_date and not instance.archived
+        return survey_flags_should_be_active(instance)
 
     def _add_user_survey_interacted_filters(self, instance: Survey):
         should_flag_be_active = self._should_survey_flags_be_active(instance)
@@ -2389,12 +2402,14 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
                 "Cannot launch a survey with end_date in the past. Extend the end_date first."
             )
         if survey.start_date and survey.start_date <= now:
-            # Already launched — no-op, return current state.
+            # Already launched: keep start_date, but repair flags that a direct start_date write left inactive.
+            sync_survey_flags_active_state(survey)
             return Response(SurveySerializer(survey, context=self.get_serializer_context()).data)
 
         previous_start = survey.start_date
         survey.start_date = now
         survey.save(update_fields=["start_date"])
+        sync_survey_flags_active_state(survey)
 
         log_activity(
             organization_id=self.organization.id,
@@ -2436,11 +2451,13 @@ class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControl
         if survey.archived:
             raise exceptions.ValidationError("Cannot stop an archived survey. Unarchive it first if needed.")
         if survey.end_date and survey.end_date <= now:
+            sync_survey_flags_active_state(survey)
             return Response(SurveySerializer(survey, context=self.get_serializer_context()).data)
 
         previous_end = survey.end_date
         survey.end_date = now
         survey.save(update_fields=["end_date"])
+        sync_survey_flags_active_state(survey)
 
         log_activity(
             organization_id=self.organization.id,
