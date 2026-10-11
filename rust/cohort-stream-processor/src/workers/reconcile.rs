@@ -127,6 +127,8 @@ struct ReconcileJob {
     phase: ScanPhase,
     rows_scanned: u64,
     bits_fixed: u64,
+    /// [`CatalogHandle::refresh_stamp`] when the job first reached the queue head.
+    catalog_stamp: Option<u64>,
 }
 
 pub(crate) enum SupersedeOutcome {
@@ -167,6 +169,7 @@ impl ReconcileQueue {
             phase: ScanPhase::Scanning { cursor: None },
             rows_scanned: 0,
             bits_fixed: 0,
+            catalog_stamp: None,
         });
         self.backlog.add();
         self.record_depth();
@@ -222,6 +225,7 @@ impl ReconcileQueue {
         SupersedeOutcome::Replaced(job.offset)
     }
 
+    #[cfg(test)]
     fn front(&self) -> Option<&ReconcileJob> {
         self.jobs.front()
     }
@@ -263,6 +267,7 @@ impl Drop for ReconcileQueue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReconcileRetryReason {
     CatalogNotLoaded,
+    CatalogStale,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -295,6 +300,7 @@ enum ReconcileGuard {
 
 fn evaluate_guard(
     catalog_loaded: bool,
+    catalog_refreshed: bool,
     filters: Option<&TeamFilters>,
     tile: &ReconcileTile,
 ) -> ReconcileGuard {
@@ -317,6 +323,10 @@ fn evaluate_guard(
     // one. An absent entry means the cohort has no leaves of that kind (the loader omits the column
     // when it is empty) or the run was superseded; either way this is the intended fail-closed skip,
     // observable via the `hash_unknown` discard counter.
+    //
+    // Each pod refreshes its catalog on its own timer, so a run dispatched just after its hashes
+    // were written can arrive before this pod has read them. Wait for one refresh that started
+    // after the job reached the head before the skip.
     let matches = match tile.scope() {
         ReconcileScope::Behavioral(pinned) => filters
             .behavioral_shape_hashes
@@ -328,9 +338,12 @@ fn evaluate_guard(
             .map(|current| current == pinned),
     };
     match matches {
+        Some(true) => ReconcileGuard::Proceed,
+        Some(_) | None if !catalog_refreshed => {
+            ReconcileGuard::Retry(ReconcileRetryReason::CatalogStale)
+        }
         None => ReconcileGuard::Discard(ReconcileDiscardReason::HashUnknown),
         Some(false) => ReconcileGuard::Discard(ReconcileDiscardReason::HashMismatch),
-        Some(true) => ReconcileGuard::Proceed,
     }
 }
 
@@ -348,26 +361,36 @@ pub(crate) async fn handle_reconcile_drain(
     last_updated: &str,
 ) {
     loop {
-        let Some(job) = queue.front() else {
+        let Some(job) = queue.front_mut() else {
             return;
         };
+        let catalog_stamp = *job
+            .catalog_stamp
+            .get_or_insert_with(|| catalog.refresh_stamp());
         let tile = job.tile.clone();
         let phase = job.phase.clone();
         let source_offset = job.offset.offset();
 
-        // Read the release-published loaded flag before the ArcSwap. On the first refresh, that
-        // ordering prevents observing `loaded = true` alongside the pre-refresh empty snapshot.
+        // Read the release-published loaded flag and refresh sequence before the ArcSwap. That
+        // ordering prevents observing either alongside an older snapshot.
         let catalog_loaded = catalog.is_loaded();
+        let catalog_refreshed = catalog.refreshed_since(catalog_stamp);
         let catalog_snapshot = catalog.load_full();
         let filters = catalog_snapshot.team(tile.team_id());
-        match evaluate_guard(catalog_loaded, filters.map(Arc::as_ref), &tile) {
-            ReconcileGuard::Retry(ReconcileRetryReason::CatalogNotLoaded) => {
+        match evaluate_guard(
+            catalog_loaded,
+            catalog_refreshed,
+            filters.map(Arc::as_ref),
+            &tile,
+        ) {
+            ReconcileGuard::Retry(reason) => {
                 debug!(
                     partition_id,
                     team_id = tile.team_id().0,
                     cohort_id = tile.cohort_id().0,
                     run_id = %tile.run_id().0,
-                    "reconcile drain waiting for the first filter catalog load",
+                    reason = ?reason,
+                    "reconcile drain waiting for a filter catalog refresh",
                 );
                 return;
             }
@@ -1110,6 +1133,13 @@ mod tests {
 
     /// A person-only cohort: no behavioral leaf, so only the person guard fences its reconcile.
     fn person_catalog() -> (CatalogHandle, LeafStateKey) {
+        (
+            handle_for(person_filters()),
+            LeafStateKey::for_person_property(&PERSON_HASH),
+        )
+    }
+
+    fn person_filters() -> TeamFilters {
         let cohort = json!({ "properties": { "type": "AND", "values": [person_leaf()] } });
         let mut builder = TeamFiltersBuilder::default();
         builder
@@ -1119,10 +1149,7 @@ mod tests {
             CohortId(COHORT),
             PersonShapeHash::parse(SHAPE_HASH).unwrap(),
         );
-        (
-            handle_for(builder.freeze(UTC)),
-            LeafStateKey::for_person_property(&PERSON_HASH),
-        )
+        builder.freeze(UTC)
     }
 
     fn handle_for(filters: TeamFilters) -> CatalogHandle {
@@ -1623,22 +1650,22 @@ mod tests {
         let reconcile = tile(TEAM, COHORT, 1);
 
         assert_eq!(
-            evaluate_guard(false, None, &reconcile),
+            evaluate_guard(false, true, None, &reconcile),
             ReconcileGuard::Retry(ReconcileRetryReason::CatalogNotLoaded),
         );
         assert_eq!(
-            evaluate_guard(true, None, &reconcile),
+            evaluate_guard(true, true, None, &reconcile),
             ReconcileGuard::Discard(ReconcileDiscardReason::TeamAbsent),
         );
         assert_eq!(
-            evaluate_guard(true, Some(&TeamFilters::default()), &reconcile),
+            evaluate_guard(true, true, Some(&TeamFilters::default()), &reconcile),
             ReconcileGuard::Discard(ReconcileDiscardReason::CohortAbsent),
         );
 
         let behavioral_guard = &[(ScopeKind::Behavioral, SHAPE_HASH)];
         let missing_eligibility = guard_filters(None, behavioral_guard);
         assert_eq!(
-            evaluate_guard(true, Some(&missing_eligibility), &reconcile),
+            evaluate_guard(true, true, Some(&missing_eligibility), &reconcile),
             ReconcileGuard::Discard(ReconcileDiscardReason::CohortAbsent),
         );
         let excluded = guard_filters(
@@ -1646,7 +1673,7 @@ mod tests {
             behavioral_guard,
         );
         assert_eq!(
-            evaluate_guard(true, Some(&excluded), &reconcile),
+            evaluate_guard(true, true, Some(&excluded), &reconcile),
             ReconcileGuard::Discard(ReconcileDiscardReason::NotEmitting),
         );
 
@@ -1657,7 +1684,7 @@ mod tests {
         ] {
             let filters = guard_filters(Some(eligibility), behavioral_guard);
             assert_eq!(
-                evaluate_guard(true, Some(&filters), &reconcile),
+                evaluate_guard(true, true, Some(&filters), &reconcile),
                 ReconcileGuard::Proceed,
                 "{eligibility:?} registers membership",
             );
@@ -1675,6 +1702,7 @@ mod tests {
             assert_eq!(
                 evaluate_guard(
                     true,
+                    true,
                     Some(&guard_filters(emitting, &[(guard, SHAPE_HASH)])),
                     &reconcile,
                 ),
@@ -1684,6 +1712,7 @@ mod tests {
             assert_eq!(
                 evaluate_guard(
                     true,
+                    true,
                     Some(&guard_filters(emitting, &[(guard, "shape-v2")])),
                     &reconcile,
                 ),
@@ -1691,13 +1720,26 @@ mod tests {
                 "{guard} diverged",
             );
             assert_eq!(
-                evaluate_guard(true, Some(&guard_filters(emitting, &[])), &reconcile),
+                evaluate_guard(true, true, Some(&guard_filters(emitting, &[])), &reconcile),
                 ReconcileGuard::Discard(ReconcileDiscardReason::HashUnknown),
                 "{guard} has no persisted hash",
             );
+            for stale in [&[(guard, "shape-v2")][..], &[]] {
+                assert_eq!(
+                    evaluate_guard(
+                        true,
+                        false,
+                        Some(&guard_filters(emitting, stale)),
+                        &reconcile
+                    ),
+                    ReconcileGuard::Retry(ReconcileRetryReason::CatalogStale),
+                    "{guard} waits for a refresh before it discards {stale:?}",
+                );
+            }
             // The catalog carries only the *other* kind's hash, at the very value the tile pins.
             assert_eq!(
                 evaluate_guard(
+                    true,
                     true,
                     Some(&guard_filters(emitting, &[(other, SHAPE_HASH)])),
                     &reconcile,
@@ -1831,6 +1873,39 @@ mod tests {
             RunId(Uuid::from_u128(21))
         );
         assert!(shell.queue.front().is_none());
+    }
+
+    #[tokio::test]
+    async fn an_unknown_hash_waits_for_one_catalog_refresh_before_it_discards() {
+        let sink = CaptureSink::new();
+        let mut shell =
+            DrainShell::person_only(Arc::new(sink.clone()), CaptureCascadeSink::new(), 8);
+        shell.enqueue(scoped_tile(TEAM, COHORT, 41, ScopeKind::Behavioral), 5);
+        shell.enqueue(scoped_tile(TEAM, COHORT, 42, ScopeKind::PersonProperty), 6);
+
+        shell.tick().await;
+        shell.tick().await;
+
+        assert_eq!(shell.queue.len(), 2, "the head waits for a refresh");
+        assert!(shell.markers.markers().is_empty());
+        assert_eq!(shell.committable(), Some(5));
+
+        shell.catalog.store_for_test(FilterCatalog::from_teams([(
+            TeamId(TEAM),
+            person_filters(),
+        )]));
+        shell.tick().await;
+        shell.tick().await;
+
+        assert!(shell.queue.front().is_none());
+        let markers = shell.markers.markers();
+        assert_eq!(
+            markers.len(),
+            1,
+            "the refreshed catalog still lacks the hash"
+        );
+        assert_eq!(markers[0].run_id(), RunId(Uuid::from_u128(42)));
+        assert_eq!(shell.committable(), Some(7));
     }
 
     #[tokio::test]
