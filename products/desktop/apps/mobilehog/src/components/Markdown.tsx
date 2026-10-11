@@ -11,7 +11,9 @@ import {
   Text,
   View,
 } from "react-native";
+import { MermaidDiagram } from "@/components/MermaidDiagram";
 import { splitImageRuns } from "@/lib/markdown";
+import { isClosedFence, isMermaidLang } from "@/lib/mermaid";
 import { colors, fonts } from "@/lib/theme";
 
 interface MarkdownProps {
@@ -220,6 +222,17 @@ function Paragraph({ tokens, color }: { tokens: Token[]; color: ColorValue }) {
   );
 }
 
+function CodeBlock({ token }: { token: Tokens.Code }) {
+  return (
+    <View style={styles.codeBlock}>
+      {token.lang ? <Text style={styles.codeLang}>{token.lang}</Text> : null}
+      <Text style={styles.codeText} selectable>
+        {token.text}
+      </Text>
+    </View>
+  );
+}
+
 function renderBlocks(
   tokens: Token[] | undefined,
   color: ColorValue,
@@ -229,15 +242,14 @@ function renderBlocks(
     const key = `${index}-${token.type}`;
     switch (token.type) {
       case "code":
-        return (
-          <View key={key} style={styles.codeBlock}>
-            {token.lang ? (
-              <Text style={styles.codeLang}>{token.lang}</Text>
-            ) : null}
-            <Text style={styles.codeText} selectable>
-              {token.text}
-            </Text>
-          </View>
+        return isMermaidLang(token.lang) && isClosedFence(token.raw) ? (
+          <MermaidDiagram
+            key={key}
+            code={token.text}
+            fallback={<CodeBlock token={token} />}
+          />
+        ) : (
+          <CodeBlock key={key} token={token} />
         );
       case "heading":
         return (
