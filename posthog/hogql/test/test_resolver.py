@@ -251,6 +251,12 @@ class TestResolver(BaseTest):
             resolve_types(expr, self.context, dialect="clickhouse")
         assert "Field not found: uuid" in str(ctx.exception)
 
+    def test_subquery_alias_missing_column_is_a_query_error(self):
+        expr = self._select("SELECT s.person_id FROM (SELECT event FROM events) AS s")
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(expr, self.context, dialect="clickhouse")
+        assert str(ctx.exception) == "Field person_id not found on query with alias s"
+
     def test_column_aliases_star_expands_to_aliased_names(self):
         expr = self._select("SELECT * FROM (SELECT 1 AS x, 2 AS y, 3 AS z) AS s (a, b, c)")
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
