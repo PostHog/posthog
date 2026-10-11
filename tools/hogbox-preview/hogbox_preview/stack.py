@@ -1002,9 +1002,13 @@ class PostHogPreviewStack:
         )
 
     def sync_feature_flags(self) -> None:
+        # The image ships no frontend source, so mount the PR's flag list in for this one run.
         timing.stage("sync feature flags")
+        constants = "frontend/src/lib/constants.tsx"
         self.backend.run_long(
-            self._compose("run --rm -T web python manage.py sync_feature_flags"),
+            self._compose(
+                f"run --rm -T -v {self.repo_dir}/{constants}:/code/{constants}:ro web python manage.py sync_feature_flags"
+            ),
             name="sync-flags",
             timeout=600,
         )
