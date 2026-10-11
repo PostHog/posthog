@@ -14,6 +14,7 @@ class GoogleWorkspaceEgressBudgetExhausted(EgressBudgetExhausted):
 
 class GoogleWorkspaceClient(EgressClient):
     observability = google_workspace_egress
+    egress_domain = "google_workspace"
 
     def _standard_headers(self) -> dict[str, str]:
         return {"Accept": "application/json"}

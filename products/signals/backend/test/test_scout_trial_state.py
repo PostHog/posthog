@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -49,6 +50,7 @@ from products.signals.backend.scout_harness.trial_state import (
     memory_snapshot,
 )
 from products.signals.backend.scout_report.persistence import MAX_REPORT_SIGNALS, set_scout_report_inferred_repository
+from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.tasks.backend.models import TaskRun
@@ -301,14 +303,22 @@ class TestScoutTrialReportCapture(APIBaseTest):
             append_evidence=[
                 ReportEvidence(description="The second fixture also returns 12.", source_id="second-observation")
             ],
+            actionability="requires_human_input",
+            actionability_explanation="The fixture needs an owner to choose the expected total.",
+            already_addressed=True,
+            priority="P1",
+            priority_explanation="The fixture blocks the checkout flow.",
         )
 
         assert result.updated_fields == ["summary"]
         assert result.evidence_appended == 1
+        assert result.decision_fields_set == ("actionability", "priority")
         draft = self.store.get_report(report_id)
         assert draft is not None
         assert draft.document["summary"] == "A revised synthetic explanation."
-        assert draft.document["priority"] == "P2"
+        assert draft.document["priority"] == "P1"
+        assert draft.document["actionability"] == "requires_human_input"
+        assert draft.document["already_addressed"] is True
         assert draft.document["signal_count"] == 2
         assert draft.payload["repository"] == "NO_REPO"
         assert draft.edits[0]["append_note"] == "A second fixture confirms it."
@@ -328,6 +338,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             ("note", {"append_note": "A second fixture confirms it."}, False),
             ("reviewers", {"suggested_reviewers": [ReviewerInput(github_login="synthetic-reviewer")]}, False),
             ("summary", {"summary": "A revised synthetic explanation."}, True),
+            ("priority", {"priority": "P1", "priority_explanation": "The fixture blocks checkout."}, False),
         ]
     )
     def test_edit_moves_updated_at_only_when_production_would(
@@ -355,11 +366,28 @@ class TestScoutTrialReportCapture(APIBaseTest):
             signal_count=1,
             total_weight=1,
         )
+        for kind, content in (
+            (
+                "actionability_judgment",
+                {
+                    "actionability": "immediately_actionable",
+                    "explanation": "Correct the fixture's checkout total.",
+                    "already_addressed": False,
+                },
+            ),
+            ("priority_judgment", {"priority": "P2", "explanation": "The fixture returns an incorrect total."}),
+        ):
+            SignalReportArtefact.objects.create(team=self.team, report=original, type=kind, content=json.dumps(content))
         unchanged = edit_report_sync(
             team=self.team,
             author=ScoutRunReportAuthor(run=self.scout_run),
             report_id=str(original.id),
             title=original.title,
+            actionability="immediately_actionable",
+            actionability_explanation="Correct the fixture's checkout total.",
+            already_addressed=False,
+            priority="P2",
+            priority_explanation="The fixture returns an incorrect total.",
         )
         assert not unchanged.changed
         unchanged_draft = self.store.get_report(str(original.id))
@@ -371,17 +399,134 @@ class TestScoutTrialReportCapture(APIBaseTest):
             report_id=str(original.id),
             title="Privately revised title",
             append_note="Private supporting note",
+            actionability="requires_human_input",
+            actionability_explanation="The fixture needs an owner to choose the expected total.",
+            already_addressed=True,
+            priority="P1",
+            priority_explanation="The fixture blocks the checkout flow.",
         )
 
         original.refresh_from_db()
         assert original.title == "Existing synthetic report"
-        assert not original.artefacts.exists()
+        assert original.latest_actionability == "immediately_actionable"
+        assert original.latest_already_addressed is False
+        assert original.artefacts.count() == 2
         draft = self.store.get_report(str(original.id))
         assert draft is not None
         assert draft.document["title"] == "Privately revised title"
+        assert draft.document["priority"] == "P1"
+        assert draft.document["actionability"] == "requires_human_input"
+        assert draft.document["already_addressed"] is True
         assert draft.source_report_id == str(original.id)
+        repeated = edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(original.id),
+            actionability="requires_human_input",
+            actionability_explanation="The fixture needs an owner to choose the expected total.",
+            already_addressed=True,
+            priority="P1",
+            priority_explanation="The fixture blocks the checkout flow.",
+        )
+        assert not repeated.changed
+        after_repeat = self.store.get_report(str(original.id))
+        assert after_repeat is not None
+        assert after_repeat.artefacts == draft.artefacts
         sibling = _make_run(self.team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
         assert ScoutTrialStore(sibling).get_report(str(original.id)) is None
+
+    @parameterized.expand(
+        [
+            ("suppressed", "not_actionable", "not_actionable", "Revised evidence."),
+            ("suppressed", "immediately_actionable", "system", None),
+            ("ready", "not_actionable", None, None),
+            ("dismissed", "not_actionable", "dismissed", None),
+            ("safety", "immediately_actionable", "safety_judge", "Unsafe synthetic evidence."),
+            ("private_safety", "not_actionable", "safety_judge", "Unsafe synthetic evidence."),
+            ("later_dismissal", "not_actionable", "not_actionable", "Revised evidence."),
+        ]
+    )
+    def test_private_decisions_refresh_suppression_without_overriding_safety_or_dismissal(
+        self, source: str, actionability: str, expected_source: str | None, expected_explanation: str | None
+    ) -> None:
+        original = None
+        if source == "private_safety":
+            self.judge.return_value = SafetyJudgeResponse(choice=False, explanation="Unsafe synthetic evidence.")
+            result = emit_report_sync(
+                team=self.team,
+                author=ScoutRunReportAuthor(run=self.scout_run),
+                title="Synthetic report",
+                summary="Synthetic safety fixture.",
+                evidence=[ReportEvidence(description="Synthetic observation.", source_id="safety-fixture")],
+                actionability="not_actionable",
+                actionability_explanation="Original evidence.",
+            )
+            assert result.report_id is not None
+            report_id = result.report_id
+            self.judge.return_value = SafetyJudgeResponse(choice=True, explanation="Safe revised assessment.")
+        else:
+            original = SignalReport.objects.create(
+                team=self.team,
+                title="Synthetic report",
+                status=SignalReport.Status.READY if source == "ready" else SignalReport.Status.SUPPRESSED,
+            )
+            report_id = str(original.id)
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=original,
+                type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                content=json.dumps(
+                    {"actionability": "not_actionable", "explanation": "Original evidence.", "already_addressed": False}
+                ),
+            )
+            if source in ("safety", "dismissed"):
+                SignalReportArtefact.objects.create(
+                    team=self.team,
+                    report=original,
+                    type="safety_judgment" if source == "safety" else "dismissal",
+                    content=json.dumps(
+                        {"choice": False, "explanation": "Unsafe synthetic evidence."}
+                        if source == "safety"
+                        else {"reason": "analysis_wrong"}
+                    ),
+                )
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=report_id,
+            actionability=actionability,
+            actionability_explanation="Revised evidence.",
+            already_addressed=False,
+        )
+        draft = self.store.get_report(report_id)
+        assert draft is not None
+        assert draft.document["suppression_source"] == expected_source
+        assert draft.document["suppression_explanation"] == expected_explanation
+        if source == "later_dismissal":
+            assert original is not None
+            SignalReportArtefact.objects.create(
+                team=self.team, report=original, type="dismissal", content=json.dumps({"reason": "analysis_wrong"})
+            )
+            expected_source, expected_explanation = "dismissed", None
+        if original is not None:
+            original.refresh_from_db()
+            assert original.latest_actionability == "not_actionable"
+            decision = original.artefacts.get(type="actionability_judgment")
+            assert json.loads(decision.content)["explanation"] == "Original evidence."
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            detail = self.client.get(f"{base}{report_id}/", {"include_all_statuses": "true"})
+            listing = self.client.get(base, {"include_all_statuses": "true"})
+        assert detail.status_code == listing.status_code == 200
+        for document in [detail.json(), listing.json()["results"][0]]:
+            assert document["status"] == ("ready" if source == "ready" else "suppressed")
+            assert document["actionability"] == actionability
+            assert document["suppression_source"] == expected_source
+            assert document["suppression_explanation"] == expected_explanation
 
     def test_deleted_source_report_cannot_be_captured(self) -> None:
         original = SignalReport.objects.create(
@@ -780,6 +925,117 @@ class TestScoutTrialReportCapture(APIBaseTest):
         assert first.title == "Earlier report"
 
     @parameterized.expand(
+        [
+            ("created_after", {"created_after": "2026-09-01T14:00:00+02:00"}),
+            ("priority", {"priority": " p2, P1 "}),
+            ("actionability", {"actionability": " immediately_actionable "}),
+            ("already_addressed", {"already_addressed": "false"}),
+            (
+                "combined",
+                {
+                    "created_after": "2026-09-01T12:00:00Z",
+                    "priority": "P2",
+                    "actionability": "immediately_actionable",
+                    "already_addressed": "false",
+                },
+            ),
+        ]
+    )
+    @time_machine.travel("2026-09-01T15:00:00Z", tick=False)
+    def test_inbox_filters_merge_private_decisions_with_live_reports(self, _name: str, query: dict[str, str]) -> None:
+        cutoff = datetime(2026, 9, 1, 12, tzinfo=UTC)
+        original = SignalReport.objects.create(team=self.team, title="Edited report", status="ready")
+        unjudged = SignalReport.objects.create(team=self.team, title="Unjudged report", status="ready")
+        live = SignalReport.objects.create(team=self.team, title="Live report", status="ready")
+        SignalReport.objects.filter(id=original.id).update(created_at=cutoff)
+        SignalReport.objects.filter(id=unjudged.id).update(created_at=cutoff - timedelta(hours=1))
+        SignalReport.objects.filter(id=live.id).update(created_at=cutoff + timedelta(hours=2))
+        actionability = {
+            "actionability": "immediately_actionable",
+            "explanation": "Correct the fixture's checkout total.",
+            "already_addressed": False,
+        }
+        priority = {"priority": "P2", "explanation": "The fixture returns an incorrect total."}
+        for kind, content in (("actionability_judgment", actionability), ("priority_judgment", priority)):
+            SignalReportArtefact.objects.create(team=self.team, report=live, type=kind, content=json.dumps(content))
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(original.id),
+            actionability="immediately_actionable",
+            actionability_explanation=str(actionability["explanation"]),
+            already_addressed=False,
+            priority="P2",
+            priority_explanation=priority["explanation"],
+        )
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=str(unjudged.id),
+            title="Privately edited without a judgment",
+        )
+        with time_machine.travel(cutoff - timedelta(hours=1), tick=False):
+            excluded_id = self._emit(key="excluded")
+        edit_report_sync(
+            team=self.team,
+            author=ScoutRunReportAuthor(run=self.scout_run),
+            report_id=excluded_id,
+            actionability="requires_human_input",
+            actionability_explanation="The fixture needs an owner to decide the expected result.",
+            already_addressed=True,
+            priority="P4",
+            priority_explanation="The fixture affects only an optional path.",
+        )
+        with time_machine.travel(cutoff + timedelta(hours=1), tick=False):
+            private_id = self._emit()
+        sibling = _make_run(self.team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
+        sibling_store = ScoutTrialStore(sibling, initial_memory=[])
+        private = self.store.get_report(private_id)
+        assert private is not None
+        sibling_id = str(uuid4())
+        sibling_store.capture_report(
+            TrialReport(id=sibling_id, document={**private.document, "id": sibling_id}), idempotency_key="sibling"
+        )
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store) as trial_store,
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            rows = []
+            for offset in range(3):
+                page = self.client.get(base, {**query, "sort": "oldest", "offset": str(offset), "limit": "1"})
+                assert page.status_code == 200
+                assert page.json()["count"] == 3
+                rows.extend(page.json()["results"])
+            assert [row["id"] for row in rows] == [str(original.id), private_id, str(live.id)]
+            assert rows[0]["priority"] == "P2"
+            assert rows[0]["actionability"] == "immediately_actionable"
+            assert rows[0]["already_addressed"] is False
+            count = self.client.get(base, {**query, "count_only": "true"})
+            assert count.status_code == 200
+            assert count.json() == {"count": 3, "next": None, "previous": None, "results": []}
+            detail = self.client.get(f"{base}{original.id}/")
+            assert detail.status_code == 200
+            assert detail.json()["priority"] == "P2"
+            assert detail.json()["actionability"] == "immediately_actionable"
+            assert detail.json()["already_addressed"] is False
+            trial_store.return_value = sibling_store
+            sibling_rows = self.client.get(base, {**query, "sort": "oldest"})
+            assert sibling_rows.status_code == 200
+            expected_sibling_ids = {sibling_id, str(live.id)}
+            if "created_after" in query and len(query) == 1:
+                expected_sibling_ids.add(str(original.id))
+            assert {row["id"] for row in sibling_rows.json()["results"]} == expected_sibling_ids
+        original.refresh_from_db()
+        assert original.latest_actionability is None
+        assert original.latest_already_addressed is None
+        assert not original.artefacts.exists()
+        assert SignalReport.objects.filter(team=self.team).count() == 3
+        assert self.store.invalid_reason() is None
+        assert sibling_store.invalid_reason() is None
+
+    @parameterized.expand(
         [("source_product", "signals_scout"), ("source_id", "synthetic-observation"), ("scout_prefix", "test")]
     )
     def test_inbox_source_filters_find_private_evidence(self, field: str, value: str) -> None:
@@ -825,11 +1081,104 @@ class TestScoutTrialReportCapture(APIBaseTest):
         # One lookup filters the production list and one covers every edited report.
         assert fetch_report_ids.call_count == 2
 
-    def test_unsupported_inbox_filter_invalidates_comparison(self) -> None:
+    @parameterized.expand(
+        [
+            ("view", {"view": "actionable"}),
+            ("ranking", {"ordering": "-ranking_pr_merged,created_at"}),
+        ]
+    )
+    def test_unsupported_inbox_filter_invalidates_comparison(self, _name: str, query: dict[str, str]) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
         with patch("products.signals.backend.views.trial_store_for_request", return_value=self.store):
-            result = self.client.get(f"/api/projects/{self.team.id}/signals/reports/", {"view": "actionable"})
+            result = self.client.get(f"/api/projects/{self.team.id}/signals/reports/", query)
         assert result.status_code == 400
         assert self.store.invalid_reason() is not None
+
+    @parameterized.expand(
+        [
+            ("promoted", "ready", "not_actionable", "immediately_actionable", True, False, True),
+            ("not_named", "ready", "not_actionable", "immediately_actionable", False, False, False),
+            ("empty_private_reviewers", "ready", "not_actionable", "immediately_actionable", True, True, False),
+            ("demoted", "ready", "immediately_actionable", "not_actionable", True, False, False),
+            ("failed", "failed", "not_actionable", "immediately_actionable", True, False, False),
+        ]
+    )
+    @time_machine.travel("2026-10-01T12:00:00Z", tick=False)
+    def test_private_decisions_refresh_reviewer_flags_and_default_ordering(
+        self,
+        _name: str,
+        report_status: str,
+        source_actionability: str,
+        private_actionability: str,
+        names_viewer: bool,
+        empty_private_reviewers: bool,
+        expected_reviewer: bool,
+    ) -> None:
+        named: list[SignalReport] = []
+        for index in range(2):
+            report = SignalReport.objects.create(
+                team=self.team, title=f"Synthetic assigned report {index}", status=report_status
+            )
+            earlier = timezone.now() - timedelta(hours=2 - index)
+            SignalReport.objects.filter(id=report.id).update(created_at=earlier, updated_at=earlier)
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type="actionability_judgment",
+                content=json.dumps(
+                    {
+                        "actionability": source_actionability,
+                        "explanation": "Initial decision for the synthetic report.",
+                        "already_addressed": False,
+                    }
+                ),
+            )
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=report,
+                type="suggested_reviewers",
+                content=json.dumps([{"user_uuid": str(self.user.uuid) if names_viewer else str(uuid4())}]),
+            )
+            edit_report_sync(
+                team=self.team,
+                author=ScoutRunReportAuthor(run=self.scout_run),
+                report_id=str(report.id),
+                actionability=private_actionability,
+                actionability_explanation="Revised decision for the synthetic report.",
+            )
+            if empty_private_reviewers:
+                self.store.edit_report(
+                    str(report.id),
+                    lambda draft: draft.artefacts.append({"type": "suggested_reviewers", "content": []}),
+                )
+            named.append(report)
+        unnamed = SignalReport.objects.create(team=self.team, title="Newer unassigned report", status="ready")
+        named_ids = [str(report.id) for report in reversed(named)]
+        expected_ids = [*named_ids, str(unnamed.id)] if expected_reviewer else [str(unnamed.id), *named_ids]
+        base = f"/api/projects/{self.team.id}/signals/reports/"
+        with (
+            patch("products.signals.backend.views.trial_store_for_request", return_value=self.store),
+            patch("products.signals.backend.views.fetch_source_products_for_reports", return_value={}),
+            patch("products.signals.backend.views.fetch_implementation_prs_for_reports", return_value={}),
+        ):
+            with patch(
+                "products.signals.backend.scout_report.trial_inbox.report_ids_naming_reviewers",
+                wraps=report_ids_naming_reviewers,
+            ) as reviewer_lookup:
+                response = self.client.get(base, {"include_all_statuses": "true"})
+            assert response.status_code == 200
+            rows = response.json()["results"]
+            assert [row["id"] for row in rows] == expected_ids
+            assert all(row["is_suggested_reviewer"] is expected_reviewer for row in rows if row["id"] in named_ids)
+            reviewer_lookup.assert_called_once()
+            detail = self.client.get(f"{base}{named[0].id}/", {"include_all_statuses": "true"})
+            assert detail.status_code == 200
+            assert detail.json()["is_suggested_reviewer"] is expected_reviewer
+        for report in named:
+            report.refresh_from_db()
+            assert report.latest_actionability == source_actionability
+            assert report.artefacts.count() == 2
 
 
 @pytest.mark.django_db(transaction=True)

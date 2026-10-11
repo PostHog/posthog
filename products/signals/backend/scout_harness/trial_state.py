@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, JsonValue, TypeAdapter
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.limits import SCOUT_TRIAL_METADATA_KEY as SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.scout_harness.tools.runs import _build_task_url
@@ -48,6 +49,19 @@ class TrialReport(BaseModel):
     artefacts: list[dict[str, JsonValue]] = Field(default_factory=list)
     content_revision_count: int = 0
     corroboration_count: int = 0
+
+    @staticmethod
+    def apply_actionability(document: dict[str, JsonValue], assessment: ActionabilityAssessment) -> None:
+        document["actionability"] = assessment.actionability.value
+        document["already_addressed"] = assessment.already_addressed
+        if document.get("status") != "suppressed":
+            document["suppression_source"] = None
+            document["suppression_explanation"] = None
+        elif document.get("suppression_source") not in ("dismissed", "safety_judge"):
+            # Private decisions cannot override a human dismissal or the safety judge.
+            not_actionable = assessment.actionability == ActionabilityChoice.NOT_ACTIONABLE
+            document["suppression_source"] = "not_actionable" if not_actionable else "system"
+            document["suppression_explanation"] = (assessment.explanation or None) if not_actionable else None
 
 
 class _TrialState(BaseModel):

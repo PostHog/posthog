@@ -149,6 +149,9 @@ class EgressObservability:
             if gauge is not None and value is not None:
                 gauge.labels(scope, snapshot.resource).set(value)
 
+    def normalize_endpoint(self, url: str | None) -> str:
+        return self._normalize_endpoint(url)
+
     def record_requests_response(
         self,
         response: requests.Response,

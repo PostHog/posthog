@@ -129,7 +129,7 @@ const accessControlDefaultRuleSetPrepare = (): ToolBase<
             purpose: 'access-control-default-rule-set',
             actionLabel: 'change the default access rule',
             messageTemplate:
-                "About to set the default {resource} access rule in project {id} to {access_level}, for object {resource_id} (null means the whole tool; a null level clears the rule). This changes what every member without a rule of their own gets. Reply 'confirm' to proceed.\n",
+                "About to set the default {resource} access rule in project {id} to {access_level}, for object {resource_id} (null means the whole tool; a null level clears the rule). A project level of `none` blocks access to the project and its resources. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
             stash: __runtime.stash,
             boundScope: { orgId: String(__scopeOrgId) },

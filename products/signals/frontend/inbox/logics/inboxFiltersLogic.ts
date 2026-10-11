@@ -289,6 +289,7 @@ export interface inboxFiltersLogicValues {
     hasActiveFilters: boolean
     hasUserChosenScope: boolean
     isRedesign: boolean
+    isScopedToMe: boolean
     knownTeammate: {
         label: string
         uuid: string
@@ -301,7 +302,7 @@ export interface inboxFiltersLogicValues {
     sortDirection: InboxSortDirection
     sortField: InboxSortField
     sourceProductFilter: string[]
-    stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
+    stateFilter: ('dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[]
     timeWindowAvailable: boolean
     visibleStateFilter: InboxReportSectionKey[]
 }
@@ -391,7 +392,7 @@ export interface inboxFiltersLogicActions {
         source: string
     }
     toggleState: (state: InboxReportSectionKey) => {
-        state: 'dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+        state: 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     }
 }
 
@@ -405,6 +406,7 @@ export interface inboxFiltersLogicMeta {
             priorityFilter: SignalReportPriority[],
             activeCreatedWindow: InboxCreatedWindow | null
         ) => boolean
+        isScopedToMe: (scope: InboxScope, user: UserType | null) => boolean
         modelSortAvailable: (featureFlags: FeatureFlagsSet, user: UserType | null) => boolean
         activeSortField: (sortField: InboxSortField, modelSortAvailable: boolean) => InboxSortField
         activeSortDirection: (
@@ -419,7 +421,14 @@ export interface inboxFiltersLogicMeta {
         ) => InboxCreatedWindow | null
         isRedesign: (featureFlags: FeatureFlagsSet) => boolean
         visibleStateFilter: (
-            stateFilter: ('dismissed' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved')[],
+            stateFilter: (
+                | 'dismissed'
+                | 'held-back'
+                | 'monitoring'
+                | 'needs-decision'
+                | 'not-actionable'
+                | 'resolved'
+            )[],
             user: UserType | null
         ) => InboxReportSectionKey[]
     }
@@ -694,6 +703,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 scoutFilter.length > 0 ||
                 priorityFilter.length > 0 ||
                 activeCreatedWindow !== null,
+        ],
+        isScopedToMe: [
+            (s) => [s.scope, s.user],
+            (scope: InboxScope, user: UserType | null): boolean =>
+                !!user?.uuid && (scope === INBOX_SCOPE_FOR_YOU || parseTeammateInboxScope(scope) === user.uuid),
         ],
         // Staff only, the same rule as the `ranking` field the backend returns.
         modelSortAvailable: [

@@ -25,7 +25,6 @@ from products.tasks.backend.models import Task, TaskRun
 _START = "products.review_hog.backend.temporal.client.start_review_pr_workflow"
 _WORKFLOW_RUNNING = "products.review_hog.backend.temporal.client.workflow_running"
 _STAMPHOG_QUEUE = "products.stamphog.backend.facade.tasks.queue_inbox_pr_review"
-_INTERNAL_FLAG = "products.review_hog.backend.internal_features.posthog_feature_flag_enabled"
 # GitHub's own casing, as a real `output.pr_url` carries it. The task row lowercases its slug, so
 # this is what lets an assertion tell the task's repository apart from the PR URL's own claim.
 _PR_URL = "https://github.com/PostHog/posthog/pull/9"
@@ -40,7 +39,6 @@ class TestInboxTrigger(BaseTest):
         busy_patcher = patch(_WORKFLOW_RUNNING, return_value=False)
         self.addCleanup(busy_patcher.stop)
         busy_patcher.start()
-        self.internal_flag = self.enterContext(patch(_INTERNAL_FLAG, return_value=True))
         self.signal_report = SignalReport.objects.create(
             team=self.team, status=SignalReport.Status.IN_PROGRESS, signal_count=1, total_weight=1.0
         )
@@ -238,28 +236,18 @@ class TestInboxTrigger(BaseTest):
 
         mock_start.assert_not_called()
 
-    @parameterized.expand(
-        [
-            # A soft-deleted task's run can still save output and re-fire the receiver; its PR is
-            # disowned work, and the webhook leg already excludes deleted tasks, so the first review
-            # (the one that mints the approval) must not fire either.
-            ("soft_deleted_task",),
-            # The settings tab hides the Inbox switches without the flag, so saved opt-ins start nothing.
-            ("internal_flag_off",),
-        ]
-    )
     @patch(_STAMPHOG_QUEUE)
     @patch(_START, return_value="wf-1")
-    def test_neither_review_starts(self, change: str, mock_start, mock_queue) -> None:
+    def test_a_soft_deleted_task_starts_neither_review(self, mock_start, mock_queue) -> None:
+        # A soft-deleted task's run can still save output and re-fire the receiver; its PR is
+        # disowned work, and the webhook leg already excludes deleted tasks, so the first review
+        # (the one that mints the approval) must not fire either.
         self._mock_start = mock_start
         self._suggest_reviewers(["alice"])
         self._opt_in(self.alice, review_inbox_prs=True, stamphog_review_inbox_prs=True)
         task = self._task()
-        if change == "soft_deleted_task":
-            task.deleted = True
-            task.save(update_fields=["deleted"])
-        else:
-            self.internal_flag.return_value = False
+        task.deleted = True
+        task.save(update_fields=["deleted"])
         self._record_output(self._run(task), {"pr_url": _PR_URL})
 
         mock_start.assert_not_called()
@@ -464,21 +452,17 @@ class TestInboxTrigger(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, flags, internal, expected) — the webhook-leg resolver must key on the STAMPHOG toggle:
+            # (name, flags, expected) — the webhook-leg resolver must key on the STAMPHOG toggle:
             # keying on review_inbox_prs would re-review for users who never opted into stamphog.
-            ("stamphog_toggle_on", {"stamphog_review_inbox_prs": True}, True, True),
-            ("only_review_hog_toggle_on", {"review_inbox_prs": True}, True, False),
-            ("internal_flag_off", {"stamphog_review_inbox_prs": True}, False, False),
+            ("stamphog_toggle_on", {"stamphog_review_inbox_prs": True}, True),
+            ("only_review_hog_toggle_on", {"review_inbox_prs": True}, False),
         ]
     )
-    def test_resolve_stamphog_acting_reviewer_keys_on_the_stamphog_toggle(
-        self, _name, flags, internal, expected
-    ) -> None:
+    def test_resolve_stamphog_acting_reviewer_keys_on_the_stamphog_toggle(self, _name, flags, expected) -> None:
         # The hook stamphog's webhook path calls before re-reviewing a self-driving PR on a later
         # push — switching the toggle off mid-PR must stop new runs.
         self._suggest_reviewers(["alice"])
         self._opt_in(self.alice, **flags)
-        self.internal_flag.return_value = internal
 
         resolved = resolve_stamphog_acting_reviewer(self.team.id, str(self.signal_report.id), None)
 

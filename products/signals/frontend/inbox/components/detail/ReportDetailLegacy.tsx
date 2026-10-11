@@ -113,7 +113,9 @@ function ReportDetailMeta({
 
     return (
         <div className="flex items-center gap-x-2 gap-y-1.5 flex-wrap text-xs text-tertiary leading-none select-none">
-            {showStatus && <SignalReportStatusBadge status={report.status} />}
+            {showStatus && (
+                <SignalReportStatusBadge status={report.status} suppressionSource={report.suppression_source} />
+            )}
             <SignalReportActionabilityBadge
                 actionability={report.actionability}
                 explanation={actionabilityExplanation}
