@@ -160,7 +160,24 @@ export function planCssGroups({ inputs, outputs }, bootEntries = BOOT_ENTRIES) {
     // Each group's place in the entry stylesheet, so the loader can keep lazy groups in that order
     // whatever order scenes load them in.
     const rankOfGroup = new Map([...groups.keys()].map((name) => [name, firstRank(name)]))
-    return { groups, eager, lazyGroupsByEntry, rankOfGroup }
+    const linkedInputs = outputs[linkedStylesheet].inputs
+    const bytesOfGroup = new Map(
+        [...groups].map(([name, files]) => [
+            name,
+            files.reduce((sum, file) => sum + linkedInputs[file].bytesInOutput, 0),
+        ])
+    )
+    return { groups, eager, lazyGroupsByEntry, rankOfGroup, bytesOfGroup }
+}
+
+/**
+ * The CSS bytes a stable page downloads before the given entry chunks run: the eager layers plus
+ * the lazy groups those entries wait for. A group holds the same CSS as its files do in the entry
+ * stylesheet, so their sizes there are its size.
+ */
+export function stableCssBytes({ eager, lazyGroupsByEntry, bytesOfGroup }, entryOutputs) {
+    const names = new Set([...eager, ...entryOutputs.flatMap((entry) => lazyGroupsByEntry.get(entry) ?? [])])
+    return [...names].reduce((sum, name) => sum + bytesOfGroup.get(name), 0)
 }
 
 /**
