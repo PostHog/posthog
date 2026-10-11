@@ -16,7 +16,7 @@ import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, I
 import { createAddLogFunction } from '../../utils'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { DeviceSubscription, getDevicePushSubscriptions } from '../../utils/push-subscription-utils'
+import { DeviceSubscription, lookupDevicePushSubscriptions } from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { MessageAssetsService } from './message-assets.service'
 import {
@@ -47,9 +47,44 @@ const pushNotificationFailedCounter = new Counter({
 
 const pushNotificationSkippedCounter = new Counter({
     name: 'push_notification_skipped_total',
-    help: 'Push sends not delivered without an outright failure, by platform and reason. no_token = the recipient never registered a device; unregistered = the provider reported the token dead and it was removed.',
+    help: 'Push sends not delivered without an outright failure, by platform and reason. no_token = the recipient never registered a device; undecryptable = a device token is stored but does not decrypt with the configured encryption keys; unregistered = the provider reported the token dead and it was removed.',
     labelNames: ['platform', 'reason'],
 })
+
+/** Logs why a send found no usable device token. A stored token that does not decrypt gets its own
+ * reason, because it points at an encryption key mismatch rather than a missing registration. */
+function reportNoDeviceToken(
+    platform: PushPlatform,
+    appIdentifier: string,
+    undecryptableCount: number,
+    distinctId: string,
+    teamId: number,
+    addLog: ReturnType<typeof createAddLogFunction>
+): void {
+    const label = platform === 'fcm' ? 'FCM' : 'APNS'
+    if (undecryptableCount > 0) {
+        addLog(
+            'warn',
+            `No active ${label} device token found for distinct_id: ${distinctId}. ` +
+                `${undecryptableCount} stored device token(s) for app ${appIdentifier} could not be decrypted. ` +
+                `Register the device again through the push subscription endpoint.`
+        )
+        logger.warn('[PushNotification] Stored device token could not be decrypted', {
+            team_id: teamId,
+            platform,
+            app_identifier: appIdentifier,
+            undecryptable_count: undecryptableCount,
+        })
+        pushNotificationSkippedCounter.labels({ platform, reason: 'undecryptable' }).inc()
+        return
+    }
+    addLog(
+        'warn',
+        `No active ${label} device token found for distinct_id: ${distinctId}. ` +
+            `The person has no device registered for app ${appIdentifier}.`
+    )
+    pushNotificationSkippedCounter.labels({ platform, reason: 'no_token' }).inc()
+}
 
 const pushNotificationSendDurationMs = new Histogram({
     name: 'push_notification_send_duration_ms',
@@ -423,11 +458,14 @@ export class PushNotificationService {
         }
 
         const personProperties = invocation.state.globals.person?.properties
-        const subscriptions = getDevicePushSubscriptions(personProperties, projectId, this.encryptedFields)
+        const { subscriptions, undecryptableCount } = lookupDevicePushSubscriptions(
+            personProperties,
+            projectId,
+            this.encryptedFields
+        )
 
         if (subscriptions.length === 0) {
-            addLog('warn', `No active FCM device token found for distinct_id: ${params.distinctId}`)
-            pushNotificationSkippedCounter.labels({ platform: 'fcm', reason: 'no_token' }).inc()
+            reportNoDeviceToken('fcm', projectId, undecryptableCount, params.distinctId, invocation.teamId, addLog)
             return false
         }
 
@@ -556,11 +594,14 @@ export class PushNotificationService {
         }
 
         const personProperties = invocation.state.globals.person?.properties
-        const subscriptions = getDevicePushSubscriptions(personProperties, bundleId, this.encryptedFields)
+        const { subscriptions, undecryptableCount } = lookupDevicePushSubscriptions(
+            personProperties,
+            bundleId,
+            this.encryptedFields
+        )
 
         if (subscriptions.length === 0) {
-            addLog('warn', `No active APNS device token found for distinct_id: ${params.distinctId}`)
-            pushNotificationSkippedCounter.labels({ platform: 'apns', reason: 'no_token' }).inc()
+            reportNoDeviceToken('apns', bundleId, undecryptableCount, params.distinctId, invocation.teamId, addLog)
             return false
         }
 

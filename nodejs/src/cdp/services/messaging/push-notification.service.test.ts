@@ -178,14 +178,22 @@ describe('PushNotificationService', () => {
             expect(result.deliveredToRecipient).toBe(true)
         })
 
-        it('logs warning and records push_skipped when no device token found', async () => {
-            const invocation = createSendPushNotificationInvocation({})
+        it.each([
+            ['no property is stored', {}, 'has no device registered'],
+            [
+                'the stored token does not decrypt',
+                { '$device_push_subscription_test-project': 'not-encrypted-value' },
+                '1 stored device token(s) for app test-project could not be decrypted',
+            ],
+        ])('logs warning and records push_skipped when %s', async (_, properties, reason) => {
+            const invocation = createSendPushNotificationInvocation(properties)
 
             const result = await service.executeSendPushNotification(invocation)
 
             expect(result.logs.map((log) => log.message)).toContainEqual(
                 expect.stringContaining('No active FCM device token found')
             )
+            expect(result.logs.map((log) => log.message)).toContainEqual(expect.stringContaining(reason))
             // No token means nothing was delivered — record push_skipped, not push_sent.
             expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped', count: 1 }))
             expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
