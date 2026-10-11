@@ -3,8 +3,6 @@
 # Instead of scanning the events table on every experiment query to find
 # who was exposed to which variant, we compute this once and store it here.
 # Subsequent queries read from this table instead of scanning events.
-#
-# See posthog/hogql_queries/experiments/PREAGGREGATION.md for details.
 
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 
