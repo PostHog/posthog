@@ -858,19 +858,13 @@ export const GroupPageManageFingerprints: Story = {
 
 export const GroupPageReleases: Story = {
     name: 'Issue scene with releases',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_RELEASES],
-    },
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="releases" />,
 }
 
 export const GroupPageReleasesStacked: Story = {
     name: 'Issue scene with stacked releases',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_RELEASES],
-    },
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="releases" releasesViewMode="stacked" />,
 }
 
