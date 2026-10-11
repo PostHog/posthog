@@ -231,6 +231,10 @@ export type ScoutActionType =
     | 'choose_create_path'
     | 'switch_create_path'
     | 'test_precheck'
+    | 'focus_ask_ai'
+    | 'click_ask_ai_starter'
+    | 'ask_ai'
+    | 'save_note_from_ai'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
