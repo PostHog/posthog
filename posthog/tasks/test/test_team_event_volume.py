@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -43,7 +44,19 @@ class TestUpdateTeamEventVolumes(ClickhouseTestMixin, BaseTest):
         _create_event(team=self.team, event="e", distinct_id="a", timestamp=timezone.now() + timedelta(days=30))
         flush_persons_and_events()
 
-        update_team_event_volumes()
+        with patch("posthog.tasks.team_event_volume.set_team_event_volume_last_success") as set_last_success:
+            update_team_event_volumes()
 
-        assert TeamEventVolume.objects.for_team(self.team.id).get().events_last_year == 2
+        volume = TeamEventVolume.objects.for_team(self.team.id).get()
+        assert volume.events_last_year == 2
         assert TeamEventVolume.objects.for_team(quiet.id).get().events_last_year == 0
+        set_last_success.assert_called_once_with(volume.computed_at)
+
+    def test_does_not_write_last_success_when_budget_is_disabled(self) -> None:
+        with (
+            patch("posthog.tasks.team_event_volume.budget_enabled", return_value=False),
+            patch("posthog.tasks.team_event_volume.set_team_event_volume_last_success") as set_last_success,
+        ):
+            update_team_event_volumes()
+
+        set_last_success.assert_not_called()
