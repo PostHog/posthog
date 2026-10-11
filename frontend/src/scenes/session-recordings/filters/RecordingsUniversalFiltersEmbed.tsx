@@ -78,6 +78,7 @@ import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
 import { createPlaylist, stripSessionIds, updatePlaylist } from '../playlist/playlistUtils'
 import {
     defaultRecordingDurationFilter,
+    isValidRecordingFilters,
     sessionRecordingsPlaylistLogic,
 } from '../playlist/sessionRecordingsPlaylistLogic'
 import { FilterTemplates } from '../templates/FilterTemplates'
@@ -162,7 +163,9 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     ] as AttachedContextItem[])
 
     const applyFilters = (toolOutput: Record<string, any>): void => {
-        // Improve type
+        if (!isValidRecordingFilters(toolOutput?.recordings_filters)) {
+            return
+        }
         setFilters(toolOutput.recordings_filters)
         setIsFiltersExpanded(true)
     }

@@ -2253,6 +2253,36 @@ describe('maxThreadLogic', () => {
             dashboardModel.unmount()
         })
 
+        it('runs a static tool callback only for the completed assistant message, not streamed chunks', async () => {
+            const { onEventImplementation } = await import('./maxThreadLogic')
+            const callback = jest.fn()
+            maxGlobalLogic().actions.registerTool({
+                identifier: 'filter_session_recordings',
+                name: 'Filter recordings',
+                callback,
+            } as any)
+            const emit = async (id: string, args: Record<string, any>): Promise<void> =>
+                onEventImplementation(
+                    AssistantEventType.Message,
+                    JSON.stringify({
+                        id,
+                        type: AssistantMessageType.Assistant,
+                        content: '',
+                        tool_calls: [{ id: 'tc-1', name: 'filter_session_recordings', args }],
+                    }),
+                    { actions: logic.actions, values: logic.values, props: logic.props, agentMode: null, cache: {} }
+                )
+
+            await emit('temp-0', {})
+            await emit('temp-0', {})
+            expect(callback).not.toHaveBeenCalled()
+
+            const finalArgs = { recordings_filters: { date_from: '-7d' } }
+            await emit('assistant-1', finalArgs)
+            expect(callback).toHaveBeenCalledTimes(1)
+            expect(callback).toHaveBeenCalledWith(finalArgs, MOCK_CONVERSATION_ID)
+        })
+
         it('handles streaming message with temp- ID by adding it first time', async () => {
             const { onEventImplementation } = await import('./maxThreadLogic')
 
