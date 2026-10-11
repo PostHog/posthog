@@ -22,7 +22,7 @@ import { pendingInvitesLogic } from './pendingInvitesLogic'
 import { ProjectName } from './ProjectMenu'
 
 export function ProjectCombobox(): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, isHobby } = useValues(preflightLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
@@ -171,7 +171,7 @@ export function ProjectCombobox(): JSX.Element | null {
                 )}
 
                 <MenuSeparator />
-                {preflight?.can_create_org && (
+                {preflight?.can_create_org && !isHobby && (
                     <Combobox.Item
                         asChild
                         onClick={() => {
