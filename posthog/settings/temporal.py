@@ -4,6 +4,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG
+from posthog.settings.data_stores import TEST_ISOLATION_SUFFIX
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
@@ -253,7 +254,8 @@ CLICKHOUSE_MAX_BLOCK_SIZE_OVERRIDES: dict[int, int] = dict(
 # In production (DEBUG=False), we use separate queues for each worker type.
 def _set_temporal_task_queue(task_queue: str) -> str:
     if DEBUG:
-        return "development-task-queue"
+        # An isolated test run gets its own queue, so its workers never pick up another run's workflows.
+        return "development-task-queue" + TEST_ISOLATION_SUFFIX
     return task_queue
 
 

@@ -29,6 +29,13 @@ You only need the full setup below when you want to run the app in a worktree. F
 - If a lockfile differs, the hooks tell you what to install locally instead.
 - Use `phw` (below) only when you need to run the app in that worktree.
 
+## Running tests in several worktrees
+
+Backend tests in every worktree share one dev stack, and by default one set of test databases, so only one worktree can run them at a time.
+Run `hogli test <path> --isolated` instead to give the worktree its own Postgres and ClickHouse test databases, named after the worktree directory.
+The first run copies the shared test databases in a few seconds rather than migrating from scratch, and later runs reuse the copy.
+See [running backend tests from several worktrees at once](./developing-locally#running-backend-tests-from-several-worktrees-at-once) for what stays shared and how to drop the databases.
+
 ## Prerequisites
 
 1. **Flox installed**: https://flox.dev/docs/install-flox/
