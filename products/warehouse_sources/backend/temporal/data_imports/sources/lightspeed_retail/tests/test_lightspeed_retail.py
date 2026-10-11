@@ -227,3 +227,88 @@ class TestGetRows:
         rows = [item for batch in batches for item in batch]
         assert [(row["consignment_id"], row["product_id"]) for row in rows] == expected_rows
         assert all("_consignments_id" not in row for row in rows)
+
+
+def _body_response(body: dict[str, Any]) -> Response:
+    resp = Response()
+    resp.status_code = 200
+    resp._content = json.dumps(body).encode()
+    return resp
+
+
+_GIFT_CARD_PAGES = [
+    {"data": [{"id": "g3", "gift_card_transactions": [{"id": "t3"}]}, {"id": "g2", "gift_card_transactions": []}]},
+    {"data": [{"id": "g1", "gift_card_transactions": [{"id": "t1"}, {"id": "t2"}]}]},
+    {"data": []},
+]
+
+
+class TestUnversionedEndpoints:
+    @pytest.mark.parametrize(
+        "endpoint, bodies, resume_state, expected_requests, expected_rows",
+        [
+            (
+                "gift_cards",
+                _GIFT_CARD_PAGES,
+                None,
+                [
+                    ("/gift_cards", {"page_size": 200}),
+                    ("/gift_cards", {"page_size": 200, "before": "g2"}),
+                    ("/gift_cards", {"page_size": 200, "before": "g1"}),
+                ],
+                [{"id": "g3"}, {"id": "g2"}, {"id": "g1"}],
+            ),
+            (
+                "gift_card_transactions",
+                _GIFT_CARD_PAGES[1:],
+                LightspeedRetailResumeConfig(cursor="g2"),
+                [
+                    ("/gift_cards", {"page_size": 200, "before": "g2"}),
+                    ("/gift_cards", {"page_size": 200, "before": "g1"}),
+                ],
+                [{"id": "t1", "gift_card_id": "g1"}, {"id": "t2", "gift_card_id": "g1"}],
+            ),
+            (
+                "product_categories",
+                [
+                    {"data": {"categories": [{"id": "c1"}]}, "page_info": {"has_next": True, "last_seen": "c1"}},
+                    {"data": {"categories": [{"id": "c2"}]}, "page_info": {"has_next": False, "last_seen": "c2"}},
+                ],
+                None,
+                [
+                    ("/product_categories", {"page_size": 200}),
+                    ("/product_categories", {"page_size": 200, "after": "c1"}),
+                ],
+                [{"id": "c1"}, {"id": "c2"}],
+            ),
+            (
+                "promo_codes",
+                [
+                    {"data": [{"id": "pr1"}, {"id": "pr2"}]},
+                    {"data": [{"id": "code1", "promotion_id": "pr1"}]},
+                    {"data": [{"id": "code2", "promotion_id": "pr2"}]},
+                ],
+                None,
+                [
+                    ("/promotions", {}),
+                    ("/promotions/pr1/promocodes", {}),
+                    ("/promotions/pr2/promocodes", {}),
+                ],
+                [{"id": "code1", "promotion_id": "pr1"}, {"id": "code2", "promotion_id": "pr2"}],
+            ),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_pages_without_record_versions(
+        self, mock_session, endpoint, bodies, resume_state, expected_requests, expected_rows
+    ):
+        session = mock_session.return_value
+        params = _wire(session, [_body_response(body) for body in bodies])
+
+        manager = _make_manager(resume_state)
+        batches = _run(manager, endpoint=endpoint)
+
+        paths = [call.args[0].url.split("/api/2026-01")[1] for call in session.prepare_request.call_args_list]
+        assert list(zip(paths, params)) == expected_requests
+        rows = [item for batch in batches for item in batch]
+        assert [{key: row.get(key) for key in expected_rows[0]} for row in rows] == expected_rows
