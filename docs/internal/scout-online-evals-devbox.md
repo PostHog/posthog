@@ -25,7 +25,7 @@ AI_GATEWAY_URL=http://localhost:8080/v1
 SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=true
 ```
 
-Enable the `scout-trials` feature flag for the `project` group with `id = 2`. A missing or unreadable flag blocks new work. Trials also require private capture and the gateway configuration above. The team-2 and staff restrictions still apply even if the flag targets another project. Production MCP also hides trial tools until the flag is enabled.
+Enable the `scout-trials` feature flag for the `project` group with `id = 2`. A missing or unreadable flag blocks new work. Trials also require private capture and the gateway configuration above. The team-2 and staff restrictions still apply even if the flag targets another project. Production MCP also hides rubric and trial tools until the flag is enabled.
 
 Switching the flag off blocks new trials, resumes, queued scout work and new judge dispatch. Judges already dispatched to Tasks can finish, even if their sandbox has not started yet. Saved results remain readable.
 
@@ -36,6 +36,19 @@ Enable `SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE` only after confirming query/task tele
 This setting also installs the private-trial analytics filter when backend and worker processes start. Leave it enabled while saved trial data remains accessible, even after disabling new launches or the `scout-trials` flag. Deployments without this setting keep their existing analytics callbacks.
 Deploy the backend, scout orchestration worker and Tasks worker from the same code revision before enabling trials; use `TEMPORAL_DISABLE_HOT_RELOAD=1` during paid runs. The scout worker uses the video-export queue. The Tasks worker provisions the sandboxes. Removing the old Tasks validation does not change the ordinary judge path, but new scout launches require the updated Tasks worker.
 Revoke or expire private tokens before rolling the gateway back to a version without private capture support.
+
+## Run through MCP
+
+1. Find an existing scout with `scout-config-list`, or create an idea to test with `scout-create` and `config.enabled=false` so scheduling does not interfere.
+2. Call `scout-trial-setup` for readiness, source version, and supported model/effort choices.
+3. Read `scout-rubric-get`. If generation is needed, call `scout-rubric-generate` and poll `scout-rubric-get`; inspect the suggestions, summary, and captured `generation.reference_context`.
+4. Use `scout-rubric-save` with the latest `revision` and complete selected criteria, retaining all default IDs. Set `adopt_generation_id` to the current completed `generation.id` to adopt its reference; generation alone does not save or adopt it.
+5. Call `scout-trial-start` with a baseline and variants, stable comparison/variant/launch UUIDs, and `expected_skill_version`. Each variant can replace its `skill_body`; the optional `note` steers every run. Retain the exact request for retries.
+6. Poll `scout-trial-report` through execution and judging, then inspect criterion evidence, failures, coverage, and cost before drawing conclusions.
+
+`scout-trial-list` returns progress and IDs; fetch judgments with `scout-trial-report`. Use `scout-trial-resume` to recover an interrupted plan and `scout-trial-archive` to hide or restore finished trials.
+The lower-level `scout-trial-create` / `scout-trial-get` pair runs a single private scout without automatic judging. A trial does not apply a candidate or enable scheduling; agents can do that with `skill-update` and `scout-config-update` when part of the requested work.
+See the [scout authoring reference](../../products/signals/skills/authoring-scouts/references/lifecycle-and-testing.md#private-trials-with-a-saved-rubric) for selection, adoption, and comparison details.
 
 ## Run one trial
 
