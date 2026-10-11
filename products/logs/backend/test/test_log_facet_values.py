@@ -4,11 +4,14 @@ import datetime as dt
 from collections import Counter
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 
 
 class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
@@ -332,3 +335,19 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             body = {"query": {**query, "dateRange": self.DATE_RANGE}}
             response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_full_org_concurrency_limit_returns_429_without_internal_key(self):
+        raw = "Exceeded maximum concurrency limit: 3 for key: app:query:per-org:org-id-9 and task: abc"
+        body = {"query": {"facetField": "service_name", "dateRange": self.DATE_RANGE}}
+        with (
+            patch(
+                "posthog.hogql_queries.query_runner.get_app_org_rate_limiter",
+                return_value=MagicMock(run=MagicMock(side_effect=ConcurrencyLimitExceeded(raw))),
+            ),
+            patch("posthog.exceptions.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["detail"] == CONCURRENCY_LIMIT_USER_MESSAGE
+        mock_capture.assert_not_called()
