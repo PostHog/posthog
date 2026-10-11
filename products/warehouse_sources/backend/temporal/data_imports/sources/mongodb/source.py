@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     DATABASE_NAME_REQUIRED_ERROR,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
+    MONGO_TLS_HANDSHAKE_FAILED_ERROR,
     MongoResumeConfig,
     _parse_connection_string,
     filter_mongo_incremental_fields,
@@ -192,7 +193,9 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # raises MONGO_DOCUMENT_MISSING_ID_ERROR for this instead of a bare KeyError. Every retry
             # reads the same `_id`-less documents, so it never recovers. Match our own stable phrase.
             "one of its documents has no _id field": MONGO_DOCUMENT_MISSING_ID_ERROR,
-            "SSL handshake failed": None,
+            # A TLS handshake failure outside server selection. See `mongo_client` for why the same
+            # failure inside a topology dump stays retryable. `None` keeps the driver's TLS reason.
+            MONGO_TLS_HANDSHAKE_FAILED_ERROR: None,
             # Atlas SQL / Data Federation endpoints live under *.query.mongodb.net and are served by
             # a query proxy the standard MongoDB driver can't drive: the handshake is closed, the
             # topology never leaves Unknown, and server selection times out (ServerSelectionTimeoutError,
