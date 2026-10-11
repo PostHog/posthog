@@ -1,0 +1,6816 @@
+{
+  "corpus_version": "1.0.0",
+  "config_version": 2,
+  "description": "Ordered evaluation of experiment rules without an experiment (experiment_id null): pause, rule-local holdout, rollout and weighted variant assignment, with the legacy rendering of each result. Expected terminal fields and legacy cells are exhaustive. Hash evidence lists every hash an evaluation draws. White-box rows replace every drawn hash through a private seam; parser rows run at the parser boundary.",
+  "cases": [
+    {
+      "id": "v2_experiment.ordering.split",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-3",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-3",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3376617269616e74",
+          "sha1_hex": "f31f53c835e3ac066ef4237aa9d552ce225ea64a",
+          "first_15_hex": "f31f53c835e3ac0",
+          "n": "1094925824678574784",
+          "hash01_binary64_hex": "3fee63ea7906bc76",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.ordering.paused",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": true,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "experiment_paused",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.ordering.paused_before_holdout",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": true,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 100
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "experiment_paused",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.ordering.paused_targeting_miss",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ]
+                }
+              ]
+            },
+            "experiment_id": null,
+            "paused": true,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "targeted"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "targeted",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "targeted_release",
+          "index": 1
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "targeted",
+        "value": "targeted",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.ordering.paused_before_rollout_miss",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": true,
+            "rollout_percentage": 0,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "targeted"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "experiment_paused",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.ordering.holdout",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 100
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "holdout",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.ordering.holdout_terminal_with_continue",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 100
+            }
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "targeted"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "holdout",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.ordering.holdout_before_rollout_miss",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 0,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 100
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "holdout",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.ordering.holdout_zero",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 0
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "holdout",
+          "prefix": "example-holdout",
+          "identifier": "person-1",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d686f6c646f7574706572736f6e2d31",
+          "sha1_hex": "927ec0a2001c68ab093dd8f087f27e31c4ef9b51",
+          "first_15_hex": "927ec0a2001c68a",
+          "n": "659755398663882378",
+          "hash01_binary64_hex": "3fe24fd81440038d",
+          "threshold_binary64_hex": "0000000000000000"
+        },
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "7097291b07ace0c5909564af9291976a174f3780",
+          "first_15_hex": "7097291b07ace0c",
+          "n": "507062403112553996",
+          "hash01_binary64_hex": "3fdc25ca46c1eb38",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.ordering.miss_return_default",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 0,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "rollout",
+          "prefix": "example-split.",
+          "identifier": "person-example",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d6578616d706c65",
+          "sha1_hex": "bb21a3739cb09b9fb960eeda9aa454ef538f08b9",
+          "first_15_hex": "bb21a3739cb09b9",
+          "n": "842764904766835129",
+          "hash01_binary64_hex": "3fe764346e739613",
+          "threshold_binary64_hex": "0000000000000000"
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.ordering.miss_continue",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 0,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "targeted"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "targeted",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "targeted_release",
+          "index": 1
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "targeted",
+        "value": "targeted",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "rollout",
+          "prefix": "example-split.",
+          "identifier": "person-example",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d6578616d706c65",
+          "sha1_hex": "bb21a3739cb09b9fb960eeda9aa454ef538f08b9",
+          "first_15_hex": "bb21a3739cb09b9",
+          "n": "842764904766835129",
+          "hash01_binary64_hex": "3fe764346e739613",
+          "threshold_binary64_hex": "0000000000000000"
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.ordering.miss_continue_exhausted",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 0,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "no_rule_match"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "rollout",
+          "prefix": "example-split.",
+          "identifier": "person-example",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d6578616d706c65",
+          "sha1_hex": "bb21a3739cb09b9fb960eeda9aa454ef538f08b9",
+          "first_15_hex": "bb21a3739cb09b9",
+          "n": "842764904766835129",
+          "hash01_binary64_hex": "3fe764346e739613",
+          "threshold_binary64_hex": "0000000000000000"
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.ordering.targeted_above",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "pro"
+                  ]
+                }
+              ]
+            },
+            "value": "targeted"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "targeted",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "targeted_release",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "targeted",
+        "value": "targeted",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.ordering.targeted_miss_above",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ]
+                }
+              ]
+            },
+            "value": "targeted"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "experiment",
+          "index": 1
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "7097291b07ace0c5909564af9291976a174f3780",
+          "first_15_hex": "7097291b07ace0c",
+          "n": "507062403112553996",
+          "hash01_binary64_hex": "3fdc25ca46c1eb38",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.ordering.percentage_miss_above",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": "percentage",
+            "rollout_percentage": 0,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-allocation",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-3",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "experiment",
+          "index": 1
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "rollout",
+          "prefix": "example-allocation.",
+          "identifier": "person-3",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d616c6c6f636174696f6e2e706572736f6e2d33",
+          "sha1_hex": "d394c898e308428824b26b96cde1b70f7613b105",
+          "first_15_hex": "d394c898e308428",
+          "n": "952876949845345320",
+          "hash01_binary64_hex": "3fea7299131c6108",
+          "threshold_binary64_hex": "0000000000000000"
+        },
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-3",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3376617269616e74",
+          "sha1_hex": "f31f53c835e3ac066ef4237aa9d552ce225ea64a",
+          "first_15_hex": "f31f53c835e3ac0",
+          "n": "1094925824678574784",
+          "hash01_binary64_hex": "3fee63ea7906bc76",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.ordering.second_experiment_rule",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": [
+                {
+                  "key": "plan",
+                  "type": "person",
+                  "operator": "exact",
+                  "value": [
+                    "free"
+                  ]
+                }
+              ]
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-second-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "arm_a",
+                "weight": 50,
+                "value": "red"
+              },
+              {
+                "key": "arm_b",
+                "weight": 50,
+                "value": "yellow"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "yellow",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "experiment",
+          "index": 1
+        },
+        "variant": "arm_b"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "yellow",
+        "value": "yellow",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-second-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d7365636f6e642d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "988d4a5a63528a4a200e0f6cefd8e9d0f5166323",
+          "first_15_hex": "988d4a5a63528a4",
+          "n": "687032751097194660",
+          "hash01_binary64_hex": "3fe311a94b4c6a51",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.ordering.second_experiment_after_miss",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 0,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-second-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "arm_a",
+                "weight": 50,
+                "value": "red"
+              },
+              {
+                "key": "arm_b",
+                "weight": 50,
+                "value": "yellow"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-4",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "red",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "experiment",
+          "index": 1
+        },
+        "variant": "arm_a"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "red",
+        "value": "red",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "rollout",
+          "prefix": "example-split.",
+          "identifier": "person-4",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d34",
+          "sha1_hex": "c9873d09c345f1f9a5b4ff8aacca2199ad855873",
+          "first_15_hex": "c9873d09c345f1f",
+          "n": "907602664726224671",
+          "hash01_binary64_hex": "3fe930e7a13868be",
+          "threshold_binary64_hex": "0000000000000000"
+        },
+        {
+          "use": "variant",
+          "prefix": "example-second-split.",
+          "identifier": "person-4",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d7365636f6e642d73706c69742e706572736f6e2d3476617269616e74",
+          "sha1_hex": "5d09e8ab208663d2d1b30d081c435875b19e7890",
+          "first_15_hex": "5d09e8ab208663d",
+          "n": "419009083875026493",
+          "hash01_binary64_hex": "3fd7427a2ac82199",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.ordering.empty_identifier_return_default",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.ordering.empty_identifier_skips_holdout",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 100
+            }
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "targeted"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "targeted",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "targeted_release",
+          "index": 1
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "targeted",
+        "value": "targeted",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.ordering.empty_identifier_paused",
+      "family": "ordering",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": true,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "experiment_paused",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.assignment.fifty_fifty_control",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "7097291b07ace0c5909564af9291976a174f3780",
+          "first_15_hex": "7097291b07ace0c",
+          "n": "507062403112553996",
+          "hash01_binary64_hex": "3fdc25ca46c1eb38",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.fifty_fifty_test",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-3",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-3",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3376617269616e74",
+          "sha1_hex": "f31f53c835e3ac066ef4237aa9d552ce225ea64a",
+          "first_15_hex": "f31f53c835e3ac0",
+          "n": "1094925824678574784",
+          "hash01_binary64_hex": "3fee63ea7906bc76",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.ten_ninety_first",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 10,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 90,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-5",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-5",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3576617269616e74",
+          "sha1_hex": "13979f7741bec0e8630fce9217cb68b9a4e2dd83",
+          "first_15_hex": "13979f7741bec0e",
+          "n": "88235771422305294",
+          "hash01_binary64_hex": "3fb3979f7741bec1",
+          "boundaries_binary64_hex": [
+            "3fb999999999999a",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.ten_ninety_second",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 10,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 90,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "7097291b07ace0c5909564af9291976a174f3780",
+          "first_15_hex": "7097291b07ace0c",
+          "n": "507062403112553996",
+          "hash01_binary64_hex": "3fdc25ca46c1eb38",
+          "boundaries_binary64_hex": [
+            "3fb999999999999a",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.two_decimal_control",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 33.33,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 33.33,
+                "value": "green"
+              },
+              {
+                "key": "other",
+                "weight": 33.34,
+                "value": "red"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-5",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-5",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3576617269616e74",
+          "sha1_hex": "13979f7741bec0e8630fce9217cb68b9a4e2dd83",
+          "first_15_hex": "13979f7741bec0e",
+          "n": "88235771422305294",
+          "hash01_binary64_hex": "3fb3979f7741bec1",
+          "boundaries_binary64_hex": [
+            "3fd554c985f06f69",
+            "3fe554c985f06f69",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.two_decimal_test",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 33.33,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 33.33,
+                "value": "green"
+              },
+              {
+                "key": "other",
+                "weight": 33.34,
+                "value": "red"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "7097291b07ace0c5909564af9291976a174f3780",
+          "first_15_hex": "7097291b07ace0c",
+          "n": "507062403112553996",
+          "hash01_binary64_hex": "3fdc25ca46c1eb38",
+          "boundaries_binary64_hex": [
+            "3fd554c985f06f69",
+            "3fe554c985f06f69",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.two_decimal_other",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 33.33,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 33.33,
+                "value": "green"
+              },
+              {
+                "key": "other",
+                "weight": 33.34,
+                "value": "red"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-3",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "red",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "other"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "red",
+        "value": "red",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-3",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3376617269616e74",
+          "sha1_hex": "f31f53c835e3ac066ef4237aa9d552ce225ea64a",
+          "first_15_hex": "f31f53c835e3ac0",
+          "n": "1094925824678574784",
+          "hash01_binary64_hex": "3fee63ea7906bc76",
+          "boundaries_binary64_hex": [
+            "3fd554c985f06f69",
+            "3fe554c985f06f69",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.equal_values_control",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "same"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "same"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "same",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "same",
+        "value": "same",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "7097291b07ace0c5909564af9291976a174f3780",
+          "first_15_hex": "7097291b07ace0c",
+          "n": "507062403112553996",
+          "hash01_binary64_hex": "3fdc25ca46c1eb38",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.equal_values_test",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "same"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "same"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-3",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "same",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "same",
+        "value": "same",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-3",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3376617269616e74",
+          "sha1_hex": "f31f53c835e3ac066ef4237aa9d552ce225ea64a",
+          "first_15_hex": "f31f53c835e3ac0",
+          "n": "1094925824678574784",
+          "hash01_binary64_hex": "3fee63ea7906bc76",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.zero_weight_first",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "never",
+                "weight": 0,
+                "value": "blue"
+              },
+              {
+                "key": "always",
+                "weight": 100,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "always"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-example",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d6578616d706c6576617269616e74",
+          "sha1_hex": "8c2fcae2922c5679a32941db87271301753deaef",
+          "first_15_hex": "8c2fcae2922c567",
+          "n": "631344722729944423",
+          "hash01_binary64_hex": "3fe185f95c52458b",
+          "boundaries_binary64_hex": [
+            "0000000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.twenty_variants",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "arm_00",
+                "weight": 5,
+                "value": "value-00"
+              },
+              {
+                "key": "arm_01",
+                "weight": 5,
+                "value": "value-01"
+              },
+              {
+                "key": "arm_02",
+                "weight": 5,
+                "value": "value-02"
+              },
+              {
+                "key": "arm_03",
+                "weight": 5,
+                "value": "value-03"
+              },
+              {
+                "key": "arm_04",
+                "weight": 5,
+                "value": "value-04"
+              },
+              {
+                "key": "arm_05",
+                "weight": 5,
+                "value": "value-05"
+              },
+              {
+                "key": "arm_06",
+                "weight": 5,
+                "value": "value-06"
+              },
+              {
+                "key": "arm_07",
+                "weight": 5,
+                "value": "value-07"
+              },
+              {
+                "key": "arm_08",
+                "weight": 5,
+                "value": "value-08"
+              },
+              {
+                "key": "arm_09",
+                "weight": 5,
+                "value": "value-09"
+              },
+              {
+                "key": "arm_10",
+                "weight": 5,
+                "value": "value-10"
+              },
+              {
+                "key": "arm_11",
+                "weight": 5,
+                "value": "value-11"
+              },
+              {
+                "key": "arm_12",
+                "weight": 5,
+                "value": "value-12"
+              },
+              {
+                "key": "arm_13",
+                "weight": 5,
+                "value": "value-13"
+              },
+              {
+                "key": "arm_14",
+                "weight": 5,
+                "value": "value-14"
+              },
+              {
+                "key": "arm_15",
+                "weight": 5,
+                "value": "value-15"
+              },
+              {
+                "key": "arm_16",
+                "weight": 5,
+                "value": "value-16"
+              },
+              {
+                "key": "arm_17",
+                "weight": 5,
+                "value": "value-17"
+              },
+              {
+                "key": "arm_18",
+                "weight": 5,
+                "value": "value-18"
+              },
+              {
+                "key": "arm_19",
+                "weight": 5,
+                "value": "value-19"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "value-10",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "arm_10"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "value-10",
+        "value": "value-10",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-example",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d6578616d706c6576617269616e74",
+          "sha1_hex": "8c2fcae2922c5679a32941db87271301753deaef",
+          "first_15_hex": "8c2fcae2922c567",
+          "n": "631344722729944423",
+          "hash01_binary64_hex": "3fe185f95c52458b",
+          "boundaries_binary64_hex": [
+            "3fa999999999999a",
+            "3fb999999999999a",
+            "3fc3333333333334",
+            "3fc999999999999a",
+            "3fd0000000000000",
+            "3fd3333333333333",
+            "3fd6666666666666",
+            "3fd9999999999999",
+            "3fdccccccccccccc",
+            "3fdfffffffffffff",
+            "3fe1999999999999",
+            "3fe3333333333333",
+            "3fe4cccccccccccd",
+            "3fe6666666666667",
+            "3fe8000000000001",
+            "3fe999999999999b",
+            "3feb333333333335",
+            "3feccccccccccccf",
+            "3fee666666666669",
+            "3ff0000000000001"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.stored_order",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              },
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "7097291b07ace0c5909564af9291976a174f3780",
+          "first_15_hex": "7097291b07ace0c",
+          "n": "507062403112553996",
+          "hash01_binary64_hex": "3fdc25ca46c1eb38",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.flag_key_seed",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-display-key",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-9",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-display-key.",
+          "identifier": "person-9",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d646973706c61792d6b65792e706572736f6e2d3976617269616e74",
+          "sha1_hex": "2090020a34850978ecf974a4e945b3de0ff356fc",
+          "first_15_hex": "2090020a3485097",
+          "n": "146648603044630679",
+          "hash01_binary64_hex": "3fc04801051a4285",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.rollout_hit",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 50,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-6",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "rollout",
+          "prefix": "example-split.",
+          "identifier": "person-6",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d36",
+          "sha1_hex": "0884085a52c321e1a4a67d7712a950bbfb29c236",
+          "first_15_hex": "0884085a52c321e",
+          "n": "38351539578614302",
+          "hash01_binary64_hex": "3fa10810b4a58644",
+          "threshold_binary64_hex": "3fe0000000000000"
+        },
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-6",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3676617269616e74",
+          "sha1_hex": "8980bb6ec6763e56136cde7eeaf8ff963cddb5db",
+          "first_15_hex": "8980bb6ec6763e5",
+          "n": "619257829041595365",
+          "hash01_binary64_hex": "3fe130176dd8cec8",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.rollout_miss_return_default",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 50,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "rollout",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d31",
+          "sha1_hex": "ef0a543f86ebc4f681810ae2e9ad78a1b24508c0",
+          "first_15_hex": "ef0a543f86ebc4f",
+          "n": "1076542022290947151",
+          "hash01_binary64_hex": "3fede14a87f0dd79",
+          "threshold_binary64_hex": "3fe0000000000000"
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.rollout_miss_continue",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 50,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "targeted_release",
+            "targeting": {
+              "properties": []
+            },
+            "value": "targeted"
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "targeted",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "targeted_release",
+          "index": 1
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "targeted",
+        "value": "targeted",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "rollout",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d31",
+          "sha1_hex": "ef0a543f86ebc4f681810ae2e9ad78a1b24508c0",
+          "first_15_hex": "ef0a543f86ebc4f",
+          "n": "1076542022290947151",
+          "hash01_binary64_hex": "3fede14a87f0dd79",
+          "threshold_binary64_hex": "3fe0000000000000"
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.holdout_in",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 20
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-12",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "holdout",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "holdout",
+          "prefix": "example-holdout",
+          "identifier": "person-12",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d686f6c646f7574706572736f6e2d3132",
+          "sha1_hex": "0d1390c2884fe37d2f481cb1cd8b070c8f63bb49",
+          "first_15_hex": "0d1390c2884fe37",
+          "n": "58890994514722359",
+          "hash01_binary64_hex": "3faa272185109fc7",
+          "threshold_binary64_hex": "3fc999999999999a"
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.holdout_out",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 20
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-3",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "holdout",
+          "prefix": "example-holdout",
+          "identifier": "person-3",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d686f6c646f7574706572736f6e2d33",
+          "sha1_hex": "e3d8dcb693162ca5505ae752dc954e3e0aa667a5",
+          "first_15_hex": "e3d8dcb693162ca",
+          "n": "1026132194893062858",
+          "hash01_binary64_hex": "3fec7b1b96d262c6",
+          "threshold_binary64_hex": "3fc999999999999a"
+        },
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-3",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3376617269616e74",
+          "sha1_hex": "f31f53c835e3ac066ef4237aa9d552ce225ea64a",
+          "first_15_hex": "f31f53c835e3ac0",
+          "n": "1094925824678574784",
+          "hash01_binary64_hex": "3fee63ea7906bc76",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.legacy_holdout_seed",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "holdout-",
+              "exclusion_percentage": 50
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "holdout",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "holdout",
+          "prefix": "holdout-",
+          "identifier": "person-1",
+          "salt": "",
+          "input_utf8_hex": "686f6c646f75742d706572736f6e2d31",
+          "sha1_hex": "621019936a5272952e325d32f848db322bcea920",
+          "first_15_hex": "621019936a52729",
+          "n": "441635996017436457",
+          "hash01_binary64_hex": "3fd8840664da949d",
+          "threshold_binary64_hex": "3fe0000000000000"
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.shared_rollout_seed",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "percentage_rollout",
+            "targeting": {
+              "properties": []
+            },
+            "value": "percentage",
+            "rollout_percentage": 30,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-shared",
+            "assign_by": "person"
+          },
+          {
+            "id": "22222222-2222-4222-8222-222222222222",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 60,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-shared",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-2",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "22222222-2222-4222-8222-222222222222",
+          "rule_type": "experiment",
+          "index": 1
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "rollout",
+          "prefix": "example-shared.",
+          "identifier": "person-2",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d7368617265642e706572736f6e2d32",
+          "sha1_hex": "51e2cf47f2ed1821aea41a38a24864add9c0db66",
+          "first_15_hex": "51e2cf47f2ed182",
+          "n": "368781648108376450",
+          "hash01_binary64_hex": "3fd478b3d1fcbb46",
+          "threshold_binary64_hex": "3fd3333333333333"
+        },
+        {
+          "use": "rollout",
+          "prefix": "example-shared.",
+          "identifier": "person-2",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d7368617265642e706572736f6e2d32",
+          "sha1_hex": "51e2cf47f2ed1821aea41a38a24864add9c0db66",
+          "first_15_hex": "51e2cf47f2ed182",
+          "n": "368781648108376450",
+          "hash01_binary64_hex": "3fd478b3d1fcbb46",
+          "threshold_binary64_hex": "3fe3333333333333"
+        },
+        {
+          "use": "variant",
+          "prefix": "example-shared.",
+          "identifier": "person-2",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d7368617265642e706572736f6e2d3276617269616e74",
+          "sha1_hex": "713eae155c71d29c717414f2631615d5a11e1174",
+          "first_15_hex": "713eae155c71d29",
+          "n": "510009436350651689",
+          "hash01_binary64_hex": "3fdc4fab85571c75",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.identifier_200",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616176617269616e74",
+          "sha1_hex": "5771a7badbc8521956075b915d499cd17c672efc",
+          "first_15_hex": "5771a7badbc8521",
+          "n": "393812610916320545",
+          "hash01_binary64_hex": "3fd5dc69eeb6f215",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.assignment.identifier_201",
+      "family": "assignment",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616176617269616e74",
+          "sha1_hex": "5771a7badbc8521956075b915d499cd17c672efc",
+          "first_15_hex": "5771a7badbc8521",
+          "n": "393812610916320545",
+          "hash01_binary64_hex": "3fd5dc69eeb6f215",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.values.boolean_false_variant",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": false,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": false
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": false,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": false,
+        "variant": null,
+        "value": false,
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "7097291b07ace0c5909564af9291976a174f3780",
+          "first_15_hex": "7097291b07ace0c",
+          "n": "507062403112553996",
+          "hash01_binary64_hex": "3fdc25ca46c1eb38",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.values.boolean_true_variant",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": false,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": false
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-3",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": true,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": null
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-3",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3376617269616e74",
+          "sha1_hex": "f31f53c835e3ac066ef4237aa9d552ce225ea64a",
+          "first_15_hex": "f31f53c835e3ac0",
+          "n": "1094925824678574784",
+          "hash01_binary64_hex": "3fee63ea7906bc76",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.values.number_zero",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": -1,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": 0
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": 12.5
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 0,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 0
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "7097291b07ace0c5909564af9291976a174f3780",
+          "first_15_hex": "7097291b07ace0c",
+          "n": "507062403112553996",
+          "hash01_binary64_hex": "3fdc25ca46c1eb38",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.values.number_decimal",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "number",
+        "default_value": -1,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": 0
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": 12.5
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-3",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": 12.5,
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": 12.5
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-3",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3376617269616e74",
+          "sha1_hex": "f31f53c835e3ac066ef4237aa9d552ce225ea64a",
+          "first_15_hex": "f31f53c835e3ac0",
+          "n": "1094925824678574784",
+          "hash01_binary64_hex": "3fee63ea7906bc76",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.values.object_empty",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {
+          "layout": "default"
+        },
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": {}
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": {
+                  "layout": {
+                    "columns": 2
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-1",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {},
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {}
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-1",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3176617269616e74",
+          "sha1_hex": "7097291b07ace0c5909564af9291976a174f3780",
+          "first_15_hex": "7097291b07ace0c",
+          "n": "507062403112553996",
+          "hash01_binary64_hex": "3fdc25ca46c1eb38",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.values.object_nested",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {
+          "layout": "default"
+        },
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": {}
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": {
+                  "layout": {
+                    "columns": 2
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-3",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "layout": {
+            "columns": 2
+          }
+        },
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "layout": {
+            "columns": 2
+          }
+        }
+      },
+      "hash_evidence": [
+        {
+          "use": "variant",
+          "prefix": "example-split.",
+          "identifier": "person-3",
+          "salt": "variant",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d3376617269616e74",
+          "sha1_hex": "f31f53c835e3ac066ef4237aa9d552ce225ea64a",
+          "first_15_hex": "f31f53c835e3ac0",
+          "n": "1094925824678574784",
+          "hash01_binary64_hex": "3fee63ea7906bc76",
+          "boundaries_binary64_hex": [
+            "3fe0000000000000",
+            "3ff0000000000000"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.values.null_default_paused",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": true,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": null,
+        "reason": "experiment_paused",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": false,
+        "variant": null,
+        "value": false,
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.values.null_default_holdout",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "boolean",
+        "default_value": null,
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": false
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": true
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 100
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": null,
+        "reason": "holdout",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": false,
+        "variant": null,
+        "value": false,
+        "payload": null
+      }
+    },
+    {
+      "id": "v2_experiment.values.object_default_rollout_miss",
+      "family": "values",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "object",
+        "default_value": {
+          "layout": "default"
+        },
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 0,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": {}
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": {
+                  "a": 1
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": {
+          "layout": "default"
+        },
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": null,
+        "value": true,
+        "payload": {
+          "layout": "default"
+        }
+      },
+      "hash_evidence": [
+        {
+          "use": "rollout",
+          "prefix": "example-split.",
+          "identifier": "person-example",
+          "salt": "",
+          "input_utf8_hex": "6578616d706c652d73706c69742e706572736f6e2d6578616d706c65",
+          "sha1_hex": "bb21a3739cb09b9fb960eeda9aa454ef538f08b9",
+          "first_15_hex": "bb21a3739cb09b9",
+          "n": "842764904766835129",
+          "hash01_binary64_hex": "3fe764346e739613",
+          "threshold_binary64_hex": "0000000000000000"
+        }
+      ]
+    },
+    {
+      "id": "v2_experiment.white_box.variant_equal",
+      "family": "white_box",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "white_box": {
+        "hash01_binary64_hex": "3fe0000000000000",
+        "against": "variant_boundary",
+        "boundary_binary64_hex": "3fe0000000000000",
+        "relation": "equal"
+      }
+    },
+    {
+      "id": "v2_experiment.white_box.variant_below",
+      "family": "white_box",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "white_box": {
+        "hash01_binary64_hex": "3fdfffffffffffff",
+        "against": "variant_boundary",
+        "boundary_binary64_hex": "3fe0000000000000",
+        "relation": "below"
+      }
+    },
+    {
+      "id": "v2_experiment.white_box.accumulated_equal",
+      "family": "white_box",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 33.33,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 33.33,
+                "value": "green"
+              },
+              {
+                "key": "other",
+                "weight": 33.34,
+                "value": "red"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "red",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "other"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "red",
+        "value": "red",
+        "payload": null
+      },
+      "white_box": {
+        "hash01_binary64_hex": "3fe554c985f06f69",
+        "against": "variant_boundary",
+        "boundary_binary64_hex": "3fe554c985f06f69",
+        "relation": "equal"
+      }
+    },
+    {
+      "id": "v2_experiment.white_box.accumulated_below",
+      "family": "white_box",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 33.33,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 33.33,
+                "value": "green"
+              },
+              {
+                "key": "other",
+                "weight": 33.34,
+                "value": "red"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "green",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "test"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "green",
+        "value": "green",
+        "payload": null
+      },
+      "white_box": {
+        "hash01_binary64_hex": "3fe554c985f06f68",
+        "against": "variant_boundary",
+        "boundary_binary64_hex": "3fe554c985f06f69",
+        "relation": "below"
+      }
+    },
+    {
+      "id": "v2_experiment.white_box.off_the_end",
+      "family": "white_box",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 33.33,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 33.33,
+                "value": "green"
+              },
+              {
+                "key": "other",
+                "weight": 33.34,
+                "value": "red"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "red",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "other"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "red",
+        "value": "red",
+        "payload": null
+      },
+      "white_box": {
+        "hash01_binary64_hex": "3ff0000000000000",
+        "against": "variant_boundary",
+        "boundary_binary64_hex": "3ff0000000000000",
+        "relation": "equal"
+      }
+    },
+    {
+      "id": "v2_experiment.white_box.off_the_end_zero_weight",
+      "family": "white_box",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "always",
+                "weight": 100,
+                "value": "green"
+              },
+              {
+                "key": "never",
+                "weight": 0,
+                "value": "blue"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "never"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "white_box": {
+        "hash01_binary64_hex": "3ff0000000000000",
+        "against": "variant_boundary",
+        "boundary_binary64_hex": "3ff0000000000000",
+        "relation": "equal"
+      }
+    },
+    {
+      "id": "v2_experiment.white_box.holdout_equal",
+      "family": "white_box",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 20
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "holdout",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      },
+      "white_box": {
+        "hash01_binary64_hex": "3fc999999999999a",
+        "against": "holdout_threshold",
+        "boundary_binary64_hex": "3fc999999999999a",
+        "relation": "equal"
+      }
+    },
+    {
+      "id": "v2_experiment.white_box.holdout_above",
+      "family": "white_box",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 20
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "white_box": {
+        "hash01_binary64_hex": "3fc999999999999b",
+        "against": "holdout_threshold",
+        "boundary_binary64_hex": "3fc999999999999a",
+        "relation": "above"
+      }
+    },
+    {
+      "id": "v2_experiment.white_box.rollout_equal",
+      "family": "white_box",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 30,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "blue",
+        "reason": "targeting_match",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        },
+        "variant": "control"
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "blue",
+        "value": "blue",
+        "payload": null
+      },
+      "white_box": {
+        "hash01_binary64_hex": "3fd3333333333333",
+        "against": "rollout_threshold",
+        "boundary_binary64_hex": "3fd3333333333333",
+        "relation": "equal"
+      }
+    },
+    {
+      "id": "v2_experiment.white_box.rollout_above",
+      "family": "white_box",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 30,
+            "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "success",
+        "value": "default",
+        "reason": "rollout_miss",
+        "rule": {
+          "id": "11111111-1111-4111-8111-111111111111",
+          "rule_type": "experiment",
+          "index": 0
+        }
+      },
+      "legacy": {
+        "enabled": true,
+        "variant": "default",
+        "value": "default",
+        "payload": null
+      },
+      "white_box": {
+        "hash01_binary64_hex": "3fd3333333333334",
+        "against": "rollout_threshold",
+        "boundary_binary64_hex": "3fd3333333333333",
+        "relation": "above"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.missing_experiment_id",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.string_experiment_id",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": "42",
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.missing_paused",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.one_variant",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 100,
+                "value": "blue"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.twenty_one_variants",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "arm_00",
+                "weight": 5,
+                "value": "v0"
+              },
+              {
+                "key": "arm_01",
+                "weight": 5,
+                "value": "v1"
+              },
+              {
+                "key": "arm_02",
+                "weight": 5,
+                "value": "v2"
+              },
+              {
+                "key": "arm_03",
+                "weight": 5,
+                "value": "v3"
+              },
+              {
+                "key": "arm_04",
+                "weight": 5,
+                "value": "v4"
+              },
+              {
+                "key": "arm_05",
+                "weight": 5,
+                "value": "v5"
+              },
+              {
+                "key": "arm_06",
+                "weight": 5,
+                "value": "v6"
+              },
+              {
+                "key": "arm_07",
+                "weight": 5,
+                "value": "v7"
+              },
+              {
+                "key": "arm_08",
+                "weight": 5,
+                "value": "v8"
+              },
+              {
+                "key": "arm_09",
+                "weight": 5,
+                "value": "v9"
+              },
+              {
+                "key": "arm_10",
+                "weight": 5,
+                "value": "v10"
+              },
+              {
+                "key": "arm_11",
+                "weight": 5,
+                "value": "v11"
+              },
+              {
+                "key": "arm_12",
+                "weight": 5,
+                "value": "v12"
+              },
+              {
+                "key": "arm_13",
+                "weight": 5,
+                "value": "v13"
+              },
+              {
+                "key": "arm_14",
+                "weight": 5,
+                "value": "v14"
+              },
+              {
+                "key": "arm_15",
+                "weight": 5,
+                "value": "v15"
+              },
+              {
+                "key": "arm_16",
+                "weight": 5,
+                "value": "v16"
+              },
+              {
+                "key": "arm_17",
+                "weight": 5,
+                "value": "v17"
+              },
+              {
+                "key": "arm_18",
+                "weight": 5,
+                "value": "v18"
+              },
+              {
+                "key": "arm_19",
+                "weight": 2.5,
+                "value": "v19"
+              },
+              {
+                "key": "arm_20",
+                "weight": 2.5,
+                "value": "v20"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.variant_key_characters",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test.v2",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.empty_variant_key",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.variant_value_type",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.null_variant_value",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": null
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.empty_variant_value",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": ""
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.unknown_variant_field",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green",
+                "description": "Unknown variant field"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.weight_above_100",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 100.5,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": -0.5,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.shared_holdout",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": 7,
+              "seed": "holdout-",
+              "exclusion_percentage": 5
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.holdout_missing_seed",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "exclusion_percentage": 5
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.unknown_holdout_field",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 5,
+              "name": "x"
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.unknown_rule_field",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "variant_split": true
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.weights_below_100",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 33.33,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 33.33,
+                "value": "green"
+              },
+              {
+                "key": "other",
+                "weight": 33.33,
+                "value": "red"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.weights_above_100",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50.01,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.weight_three_decimals",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 33.333,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 66.667,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.exclusion_three_decimals",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "test",
+                "weight": 50,
+                "value": "green"
+              }
+            ],
+            "holdout": {
+              "id": null,
+              "seed": "example-holdout",
+              "exclusion_percentage": 5.555
+            }
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    },
+    {
+      "id": "v2_experiment.parser.duplicate_variant_keys",
+      "family": "parser",
+      "flag": {
+        "key": "example-display-key",
+        "name": "Example display name",
+        "active": true,
+        "deleted": false,
+        "requested": true
+      },
+      "config": {
+        "version": 2,
+        "return_type": "string",
+        "default_value": "default",
+        "rules": [
+          {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "rule_type": "experiment",
+            "targeting": {
+              "properties": []
+            },
+            "experiment_id": null,
+            "paused": false,
+            "rollout_percentage": 100,
+            "on_rollout_miss": "continue",
+            "assignment_algorithm": "sha1_60_v1",
+            "seed": "example-split",
+            "assign_by": "person",
+            "variants": [
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "blue"
+              },
+              {
+                "key": "control",
+                "weight": 50,
+                "value": "green"
+              }
+            ]
+          }
+        ]
+      },
+      "context": {
+        "identifier": "person-example",
+        "properties": {
+          "plan": "pro"
+        },
+        "properties_complete": true,
+        "timezone": "UTC",
+        "explicit_exact_matching": true,
+        "now": "2024-03-31T12:00:00Z"
+      },
+      "expected": {
+        "status": "parse_error",
+        "kind": "malformed"
+      }
+    }
+  ]
+}

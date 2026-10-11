@@ -7,7 +7,7 @@ use chrono_tz::Tz;
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::config_v2::{Config, Outcome, RolloutMiss, Rule};
+use super::config_v2::{Config, Outcome, RolloutMiss, Rule, Variant};
 use super::flag_matching_utils::calculate_hash;
 use super::flag_request::MAX_DISTINCT_ID_LEN;
 use super::v1_bucketing::is_in_rollout;
@@ -22,6 +22,25 @@ use crate::properties::property_models::CompiledRegex;
 pub enum RuleKind {
     TargetedRelease,
     PercentageRollout,
+    Experiment,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HashUse {
+    Rollout,
+    Variant,
+    Holdout,
+}
+
+impl HashUse {
+    pub fn hash(self, seed: &str, subject: &str) -> Result<f64, EvaluationError> {
+        match self {
+            Self::Rollout => calculate_hash(&format!("{seed}."), subject, ""),
+            Self::Variant => calculate_hash(&format!("{seed}."), subject, "variant"),
+            Self::Holdout => calculate_hash(seed, subject, ""),
+        }
+        .map_err(|_| EvaluationError::Hash)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,11 +54,22 @@ pub struct MatchedRule {
 /// is a null default.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Evaluation<'a> {
+    /// `variant` is the key an experiment rule without an experiment assigned. It stays internal:
+    /// with no experiment the response carries no variant or experiment identity.
     TargetingMatch {
         value: &'a Value,
         rule: MatchedRule,
+        variant: Option<&'a str>,
     },
     RolloutMiss {
+        value: Option<&'a Value>,
+        rule: MatchedRule,
+    },
+    ExperimentPaused {
+        value: Option<&'a Value>,
+        rule: MatchedRule,
+    },
+    Holdout {
         value: Option<&'a Value>,
         rule: MatchedRule,
     },
@@ -53,6 +83,7 @@ impl RuleKind {
         match self {
             Self::TargetedRelease => "targeted_release",
             Self::PercentageRollout => "percentage_rollout",
+            Self::Experiment => "experiment",
         }
     }
 }
@@ -62,6 +93,8 @@ impl<'a> Evaluation<'a> {
         match self {
             Self::TargetingMatch { .. } => "targeting_match",
             Self::RolloutMiss { .. } => "rollout_miss",
+            Self::ExperimentPaused { .. } => "experiment_paused",
+            Self::Holdout { .. } => "holdout",
             Self::NoRuleMatch { .. } => "no_rule_match",
         }
     }
@@ -69,14 +102,27 @@ impl<'a> Evaluation<'a> {
     pub fn value(self) -> Option<&'a Value> {
         match self {
             Self::TargetingMatch { value, .. } => Some(value),
-            Self::RolloutMiss { value, .. } | Self::NoRuleMatch { value } => value,
+            Self::RolloutMiss { value, .. }
+            | Self::ExperimentPaused { value, .. }
+            | Self::Holdout { value, .. }
+            | Self::NoRuleMatch { value } => value,
         }
     }
 
     pub fn rule(self) -> Option<MatchedRule> {
         match self {
-            Self::TargetingMatch { rule, .. } | Self::RolloutMiss { rule, .. } => Some(rule),
+            Self::TargetingMatch { rule, .. }
+            | Self::RolloutMiss { rule, .. }
+            | Self::ExperimentPaused { rule, .. }
+            | Self::Holdout { rule, .. } => Some(rule),
             Self::NoRuleMatch { .. } => None,
+        }
+    }
+
+    pub fn variant(self) -> Option<&'a str> {
+        match self {
+            Self::TargetingMatch { variant, .. } => variant,
+            _ => None,
         }
     }
 
@@ -84,6 +130,8 @@ impl<'a> Evaluation<'a> {
         match self {
             Self::TargetingMatch { rule, .. } => format!("Matched rule {}", rule.index + 1),
             Self::RolloutMiss { rule, .. } => format!("Rule {} rollout miss", rule.index + 1),
+            Self::ExperimentPaused { rule, .. } => format!("Rule {} is paused", rule.index + 1),
+            Self::Holdout { rule, .. } => format!("Rule {} holdout", rule.index + 1),
             Self::NoRuleMatch { .. } => "No rule matched".to_string(),
         }
     }
@@ -169,9 +217,7 @@ impl<'a> Evaluator<'a> {
         &self,
         context: &EvaluationContext<'_>,
     ) -> Result<Evaluation<'a>, EvaluationError> {
-        self.evaluate_with_hash(context, |seed, subject| {
-            calculate_hash(&format!("{seed}."), subject, "").map_err(|_| EvaluationError::Hash)
-        })
+        self.evaluate_with_hash(context, HashUse::hash)
     }
 
     /// Test seam for injecting hash values; not part of the supported API.
@@ -179,7 +225,7 @@ impl<'a> Evaluator<'a> {
     pub fn evaluate_with_hash(
         &self,
         context: &EvaluationContext<'_>,
-        mut hash: impl FnMut(&str, &str) -> Result<f64, EvaluationError>,
+        hash: impl FnMut(HashUse, &str, &str) -> Result<f64, EvaluationError>,
     ) -> Result<Evaluation<'a>, EvaluationError> {
         let subject = truncate_chars(context.person_identifier, MAX_DISTINCT_ID_LEN);
         let matching =
@@ -191,7 +237,12 @@ impl<'a> Evaluator<'a> {
             PersonProperties::Partial(properties) => Some((properties, true)),
             PersonProperties::Unavailable => None,
         };
-        let mut hashes = HashMap::new();
+        let mut draws = Draws {
+            subject,
+            hash,
+            cache: HashMap::new(),
+        };
+        let default = self.config.default_value.as_ref();
         for (index, rule) in self.config.rules.iter().enumerate() {
             if !rule_targets(rule, person_properties, matching)? {
                 continue;
@@ -201,46 +252,118 @@ impl<'a> Evaluator<'a> {
                 index,
                 kind,
             };
-            let (kind, value) = match &rule.outcome {
-                Outcome::TargetedRelease { value } => (RuleKind::TargetedRelease, value),
+            let (rule, on_rollout_miss) = match &rule.outcome {
+                Outcome::TargetedRelease { value } => {
+                    return Ok(Evaluation::TargetingMatch {
+                        value,
+                        rule: matched_rule(RuleKind::TargetedRelease),
+                        variant: None,
+                    })
+                }
                 Outcome::PercentageRollout {
                     value,
                     rollout_percentage,
                     on_rollout_miss,
                     seed,
                 } => {
-                    let included = !subject.is_empty()
-                        && is_in_rollout(*rollout_percentage, || {
-                            match hashes.entry(seed.as_str()) {
-                                Entry::Occupied(entry) => Ok(*entry.get()),
-                                Entry::Vacant(entry) => {
-                                    hash(seed, subject).map(|value| *entry.insert(value))
-                                }
-                            }
-                        })?;
-                    if !included {
-                        match on_rollout_miss {
-                            RolloutMiss::Continue => continue,
-                            RolloutMiss::ReturnDefault => {
-                                return Ok(Evaluation::RolloutMiss {
-                                    value: self.config.default_value.as_ref(),
-                                    rule: matched_rule(RuleKind::PercentageRollout),
-                                })
-                            }
+                    let rule = matched_rule(RuleKind::PercentageRollout);
+                    if draws.includes(HashUse::Rollout, seed, *rollout_percentage)? {
+                        return Ok(Evaluation::TargetingMatch {
+                            value,
+                            rule,
+                            variant: None,
+                        });
+                    }
+                    (rule, on_rollout_miss)
+                }
+                Outcome::Experiment {
+                    paused,
+                    rollout_percentage,
+                    on_rollout_miss,
+                    seed,
+                    variants,
+                    holdout,
+                } => {
+                    let rule = matched_rule(RuleKind::Experiment);
+                    if *paused {
+                        return Ok(Evaluation::ExperimentPaused {
+                            value: default,
+                            rule,
+                        });
+                    }
+                    if let Some(holdout) = holdout {
+                        if draws.includes(
+                            HashUse::Holdout,
+                            &holdout.seed,
+                            holdout.exclusion_percentage,
+                        )? {
+                            return Ok(Evaluation::Holdout {
+                                value: default,
+                                rule,
+                            });
                         }
                     }
-                    (RuleKind::PercentageRollout, value)
+                    if draws.includes(HashUse::Rollout, seed, *rollout_percentage)? {
+                        let variant = select_variant(draws.draw(HashUse::Variant, seed)?, variants);
+                        return Ok(Evaluation::TargetingMatch {
+                            value: &variant.value,
+                            rule,
+                            variant: Some(&variant.key),
+                        });
+                    }
+                    (rule, on_rollout_miss)
                 }
             };
-            return Ok(Evaluation::TargetingMatch {
-                value,
-                rule: matched_rule(kind),
-            });
+            if *on_rollout_miss == RolloutMiss::ReturnDefault {
+                return Ok(Evaluation::RolloutMiss {
+                    value: default,
+                    rule,
+                });
+            }
         }
-        Ok(Evaluation::NoRuleMatch {
-            value: self.config.default_value.as_ref(),
-        })
+        Ok(Evaluation::NoRuleMatch { value: default })
     }
+}
+
+/// The hashes one evaluation draws for its subject; repeated draws of one seed share a hash.
+struct Draws<'a, 's, H> {
+    subject: &'s str,
+    hash: H,
+    cache: HashMap<(HashUse, &'a str), f64>,
+}
+
+impl<'a, H: FnMut(HashUse, &str, &str) -> Result<f64, EvaluationError>> Draws<'a, '_, H> {
+    fn draw(&mut self, hash_use: HashUse, seed: &'a str) -> Result<f64, EvaluationError> {
+        match self.cache.entry((hash_use, seed)) {
+            Entry::Occupied(entry) => Ok(*entry.get()),
+            Entry::Vacant(entry) => {
+                (self.hash)(hash_use, seed, self.subject).map(|value| *entry.insert(value))
+            }
+        }
+    }
+
+    /// An empty subject never enters a rollout or a holdout, so it is never hashed.
+    fn includes(
+        &mut self,
+        hash_use: HashUse,
+        seed: &'a str,
+        percentage: f64,
+    ) -> Result<bool, EvaluationError> {
+        Ok(!self.subject.is_empty() && is_in_rollout(percentage, || self.draw(hash_use, seed))?)
+    }
+}
+
+/// Boundaries add left to right in binary64; past the last one (rounding, or a hash of 1.0)
+/// the last variant wins. The parser admits at least two variants.
+fn select_variant(hash: f64, variants: &[Variant]) -> &Variant {
+    let mut boundary = 0.0;
+    for variant in variants {
+        boundary += variant.weight / 100.0;
+        if hash < boundary {
+            return variant;
+        }
+    }
+    &variants[variants.len() - 1]
 }
 
 /// Whether every predicate of `rule` matches; a reached error fails the evaluation.

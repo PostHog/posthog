@@ -1,0 +1,53 @@
+{
+  "version": 2,
+  "return_type": "string",
+  "default_value": "standard",
+  "rules": [
+    {
+      "id": "55555555-5555-4555-8555-555555555555",
+      "rule_type": "experiment",
+      "targeting": {
+        "properties": [
+          {
+            "key": "plan",
+            "type": "person",
+            "operator": "exact",
+            "value": [
+              "pro"
+            ]
+          }
+        ]
+      },
+      "description": "Split checkout layouts without an experiment.",
+      "experiment_id": null,
+      "paused": false,
+      "rollout_percentage": 80.5,
+      "on_rollout_miss": "return_default",
+      "assignment_algorithm": "sha1_60_v1",
+      "seed": "checkout-layout-split",
+      "assign_by": "person",
+      "variants": [
+        {
+          "key": "standard",
+          "weight": 33.33,
+          "value": "standard"
+        },
+        {
+          "key": "compact",
+          "weight": 33.33,
+          "value": "compact"
+        },
+        {
+          "key": "compact-copy",
+          "weight": 33.34,
+          "value": "compact"
+        }
+      ],
+      "holdout": {
+        "id": null,
+        "seed": "checkout-layout-holdout",
+        "exclusion_percentage": 10
+      }
+    }
+  ]
+}

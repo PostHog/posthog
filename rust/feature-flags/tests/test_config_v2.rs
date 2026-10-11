@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use feature_flags::flags::config_v2::{
-    Config, Outcome, ParseError, RolloutMiss, MAX_CONFIG_BYTES, MAX_OBJECT_DEPTH,
+    Config, Outcome, ParseError, RolloutMiss, MAX_CONFIG_BYTES, MAX_OBJECT_DEPTH, MAX_VARIANTS,
 };
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_models::{
@@ -594,10 +594,10 @@ fn unsupported_members_reject_the_whole_flag_and_debug_redacts_config() {
     document["rules"]
         .as_array_mut()
         .unwrap()
-        .push(json!({"rule_type": "experiment", "holdout": {"seed": "private-holdout"}}));
+        .push(json!({"rule_type": "experiment", "experiment_id": 42, "holdout": {"seed": "private-holdout"}}));
     assert_eq!(
         result(&read(document)).as_ref().unwrap_err(),
-        &ParseError::Unsupported("rule_type")
+        &ParseError::Unsupported("experiment_id")
     );
     for version in [json!(2), json!(3), json!("private-version")] {
         let mut document = config();
@@ -692,4 +692,268 @@ fn preparation_reuses_parsing_and_accounts_for_raw_and_typed_data() {
     assert!(result(&flag).is_ok());
     let weighted = prepared(flag).estimated_size_bytes();
     assert!(weighted > document.to_string().len() + 2000 * std::mem::size_of::<Value>());
+}
+
+fn experiment() -> Value {
+    json!({
+        "version": 2, "return_type": "string", "default_value": "standard",
+        "rules": [{
+            "id": "11111111-1111-4111-8111-111111111111", "rule_type": "experiment",
+            "targeting": {"properties": []}, "experiment_id": null, "paused": false,
+            "rollout_percentage": 80.5, "on_rollout_miss": "return_default",
+            "assignment_algorithm": "sha1_60_v1", "seed": "example-seed", "assign_by": "person",
+            "variants": [
+                {"key": "control", "weight": 33.33, "value": "standard"},
+                {"key": "test", "weight": 33.33, "value": "compact"},
+                {"key": "test-copy", "weight": 33.34, "value": "compact"}
+            ],
+            "holdout": {"id": null, "seed": "example-holdout", "exclusion_percentage": 10.25}
+        }]
+    })
+}
+
+#[test]
+fn experiment_rules_without_an_experiment_parse_into_a_weighted_split() {
+    let document = experiment();
+    let flag = read(document.clone());
+    let parsed = result(&flag).as_ref().unwrap();
+    let Outcome::Experiment {
+        paused,
+        rollout_percentage,
+        on_rollout_miss,
+        seed,
+        variants,
+        holdout,
+    } = &parsed.rules[0].outcome
+    else {
+        panic!("unexpected outcome {:?}", parsed.rules[0].outcome);
+    };
+    assert!(!paused);
+    assert_eq!(*rollout_percentage, 80.5);
+    assert_eq!(*on_rollout_miss, RolloutMiss::ReturnDefault);
+    assert_eq!(seed, "example-seed");
+    let summary: Vec<_> = variants
+        .iter()
+        .map(|v| (v.key.as_str(), v.weight, v.value.clone()))
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            ("control", 33.33, json!("standard")),
+            ("test", 33.33, json!("compact")),
+            ("test-copy", 33.34, json!("compact"))
+        ]
+    );
+    let holdout = holdout.as_ref().unwrap();
+    assert_eq!(
+        (holdout.seed.as_str(), holdout.exclusion_percentage),
+        ("example-holdout", 10.25)
+    );
+    assert_eq!(serde_json::to_value(&flag).unwrap()["filters"], document);
+    let debug = format!("{:?}", parsed.rules);
+    assert!(
+        !debug.contains("example-") && !debug.contains("compact"),
+        "{debug}"
+    );
+
+    let mut without_holdout = experiment();
+    let rule = without_holdout["rules"][0].as_object_mut().unwrap();
+    rule.remove("holdout");
+    rule.remove("assign_by");
+    assert!(result(&read(without_holdout)).is_ok());
+
+    // `weight` and percentages inside values and metadata are not contract percentages.
+    let mut nested = experiment();
+    nested["return_type"] = json!("object");
+    nested["default_value"] = json!({"weight": 0.125});
+    for (index, variant) in nested["rules"][0]["variants"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .enumerate()
+    {
+        variant["value"] = json!({"weight": 0.001, "rank": index});
+    }
+    nested["rules"][0]["metadata"] = json!({"exclusion_percentage": 0.001});
+    assert!(result(&read(nested)).is_ok());
+}
+
+#[test]
+fn experiment_rule_contract_violations_reject_the_whole_flag() {
+    let cases: Vec<(&str, Value, ParseError)> = vec![
+        (
+            "/rules/0/experiment_id",
+            json!(42),
+            ParseError::Unsupported("experiment_id"),
+        ),
+        (
+            "/rules/0/experiment_id",
+            json!(42.0),
+            ParseError::Unsupported("experiment_id"),
+        ),
+        (
+            "/rules/0/experiment_id",
+            json!(4.5),
+            ParseError::Malformed("experiment_id"),
+        ),
+        (
+            "/rules/0/experiment_id",
+            json!("42"),
+            ParseError::Malformed("experiment_id"),
+        ),
+        (
+            "/rules/0/paused",
+            json!("false"),
+            ParseError::Malformed("paused"),
+        ),
+        (
+            "/rules/0/holdout/id",
+            json!(7),
+            ParseError::Malformed("holdout.id"),
+        ),
+        (
+            "/rules/0/holdout/seed",
+            json!(""),
+            ParseError::Malformed("seed"),
+        ),
+        (
+            "/rules/0/holdout/exclusion_percentage",
+            json!(100.5),
+            ParseError::Malformed("exclusion_percentage"),
+        ),
+        (
+            "/rules/0/holdout/exclusion_percentage",
+            json!(5.555),
+            ParseError::Malformed("exclusion_percentage"),
+        ),
+        (
+            "/rules/0/variants/1/key",
+            json!("control"),
+            ParseError::Malformed("variant.key"),
+        ),
+        (
+            "/rules/0/variants/1/key",
+            json!("test.v2"),
+            ParseError::Malformed("variant.key"),
+        ),
+        (
+            "/rules/0/variants/1/key",
+            json!(""),
+            ParseError::Malformed("variant.key"),
+        ),
+        (
+            "/rules/0/variants/1/weight",
+            json!(33.32),
+            ParseError::Malformed("variants"),
+        ),
+        (
+            "/rules/0/variants/1/weight",
+            json!(33.34),
+            ParseError::Malformed("variants"),
+        ),
+        (
+            "/rules/0/variants/1/weight",
+            json!(33.333),
+            ParseError::Malformed("weight"),
+        ),
+        (
+            "/rules/0/variants/1/weight",
+            json!(-1),
+            ParseError::Malformed("weight"),
+        ),
+        (
+            "/rules/0/variants/1/value",
+            json!(true),
+            ParseError::Malformed("value"),
+        ),
+        (
+            "/rules/0/variants/1/value",
+            Value::Null,
+            ParseError::Malformed("value"),
+        ),
+        (
+            "/rules/0/variants/1/value",
+            json!(""),
+            ParseError::Malformed("value"),
+        ),
+        (
+            "/rules/0/variants/1/label",
+            json!("x"),
+            ParseError::Malformed("variant"),
+        ),
+        (
+            "/rules/0/holdout/name",
+            json!("x"),
+            ParseError::Malformed("holdout"),
+        ),
+        (
+            "/rules/0/value",
+            json!("compact"),
+            ParseError::Malformed("rule"),
+        ),
+        (
+            "/rules/0/variants",
+            json!([{"key": "control", "weight": 100, "value": "standard"}]),
+            ParseError::Malformed("variants"),
+        ),
+    ];
+    for (pointer, value, expected) in cases {
+        let mut document = experiment();
+        let (parent, key) = pointer.rsplit_once('/').unwrap();
+        document
+            .pointer_mut(parent)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .insert(key.to_owned(), value.clone());
+        let flag = read(document.clone());
+        assert_eq!(
+            result(&flag).as_ref().unwrap_err(),
+            &expected,
+            "{pointer} = {value}"
+        );
+        assert_eq!(serde_json::to_value(&flag).unwrap()["filters"], document);
+    }
+    for (pointer, expected) in [
+        (
+            "/rules/0/experiment_id",
+            ParseError::Malformed("experiment_id"),
+        ),
+        ("/rules/0/paused", ParseError::Malformed("paused")),
+        ("/rules/0/variants", ParseError::Malformed("variants")),
+        ("/rules/0/holdout/id", ParseError::Malformed("id")),
+    ] {
+        let mut document = experiment();
+        let (parent, key) = pointer.rsplit_once('/').unwrap();
+        document
+            .pointer_mut(parent)
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .remove(key);
+        assert_eq!(
+            result(&read(document)).as_ref().unwrap_err(),
+            &expected,
+            "{pointer}"
+        );
+    }
+    let mut document = experiment();
+    document["rules"][0]["variants"] = json!((0..=MAX_VARIANTS)
+        .map(|i| json!({"key": format!("arm_{i}"), "weight": 5, "value": "standard"}))
+        .collect::<Vec<_>>());
+    assert_eq!(
+        result(&read(document)).as_ref().unwrap_err(),
+        &ParseError::LimitExceeded("variants")
+    );
+    // Hundredths are summed exactly, so binary64 accumulation cannot round 99.99 up to 100.
+    let mut document = experiment();
+    document["rules"][0]["variants"] = json!([
+        {"key": "a", "weight": 33.33, "value": "standard"},
+        {"key": "b", "weight": 33.33, "value": "standard"},
+        {"key": "c", "weight": 33.33, "value": "standard"}
+    ]);
+    assert_eq!(
+        result(&read(document)).as_ref().unwrap_err(),
+        &ParseError::Malformed("variants")
+    );
 }
