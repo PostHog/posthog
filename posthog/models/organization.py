@@ -390,9 +390,13 @@ class Organization(ModelActivityMixin, UUIDTModel):
             and self._loaded_name is not None
             and self._loaded_name != self.name
         )
-        # Read self.name only after a rename is known, so a deferred name costs no query.
-        base_slug = slugify(self.name)[:MAX_SLUG_LENGTH] if renamed else ""
-        if renamed and base_slug != self.slug:
+        # Inserts that bypass OrganizationManager.create (e.g. get_or_create) arrive without a slug.
+        needs_initial_slug = self._state.adding and not self.slug
+        # Read self.name only when a slug is needed, so a deferred name costs no query.
+        base_slug = slugify(self.name)[:MAX_SLUG_LENGTH] if renamed or needs_initial_slug else ""
+        if needs_initial_slug:
+            self._save_with_regenerated_slug(base_slug, *args, **kwargs)
+        elif renamed and base_slug != self.slug:
             if update_fields is not None:
                 kwargs["update_fields"] = {*update_fields, "slug"}
             self._save_with_regenerated_slug(base_slug, *args, **kwargs)
