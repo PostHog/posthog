@@ -202,7 +202,12 @@ def read_state(
     team_id: int, user_id: int, canvas_id: UUID, capabilities: dict[str, Any] | None, **query: Any
 ) -> dict[str, Any]:
     """The shared entries plus the viewer's own entries, filtered and paged by `query`."""
-    return CanvasStateReader.entries(_readable_state(team_id, user_id, canvas_id, capabilities), **query)
+    try:
+        return CanvasStateReader.entries(_readable_state(team_id, user_id, canvas_id, capabilities), **query)
+    except ValueError as error:
+        raise CanvasRequestRejected(
+            status.HTTP_400_BAD_REQUEST, "Invalid cursor. Read again from the first page without a cursor."
+        ) from error
 
 
 def read_state_value(
