@@ -61,6 +61,7 @@ export interface SavedInsightFilters {
     insightType: string
     createdBy: number[] | 'All users'
     tags: string[] | undefined | null
+    tagsMatch: 'all' | undefined
     dateFrom: string | dayjs.Dayjs | undefined | null
     dateTo: string | dayjs.Dayjs | undefined | null
     createdDateFrom: string | dayjs.Dayjs | undefined | null
@@ -85,6 +86,8 @@ export function cleanFilters(
         // Clearing a multi-select sends an empty array, which must read as "no filter" and not linger in the URL
         createdBy: values.createdBy?.length ? values.createdBy : 'All users',
         tags: values.tags?.length ? values.tags : undefined,
+        // `any` is the API default, and the mode means nothing for one tag, so only `all` with several tags is kept
+        tagsMatch: (values.tags?.length ?? 0) > 1 && values.tagsMatch === 'all' ? 'all' : undefined,
         dateFrom: values.dateFrom || 'all',
         dateTo: values.dateTo || undefined,
         createdDateFrom: values.createdDateFrom || undefined,
@@ -127,6 +130,7 @@ function insightsListParams(filters: SavedInsightFilters): Record<string, any> {
                 created_by: JSON.stringify(filters.createdBy),
             }),
         ...(filters.tags && filters.tags.length > 0 && { tags: JSON.stringify(filters.tags) }),
+        ...(filters.tagsMatch && { tags_match: filters.tagsMatch }),
         ...(filters.dateFrom &&
             filters.dateFrom !== 'all' && {
                 date_from: filters.dateFrom,

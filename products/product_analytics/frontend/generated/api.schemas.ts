@@ -9487,9 +9487,13 @@ export type InsightsListParams = {
     search?: string
     short_id?: string
     /**
-     * JSON-encoded array of tag names. Returns insights with any of the listed tags.
+     * JSON-encoded array of tag names. Returns insights with any of the listed tags, or with all of them under `tags_match=all`.
      */
     tags?: string
+    /**
+     * How to combine the `tags` filter. `any` (the default) returns insights with at least one listed tag. `all` returns insights with every listed tag, and accepts at most 20 distinct tags.
+     */
+    tags_match?: InsightsListTagsMatch
     /**
      * Include this parameter (any value) to restrict results to insights created by the authenticated user.
      */
@@ -9528,6 +9532,13 @@ export const InsightsListRefresh = {
     ForceBlocking: 'force_blocking',
     ForceCache: 'force_cache',
     LazyAsync: 'lazy_async',
+} as const
+
+export type InsightsListTagsMatch = (typeof InsightsListTagsMatch)[keyof typeof InsightsListTagsMatch]
+
+export const InsightsListTagsMatch = {
+    All: 'all',
+    Any: 'any',
 } as const
 
 export type InsightsCreateParams = {
