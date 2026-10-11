@@ -349,6 +349,12 @@ export interface ProjectMenuActionProperties {
   changed?: boolean;
 }
 
+export interface DesktopAccessScreenShownProperties {
+  status: "blocked" | "error";
+  /** Null on a block means new sign-ups are paused. */
+  reason: "startup_plan" | "prepaid_credits" | null;
+}
+
 export type TaskListSurface = "sidebar" | "space" | "saved_search";
 
 export interface TaskListGroupingChangedProperties {
@@ -1883,6 +1889,7 @@ export const ANALYTICS_EVENTS = {
   CANVAS_DATA_REQUEST_REJECTED: "Canvas data request rejected",
   CONTEXT_ACTION: "Context action",
   PROJECT_MENU_ACTION: "Project menu action",
+  DESKTOP_ACCESS_SCREEN_SHOWN: "Desktop access screen shown",
 
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
@@ -2110,6 +2117,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CANVAS_DATA_REQUEST_REJECTED]: CanvasDataRequestRejectedProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
   [ANALYTICS_EVENTS.PROJECT_MENU_ACTION]: ProjectMenuActionProperties;
+  [ANALYTICS_EVENTS.DESKTOP_ACCESS_SCREEN_SHOWN]: DesktopAccessScreenShownProperties;
 
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
