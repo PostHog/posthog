@@ -1641,6 +1641,134 @@ const scoutReportChecksList = (): ToolBase<
     },
 })
 
+const ScoutRubricGenerateSchema = () => {
+    const SignalsScoutRubricsGenerateBody = orvalSchemas.SignalsScoutRubricsGenerateBody()
+    const SignalsScoutRubricsGenerateParams = orvalSchemas.SignalsScoutRubricsGenerateParams()
+    return SignalsScoutRubricsGenerateParams.omit({ project_id: true }).extend(SignalsScoutRubricsGenerateBody.shape)
+}
+
+const scoutRubricGenerate = (): ToolBase<ReturnType<typeof ScoutRubricGenerateSchema>, unknown> => ({
+    name: 'scout-rubric-generate',
+    schema: ScoutRubricGenerateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRubricGenerateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.context !== undefined) {
+            body['context'] = params.context
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/rubrics/${encodeURIComponent(String(params.id))}/generate/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ScoutRubricGetSchema = () => {
+    const SignalsScoutRubricsRetrieveParams = orvalSchemas.SignalsScoutRubricsRetrieveParams()
+    return SignalsScoutRubricsRetrieveParams.omit({ project_id: true }).extend({
+        fields: z
+            .array(
+                z.enum([
+                    'config_id',
+                    'skill_name',
+                    'revision',
+                    'criteria',
+                    'generation',
+                    'reference_context',
+                    'reference_generation_id',
+                    'generation.id',
+                    'generation.status',
+                    'generation.error',
+                    'generation.summary',
+                    'generation.suggestions',
+                    'generation.reference_context',
+                    'generation.reference_context.instructions',
+                    'generation.reference_context.report_disposition_instructions',
+                    'generation.reference_context.reference_texts',
+                    'reference_context.instructions',
+                    'reference_context.report_disposition_instructions',
+                    'reference_context.reference_texts',
+                ])
+            )
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
+}
+
+const scoutRubricGet = (): ToolBase<ReturnType<typeof ScoutRubricGetSchema>, Schemas.ScoutRubricDocument> => ({
+    name: 'scout-rubric-get',
+    schema: ScoutRubricGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRubricGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ScoutRubricDocument>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/rubrics/${encodeURIComponent(String(params.id))}/`,
+        })
+        const filtered = pickResponseFields(
+            result,
+            params.fields?.length
+                ? params.fields
+                : [
+                      'config_id',
+                      'skill_name',
+                      'revision',
+                      'criteria',
+                      'generation',
+                      'reference_context',
+                      'reference_generation_id',
+                      'generation.id',
+                      'generation.status',
+                      'generation.error',
+                      'generation.summary',
+                      'generation.suggestions',
+                      'generation.reference_context',
+                      'generation.reference_context.instructions',
+                      'generation.reference_context.report_disposition_instructions',
+                      'generation.reference_context.reference_texts',
+                      'reference_context.instructions',
+                      'reference_context.report_disposition_instructions',
+                      'reference_context.reference_texts',
+                  ]
+        ) as typeof result
+        return filtered
+    },
+})
+
+const ScoutRubricSaveSchema = () => {
+    const SignalsScoutRubricsUpdateBody = orvalSchemas.SignalsScoutRubricsUpdateBody()
+    const SignalsScoutRubricsUpdateParams = orvalSchemas.SignalsScoutRubricsUpdateParams()
+    return SignalsScoutRubricsUpdateParams.omit({ project_id: true }).extend(SignalsScoutRubricsUpdateBody.shape)
+}
+
+const scoutRubricSave = (): ToolBase<ReturnType<typeof ScoutRubricSaveSchema>, Schemas.ScoutRubricDocument> => ({
+    name: 'scout-rubric-save',
+    schema: ScoutRubricSaveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRubricSaveSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.revision !== undefined) {
+            body['revision'] = params.revision
+        }
+        if (params.criteria !== undefined) {
+            body['criteria'] = params.criteria
+        }
+        if (params.adopt_generation_id !== undefined) {
+            body['adopt_generation_id'] = params.adopt_generation_id
+        }
+        const result = await context.api.request<Schemas.ScoutRubricDocument>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/rubrics/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutRunNowSchema = () => {
     const SignalsScoutConfigRunBody = orvalSchemas.SignalsScoutConfigRunBody()
     const SignalsScoutConfigRunParams = orvalSchemas.SignalsScoutConfigRunParams()
@@ -1868,134 +1996,6 @@ const scoutScratchpadSearch = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/inbox')
-    },
-})
-
-const ScoutRubricGenerateSchema = () => {
-    const SignalsScoutRubricsGenerateBody = orvalSchemas.SignalsScoutRubricsGenerateBody()
-    const SignalsScoutRubricsGenerateParams = orvalSchemas.SignalsScoutRubricsGenerateParams()
-    return SignalsScoutRubricsGenerateParams.omit({ project_id: true }).extend(SignalsScoutRubricsGenerateBody.shape)
-}
-
-const scoutRubricGenerate = (): ToolBase<ReturnType<typeof ScoutRubricGenerateSchema>, unknown> => ({
-    name: 'scout-rubric-generate',
-    schema: ScoutRubricGenerateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRubricGenerateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.context !== undefined) {
-            body['context'] = params.context
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/rubrics/${encodeURIComponent(String(params.id))}/generate/`,
-            body,
-        })
-        return result
-    },
-})
-
-const ScoutRubricGetSchema = () => {
-    const SignalsScoutRubricsRetrieveParams = orvalSchemas.SignalsScoutRubricsRetrieveParams()
-    return SignalsScoutRubricsRetrieveParams.omit({ project_id: true }).extend({
-        fields: z
-            .array(
-                z.enum([
-                    'config_id',
-                    'skill_name',
-                    'revision',
-                    'criteria',
-                    'generation',
-                    'reference_context',
-                    'reference_generation_id',
-                    'generation.id',
-                    'generation.status',
-                    'generation.error',
-                    'generation.summary',
-                    'generation.suggestions',
-                    'generation.reference_context',
-                    'generation.reference_context.instructions',
-                    'generation.reference_context.report_disposition_instructions',
-                    'generation.reference_context.reference_texts',
-                    'reference_context.instructions',
-                    'reference_context.report_disposition_instructions',
-                    'reference_context.reference_texts',
-                ])
-            )
-            .min(1)
-            .optional()
-            .describe(
-                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
-            ),
-    })
-}
-
-const scoutRubricGet = (): ToolBase<ReturnType<typeof ScoutRubricGetSchema>, Schemas.ScoutRubricDocument> => ({
-    name: 'scout-rubric-get',
-    schema: ScoutRubricGetSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRubricGetSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.ScoutRubricDocument>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/rubrics/${encodeURIComponent(String(params.id))}/`,
-        })
-        const filtered = pickResponseFields(
-            result,
-            params.fields?.length
-                ? params.fields
-                : [
-                      'config_id',
-                      'skill_name',
-                      'revision',
-                      'criteria',
-                      'generation',
-                      'reference_context',
-                      'reference_generation_id',
-                      'generation.id',
-                      'generation.status',
-                      'generation.error',
-                      'generation.summary',
-                      'generation.suggestions',
-                      'generation.reference_context',
-                      'generation.reference_context.instructions',
-                      'generation.reference_context.report_disposition_instructions',
-                      'generation.reference_context.reference_texts',
-                      'reference_context.instructions',
-                      'reference_context.report_disposition_instructions',
-                      'reference_context.reference_texts',
-                  ]
-        ) as typeof result
-        return filtered
-    },
-})
-
-const ScoutRubricSaveSchema = () => {
-    const SignalsScoutRubricsUpdateBody = orvalSchemas.SignalsScoutRubricsUpdateBody()
-    const SignalsScoutRubricsUpdateParams = orvalSchemas.SignalsScoutRubricsUpdateParams()
-    return SignalsScoutRubricsUpdateParams.omit({ project_id: true }).extend(SignalsScoutRubricsUpdateBody.shape)
-}
-
-const scoutRubricSave = (): ToolBase<ReturnType<typeof ScoutRubricSaveSchema>, Schemas.ScoutRubricDocument> => ({
-    name: 'scout-rubric-save',
-    schema: ScoutRubricSaveSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutRubricSaveSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.revision !== undefined) {
-            body['revision'] = params.revision
-        }
-        if (params.criteria !== undefined) {
-            body['criteria'] = params.criteria
-        }
-        if (params.adopt_generation_id !== undefined) {
-            body['adopt_generation_id'] = params.adopt_generation_id
-        }
-        const result = await context.api.request<Schemas.ScoutRubricDocument>({
-            method: 'PUT',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/rubrics/${encodeURIComponent(String(params.id))}/`,
-            body,
-        })
-        return result
     },
 })
 
@@ -3062,6 +3062,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-report-check-create': scoutReportCheckCreate,
     'scout-report-check-list': scoutReportCheckList,
     'scout-report-checks-list': scoutReportChecksList,
+    'scout-rubric-generate': scoutRubricGenerate,
+    'scout-rubric-get': scoutRubricGet,
+    'scout-rubric-save': scoutRubricSave,
     'scout-run-now': scoutRunNow,
     'scout-runs-emission-reports': scoutRunsEmissionReports,
     'scout-runs-emissions-list': scoutRunsEmissionsList,
@@ -3071,9 +3074,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-scratchpad-forget': scoutScratchpadForget,
     'scout-scratchpad-remember': scoutScratchpadRemember,
     'scout-scratchpad-search': scoutScratchpadSearch,
-    'scout-rubric-generate': scoutRubricGenerate,
-    'scout-rubric-get': scoutRubricGet,
-    'scout-rubric-save': scoutRubricSave,
     'scout-trial-archive': scoutTrialArchive,
     'scout-trial-create': scoutTrialCreate,
     'scout-trial-get': scoutTrialGet,
