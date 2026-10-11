@@ -1,16 +1,18 @@
 //! End-to-end durability test: the four merge CFs (`cf_pending_transfers`, `cf_merge_drains_applied`,
 //! `cf_merge_applied`, `cf_merge_tombstones`) plus the cascade's `cf_stage2` state survive a whole-DB
 //! checkpoint → S3 disaster restore, against a real Kafka/Redpanda broker + S3-compatible store
-//! (MinIO / SeaweedFS), with the cascade gate on and a single-pod static-membership deploy.
+//! (the compose stack's SeaweedFS), with the cascade gate on and a single-pod static-membership
+//! deploy.
 //!
 //! `#[ignore]`d by default: needs a running broker + an S3-compatible store. Run serially:
 //!
 //! ```sh
 //! export KAFKA_HOSTS=localhost:9092
-//! export CHECKPOINT_S3_ENDPOINT=http://localhost:19000   # MinIO; or :8333 for SeaweedFS
-//! export CHECKPOINT_S3_BUCKET=cohort-checkpoints          # must already exist
-//! export CHECKPOINT_S3_ACCESS_KEY_ID=...                  # MinIO/SeaweedFS creds
-//! export CHECKPOINT_S3_SECRET_ACCESS_KEY=...
+//! export CHECKPOINT_S3_ENDPOINT=http://localhost:19000
+//! export CHECKPOINT_S3_REGION=us-east-1
+//! export CHECKPOINT_S3_BUCKET=posthog
+//! export CHECKPOINT_S3_ACCESS_KEY_ID=object_storage_root_user
+//! export CHECKPOINT_S3_SECRET_ACCESS_KEY=object_storage_root_password
 //! cargo test -p cohort-stream-processor --test merge_durability -- --ignored --test-threads=1
 //! ```
 
@@ -1053,7 +1055,7 @@ async fn complete_cross_partition_merge(
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "requires Kafka + MinIO; run with --ignored --test-threads=1"]
+#[ignore = "requires Kafka + an S3-compatible store (CHECKPOINT_S3_*); run with --ignored --test-threads=1"]
 async fn merge_and_cascade_state_survive_an_s3_disaster_restore() {
     let suffix = Uuid::new_v4();
     let topics = Topics::unique(&suffix);

@@ -229,7 +229,8 @@ Other cases to know:
   The revert's own save schedules a fresh run.
 - **A cohort leaves the realtime set mid-run.**
   A soft delete, a switch to static, or losing realtime support skips hash maintenance, so Django does not supersede the run, and the finalizer does not re-check `deleted` or `cohort_type`.
-  At its next catalog refresh the processor drops a cohort that is deleted or no longer `realtime`, and then discards the cohort's reconcile requests without markers.
+  At its next catalog refresh the processor drops a cohort that is deleted or no longer `realtime`.
+  It then discards each of the cohort's reconcile requests without a marker, once a catalog refresh that began after the request arrived has run.
   So the run stamps only if every marker landed first.
   Otherwise a soft delete ends with the seeder superseding the participation, and losing realtime support leaves a retryable shortfall that holds the run in `reconciling`.
 - **A cohort re-enters the realtime set without a leaf change.**

@@ -61,8 +61,8 @@ impl RestoreSource {
 }
 
 /// The result of [`run_boot_restore`]: the chosen source plus the offset manifest that the events
-/// consumer seeks to. `manifest` is `None` for the no-seek paths (`ReopenLive`, `ColdStart`) and
-/// `Some` for the disaster paths (`PvcCheckpoint`, `S3`).
+/// consumer seeks to. `manifest` is `None` for the paths with no checkpoint (`ReopenLive`,
+/// `ColdStart`) and `Some` for the disaster paths (`PvcCheckpoint`, `S3`).
 #[derive(Debug)]
 pub struct RestoreOutcome {
     pub source: RestoreSource,

@@ -17,7 +17,7 @@ use rdkafka::message::Message;
 use tracing::{debug, info, warn};
 
 use crate::cascade::CascadeMessage;
-use crate::consumers::events::{fsync_then_commit, EventDispatcher, RECV_ERROR_BACKOFF};
+use crate::consumers::events::{fsync_then_commit, DrainWait, EventDispatcher, RECV_ERROR_BACKOFF};
 use crate::merge::transfer::{MergeStateTransfer, PersonMergeEvent};
 use crate::observability::metrics::{
     COHORT_STREAM_CASCADES_CONSUMED, COHORT_STREAM_CASCADES_CONSUME_BATCH_SIZE,
@@ -218,12 +218,12 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
 
         let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
 
-        loop {
+        let owned_at_shutdown = loop {
             tokio::select! {
                 biased;
                 _ = self.handle.shutdown_recv() => {
                     info!(topic = %self.topic, "shutdown signal received, stopping follower consume loop");
-                    break;
+                    break self.dispatcher.owned_set();
                 }
                 outcome = self.consume_batch() => {
                     self.handle_outcome(outcome).await;
@@ -242,15 +242,20 @@ impl<R: FollowerRoute> FollowerConsumer<R> {
                     }
                 }
             }
-        }
+        };
 
-        // Final sync commit runs before the events consumer's shutdown; workers may still be marking
-        // offsets at this point, but follower offsets are independent.
+        let offsets = committable_after_drain(
+            self.tracker(),
+            &self.dispatcher,
+            owned_at_shutdown,
+            &self.topic,
+        )
+        .await;
         fsync_then_commit(
             self.dispatcher.handle(),
             &self.consumer,
             self.tracker(),
-            self.owned_committable_offsets(),
+            offsets,
             &self.topic,
             CommitMode::Sync,
         )
@@ -339,19 +344,43 @@ struct FollowerOutcome<T> {
     transport_error: bool,
 }
 
+/// Bounds a follower's final wait for the events consumer's worker drain. It exceeds the
+/// consumer's 30 s shutdown window and stays inside each follower's 45 s window (both in
+/// `main.rs`), so a follower outlives the drain and still has time to commit.
+pub(crate) const FOLLOWER_DRAIN_WAIT: Duration = Duration::from_secs(35);
+
 /// A tracker's committable offsets restricted to the partitions this pod currently owns.
 pub(crate) fn owned_committable_offsets(
     tracker: &OffsetTracker,
     dispatcher: &EventDispatcher,
 ) -> HashMap<i32, i64> {
-    restrict_to_owned(
-        tracker.committable_offsets(),
-        &dispatcher.owned_partitions(),
-    )
+    restrict_to_owned(tracker.committable_offsets(), &dispatcher.owned_set())
 }
 
-fn restrict_to_owned(offsets: HashMap<i32, i64>, owned: &[i32]) -> HashMap<i32, i64> {
-    let owned: HashSet<i32> = owned.iter().copied().collect();
+/// A follower's final commit: what the workers finished, including during the shutdown drain, for
+/// the partitions this pod owned when that drain ended. A drain that outlasts
+/// [`FOLLOWER_DRAIN_WAIT`] falls back to the ownership the follower saw when shutdown began.
+pub(crate) async fn committable_after_drain(
+    tracker: &OffsetTracker,
+    dispatcher: &EventDispatcher,
+    owned_at_shutdown: HashSet<i32>,
+    topic: &str,
+) -> HashMap<i32, i64> {
+    match dispatcher.wait_for_worker_drain(FOLLOWER_DRAIN_WAIT).await {
+        DrainWait::Drained(drained) => {
+            restrict_to_owned(tracker.committable_offsets(), drained.partitions())
+        }
+        DrainWait::TimedOut => {
+            warn!(
+                topic,
+                "worker drain outlasted the follower's wait; committing against the ownership seen at shutdown",
+            );
+            restrict_to_owned(tracker.committable_offsets(), &owned_at_shutdown)
+        }
+    }
+}
+
+fn restrict_to_owned(offsets: HashMap<i32, i64>, owned: &HashSet<i32>) -> HashMap<i32, i64> {
     offsets
         .into_iter()
         .filter(|(partition, _)| owned.contains(partition))
@@ -480,7 +509,7 @@ mod tests {
     fn restrict_to_owned_keeps_only_owned_partitions() {
         let offsets: HashMap<i32, i64> = [(0, 10), (3, 30), (7, 70)].into_iter().collect();
 
-        let restricted = restrict_to_owned(offsets, &[3, 7]);
+        let restricted = restrict_to_owned(offsets, &HashSet::from([3, 7]));
 
         assert_eq!(restricted.len(), 2);
         assert_eq!(restricted.get(&0), None, "revoked partition is dropped");
@@ -491,6 +520,6 @@ mod tests {
     #[test]
     fn restrict_to_owned_with_no_owned_partitions_is_empty() {
         let offsets: HashMap<i32, i64> = [(0, 10)].into_iter().collect();
-        assert!(restrict_to_owned(offsets, &[]).is_empty());
+        assert!(restrict_to_owned(offsets, &HashSet::new()).is_empty());
     }
 }

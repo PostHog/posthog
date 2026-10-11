@@ -156,7 +156,7 @@ Taking the lower of the two can only make the sweep delete less.
 
 The consumer knows nothing about Django's supersession.
 A run that an edit superseded after its reconcile was dispatched can still collect all 64 markers.
-The processor discards the remaining requests only when the edit moved the shape hash of the run's kind, and it cannot take back markers it already produced.
+The processor discards the remaining requests only when the edit moved the shape hash of the run's kind, after a catalog refresh that began after each request arrived, and it cannot take back markers it already produced.
 A run with every marker sweeps like any other run.
 A run whose markers stay incomplete never leaves `collecting`, and it is abandoned after a few days.
 
