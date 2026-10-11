@@ -31,6 +31,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { AutomationEmptyState } from '../setupGuide/AutomationEmptyState'
 import { AutomationSuggestionBanner } from '../setupGuide/AutomationSuggestionBanner'
+import { WorkflowIdeas } from '../setupGuide/ideas/WorkflowIdeas'
 import { MessagingSetupReminderBanner } from '../setupGuide/MessagingSetupReminderBanner'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
@@ -404,6 +405,7 @@ export function WorkflowsTable(): JSX.Element {
         <div className="workflows-section" data-attr="workflows-table" data-loading={workflowsLoading}>
             <>
                 {guidedOnboardingEnabled && <MessagingSetupReminderBanner />}
+                <WorkflowIdeas />
                 <div className="mb-3">
                     <LemonSegmentedButton<WorkflowTypeFilter>
                         size="small"
