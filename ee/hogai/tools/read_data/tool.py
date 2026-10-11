@@ -1,4 +1,5 @@
 import re
+import json
 from collections.abc import Callable
 from datetime import UTC
 from typing import ClassVar, Literal, Self, Union
@@ -15,6 +16,7 @@ from posthog.schema import (
     ArtifactContentType,
     AssistantToolCallMessage,
     DatabaseSchemaField,
+    HogQLQuery,
     LLMTrace,
     NotebookArtifactContent,
     TraceQuery,
@@ -26,7 +28,10 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FieldOrTable
 from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 
-from posthog.models import Team, User
+from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Person, Team, User
+from posthog.models.person.util import get_person_by_uuid, get_persons_by_distinct_ids
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.property_access_control import (
@@ -67,6 +72,7 @@ from ee.hogai.tools.read_data.prompts import (
     BILLING_INSUFFICIENT_ACCESS_PROMPT,
     DASHBOARD_NOT_FOUND_PROMPT,
     INSIGHT_NOT_FOUND_PROMPT,
+    PERSON_NOT_FOUND_PROMPT,
     READ_DATA_ACCOUNT_PROMPT,
     READ_DATA_ACTIVITY_LOG_PROMPT,
     READ_DATA_BILLING_PROMPT,
@@ -230,6 +236,13 @@ class ReadLLMTrace(BaseModel):
     trace_id: str = Field(description="The trace ID to read.")
 
 
+class ReadPerson(BaseModel):
+    """Retrieves a person by one of their distinct IDs or by their person UUID, including their distinct IDs and properties."""
+
+    kind: Literal["person"] = "person"
+    person_id: str = Field(description="A distinct ID of the person, or the person UUID.")
+
+
 class ReadBusinessKnowledgeDocument(BaseModel):
     """Reads a wider context window from a business knowledge document around a specific chunk ordinal."""
 
@@ -259,6 +272,7 @@ ReadDataQuery = (
     | ReadAccount
     | ReadActivityLog
     | ReadLLMTrace
+    | ReadPerson
     | ReadBusinessKnowledgeDocument
 )
 
@@ -342,6 +356,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             ReadFeatureFlag,
             ReadExperiment,
             ReadLLMTrace,
+            ReadPerson,
         )
         ReadDataKind = Union[tuple(base_kinds + tuple(kinds))]  # type: ignore[valid-type]
 
@@ -422,6 +437,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 ), None
             case ReadLLMTrace() as schema:
                 return await self._read_llm_trace(schema.trace_id), None
+            case ReadPerson() as schema:
+                return await self._read_person(schema.person_id), None
             case ReadBusinessKnowledgeDocument() as schema:
                 return await self._read_business_knowledge_document(
                     schema.document_id, schema.around_ordinal, schema.radius
@@ -925,6 +942,60 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             limit=limit,
             offset=offset,
         )
+
+    PERSON_DISTINCT_ID_LIMIT: ClassVar[int] = 20
+
+    async def _read_person(self, person_id: str) -> str:
+        person = await database_sync_to_async(self._resolve_person, thread_sensitive=False)(person_id.strip())
+        if person is None:
+            raise MaxToolRetryableError(PERSON_NOT_FOUND_PROMPT.format(person_id=person_id))
+
+        # Personhog answers the identity question only. Properties come from ClickHouse, where HogQL
+        # also drops the properties this user may not read.
+        executor = AssistantQueryExecutor(self._team, timezone.now().astimezone(UTC), user=self._user)
+        response = await executor.aexecute_query(
+            HogQLQuery(
+                query="SELECT properties FROM persons WHERE id = {person_uuid} LIMIT 1",
+                values={"person_uuid": str(person.uuid)},
+            ),
+            execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+        )
+        rows = response.get("results") or []
+        raw_properties = rows[0][0] if rows else None
+        properties = json.loads(raw_properties) if isinstance(raw_properties, str) else raw_properties or {}
+
+        lines = [
+            f"# Person {person.uuid}",
+            f"Created at: {person.created_at.isoformat() if person.created_at else 'unknown'}",
+            f"Distinct IDs (up to {self.PERSON_DISTINCT_ID_LIMIT}): {', '.join(person.distinct_ids) or 'none'}",
+            "",
+            "## Properties",
+        ]
+        if properties:
+            lines.append(json.dumps(properties, ensure_ascii=False, sort_keys=True, default=str))
+        else:
+            lines.append("No properties are available for this person yet.")
+        lines.append("")
+        lines.append(
+            "To analyze this person's events, query the `events` table with `execute_sql` and filter by `person_id`."
+        )
+        return sanitize_for_system_reminder("\n".join(lines))
+
+    def _resolve_person(self, person_id: str) -> Person | None:
+        with personhog_caller_tag("posthog-ai/read-person"):
+            try:
+                UUID(person_id)
+            except ValueError:
+                pass
+            else:
+                person = get_person_by_uuid(self._team.pk, person_id, distinct_id_limit=self.PERSON_DISTINCT_ID_LIMIT)
+                if person is not None:
+                    return person
+            # Anonymous distinct IDs are often UUIDs too, so a UUID miss falls through to the distinct ID lookup.
+            persons = get_persons_by_distinct_ids(
+                self._team.pk, [person_id], distinct_id_limit=self.PERSON_DISTINCT_ID_LIMIT
+            )
+            return persons[0] if persons else None
 
     TRACE_SUMMARIZATION_THRESHOLD: ClassVar[int] = 5000
 

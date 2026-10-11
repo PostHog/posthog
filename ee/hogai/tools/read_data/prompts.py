@@ -130,6 +130,17 @@ Retrieves an experiment by its numeric ID or by its feature flag's key.
 - id: The numeric ID of the experiment (optional if feature_flag_key is provided)
 - feature_flag_key: The key of the experiment's feature flag (optional if id is provided)
 
+# Person
+
+Retrieves a person by one of their distinct IDs or by their person UUID. Returns the person UUID, distinct IDs, and properties.
+
+## Use this when:
+- The user gives you a person ID, a distinct ID, or a value they copied from a person profile.
+- You have an ID that does not match an insight, dashboard, or other entity, and it can be a person.
+
+## Parameters:
+- person_id: A distinct ID of the person, or the person UUID.
+
 {{{account_prompt}}}
 
 {{{activity_log_prompt}}}
@@ -151,6 +162,11 @@ Suggest the user upgrade their plan to access audit logs.
 
 INSIGHT_NOT_FOUND_PROMPT = """
 The insight with the ID "{short_id}" was not found or uses an unsupported query type. Please verify the insight ID is correct.
+If the ID can be a person ID or a distinct ID, read it with the `person` kind instead, or query the `persons` table with `execute_sql`.
+""".strip()
+
+PERSON_NOT_FOUND_PROMPT = """
+No person with the distinct ID or person UUID "{person_id}" was found in this project. Please verify the ID is correct.
 """.strip()
 
 DASHBOARD_NOT_FOUND_PROMPT = """
