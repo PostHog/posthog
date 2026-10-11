@@ -50,6 +50,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
 )
 from posthog.temporal.ai_observability.evaluation_payload import (
     PAYLOAD_BYTES_EXPR,
+    TRANSCRIPT_BUILD_SLOTS,
     payload_budget_bytes,
     should_skip_for_payload,
 )
@@ -685,20 +686,24 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     output_config = evaluation.get("output_config") or {}
     allows_na = output_config.get("allows_na", False)
 
-    outcome = fetch_trace_for_evaluation(
-        inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
-    )
-    if outcome.skip_reason or outcome.trace is None:
-        return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found", output_type=output_type)
-    if not _has_judge_transcript(outcome.trace):
-        return _build_trace_skip_result(allows_na, "trace_not_found", output_type=output_type)
+    with TRANSCRIPT_BUILD_SLOTS:
+        outcome = fetch_trace_for_evaluation(
+            inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
+        )
+        if outcome.skip_reason or outcome.trace is None:
+            return _build_trace_skip_result(
+                allows_na, outcome.skip_reason or "trace_not_found", output_type=output_type
+            )
+        if not _has_judge_transcript(outcome.trace):
+            return _build_trace_skip_result(allows_na, "trace_not_found", output_type=output_type)
+        transcript = format_trace_for_judge(outcome.trace)
 
     return call_llm_judge(
         evaluation=evaluation,
         system_prompt=build_trace_system_prompt(
             prompt, allows_na, output_type=output_type, output_config=output_config
         ),
-        user_prompt=format_trace_for_judge(outcome.trace),
+        user_prompt=transcript,
         allows_na=allows_na,
     )
 
@@ -723,15 +728,16 @@ async def execute_trace_hog_eval_activity(inputs: ExecuteTraceEvaluationInputs) 
     allows_na = output_config.get("allows_na", False)
 
     def _execute() -> tuple[dict[str, Any] | None, str | None]:
-        outcome = fetch_trace_for_evaluation(
-            inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
-        )
-        if outcome.skip_reason or outcome.trace is None:
-            return None, outcome.skip_reason or "trace_not_found"
-        globals_dict = build_trace_hog_globals(outcome.trace, inputs.trace_id, bytecode=bytecode)
-        return execute_hog_eval_bytecode(
-            bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
-        ), None
+        with TRANSCRIPT_BUILD_SLOTS:
+            outcome = fetch_trace_for_evaluation(
+                inputs.team_id, inputs.trace_id, datetime.fromisoformat(inputs.window_start), inputs.window_end_datetime
+            )
+            if outcome.skip_reason or outcome.trace is None:
+                return None, outcome.skip_reason or "trace_not_found"
+            globals_dict = build_trace_hog_globals(outcome.trace, inputs.trace_id, bytecode=bytecode)
+            return execute_hog_eval_bytecode(
+                bytecode, globals_dict, allows_na=allows_na, output_type=output_type, output_config=output_config
+            ), None
 
     result, skip_reason = await database_sync_to_async(_execute, thread_sensitive=False)()
 
