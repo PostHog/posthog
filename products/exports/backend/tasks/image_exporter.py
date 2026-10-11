@@ -628,11 +628,17 @@ def export_image(
                     variables = insight_variables_for_team(exported_asset.team_id)
                     dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
 
-                tiles = (
-                    exported_asset.dashboard.tiles.select_related("insight")
-                    .filter(insight__isnull=False, insight__deleted=False)
-                    .all()
+                tiles = list(
+                    exported_asset.dashboard.tiles.select_related("insight").filter(
+                        insight__isnull=False, insight__deleted=False
+                    )
                 )
+                # The render waits for an `.InsightCard`, and only insight tiles render one. Without
+                # them every attempt burns the full page-load timeout and then fails anyway.
+                if not tiles:
+                    raise InvalidExportContext(
+                        "This dashboard has no insights to export. Add an insight to the dashboard and try again."
+                    )
                 for tile in tiles:
                     insight = tile.insight
                     if not insight or not insight.query:
