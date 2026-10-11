@@ -746,7 +746,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             if (primary === ProductKey.ERROR_TRACKING) {
                 teamLogic.actions.updateCurrentTeam({ autocapture_exceptions_opt_in: true })
             }
-            // Support has no onboarding screen; enable the product on completion so it's live on arrival.
+            // Enable Support on completion so it's live on arrival.
             if (primary === ProductKey.CONVERSATIONS) {
                 teamLogic.actions.updateCurrentTeam({ conversations_enabled: true })
             }
