@@ -163,8 +163,7 @@ def score_and_record(*, team_id: int, insight_id: int, now: datetime) -> ScoreOu
     state, _ = InsightAnomalyState.objects.for_team(team_id).get_or_create(team_id=team_id, insight=insight)
     current_hash = query_hash(insight, config)
     if state.query_hash != current_hash:
-        # last_scored_bucket stays. Capture cannot take old points, and the same labels on a rewritten
-        # bucket would leave two points at one timestamp.
+        # last_scored_bucket stays: a rewritten bucket would leave two points at one timestamp.
         state.query_hash = current_hash
         state.skip_reason = None
         state.consecutive_failures = 0

@@ -18,10 +18,11 @@ from posthog.security.outbound_proxy import internal_requests_session
 
 from products.metrics.backend.facade.contracts import GaugeSample, GaugeWriteResult
 
-# The capture service moves a point older than 24 hours to the ingest time and keeps its series
-# fingerprint, so the point lands at the wrong time with no error. The margin covers clock skew
-# and the time a request waits before the service reads it.
-MAX_POINT_AGE = dt.timedelta(hours=23)
+# The capture service moves a point older than its past window to the ingest time and keeps its series
+# fingerprint, so the point lands at the wrong time with no error. The margin covers clock skew and
+# the time a request waits before the service reads it.
+DEFAULT_PAST_WINDOW = dt.timedelta(hours=24)
+PAST_WINDOW_MARGIN = dt.timedelta(hours=1)
 # The capture service rejects a body over 2 MB. One point with its labels is a few hundred bytes.
 MAX_POINTS_PER_REQUEST = 2000
 REQUEST_TIMEOUT_SECONDS = 10
@@ -50,10 +51,17 @@ def write_gauges(
     token: str,
     service_name: str,
     now: dt.datetime,
+    backfill_days: int = 0,
 ) -> GaugeWriteResult:
-    """POST the samples to the metrics capture service. Raises on a non-2xx response."""
-    earliest = now - MAX_POINT_AGE
+    """POST the samples to the metrics capture service. Raises on a non-2xx response.
+
+    `backfill_days` above 0 widens the capture service's past window to that many days. The service
+    rejects a value above its MAX_METRICS_BACKFILL_DAYS with a 400.
+    """
+    past_window = dt.timedelta(days=backfill_days) if backfill_days > 0 else DEFAULT_PAST_WINDOW
+    earliest = now - past_window + PAST_WINDOW_MARGIN
     fresh = [sample for sample in samples if sample.timestamp >= earliest]
+    params = {"backfill_days": str(backfill_days)} if backfill_days > 0 else None
     session = internal_requests_session()
     for chunk in _chunks(fresh, MAX_POINTS_PER_REQUEST):
         body = build_export_request(chunk, service_name=service_name).SerializeToString()
@@ -61,6 +69,7 @@ def write_gauges(
         # internal_requests_session ignores the proxy environment variables.
         response = session.post(
             endpoint,
+            params=params,
             data=body,
             headers={"content-type": "application/x-protobuf", "authorization": f"Bearer {token}"},
             timeout=REQUEST_TIMEOUT_SECONDS,

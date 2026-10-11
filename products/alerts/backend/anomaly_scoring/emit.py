@@ -1,9 +1,9 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from posthog.models import Team
 
 from products.alerts.backend.anomaly_scoring.scoring import INTERVAL_STEP, InsightScores
-from products.metrics.backend.facade.api import write_gauges
+from products.metrics.backend.facade.api import gauge_backfill_enabled, write_gauges
 from products.metrics.backend.facade.contracts import GaugeSample, GaugeWriteResult
 
 SERVICE_NAME = "posthog-insight-anomalies"
@@ -12,14 +12,15 @@ SCORE_METRIC = "posthog.insight.anomaly_score"
 FLAG_METRIC = "posthog.insight.anomaly_flag"
 
 
-def gauge_samples(insight_id: int, scores: InsightScores) -> list[GaugeSample]:
+def gauge_samples(insight_id: int, scores: InsightScores, *, stamp_bucket_start: bool) -> list[GaugeSample]:
     """One value gauge per scored bucket, plus a score and flag gauge once the detector has enough history.
 
-    Each point is stamped at its bucket's close, not its start. The capture service only keeps
-    timestamps from the last 24 hours, and a daily or weekly bucket start is older than that by
-    the time the bucket completes. A reader that wants bucket starts subtracts one interval.
+    With `stamp_bucket_start`, each point is stamped at its bucket's start, the same time the insight
+    chart shows. Without it, each point is stamped at its bucket's close: the capture service then only
+    keeps timestamps from the last 24 hours, and a daily or weekly bucket start is older than that by
+    the time the bucket completes. A reader of close-stamped points subtracts one interval.
     """
-    step = INTERVAL_STEP[scores.interval]
+    offset = timedelta(0) if stamp_bucket_start else INTERVAL_STEP[scores.interval]
     samples: list[GaugeSample] = []
     for series in scores.series:
         labels = {
@@ -33,7 +34,7 @@ def gauge_samples(insight_id: int, scores: InsightScores) -> list[GaugeSample]:
         if series.breakdown_value is not None:
             labels["breakdown_value"] = series.breakdown_value
         for point in series.points:
-            timestamp = point.bucket + step
+            timestamp = point.bucket + offset
             samples.append(GaugeSample(name=VALUE_METRIC, value=point.value, timestamp=timestamp, labels=labels))
             if point.score is None:
                 continue
@@ -48,4 +49,5 @@ def last_bucket(scores: InsightScores) -> datetime | None:
 
 
 def emit_scores(*, team: Team, insight_id: int, scores: InsightScores, now: datetime) -> GaugeWriteResult:
-    return write_gauges(team=team, samples=gauge_samples(insight_id, scores), service_name=SERVICE_NAME, now=now)
+    samples = gauge_samples(insight_id, scores, stamp_bucket_start=gauge_backfill_enabled())
+    return write_gauges(team=team, samples=samples, service_name=SERVICE_NAME, now=now)

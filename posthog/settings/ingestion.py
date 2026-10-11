@@ -82,6 +82,11 @@ OTEL_METRICS_EXPORT_INTERVAL_MS = get_from_env("OTEL_METRICS_EXPORT_INTERVAL_MS"
 OTLP_METRICS_INGEST_ENDPOINT = os.getenv(
     "OTLP_METRICS_INGEST_ENDPOINT", "http://localhost:8010/i/v1/metrics" if DEBUG and not TEST else ""
 )
+# Above 0, the capture service's MAX_METRICS_BACKFILL_DAYS must be at least this value. An older capture
+# service ignores `backfill_days` and silently moves points older than 24 hours to the ingest time.
+OTLP_METRICS_BACKFILL_DAYS = get_from_env(
+    "OTLP_METRICS_BACKFILL_DAYS", type_cast=int, default=8 if DEBUG and not TEST else 0
+)
 
 # Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
 CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)
