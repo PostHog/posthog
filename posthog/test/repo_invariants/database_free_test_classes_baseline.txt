@@ -291,7 +291,6 @@ products/dashboards/backend/api/test/test_run_widgets.py::TestWidgetRegistry
 products/dashboards/backend/api/test/test_survey_widgets.py::TestSurveyResultsWidgetConfig
 products/dashboards/backend/api/test/test_widget_config_schema_parity.py::TestWidgetConfigSchemaParity
 products/dashboards/backend/test/test_widget_filters.py::TestWidgetFilters
-products/data_modeling/backend/test/test_incremental_eligibility.py::TestIncrementalEligibility
 products/data_modeling/backend/test/test_incremental_filter.py::TestInjectIncrementalFilter
 products/data_modeling/backend/test/test_saved_query_dag_sync.py::TestGetDagId
 products/endpoints/backend/tests/test_rate_limit.py::TestMaterializationCache
