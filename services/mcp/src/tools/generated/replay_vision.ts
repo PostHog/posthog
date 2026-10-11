@@ -9,6 +9,7 @@ import {
     withPostHogUrl,
     withAgentNote,
     withTextProjection,
+    pickResponseFields,
     omitResponseFields,
     stripNullFields,
     type WithPostHogUrl,
@@ -1137,7 +1138,38 @@ const visionScannersList = (): ToolBase<
                 tags: params.tags,
             },
         })
-        return await withPostHogUrl(context, result, '/replay-vision')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'id',
+                    'name',
+                    'description',
+                    'scanner_type',
+                    'prompt_question',
+                    'tags',
+                    'enabled',
+                    'emits_signals',
+                    'model',
+                    'sampling_mode',
+                    'sampling_rate',
+                    'credit_limit',
+                    'credits_per_observation',
+                    'estimated_monthly_credits',
+                    'estimated_at',
+                    'credits_this_month',
+                    'limit_reached',
+                    'last_swept_at',
+                    'scanner_version',
+                    'experiment_targeting',
+                    'created_at',
+                    'updated_at',
+                    'created_by.id',
+                    'created_by.email',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/replay-vision')
     },
 })
 

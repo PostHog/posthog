@@ -221,7 +221,7 @@ posthog:vision-scanners-list
 }
 ```
 
-Show the user the scanners (name + prompt), ask which to use, then run it against
+Show the user the scanners (`name` + `prompt_question`), ask which to use, then run it against
 the session and poll `vision-observations-list` until the observation reaches
 `succeeded`:
 
