@@ -128,6 +128,11 @@ function escapeHtml(value: string): string {
     return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+// The email is rendered as Liquid, so a name like "{{ person.properties.email }}" must print as typed.
+function literalLiquid(value: string): string {
+    return value.replace(/\{[{%]/g, (delimiter) => `{{ '${delimiter}' }}`)
+}
+
 function paragraphHtml(paragraph: string): string {
     return `<p style="line-height: 140%; margin: 0;">${escapeHtml(paragraph)}</p>`
 }
@@ -136,7 +141,8 @@ function paragraphHtml(paragraph: string): string {
  * The draft as the email step stores it. Each paragraph is its own text block in the design, so
  * the visual editor opens with the draft in place and keeps the gap between paragraphs.
  */
-export function messageDraftEmail(draft: MessageDraft): MessageDraftEmail {
+export function messageDraftEmail(untrusted: MessageDraft): MessageDraftEmail {
+    const draft = { subject: literalLiquid(untrusted.subject), paragraphs: untrusted.paragraphs.map(literalLiquid) }
     const body = draft.paragraphs
         .map(
             (paragraph) =>
