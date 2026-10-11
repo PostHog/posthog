@@ -182,7 +182,6 @@ class TestUtils(BaseTest):
         self.assertEqual(safe_clickhouse_string("💜 \u1f49c\ 💜"), "💜 \u1f49c\ 💜")
 
     def test_raise_if_user_provided_url_unsafe(self):
-        # Sync test cases with plugin-server/src/utils/fetch.test.ts
         raise_if_user_provided_url_unsafe("https://google.com?q=20")  # Safe
         raise_if_user_provided_url_unsafe("https://posthog.com")  # Safe
         raise_if_user_provided_url_unsafe("https://posthog.com/foo/bar")  # Safe, with path
