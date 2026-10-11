@@ -1200,8 +1200,15 @@ class TestScoutTrialEvaluation(BaseTest):
             ):
                 assert service.history(10).results[0].status == "failed"
                 self._save_judgments(snapshot)
-                finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
-                history = service.history(10)
+                report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
+                with (
+                    patch(f"{module}.JUDGE_PROMPT_VERSION", "next-judge-version"),
+                    patch(f"{MODULE}.JUDGE_PROMPT_VERSION", "next-judge-version"),
+                ):
+                    result = service.result(service.read(request.comparison_id), inspect_workflow=False)
+                    assert result.status == "completed"
+                    assert result.evaluation is not None and result.evaluation.report == report
+                    history = service.history(10)
             assert history.results[0].status == "completed"
             assert history.results[0].error is None
             assert history.results[0].evaluation is None
