@@ -360,7 +360,10 @@ export function SharingModalContent({
                                                 bordered
                                                 label={
                                                     <div className="flex items-center">
-                                                        <span>Show branding</span>
+                                                        <span>Show PostHog branding</span>
+                                                        <Tooltip title="Shows the PostHog logo, the PostHog footer, and PostHog in the page title. Turn it off to hide them. Your organization logo does not appear on shared pages.">
+                                                            <IconInfo className="ml-1.5 text-secondary text-lg" />
+                                                        </Tooltip>
                                                         {!whitelabelAvailable && (
                                                             <Tooltip title="This is a premium feature, click to learn more.">
                                                                 <IconLock className="ml-1.5 text-secondary text-lg" />
