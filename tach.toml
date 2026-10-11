@@ -920,6 +920,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.approvals",
+    "products.conversations",
     "products.feature_flags",
     "products.product_analytics",
     "products.product_tours", "products.access_control",

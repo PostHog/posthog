@@ -2655,19 +2655,38 @@ class TestEmailInboundTeamMemberDetection(MailgunWebhookTestMixin, BaseTest):
     def _post(self, data: dict[str, str]):
         return post_mailgun(self.client, "/api/conversations/v1/email/inbound", data)
 
-    def test_team_member_reply_attribution_and_unread(self):
+    @parameterized.expand(
+        [
+            ("email_support_agent", None, False, "support", 1),
+            ("email_requester", None, True, "support", 1),
+            ("desktop_support_agent", "desktop", False, "support", 1),
+            ("desktop_requester", "desktop", True, "customer", 2),
+        ]
+    )
+    def test_team_member_reply_attribution_and_unread(
+        self,
+        _name: str,
+        source_product: str | None,
+        requester_is_team_member: bool,
+        expected_author_type: str,
+        expected_unread_count: int,
+    ) -> None:
+        requester_email = self.user.email.upper() if requester_is_team_member else "customer@example.com"
         self._post(
             {
                 "recipient": "team-ab01cd23ef45@mg.posthog.com",
-                "from": "Customer <customer@external.com>",
+                "from": f"Customer <{requester_email}>",
                 "Message-Id": "<init@external.com>",
                 "subject": "Security question",
                 "stripped-text": "Hello",
             }
         )
         ticket = Ticket.objects.get(team=self.team)
-        assert ticket.email_from == "customer@external.com"
+        assert ticket.email_from is not None
+        assert ticket.email_from.lower() == requester_email.lower()
         assert ticket.unread_team_count == 1
+        ticket.session_context = {"source_product": source_product} if source_product else {}
+        ticket.save(update_fields=["session_context"])
 
         self._post(
             {
@@ -2685,15 +2704,17 @@ class TestEmailInboundTeamMemberDetection(MailgunWebhookTestMixin, BaseTest):
         assert comments.count() == 2
 
         customer_comment = comments[0]
+        assert customer_comment.item_context is not None
         assert customer_comment.item_context["author_type"] == "customer"
         assert customer_comment.created_by is None
 
-        support_comment = comments[1]
-        assert support_comment.item_context["author_type"] == "support"
-        assert support_comment.created_by_id == self.user.id
+        reply = comments[1]
+        assert reply.item_context is not None
+        assert reply.item_context["author_type"] == expected_author_type
+        assert reply.created_by_id == (self.user.id if expected_author_type == "support" else None)
 
         ticket.refresh_from_db()
-        assert ticket.unread_team_count == 1
+        assert ticket.unread_team_count == expected_unread_count
 
     def test_team_member_inbound_stamps_from_email_and_no_outbox(self):
         self._post(

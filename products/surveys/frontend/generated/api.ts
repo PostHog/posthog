@@ -52,7 +52,7 @@ export const getDesktopFeedbackCreateUrl = (projectId: string) => {
 }
 
 /**
- * Stores selected attachments and submits one response to the PostHog Desktop feedback survey.
+ * Stores selected attachments and submits Desktop feedback. Ticket routing is controlled by the rollout flag.
  * @summary Submit Desktop feedback
  */
 export const desktopFeedbackCreate = async (
