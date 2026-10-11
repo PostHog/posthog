@@ -1651,8 +1651,7 @@ class _ReportForward:
 
 
 def _report_url(team_id: int, report_id: str | None) -> str | None:
-    """Inbox deep link for an authored report, or None when no report exists yet (gate-skipped emit). The
-    canonical form used by the Slack inbox notifications (`slack_inbox_notifications.py`)."""
+    """Inbox deep link for an authored report, or None when no report exists yet (gate-skipped emit)."""
     if not report_id:
         return None
     return build_report_url(team_id, report_id, ReportLinkSource.SCOUT)
