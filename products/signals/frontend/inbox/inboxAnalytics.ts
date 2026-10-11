@@ -230,6 +230,7 @@ export type ScoutActionType =
     | 'sort_roster'
     | 'choose_create_path'
     | 'switch_create_path'
+    | 'test_precheck'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'

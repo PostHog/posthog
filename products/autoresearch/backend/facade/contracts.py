@@ -436,14 +436,30 @@ class OnlinePerformanceRow:
     lift_at_20: float | None
     average_precision: float | None
     confusion: ConfusionByCutoff | None
+    likely_threshold: float | None
     calibration_bins: list[CalibrationBin] | None
     warning: str | None
     validated_at: datetime | None
 
 
 @dataclass(frozen=True)
+class PredictionSegmentThresholds:
+    """The pipeline's current cut points between the Likely, Possible and Unlikely segments."""
+
+    likely_threshold: float
+    possible_threshold: float
+    likely_lift: float
+    base_rate: float | None
+    base_rate_dates: int
+    champion_mean_p_y: float | None
+    champion_base_rate: float | None
+    scores_miscalibrated: bool
+
+
+@dataclass(frozen=True)
 class OnlinePerformance:
     rows: list[OnlinePerformanceRow]
+    segment_thresholds: PredictionSegmentThresholds
 
 
 # ── Artifact bundle ────────────────────────────────────────────────────────
