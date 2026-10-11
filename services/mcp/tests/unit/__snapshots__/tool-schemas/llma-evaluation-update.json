@@ -62,6 +62,11 @@
             "anyOf": [
                 {
                     "properties": {
+                        "judge_method": {
+                            "description": "Judge method. Omit to preserve automatic routing for existing evaluations.",
+                            "enum": ["llm", "decision"],
+                            "type": "string"
+                        },
                         "prompt": {
                             "description": "Evaluation criteria for the LLM judge. Describe what makes a good vs bad response.",
                             "minLength": 1,
