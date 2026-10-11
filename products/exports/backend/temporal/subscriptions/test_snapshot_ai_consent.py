@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -51,6 +51,12 @@ def _create_delivery(subscription: Subscription, content_snapshot: dict) -> Subs
         status=SubscriptionDelivery.Status.STARTING,
         content_snapshot=content_snapshot,
     )
+
+
+@sync_to_async
+def _set_delivery_timing(delivery: SubscriptionDelivery, *, created_at: datetime, status: str) -> None:
+    # created_at has auto_now_add=True, so it can only be backdated through an update(), not create().
+    SubscriptionDelivery.objects.filter(pk=delivery.pk).update(created_at=created_at, status=status)
 
 
 class _FakePhClient:
@@ -137,6 +143,59 @@ async def test_runs_summary_when_org_has_approved_ai(team, user, monkeypatch):
 
     assert called.get("ran") is True
     assert result.summary_text == "- Pageviews is trending up"
+
+
+async def test_summary_compares_against_the_last_delivery_created_before_it(team, user, monkeypatch):
+    subscription = await _create_subscription(team, user)
+    await _set_ai_consent(subscription, approved=True)
+    base_time = datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC"))
+
+    def _snapshot(insight_name: str) -> dict:
+        return {
+            "insights": [
+                {
+                    "id": subscription.insight_id,
+                    "name": insight_name,
+                    "query_results": {"result": [{"label": insight_name, "data": [1, 2, 3]}]},
+                }
+            ]
+        }
+
+    d0 = await _create_delivery(subscription, _snapshot("D0 Insight"))
+    d1 = await _create_delivery(subscription, _snapshot("Current Insight"))
+    d2 = await _create_delivery(subscription, _snapshot("D2 Insight"))
+    await _set_delivery_timing(d0, created_at=base_time, status=SubscriptionDelivery.Status.COMPLETED)
+    await _set_delivery_timing(
+        d1, created_at=base_time + timedelta(days=1), status=SubscriptionDelivery.Status.STARTING
+    )
+    # D2 is created after D1, so it must not be picked as "previous" even though it sorts
+    # later than D0 by created_at.
+    await _set_delivery_timing(
+        d2, created_at=base_time + timedelta(days=2), status=SubscriptionDelivery.Status.COMPLETED
+    )
+
+    captured: dict = {}
+
+    def fake_generate(previous_states, current_states, **kwargs):
+        captured["previous_states"] = previous_states
+        return "- summary"
+
+    monkeypatch.setattr(
+        "products.exports.backend.temporal.subscriptions.snapshot_activities.generate_change_summary",
+        fake_generate,
+    )
+
+    await _run(
+        SnapshotInsightsInputs(
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            delivery_id=str(d1.id),
+        )
+    )
+
+    previous_states = captured.get("previous_states")
+    assert previous_states is not None
+    assert previous_states[0]["insight_name"] == "D0 Insight"
 
 
 # A named function rather than a lambda because the fail-open param case needs to raise.

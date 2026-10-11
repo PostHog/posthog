@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Any
 
 import temporalio.activity
@@ -230,18 +231,17 @@ def _get_delivery_by_id(delivery_id: str) -> SubscriptionDelivery | None:
         return None
 
 
-def _get_previous_delivery(subscription_id: int, exclude_delivery_id: str | None = None) -> SubscriptionDelivery | None:
-    qs = SubscriptionDelivery.objects.filter(
-        subscription_id=subscription_id,
-        status=SubscriptionDelivery.Status.COMPLETED,
-        content_snapshot__isnull=False,
-    ).order_by("-created_at")
-    if exclude_delivery_id:
-        try:
-            qs = qs.exclude(pk=uuid.UUID(exclude_delivery_id))
-        except ValueError:
-            pass
-    return qs.first()
+def _get_previous_delivery(subscription_id: int, before: datetime) -> SubscriptionDelivery | None:
+    return (
+        SubscriptionDelivery.objects.filter(
+            subscription_id=subscription_id,
+            status=SubscriptionDelivery.Status.COMPLETED,
+            content_snapshot__isnull=False,
+            created_at__lt=before,
+        )
+        .order_by("-created_at")
+        .first()
+    )
 
 
 def _get_insight_query_kinds(insight_ids: list[int]) -> dict[int, str]:
@@ -483,7 +483,7 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
 
     temporalio.activity.heartbeat("loading previous delivery")
     previous_delivery = await database_sync_to_async(_get_previous_delivery, thread_sensitive=False)(
-        inputs.subscription_id, exclude_delivery_id=inputs.delivery_id
+        inputs.subscription_id, before=current_delivery.created_at
     )
 
     previous_states: list[dict] | None = None
