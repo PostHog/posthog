@@ -205,13 +205,14 @@ Fired when the user starts picking an area to filter the heatmap/clickmap to (th
 
 Fired when the heatmap area filter is applied, changed, or cleared.
 
-| Property        | Type                       | Description                                                                                                       |
-| --------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `enabled`       | `boolean`                  | Whether a filter is now applied (`false` = cleared)                                                               |
-| `has_selector`  | `boolean`                  | Whether a stable CSS selector was derived for the area (without one, only pixel bounds filtering runs)            |
-| `tag_name`      | `string \| null`           | Lowercase tag name of the selected area element                                                                   |
-| `trigger`       | `'user' \| 'element_lost'` | `user` = picked or cleared in the UI; `element_lost` = the tracked node left the DOM and could not be re-resolved |
-| `arrow_stepped` | `boolean \| undefined`     | Only on `trigger: 'user'`: whether arrow keys refined the selection before it was applied                         |
+| Property           | Type                                            | Description                                                                                                                                                                               |
+| ------------------ | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`          | `boolean`                                       | Whether a filter is now applied (`false` = cleared)                                                                                                                                       |
+| `has_selector`     | `boolean`                                       | Whether a stable CSS selector was derived for the area (without one, only pixel bounds filtering runs)                                                                                    |
+| `selector_fragile` | `boolean \| undefined`                          | Whether the selector uses position-based matching such as `nth-child`. Not sent on `trigger: 'element_lost'`                                                                              |
+| `tag_name`         | `string \| null`                                | Lowercase tag name of the selected area element                                                                                                                                           |
+| `trigger`          | `'user' \| 'selector_edited' \| 'element_lost'` | `user` = picked or cleared in the UI; `selector_edited` = the user applied a selector in the selector editor; `element_lost` = the tracked node left the DOM and could not be re-resolved |
+| `arrow_stepped`    | `boolean \| undefined`                          | Only on `trigger: 'user'`: whether arrow keys refined the selection before it was applied                                                                                                 |
 
 **File:** `elements/heatmapToolbarMenuLogic.ts`
 
