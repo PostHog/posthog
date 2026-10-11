@@ -459,6 +459,7 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
 def test_openai_native_decisions_use_shared_result_semantics(
     applicable: bool, output_type: str, output_config: dict, answers: list[dict], expected: dict
 ) -> None:
+    team = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
     evaluation = {
         "id": "example-evaluation",
         "name": "Response quality",
@@ -480,9 +481,11 @@ def test_openai_native_decisions_use_shared_result_semantics(
     )
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
+        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
+        patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True),
         patch("httpx.HTTPTransport.handle_request", return_value=response) as transport,
     ):
+        teams.return_value.get.return_value = team
         spec.return_value.resolve.return_value = MagicMock(
             provider="openai",
             model="gpt-6-luna",
