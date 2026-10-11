@@ -69,6 +69,12 @@ export interface ReportWarmLease {
     runId: string
 }
 
+export interface ReportRunRef {
+    reportId: string
+    taskId: string
+    runId: string
+}
+
 export interface ReportChatContext {
     report: SignalReport
     reportUrl: string
@@ -397,6 +403,7 @@ export interface inboxTaskKickoffLogicValues {
     freeTrialDisabledReason: string | null
     isCreatingPr: boolean
     isDiscussing: boolean
+    lastReportRun: ReportRunRef | null
     metricCheckReplacementDisabledReason: string | null
     reportChatContext: ReportChatContext | null
     reportWarmLease: ReportWarmLease | null
@@ -589,6 +596,14 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     report,
                     reportUrl: `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`,
                 }),
+            },
+        ],
+        // The panel's Back button clears the open run, and a report composer offers no history list.
+        // This keeps the last run so the composer can lead back to it while the run keeps working.
+        lastReportRun: [
+            null as ReportRunRef | null,
+            {
+                openReportTask: (_, { report, taskId, runId }) => ({ reportId: report.id, taskId, runId }),
             },
         ],
         reportWarmLease: [
