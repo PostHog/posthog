@@ -640,6 +640,14 @@ services:
         ports:
             - '10000:10000'
 
+    ses:
+        profiles: [ses]
+        extends:
+            file: docker-compose.base.yml
+            service: ses
+        ports:
+            - '127.0.0.1:4566:8005'
+
     maildev:
         extends:
             file: docker-compose.base.yml
