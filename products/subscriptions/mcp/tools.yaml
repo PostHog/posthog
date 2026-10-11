@@ -228,7 +228,6 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        feature_flag: subscription-source-summaries
         list: true
         title: List AI summaries for an insight or dashboard
         description: >
@@ -238,6 +237,7 @@ tools:
             `created_at`. `period_start` is null for the first delivery of a subscription. Summaries from deleted
             subscriptions are not returned. Use subscriptions-partial-update with `summary_prompt_guide` to change how
             future summaries of one subscription are written. Results are cursor-paginated.
+        feature_flag: subscription-source-summaries
     subscriptions-test-delivery-create:
         operation: subscriptions_test_delivery_create
         enabled: true
