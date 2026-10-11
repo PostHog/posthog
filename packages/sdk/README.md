@@ -153,31 +153,3 @@ Input interfaces come from the actual MCP validators. Output interfaces come fro
 The SDK bundles MCP handlers with a local host that supplies the direct HTTP transport, client context, and confirmation state. It does not open an MCP connection or require an MCP server, Redis, or Cloudflare. The generator replaces server-only UI registration and telemetry with SDK host behavior. Agent feedback is delivered only to the configured callback.
 
 Change the schema, MCP definition, or adapter and regenerate; do not edit `src/generated/` or `catalog/` by hand. The packed-package check installs a tarball into a separate project, verifies offline discovery, executes a mocked request, and compiles a strict TypeScript consumer. Publishing is a separate release step.
-
-## Reusable scout jobs
-
-[Scout job examples](../../products/signals/scripts/scout-jobs/jobs.ts) collect evidence through the SDK and return one JSON result for a scout to interpret. They are read-only and do not emit reports, change memory, or modify scout configuration. The example package links this checkout's built SDK; run its build first. The scripts import `@posthog/sdk`, so they can also run outside the checkout with that package installed. Running the TypeScript entry point requires Node.js with type stripping, such as Node.js 24.
-
-| Job         | Work it handles                                                                                                                     | What the scout still decides                                                                              |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `context`   | Collects the profile summary, recent runs, steering notes, matching memory, and follow-ups concurrently.                            | Which product data to investigate; read the pinned skill and full inventory separately when needed.       |
-| `errors`    | Selects active errors by occurrence count and fetches each selected issue's equal-duration window seven days earlier.               | Whether counts indicate a regression after accounting for traffic, users, releases, and existing reports. |
-| `followups` | Collects report snapshots, check state, artifact previews, and matching memory for explicit reports or the newest resolved reports. | Whether a fix is measurable, whether its outcome is confirmed, and whether to create or update a check.   |
-| `audit`     | Pages through a fixed run window and counts execution outcomes, report creation, and report edits independently.                    | Whether a scout's output is useful; output counts are not quality or cost measurements.                   |
-
-From the repository root, after configuring credentials as above:
-
-```sh
-npm install --prefix products/signals/scripts/scout-jobs --ignore-scripts --package-lock=false --workspaces=false
-node --experimental-strip-types products/signals/scripts/scout-jobs/run.ts context --project-id 123 --skill signals-scout-error-tracking --memory error_tracking
-node --experimental-strip-types products/signals/scripts/scout-jobs/run.ts errors --project-id 123 --hours 24 --limit 5
-node --experimental-strip-types products/signals/scripts/scout-jobs/run.ts followups --project-id 123 --limit 5
-node --experimental-strip-types products/signals/scripts/scout-jobs/run.ts audit --project-id 123 --from 2026-01-01T00:00:00Z --to 2026-01-08T00:00:00Z
-node --experimental-strip-types --test products/signals/scripts/scout-jobs/jobs.test.ts
-```
-
-`context` accepts `--run-id` to read that scout run's emit eligibility and `--limit` to bound each list. Its context is intentionally a sample, not the complete memory or run history. `followups --report-id <uuid>` targets a report; repeat the option for several reports. Its artifact and summary previews carry truncation markers and artifact IDs for fetching full evidence later. `errors` reports missing baselines explicitly and does not treat absence from a ranked list as zero. An occurrence ratio is not a traffic-normalized error rate.
-
-Results identify the project and collection time. Failed sections retain their errors and produce `status: "partial"` with exit code 2. Authentication or top-level request failures exit nonzero. The audit also reports partial coverage when `--max-pages` is reached or a full page ends with tied timestamps that the timestamp-only cursor cannot safely traverse. It uses `created_at` for pagination and counts `emitted_report_ids` and `edited_report_ids` even when the legacy `emitted_count` is zero.
-
-The credential needs the scopes of each selected operation. In particular, the current report-check list endpoint requires `signal_scout_report:write` even for its read request; without it, `followups` returns the other evidence with an unknown check queue and a visible permission error. The scripts do not obtain broader credentials. To use these jobs in scheduled scouts, install the SDK and the chosen script in the sandbox, expose the scoped task credentials or authenticated proxy, and point the skill at the entry point. This PR does not provision that runtime integration.
