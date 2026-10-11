@@ -70,7 +70,7 @@ Explicit method selection requires a selected model, including for legacy evalua
 The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
 Both use the project's UUID as its group key; the numeric project ID is a group property.
 Deploy the ingestion and evaluation worker changes before enabling the flag.
-Projects configure a System One-compatible deployment and its authentication.
+Projects use their saved provider keys or configure a System One-compatible deployment and its authentication.
 Evaluation connections never fall back to an instance credential or gateway configuration.
 The configured endpoint authorizes the supplied credential, including connections to PostHog's regional AI gateway endpoints.
 Connection validation and every evaluation check these gates; an absent flag or failed flag lookup blocks the call.
@@ -93,6 +93,18 @@ Renaming or disabling an evaluation does not require the catalogue.
 With the flag off or unavailable, cached decision-only models skip their runs without calling either API or disabling the evaluation.
 Other OpenRouter models keep the existing chat path without a catalogue refresh. If a failed chat call identifies a decision model, that run also skips without disabling the evaluation.
 An out-of-credits response disables the evaluation and marks its provider key as failing, as on the chat path.
+Native OpenAI decisions appear under an existing **OpenAI** key when this flag is enabled.
+Select **Decision model** and `gpt-6-luna` to call OpenAI's fixed `https://api.openai.com/v1/decisions` endpoint.
+OpenAI currently documents this model for Decisions; endpoint support is declared separately from the curated chat-model list.
+Existing OpenAI evaluations without an explicit judge method continue using chat, including models supporting both APIs.
+No custom endpoint or additional connection is required. OpenAI-compatible and Azure connections do not use this native endpoint.
+The adapter translates the shared evaluation questions into OpenAI's `predicate`, `choice`, and `score` formats and validates answers by question name.
+Single-selection categorical evaluations need at least two options; multiple selection still uses one predicate per option.
+Numeric scores use the same ten-level rubric and full-precision mapping to configured bounds described below.
+OpenAI refusals skip the run. Temporary rate limits honor `Retry-After`, and transport failures, redirects, and server errors retry without invalidating the key.
+Invalid credentials, missing model access, and exhausted quota use the existing terminal-error handling.
+The OpenAI SDK uses the shared diagnostic HTTP client with a 60-second timeout and redirects disabled. Temporal owns retries.
+
 For other compatible services, add a connection under **System One** in provider key settings.
 Enter the public HTTPS base URL and model ID of a compatible service; neither has a default.
 TypeSafe's hosted endpoint is not supported by this integration.
@@ -150,7 +162,7 @@ DNS failures and redirects at OpenRouter's fixed decision endpoint retry without
 Requests rejected because of an individual input skip that run without changing the shared connection.
 Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.
-See OpenRouter's [Decisions API reference](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request) and TypeSafe's [API reference](https://docs.typesafe.ai/api) for their compatible question and answer formats.
+See OpenAI's [Decisions guide](https://developers.openai.com/api/docs/guides/decisions), OpenRouter's [Decisions API reference](https://openrouter.ai/docs/api/api-reference/alphadecisions/submit-a-decisions-request), and TypeSafe's [API reference](https://docs.typesafe.ai/api) for their question and answer formats.
 
 ## Model output limits
 

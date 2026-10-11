@@ -72,6 +72,8 @@ from products.ai_observability.backend.llm.errors import (
     UnsupportedModelError,
     provider_error_detail,
 )
+from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL
+from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL, decision_model_ids
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
@@ -620,12 +622,14 @@ def call_llm_judge(
             base_url = (
                 OPENROUTER_DECISIONS_BASE_URL
                 if provider == "openrouter"
+                else OPENAI_DECISIONS_BASE_URL
+                if provider == "openai"
                 else provider_key.encrypted_config.get("base_url", "")
                 if provider_key
                 else ""
             )
             if (provider == "openrouter" and not openrouter_enabled) or (
-                provider == "system_one" and not decision_evaluations_enabled(team_id, base_url=base_url)
+                provider in ("system_one", "openai") and not decision_evaluations_enabled(team_id, base_url=base_url)
             ):
                 return build_skipped_evaluation_result(
                     output_type=output_type,
@@ -690,14 +694,20 @@ def call_llm_judge(
                         + prompt
                     )
                 )
-            decision_result = DecisionClient.evaluate(
-                api_key=provider_key.encrypted_config.get("api_key", "") if provider_key else "",
-                base_url=base_url,
-                path="decisions" if provider == "openrouter" else "systemone",
-                model=model,
-                state=user_prompt,
-                questions=questions,
-            )
+            api_key = provider_key.encrypted_config.get("api_key", "") if provider_key else ""
+            if provider == "openai":
+                decision_result = OpenAIDecisionAdapter().evaluate(
+                    api_key=api_key, model=model, state=user_prompt, questions=questions
+                )
+            else:
+                decision_result = DecisionClient.evaluate(
+                    api_key=api_key,
+                    base_url=base_url,
+                    path="decisions" if provider == "openrouter" else "systemone",
+                    model=model,
+                    state=user_prompt,
+                    questions=questions,
+                )
             applicable = True
             if allows_na:
                 applicability_answer = decision_result.answers["applicable"]

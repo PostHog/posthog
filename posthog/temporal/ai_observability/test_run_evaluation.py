@@ -355,12 +355,13 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
     decide.assert_not_called()
 
 
+@pytest.mark.parametrize("provider,model", [("openrouter", "example/dual-model"), ("openai", "gpt-6-luna")])
 @pytest.mark.parametrize("flag", [True, False, None])
 @pytest.mark.parametrize("judge_method", [None, "llm"])
 def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
-    flag: bool | None, judge_method: str | None
+    provider: str, model: str, flag: bool | None, judge_method: str | None
 ) -> None:
-    key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
+    key = MagicMock(provider=provider, encrypted_config={"api_key": "example-token"})
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
@@ -370,9 +371,10 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.OpenAIDecisionAdapter.evaluate") as native_decide,
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider="openrouter", model="example/dual-model", provider_key=key, is_byok=True
+            provider=provider, model=model, provider_key=key, is_byok=True
         )
         complete.return_value = MagicMock(
             parsed=BooleanEvalResult(verdict=True, reasoning="Meets the criteria."), usage=None
@@ -391,8 +393,152 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
         )
     complete.assert_called_once()
     decide.assert_not_called()
+    native_decide.assert_not_called()
     assert result["verdict"] is True
     assert result["reasoning"] == "Meets the criteria."
+
+
+@pytest.mark.parametrize("applicable", [True, False])
+@pytest.mark.parametrize(
+    "output_type,output_config,answers,expected",
+    [
+        (
+            "boolean",
+            {},
+            [{"name": "verdict", "type": "predicate", "probability": 0.5}],
+            {"verdict": True, "probability": 0.5},
+        ),
+        (
+            "categorical",
+            {
+                "selection_mode": "single",
+                "options": [{"key": "resolved", "label": "Resolved"}, {"key": "other", "label": "Other"}],
+            },
+            [
+                {
+                    "name": "category",
+                    "type": "choice",
+                    "choice": "resolved",
+                    "confidence": 0.8,
+                    "probabilities": [
+                        {"value": "resolved", "probability": 0.8},
+                        {"value": "other", "probability": 0.2},
+                    ],
+                }
+            ],
+            {"categories": ["resolved"]},
+        ),
+        (
+            "categorical",
+            {
+                "selection_mode": "multiple",
+                "options": [{"key": "resolved", "label": "Resolved"}, {"key": "other", "label": "Other"}],
+            },
+            [
+                {"name": "category_0", "type": "predicate", "probability": 0.7},
+                {"name": "category_1", "type": "predicate", "probability": 0.2},
+            ],
+            {"categories": ["resolved"]},
+        ),
+        (
+            "numeric",
+            {"min": 0, "max": 10, "step": 5, "passing_rule": {"operator": "gte", "threshold": 4.9}},
+            [
+                {
+                    "name": "score",
+                    "type": "score",
+                    "score": 4.4099991,
+                    "confidence": 1,
+                    "probabilities": [{"value": index, "label": str(index), "probability": 0.1} for index in range(10)],
+                }
+            ],
+            {"score": 4.899999},
+        ),
+    ],
+)
+def test_openai_native_decisions_use_shared_result_semantics(
+    applicable: bool, output_type: str, output_config: dict, answers: list[dict], expected: dict
+) -> None:
+    evaluation = {
+        "id": "example-evaluation",
+        "name": "Response quality",
+        "team_id": 1,
+        "evaluation_config": {"prompt": "Evaluate the response quality.", "judge_method": "decision"},
+        "output_type": output_type,
+        "output_config": {**output_config, "allows_na": True},
+    }
+    response = httpx.Response(
+        200,
+        json={
+            "model": "gpt-6-luna",
+            "answers": [
+                *answers,
+                {"name": "applicable", "type": "predicate", "probability": 0.9 if applicable else 0.1},
+            ],
+            "usage": {"input_tokens": 120, "output_tokens": 0},
+        },
+    )
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
+        patch("httpx.HTTPTransport.handle_request", return_value=response) as transport,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai",
+            model="gpt-6-luna",
+            is_byok=True,
+            provider_key=MagicMock(encrypted_config={"api_key": "example-token"}),
+        )
+        result = call_llm_judge(
+            evaluation=evaluation,
+            system_prompt="Unused chat instructions",
+            user_prompt="Example reply.",
+            allows_na=True,
+        )
+    sent = json.loads(transport.call_args.args[0].content)
+    assert sent["input"] == "Example reply."
+    assert result["applicable"] is applicable
+    assert result["reasoning"] == ""
+    assert result["input_tokens"] == 120
+    assert result["output_tokens"] == 0
+    for field, value in expected.items():
+        if not applicable and field in ("verdict", "score", "categories", "probability"):
+            assert result.get(field) is None
+        elif field == "score":
+            assert result["score"] == pytest.approx(value)
+        else:
+            assert result.get(field) == value
+    if output_type == "numeric":
+        assert len(sent["questions"][0]["levels"]) == 10
+        if applicable:
+            assert result["score"] < 4.9
+    if output_type != "boolean":
+        assert "probability" not in result
+
+
+@pytest.mark.parametrize("flag", [False, None])
+def test_openai_decisions_disabled_flag_skips_without_invalidating_key(flag: bool | None) -> None:
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
+        patch("httpx.HTTPTransport.handle_request") as transport,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai",
+            model="gpt-6-luna",
+            is_byok=True,
+            provider_key=MagicMock(encrypted_config={"api_key": "example-token"}),
+        )
+        result = call_llm_judge(
+            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Check the reply.", "judge_method": "decision"}},
+            system_prompt="",
+            user_prompt="Example reply.",
+            allows_na=False,
+        )
+    assert result["skip_reason"] == "system_one_unavailable"
+    assert "terminal_user_error" not in result
+    assert "provider_key_state" not in result
+    transport.assert_not_called()
 
 
 @pytest.mark.parametrize("flag", [False, None])
@@ -917,6 +1063,14 @@ def test_endpoint_host_that_never_resolves_skips_the_run_with_the_reason() -> No
     "provider, success_payload",
     [
         (
+            "openai",
+            {
+                "model": "gpt-6-luna",
+                "answers": [{"name": "verdict", "type": "predicate", "probability": 0.9}],
+                "usage": {"input_tokens": 12, "output_tokens": 0},
+            },
+        ),
+        (
             "system_one",
             {
                 "model": "example-judge-v1",
@@ -957,6 +1111,10 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
 ) -> None:
     env = ActivityEnvironment()
     env.info = dataclasses.replace(env.info, attempt=attempt)
+    evaluation = {
+        "team_id": 1,
+        "evaluation_config": {"prompt": "Polite?", **({"judge_method": "decision"} if provider == "openai" else {})},
+    }
     key = MagicMock(
         provider=provider,
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
@@ -966,7 +1124,9 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch(
-            "httpx.AsyncHTTPTransport.handle_async_request",
+            "httpx.HTTPTransport.handle_request"
+            if provider == "openai"
+            else "httpx.AsyncHTTPTransport.handle_async_request",
             side_effect=[
                 httpx.Response(429, headers={"Retry-After": "15"}, stream=httpx.ByteStream(b"")),
                 httpx.Response(
@@ -978,12 +1138,15 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         ) as transport,
     ):
         spec.return_value.resolve.return_value = MagicMock(
-            provider=provider, model="example-judge-v1", provider_key=key, is_byok=True
+            provider=provider,
+            model="gpt-6-luna" if provider == "openai" else "example-judge-v1",
+            provider_key=key,
+            is_byok=True,
         )
         with pytest.raises(ApplicationError) as error:
             env.run(
                 lambda: call_llm_judge(
-                    evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+                    evaluation=evaluation,
                     system_prompt="",
                     user_prompt="Hello!",
                     allows_na=False,
@@ -996,7 +1159,7 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
         assert transport.call_count == 1
 
         result = call_llm_judge(
-            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            evaluation=evaluation,
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
