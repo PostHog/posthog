@@ -409,6 +409,37 @@ describe('sceneLogic', () => {
         }
     )
 
+    test.each([
+        ['an undefined key', 'Undefined key for logic: scenes.test', null],
+        ['a circular build', '[KEA] Circular build detected.', null],
+        ['another error', 'missing reducer', 'missing reducer'],
+    ])('handles %s while building the active scene logic', async (_, message, rethrown) => {
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        const realBuild = testLogic.build.bind(testLogic)
+        const build = jest
+            .spyOn(testLogic, 'build')
+            .mockImplementationOnce(realBuild)
+            .mockImplementation(() => {
+                throw new Error(message)
+            })
+        try {
+            router.actions.push(urls.settings())
+            await expectLogic(logic).delay(1)
+
+            if (rethrown) {
+                expect(() => logic.values.activeSceneLogic).toThrow(rethrown)
+            } else {
+                expect(logic.values.activeSceneLogic).toBeNull()
+                expect(captureException).toHaveBeenCalledWith(expect.objectContaining({ message }), {
+                    source: 'sceneLogic.activeSceneLogic',
+                })
+            }
+        } finally {
+            build.mockRestore()
+            captureException.mockRestore()
+        }
+    })
+
     describe('/home honors the configured homepage', () => {
         const dashboardHomepage = {
             id: 'homepage-dashboard-42',
