@@ -79,6 +79,7 @@ export { Heatmap } from './charts/Heatmap/Heatmap'
 export type {
     HeatmapBrushData,
     HeatmapCellDatum,
+    HeatmapCellStyle,
     HeatmapConfig,
     HeatmapProps,
     HeatmapRowMeta,
