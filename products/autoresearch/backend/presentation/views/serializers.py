@@ -27,6 +27,7 @@ from products.autoresearch.backend.facade.contracts import (
     Run,
     Suggestion,
     TrainingRun,
+    TrainingTrendPoint,
 )
 
 POPULATION_KINDS = api.POPULATION_KINDS
@@ -567,6 +568,18 @@ class RealizedAucPointSerializer(DataclassSerializer):
         fields = ["prediction_date", "realized_auc"]
 
 
+@extend_schema_serializer(component_name="AutoresearchTrainingTrendPoint")
+class TrainingTrendPointSerializer(DataclassSerializer):
+    iteration_number = serializers.IntegerField(read_only=True, help_text="Iteration number inside the training run.")
+    best_holdout_score = serializers.FloatField(
+        read_only=True, help_text="Best holdout AUC of the run up to and including this iteration."
+    )
+
+    class Meta:
+        dataclass = TrainingTrendPoint
+        fields = ["iteration_number", "best_holdout_score"]
+
+
 @extend_schema_serializer(component_name="AutoresearchPipeline")
 # Read representation of a pipeline. Every field is declared explicitly so the generated
 # AutoresearchPipeline component keeps the shape it had when this was a ModelSerializer.
@@ -666,10 +679,43 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         read_only=True,
         help_text="Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first.",
     )
+    champion_training_trend = TrainingTrendPointSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Best-so-far holdout AUC per iteration of the training run that produced the current champion, "
+            "oldest first. Iterations before the first holdout score are left out. Empty when the pipeline has no champion."
+        ),
+    )
     people_scored = serializers.IntegerField(
         read_only=True,
         allow_null=True,
         help_text="People scored by the most recent completed inference run. Null before the first scoring run.",
+    )
+    likely_count = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "People the newest completed live run of the current champion scored at or above likely_threshold. "
+            "Null before such a run, and for runs that did not record it."
+        ),
+    )
+    likely_threshold = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The Likely cut point that likely_count used, as it was when that run scored. It is the fixed "
+            "cut point until enough predictions are checked. Null when likely_count is null."
+        ),
+    )
+    first_check_expected_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "When online validation can first check the current champion against real outcomes: its earliest "
+            "prediction date plus the horizon plus the ingestion grace. Null before the champion's first scoring "
+            "run, and once a validation has checked it."
+        ),
     )
     coverage = PredictionCoverageSerializer(
         read_only=True,
@@ -714,7 +760,11 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "champion_lift_at_10",
             "champion_is_preliminary",
             "champion_realized_auc_trend",
+            "champion_training_trend",
             "people_scored",
+            "likely_count",
+            "likely_threshold",
+            "first_check_expected_at",
             "coverage",
             "training_run_count",
             "experiment_count",

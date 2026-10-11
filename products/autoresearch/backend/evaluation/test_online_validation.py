@@ -14,8 +14,8 @@ from posthog.models.user import User
 
 from products.autoresearch.backend.dataset.labeling import PREDICTION_EVENT_NAME, SHADOW_MODEL_ROLE
 from products.autoresearch.backend.evaluation import online_validation
+from products.autoresearch.backend.evaluation.maturity import OUTCOME_INGESTION_GRACE
 from products.autoresearch.backend.evaluation.online_validation import (
-    OUTCOME_INGESTION_GRACE,
     STALE_RUN_AFTER,
     OnlineValidationError,
     _auc_confidence_interval,

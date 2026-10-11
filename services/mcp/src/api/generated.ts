@@ -13934,6 +13934,13 @@ export namespace Schemas {
       readonly realized_auc: number;
     }
 
+    export interface AutoresearchTrainingTrendPoint {
+      /** Iteration number inside the training run. */
+      readonly iteration_number: number;
+      /** Best holdout AUC of the run up to and including this iteration. */
+      readonly best_holdout_score: number;
+    }
+
     export interface AutoresearchPredictionCoverage {
       /** People in the inference population at the run's cutoff. */
       readonly population: number;
@@ -14067,11 +14074,28 @@ export namespace Schemas {
       readonly champion_is_preliminary: boolean | null;
       /** Realized AUC of the current champion on its newest 14 validated prediction dates, oldest first. */
       readonly champion_realized_auc_trend: readonly AutoresearchRealizedAucPoint[];
+      /** Best-so-far holdout AUC per iteration of the training run that produced the current champion, oldest first. Iterations before the first holdout score are left out. Empty when the pipeline has no champion. */
+      readonly champion_training_trend: readonly AutoresearchTrainingTrendPoint[];
       /**
          * People scored by the most recent completed inference run. Null before the first scoring run.
          * @nullable
          */
       readonly people_scored: number | null;
+      /**
+         * People the newest completed live run of the current champion scored at or above likely_threshold. Null before such a run, and for runs that did not record it.
+         * @nullable
+         */
+      readonly likely_count: number | null;
+      /**
+         * The Likely cut point that likely_count used, as it was when that run scored. It is the fixed cut point until enough predictions are checked. Null when likely_count is null.
+         * @nullable
+         */
+      readonly likely_threshold: number | null;
+      /**
+         * When online validation can first check the current champion against real outcomes: its earliest prediction date plus the horizon plus the ingestion grace. Null before the champion's first scoring run, and once a validation has checked it.
+         * @nullable
+         */
+      readonly first_check_expected_at: string | null;
       /** Score coverage and score age from the newest live champion run that measured them. Null before the first such run. */
       readonly coverage: AutoresearchPredictionCoverage | null;
       /** Training runs started for this pipeline. */
