@@ -93,6 +93,17 @@ These variables can also be loaded from a dotenv-style file via `--dotenv-file <
 
 Full precedence: CLI args → process env → `--dotenv-file` → `~/.posthog/credentials.json` (from `posthog-cli login`).
 
+## Disabling telemetry
+
+The CLI sends usage and error events to PostHog. These events include the command name, the CLI version, the OS, the architecture, whether the CLI runs in CI, and the project ID when one is configured.
+Set `DO_NOT_TRACK=1` to turn this off on a developer machine or in CI:
+
+```bash
+DO_NOT_TRACK=1 posthog-cli sourcemap upload --directory ./dist
+```
+
+With `DO_NOT_TRACK` set, the CLI sends no command, upload or exception events. Uploads and other commands work as before.
+
 ## Uploading native debug symbols
 
 `posthog-cli symbol-sets upload --directory <dir>` scans a directory for native debug symbols and uploads them so PostHog can symbolicate native stack frames.
