@@ -4,18 +4,30 @@ import { IconWarning } from '@posthog/icons'
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ErrorTrackingPreview } from './ErrorTrackingPreview'
+import { ErrorTrackingSceneNav } from './ErrorTrackingSceneNav'
 import { errorTrackingSetupLogic } from './errorTrackingSetupLogic'
 
 const HedgehogError = pngHoggie(errorPng)
 
 export const errorTrackingEmptyState: SceneProductEmptyState = {
     statusLogic: errorTrackingSetupLogic,
+    // The Configuration tab holds exception autocapture, rate limits, and symbol sets, which a
+    // project needs before its first exception arrives.
+    scenes: [
+        {
+            scene: Scene.ErrorTracking,
+            searchParam: 'activeTab',
+            exceptTabs: ['configuration'],
+        },
+    ],
+    SceneNav: ErrorTrackingSceneNav,
     config: {
         productKey: ProductKey.ERROR_TRACKING,
         productName: 'Error tracking',
