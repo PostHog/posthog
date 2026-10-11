@@ -39,6 +39,7 @@ from rest_framework.exceptions import (
 from posthog.schema import (
     AccountsQuery,
     AccountsTableQuery,
+    ActionsNode,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BreakdownType,
@@ -51,6 +52,7 @@ from posthog.schema import (
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
+    EventsNode,
     EventsQuery,
     EventTaxonomyQuery,
     ExperimentExposureQuery,
@@ -60,6 +62,7 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsQuery,
     GenericCachedQueryResponse,
+    GroupNode,
     GroupsQuery,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -105,6 +108,7 @@ from posthog.schema import (
     SessionQuery,
     SessionsQuery,
     SessionsTimelineQuery,
+    StepOrderValue,
     StickinessQuery,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
@@ -217,6 +221,7 @@ from posthog.shared_link_user import SharedLinkUser
 from posthog.slo.context import JsonValue, SloSpec, slo_operation, tag_current_slo
 from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
 from products.access_control.backend.facade.property_access import sort_restricted_properties
@@ -1819,6 +1824,26 @@ def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None
     return None
 
 
+def resolve_funnel_step_custom_name(series: Any, raw_label: str | None) -> str | None:
+    # An action step's raw label is the action's current name from the database, and a group step's raw
+    # label joins its members' current names. The UI stores a copy of that label as the node's `name`
+    # when the query is saved, so an action rename makes the two differ without any rename of the step.
+    # Both node types rename through `custom_name` only, as resolveSeriesCustomName in funnelDataLogic does.
+    if isinstance(series, ActionsNode | GroupNode):
+        return getattr(series, "custom_name", None) or None
+    if isinstance(series, EventsNode):
+        # The UI writes a default step's display label as its `name`: the core definition label for a core
+        # event ("Pageview" for `$pageview`), and "All events" for a step without an event. That label is not
+        # a rename, which matches the formatEventName check in resolveSeriesCustomName.
+        event_key = raw_label if raw_label is not None else "All events"
+        default_labels = {event_key}
+        if core_definition := CORE_FILTER_DEFINITIONS_BY_GROUP["events"].get(event_key):
+            default_labels.add(core_definition["label"])
+        if series.name in default_labels:
+            return series.custom_name or None
+    return resolve_series_custom_name(series, raw_label)
+
+
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
     # A correlation query has no modifiers field. It uses the modifiers of the funnel it analyzes,
     # so that the correlation reads the same events table and person data as that funnel.
@@ -3229,7 +3254,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return cached_response, False
 
         series_by_order = dict(enumerate(series))
-        # Only TrendsQuery surfaces a `name`-based rename into custom_name on the fresh path (see
+        # Of the queries handled here, only TrendsQuery surfaces a `name`-based rename into custom_name
+        # on the fresh path (see
         # TrendsQueryRunner's use of resolve_series_custom_name). Stickiness/lifecycle use custom_name
         # only, so honoring `name` here would desync their cached responses from a fresh computation.
         honor_name = isinstance(self.query, TrendsQuery)
@@ -3272,10 +3298,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if not results or not isinstance(results, list):
             return cached_response, False
 
-        custom_names_by_order: dict[int, str | None] = {}
-        for i, s in enumerate(series):
-            custom_name = getattr(s, "custom_name", None)
-            custom_names_by_order[i] = custom_name
+        # The cached step's `name` holds the raw event/action label, as _serialize_step writes it.
+        # Resolving against it keeps a cached response identical to a fresh computation, which also
+        # honors a `name`-based rename. Unordered steps hold a positional label ("Completed 1 step")
+        # instead, so every series `name` would differ from it and read as a rename. They keep only
+        # an explicit custom_name.
+        series_by_order = dict(enumerate(series))
+        funnels_filter = getattr(self.query, "funnelsFilter", None)
+        honor_name = not (funnels_filter and funnels_filter.funnelOrderType == StepOrderValue.UNORDERED)
 
         was_modified = False
 
@@ -3286,8 +3316,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     if not isinstance(step, dict):
                         continue
                     order = step.get("order")
-                    if order is not None and order in custom_names_by_order:
-                        new_name = custom_names_by_order[order]
+                    if order is not None and order in series_by_order:
+                        s = series_by_order[order]
+                        new_name = (
+                            resolve_funnel_step_custom_name(s, step.get("name"))
+                            if honor_name
+                            else getattr(s, "custom_name", None)
+                        )
                         if step.get("custom_name") != new_name:
                             step["custom_name"] = new_name
                             was_modified = True
@@ -3297,8 +3332,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if not isinstance(step, dict):
                     continue
                 order = step.get("order")
-                if order is not None and order in custom_names_by_order:
-                    new_name = custom_names_by_order[order]
+                if order is not None and order in series_by_order:
+                    s = series_by_order[order]
+                    new_name = (
+                        resolve_funnel_step_custom_name(s, step.get("name"))
+                        if honor_name
+                        else getattr(s, "custom_name", None)
+                    )
                     if step.get("custom_name") != new_name:
                         step["custom_name"] = new_name
                         was_modified = True
