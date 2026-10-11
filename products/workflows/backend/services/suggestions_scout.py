@@ -66,7 +66,9 @@ def suggestions_scout_refusal(team: Team, *, acting_user: User, may_grant: bool)
         return None
     if not may_grant:
         return "key_cannot_grant"
-    return scout_enable_refusal_for_product(team=project, skill_name=SUGGESTIONS_SCOUT, acting_user=acting_user)
+    return scout_enable_refusal_for_product(
+        team=project, skill_name=SUGGESTIONS_SCOUT, acting_user=acting_user, write_scopes=[PROPOSAL_WRITE_SCOPE]
+    )
 
 
 def suggestions_scout_status(team: Team) -> str:

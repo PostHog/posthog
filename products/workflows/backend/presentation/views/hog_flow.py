@@ -3637,6 +3637,8 @@ SUGGESTIONS_REFUSAL_MESSAGES: dict[str, str] = {
     "no_skill_access": "You need editor access to skills to turn on suggestions. Ask a project admin for access.",
     "ai_not_approved": "Suggestions use AI, and your organization hasn't approved AI data processing. "
     "An organization admin can approve it in organization settings.",
+    "not_skill_author": "Suggestions run as the person who wrote this project's workflows scout. "
+    "Ask them or a project admin to turn on suggestions.",
     "key_cannot_grant": "This API key can't turn on suggestions. Use a key with the hog_flow_proposal:write scope "
     "and access to the whole project.",
 }

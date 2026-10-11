@@ -18,6 +18,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.signals.backend.models import SignalScoutConfig
+from products.skills.backend.models.skills import LLMSkill
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
@@ -702,6 +703,7 @@ class TestWorkflowProposals(APIBaseTest):
             ("a project at its enabled-scout limit", "at_cap", "already runs as many scouts"),
             ("a person without editor access to skills", "no_skill_access", "editor access to skills"),
             ("an organization that has not approved AI", "ai_not_approved", "approved AI data processing"),
+            ("a member when a teammate wrote the scout skill", "other_author", "person who wrote"),
             ("api key without the proposal scope", "key_on", "hog_flow_proposal:write"),
             ("api key limited to a child environment", "child_key", "hog_flow_proposal:write"),
         ]
@@ -717,6 +719,15 @@ class TestWorkflowProposals(APIBaseTest):
         if case == "ai_not_approved":
             self.organization.is_ai_data_processing_approved = False
             self.organization.save()
+        elif case == "other_author":
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            author = User.objects.create_and_join(
+                self.organization, "author@example.com", None, level=OrganizationMembership.Level.ADMIN
+            )
+            LLMSkill.objects.create(
+                team=self.team, name="signals-scout-workflows", description="d", body="b", created_by=author
+            )
         elif case in ("key_on", "child_key"):
             key = generate_random_token_personal()
             PersonalAPIKey.objects.create(

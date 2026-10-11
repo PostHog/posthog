@@ -1420,18 +1420,12 @@ def enable_scout_for_product(
     `SCOUT_GRANTABLE_WRITE_SCOPES`. The caller must already have checked that this person may
     grant those scopes. It applies the same rules as the scout config API: the person needs editor
     access to skills, a new scout must fit the project's enabled-scout limit, and only a project
-    admin or the person the runs act as may widen an existing grant. Returns False without writing
-    when a rule refuses, when the organization has not approved AI data processing, when the scout
+    admin or the person the runs act as may give a new scout write scopes or widen an existing grant.
+    Returns False without writing when a rule refuses, when the organization has not approved AI data processing, when the scout
     is paused by a person or by the system, or when another product owns its config.
     """
-    from posthog.models.organization import (
-        OrganizationMembership,  # noqa: PLC0415 — keeps the membership model off the facade's import path
-    )
     from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the facade's import path
         SCOUT_GRANTABLE_WRITE_SCOPES,
-    )
-    from posthog.user_permissions import (
-        UserPermissions,  # noqa: PLC0415 — keeps the permission resolver off the facade's import path
     )
 
     from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415 — keeps access control off the facade's import path
@@ -1446,9 +1440,6 @@ def enable_scout_for_product(
         canonical_skill_names,
         canonical_structured_output_schema_for,
         sync_canonical_skills,
-    )
-    from products.signals.backend.scout_harness.skill_loader import (  # noqa: PLC0415 — keeps the skill loader off the facade's import path
-        resolve_scout_acting_user_id,
     )
     from products.signals.backend.scout_harness.team_limits import (  # noqa: PLC0415 — keeps the flag payload reader off the facade's import path
         max_enabled_scouts_for_team,
@@ -1483,6 +1474,10 @@ def enable_scout_for_product(
         if config is None:
             if enabled_scout_count(team.id, exclude_skill=skill_name) >= max_enabled_scouts:
                 return False
+            if scopes and not _may_grant_scout_scopes(
+                team=team, skill_name=skill_name, config=None, acting_user=acting_user
+            ):
+                return False
             config, created = SignalScoutConfig.objects.for_team(team.id).get_or_create(
                 team_id=team.id, skill_name=skill_name, defaults=defaults
             )
@@ -1494,23 +1489,47 @@ def enable_scout_for_product(
             return False
         granted = sorted(set(config.write_scopes or []) | set(scopes))
         if granted != sorted(config.write_scopes or []):
-            level = UserPermissions(user=acting_user, team=team).current_team.effective_membership_level
-            is_admin = level is not None and level >= OrganizationMembership.Level.ADMIN
-            if not is_admin and resolve_scout_acting_user_id(team, skill_name, config) != acting_user.pk:
+            if not _may_grant_scout_scopes(team=team, skill_name=skill_name, config=config, acting_user=acting_user):
                 return False
             config.write_scopes = granted
             config.save(update_fields=["write_scopes", "updated_at"])
     return True
 
 
+def _may_grant_scout_scopes(
+    *, team: "Team", skill_name: str, config: SignalScoutConfig | None, acting_user: "User"
+) -> bool:
+    """Whether this person may give a scout write access, given that its runs act as the person `resolve_scout_acting_user_id` names."""
+    from posthog.models.organization import (
+        OrganizationMembership,  # noqa: PLC0415 — keeps the membership model off the facade's import path
+    )
+    from posthog.user_permissions import (
+        UserPermissions,  # noqa: PLC0415 — keeps the permission resolver off the facade's import path
+    )
+
+    from products.signals.backend.scout_harness.skill_loader import (  # noqa: PLC0415 — keeps the skill loader off the facade's import path
+        resolve_scout_acting_user_id,
+    )
+
+    level = UserPermissions(user=acting_user, team=team).current_team.effective_membership_level
+    if level is not None and level >= OrganizationMembership.Level.ADMIN:
+        return True
+    acting_user_id = resolve_scout_acting_user_id(team, skill_name, config)
+    # A new config records the requester as its enabler, so without a skill author its runs act as them.
+    if config is None and acting_user_id is None:
+        return True
+    return acting_user_id == acting_user.pk
+
+
 class ScoutEnableRefusal(StrEnum):
     AI_NOT_APPROVED = "ai_not_approved"
     NO_SKILL_ACCESS = "no_skill_access"
     AT_LIMIT = "at_limit"
+    NOT_SKILL_AUTHOR = "not_skill_author"
 
 
 def scout_enable_refusal_for_product(
-    *, team: "Team", skill_name: str, acting_user: "User"
+    *, team: "Team", skill_name: str, acting_user: "User", write_scopes: Sequence[str] = ()
 ) -> ScoutEnableRefusal | None:
     """Why `enable_scout_for_product` would create no scout for this person, without writing anything.
 
@@ -1533,6 +1552,10 @@ def scout_enable_refusal_for_product(
         return ScoutEnableRefusal.NO_SKILL_ACCESS
     if enabled_scout_count(team.id, exclude_skill=skill_name) >= max_enabled_scouts_for_team(team.id):
         return ScoutEnableRefusal.AT_LIMIT
+    if write_scopes and not _may_grant_scout_scopes(
+        team=team, skill_name=skill_name, config=None, acting_user=acting_user
+    ):
+        return ScoutEnableRefusal.NOT_SKILL_AUTHOR
     return None
 
 
