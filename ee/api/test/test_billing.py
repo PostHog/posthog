@@ -1021,6 +1021,28 @@ class TestActivateBillingAPI(APILicensedTest):
         self.assertEqual(response.json(), {"success": True, "products": ["product_analytics"]})
         mock_activate_subscription.assert_called_once_with(self.organization, {"products": "all_products:"})
 
+    @parameterized.expand(
+        [
+            ("billing_refusal", 400, status.HTTP_400_BAD_REQUEST, "payment_authorization_rejected"),
+            ("billing_failure", 500, status.HTTP_502_BAD_GATEWAY, "billing_service_error"),
+        ]
+    )
+    @patch("ee.billing.billing_manager.http_session.post")
+    def test_authorize_hides_the_billing_error_body(
+        self, _name: str, upstream_status: int, expected_status: int, expected_code: str, mock_post
+    ):
+        mock_post.return_value = MagicMock(
+            status_code=upstream_status,
+            json=lambda: {"detail": "duplicate key value violates unique constraint"},
+            text="duplicate key value violates unique constraint",
+        )
+
+        response = self.client.post("/api/billing/activate/authorize")
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.json()["code"], expected_code)
+        self.assertNotIn("duplicate key", response.content.decode())
+
     def test_activate_get_returns_405(self):
         url = "/api/billing/activate"
         response = self.client.get(url, {"products": "product_1:plan_1"})

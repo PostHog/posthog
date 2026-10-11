@@ -143,7 +143,7 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         startPaymentEntryFlow: async ({ product, redirectPath }) => {
             const { billing, billingManagedByPartnerNotice } = billingLogic.values
 
@@ -209,6 +209,11 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
             actions.showPaymentEntryModal()
         },
         initiateAuthorization: async () => {
+            // Two overlapping requests make billing create two Stripe customers, and the second one fails.
+            if (cache.authorizationInFlight) {
+                return
+            }
+            cache.authorizationInFlight = true
             actions.setLoading(true)
             actions.clearErrors()
             try {
@@ -222,6 +227,8 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                 )
                 actions.setApiError('Failed to initialize payment')
                 actions.setLoading(false)
+            } finally {
+                cache.authorizationInFlight = false
             }
         },
 

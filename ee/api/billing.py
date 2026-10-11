@@ -36,7 +36,12 @@ from posthog.utils import get_trusted_client_ip, relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 
-from ee.billing.billing_manager import BillingManager, http_session, raise_if_billing_managed_by_partner
+from ee.billing.billing_manager import (
+    BillingManager,
+    BillingServiceResponseError,
+    http_session,
+    raise_if_billing_managed_by_partner,
+)
 from ee.billing.billing_types import USAGE_TYPE_VALUES
 from ee.billing.exports import (  # noqa: F401
     _EXPORT_STREAMS,
@@ -112,6 +117,14 @@ class BillingServiceError(APIException):
     status_code = status.HTTP_502_BAD_GATEWAY
     default_code = "billing_service_error"
     default_detail = "Billing could not answer this request. Try again in a moment."
+
+
+class PaymentAuthorizationRejected(APIException):
+    """Billing refused to start the payment authorization."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "payment_authorization_rejected"
+    default_detail = "We could not start the payment setup. Close this window and try again."
 
 
 class BillingExportThrottle(PersonalApiKeyOrUserRateThrottle):
@@ -871,7 +884,19 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.authorize(organization)
+        try:
+            res = billing_manager.authorize(organization)
+        except BillingServiceResponseError as e:
+            # The billing body can hold database error text, so the caller gets a controlled message.
+            logger.warning(
+                "billing_authorize_error",
+                organization_id=str(organization.id),
+                upstream_status=e.status_code,
+                body=str(e.body)[:500],
+            )
+            if 400 <= e.status_code < 500:
+                raise PaymentAuthorizationRejected() from e
+            raise BillingServiceError() from e
         return Response(res, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False, url_path="activate/authorize/status")

@@ -120,6 +120,24 @@ describe('paymentEntryLogic', () => {
         })
     })
 
+    describe('initiateAuthorization', () => {
+        it('sends one authorize request when the modal asks twice before the first answer', async () => {
+            const authorize = jest.fn(() => [200, { clientSecret: 'secret_test' }] as [number, Record<string, unknown>])
+            useMocks({ post: { '/api/billing/activate/authorize': authorize } })
+            logic = paymentEntryLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.initiateAuthorization()
+                logic.actions.initiateAuthorization()
+            }).toFinishAllListeners()
+
+            expect(authorize).toHaveBeenCalledTimes(1)
+            expect(logic.values.clientSecret).toBe('secret_test')
+            expect(logic.values.apiError).toBe(null)
+        })
+    })
+
     describe('startPaymentEntryFlow — billing managed by a partner', () => {
         it('neither activates nor opens the payment modal', async () => {
             await seedBilling({
