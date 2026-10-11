@@ -113,7 +113,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         rows = sync_execute(
             """
             SELECT kind, previous_state, state, value, alert_name, muted_notification,
-                   JSONExtractInt(condition_snapshot, 'threshold_count'), episode_started_at
+                   JSONExtractInt(condition_snapshot, 'threshold_count'), episode_started_at, source_kind
             FROM platform_alert_events
             WHERE team_id = %(team_id)s AND configuration_id = %(configuration_id)s
             """,
@@ -121,7 +121,7 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
 
         # `insert_events` never raises, so without reading a row back a broken write is invisible.
-        assert rows == [("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10, self.cutoff)]
+        assert rows == [("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10, self.cutoff, "logs")]
 
     def test_a_resolve_row_keeps_the_firing_it_ended(self) -> None:
         # The alert row clears the firing on a resolve, so history is the only place left holding

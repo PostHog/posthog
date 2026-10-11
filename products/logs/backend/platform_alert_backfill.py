@@ -8,6 +8,9 @@ turning an alert back on, still need one.
 rather than duplicates, and a later comparison can line the two stacks up per alert.
 """
 
+from collections.abc import Collection
+from uuid import UUID
+
 import structlog
 
 from posthog.dataclasses import frozen
@@ -38,17 +41,22 @@ def _is_team_sampled(team_id: int, sample_percent: int) -> bool:
     return team_id % 100 < sample_percent
 
 
-def backfill_platform_alert_configurations(*, team_id: int | None = None, sample_percent: int = 100) -> BackfillCounts:
-    """Copies every logs alert configuration, or one team's, or a sample of teams'.
+def backfill_platform_alert_configurations(
+    *, team_id: int | None = None, sample_percent: int = 100, alert_ids: Collection[UUID] | None = None
+) -> BackfillCounts:
+    """Copies every logs alert configuration, or one team's, or a sample of teams', or named alerts.
 
     Every copy adds ClickHouse load beside production's, so a rollout copies a sample first and
-    widens it while the parallel run's query load stays inside its budget.
+    widens it while the parallel run's query load stays inside its budget. Named alerts let a
+    rollout copy the ones a comparison still lacks evidence for.
     """
     if not 1 <= sample_percent <= 100:
         raise ValueError("sample_percent must be between 1 and 100")
     source = LogsAlertConfiguration.objects.all()
     if team_id is not None:
         source = source.filter(team_id=team_id)
+    if alert_ids is not None:
+        source = source.filter(id__in=alert_ids)
 
     created = 0
     updated = 0
@@ -83,11 +91,13 @@ def backfill_platform_alert_configurations(*, team_id: int | None = None, sample
     return BackfillCounts(created=created, updated=updated, skipped=skipped, failed=failed)
 
 
-def disable_platform_alert_configurations(*, team_id: int | None = None) -> int:
-    """Stops the parallel run for every logs copy, or one team's. Returns how many it stopped.
+def disable_platform_alert_configurations(
+    *, team_id: int | None = None, alert_ids: Collection[UUID] | None = None
+) -> int:
+    """Stops the parallel run for every logs copy, or one team's, or named alerts'. Returns how many it stopped.
 
     The copies stay, with their state and history. Running the backfill again turns them back on.
     """
-    disabled = disable_configurations(SourceKind.LOGS, team_id=team_id)
+    disabled = disable_configurations(SourceKind.LOGS, team_id=team_id, legacy_configuration_ids=alert_ids)
     logger.info("platform_alert_backfill.disabled", disabled=disabled, team_id=team_id)
     return disabled

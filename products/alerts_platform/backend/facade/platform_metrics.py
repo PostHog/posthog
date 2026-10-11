@@ -7,7 +7,9 @@ from `facade/temporal.py`, which pulls in the workflow module.
 
 from products.alerts_platform.backend.temporal.metrics import (
     increment_checks,
+    increment_checks_deferred,
     increment_checks_skipped,
+    increment_checks_unfinished,
     increment_deliveries_deferred,
     increment_history_rows_dropped,
     increment_notifications_muted,
@@ -19,7 +21,9 @@ from products.alerts_platform.backend.temporal.metrics import (
 
 __all__ = [
     "increment_checks",
+    "increment_checks_deferred",
     "increment_checks_skipped",
+    "increment_checks_unfinished",
     "increment_deliveries_deferred",
     "increment_history_rows_dropped",
     "increment_notifications_muted",

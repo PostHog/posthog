@@ -433,15 +433,19 @@ The path emits through Temporal's own meter, so every series carries the worker,
 the runtime attaches. `products/alerts_platform/backend/temporal/metrics.py` holds them and a source reaches them through
 `facade/platform_metrics.py`.
 
-| Metric                                                    | What it answers                                             |
-| --------------------------------------------------------- | ----------------------------------------------------------- |
-| `alerts_platform_checks_total{source,outcome}`            | How many checks the platform decided, and what they decided |
-| `alerts_platform_state_transitions_total{source,from,to}` | Which transitions it reached                                |
-| `alerts_platform_deliveries_previewed_total{source}`      | How many deliveries it recorded instead of sending          |
-| `alerts_platform_deliveries_deferred_total{source}`       | How many the payload bound left for a later tick            |
-| `alerts_platform_outcomes_recorded_total`                 | How many decisions reached the tables                       |
-| `alerts_platform_batch_duration_ms{source}`               | What one batch key costs                                    |
-| `alerts_platform_scheduler_lag_ms{source}`                | How far past its due time a check was evaluated             |
+| Metric                                                    | What it answers                                                   |
+| --------------------------------------------------------- | ----------------------------------------------------------------- |
+| `alerts_platform_checks_total{source,outcome}`            | How many checks the platform decided, and what they decided       |
+| `alerts_platform_state_transitions_total{source,from,to}` | Which transitions it reached                                      |
+| `alerts_platform_deliveries_previewed_total{source}`      | How many deliveries it recorded instead of sending                |
+| `alerts_platform_deliveries_deferred_total{source}`       | How many the payload bound left for a later tick                  |
+| `alerts_platform_outcomes_recorded_total`                 | How many decisions reached the tables                             |
+| `alerts_platform_batch_duration_ms{source}`               | What one batch key costs                                          |
+| `alerts_platform_scheduler_lag_ms{source}`                | How far past its due time a check was evaluated                   |
+| `alerts_platform_discovery_omitted_total{source}`         | How many due batch keys a tick left out under the discovery limit |
+| `alerts_platform_checks_deferred_total{source}`           | How many checks a full evaluation pool turned away                |
+| `alerts_platform_checks_unfinished_total{source}`         | How many admitted insight checks reached no outcome               |
+| `alerts_platform_history_rows_dropped_total{source}`      | How many check rows a failed history write lost                   |
 
 Histogram buckets are registered in `posthog/temporal/common/worker.py`; a histogram missing from
 `ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS` gets Prometheus defaults instead.
@@ -489,6 +493,7 @@ A full logs backfill hit ClickHouse's per-user concurrent query limit and had to
 5. Raise that cap from its default of 10 only while the daily count of refused queries, `exception_code = 202` in `query_log`, stays flat for both `alerts_platform_insight` and the user that production insight alerts query as. The first shows the parallel run's own contention. The second shows whether it reaches production through the server-wide limit. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
 
 To stop either parallel run, logs or insight, pass `--disable` to its backfill, with `--team-id` to stop one team.
+Pass `--ids-file` to either backfill, with one alert id per line, to copy only those alerts or, with `--disable`, to switch only their copies off. A rollout uses it to retire the alerts a comparison has enough evidence for and spend the load on the ones it still lacks.
 It switches the copies off and keeps their rows, state and history. Checks already running finish.
 Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.

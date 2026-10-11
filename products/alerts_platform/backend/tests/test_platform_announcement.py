@@ -34,6 +34,7 @@ class TestAnnouncement(ClickhouseTestMixin, APIBaseTest):
     def _row(self, **overrides) -> PlatformAlertEventRow:
         fields = {
             "team_id": self.team.id,
+            "source_kind": "logs",
             "configuration_id": self.configuration.id,
             "alert_id": self.configuration.id,
             "grouping_key": "",

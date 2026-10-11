@@ -182,6 +182,7 @@ def _event_row(
 ) -> PlatformAlertEventRow:
     return PlatformAlertEventRow(
         team_id=configuration.team_id,
+        source_kind=configuration.source_kind,
         configuration_id=configuration.id,
         alert_id=alert.id,
         grouping_key=alert.grouping_key,
@@ -208,7 +209,8 @@ def _event_row(
 def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
     recorded = insert_events(team_id, rows)
     if recorded < len(rows):
-        safe_record(increment_history_rows_dropped, len(rows) - recorded)
+        # One batch holds one source's checks.
+        safe_record(increment_history_rows_dropped, rows[0].source_kind, len(rows) - recorded)
 
 
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
@@ -365,8 +367,11 @@ def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlert
     )
 
 
-def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:
-    """Switches off a source's copies, or one team's, and returns how many it switched off.
+def disable_configurations(
+    source_kind: str, *, team_id: int | None = None, legacy_configuration_ids: Collection[UUID] | None = None
+) -> int:
+    """Switches off a source's copies, or one team's, or the copies of named source alerts, and
+    returns how many it switched off.
 
     Rows, state and history stay, so a comparison can still read what ran. Discovery and the batch
     read both skip a disabled row, so no new check starts after this. Checks already running finish.
@@ -375,4 +380,6 @@ def disable_configurations(source_kind: str, *, team_id: int | None = None) -> i
     rows = PlatformAlertConfiguration.objects.unscoped().filter(source_kind=source_kind, enabled=True)
     if team_id is not None:
         rows = rows.filter(team_id=team_id)
+    if legacy_configuration_ids is not None:
+        rows = rows.filter(legacy_configuration_id__in=legacy_configuration_ids)
     return rows.update(enabled=False)
