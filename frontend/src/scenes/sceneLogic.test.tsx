@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -54,6 +55,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.OrganizationPendingDeletion]: sceneImport,
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
+    [Scene.ProjectPendingDeletion]: sceneImport,
     [Scene.Settings]: sceneImport,
     Inbox: sceneImport,
     ScoutTrials: sceneImport,
@@ -802,6 +804,61 @@ describe('sceneLogic', () => {
             } finally {
                 Object.defineProperty(window, 'location', originalLocation)
             }
+        })
+    })
+
+    it('leaves the lockout screen for a project that is not pending deletion', async () => {
+        router.actions.push(urls.projectPendingDeletion())
+        await expectLogic(logic).delay(1)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+    })
+
+    it.each([
+        ['locks out a project scene', urls.projectHomepage(), urls.projectPendingDeletion()],
+        ['keeps billing open', urls.organizationBilling(), urls.organizationBilling()],
+    ])('%s when the project loads as pending deletion', async (_name, target, expectedRoute) => {
+        router.actions.push(target)
+        await expectLogic(logic).delay(1)
+
+        projectLogic.actions.loadCurrentProjectSuccess({ ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true })
+        await expectLogic(logic).delay(1)
+
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+    })
+
+    describe('a project pending deletion', () => {
+        let priorAppContext: AppContext | undefined
+
+        beforeEach(async () => {
+            priorAppContext = window.POSTHOG_APP_CONTEXT
+            logic.unmount()
+            initKeaTests(true, MOCK_DEFAULT_TEAM, { ...MOCK_DEFAULT_PROJECT, is_pending_deletion: true })
+            await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+            featureFlagLogic.mount()
+            logic = sceneLogic.build({ scenes: testScenes })
+            logic.mount()
+            await expectLogic(logic).delay(1)
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = priorAppContext as AppContext
+        })
+
+        it.each([
+            [
+                'keeps the member on the lockout screen after a client-side link',
+                urls.projectHomepage(),
+                urls.projectPendingDeletion(),
+                Scene.ProjectPendingDeletion,
+            ],
+            ['opens billing', urls.organizationBilling(), urls.organizationBilling(), Scene.Billing],
+        ])('%s', async (_name, target, expectedRoute, expectedScene) => {
+            router.actions.push(target)
+            await expectLogic(logic).delay(1)
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(expectedRoute)
+            expect(logic.values.sceneId).toEqual(expectedScene)
         })
     })
 })
