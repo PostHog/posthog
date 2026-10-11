@@ -14,6 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CardSkeleton } from './components/cards/CardSkeleton'
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
+import { ScoutNewModals } from './components/config/scouts/ScoutNewModals'
 import { ScoutsRoster } from './components/config/scouts/ScoutsRoster'
 import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActions'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
@@ -352,6 +353,9 @@ export function InboxScene(): JSX.Element {
             )}
 
             <ScoutTemplateDraftModal />
+            {/* The "New scout" buttons in the header and the roster unmount when the onboarding verdict
+                flips, so the scene hosts their modals. */}
+            <ScoutNewModals onCreated={() => scoutFleetLogic.findMounted()?.actions.loadScoutConfigs()} />
         </SceneContent>
     )
 }
