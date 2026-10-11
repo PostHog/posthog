@@ -14,7 +14,6 @@ import "@/lib/network";
 import { usePushNotifications } from "@/lib/notifications";
 import { usePrefs } from "@/lib/prefs";
 import { useRepo } from "@/lib/repo";
-import { useSeenReports } from "@/lib/reports";
 import { useSessions } from "@/lib/session";
 import { colors, fonts } from "@/lib/theme";
 
@@ -27,7 +26,6 @@ function AuthGate() {
 
   const hydrateRepo = useRepo((s) => s.hydrate);
   const hydratePrefs = usePrefs((s) => s.hydrate);
-  const hydrateSeen = useSeenReports((s) => s.hydrate);
   usePushNotifications();
   useEffect(() => {
     hydrate();
@@ -37,8 +35,7 @@ function AuthGate() {
   useEffect(() => {
     if (!useAuth.getState().session) return;
     hydrateRepo();
-    hydrateSeen();
-  }, [hydrateRepo, hydrateSeen]);
+  }, [hydrateRepo]);
 
   useEffect(() => {
     if (!hydrated) return;
