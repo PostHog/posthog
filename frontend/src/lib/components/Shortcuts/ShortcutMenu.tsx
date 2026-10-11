@@ -102,6 +102,9 @@ export function ShortcutMenu(): JSX.Element | null {
         const currentScene = sceneId
 
         registeredShortcuts.forEach((shortcut) => {
+            if (shortcut.hidden) {
+                return
+            }
             const scope = shortcut.scope || 'global'
 
             // Only include shortcuts that are global or match the current scene

@@ -24,7 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.event_usage import groups
+from posthog.event_usage import groups, report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationIntegration, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -61,6 +61,8 @@ from ee.settings import BILLING_SERVICE_URL
 logger = structlog.get_logger(__name__)
 
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
+
+USER_CLAIMABLE_CAMPAIGN_SLUGS: set[str] = {"hesoyam"}
 
 
 class BillingQueryTimeout(APIException):
@@ -281,9 +283,35 @@ def billing_managed_by_partner(organization: Organization | None) -> dict[str, s
     return {"partner_name": partner.name} if partner else None
 
 
+def _find_privileged_authorizer(organization: Organization) -> Optional[User]:
+    memberships = (
+        OrganizationMembership.objects.filter(organization=organization, level__gte=OrganizationMembership.Level.ADMIN)
+        .order_by("-level", "joined_at")
+        .select_related("user")
+    )
+    for membership in memberships:
+        if user_has_billing_access(membership.user, organization):
+            return membership.user
+    return None
+
+
 class BillingSerializer(serializers.Serializer):
     plan = serializers.CharField(max_length=100)
     billing_limit = serializers.IntegerField()
+
+
+class ClaimCouponSerializer(serializers.Serializer):
+    code = serializers.CharField(
+        required=False,
+        help_text="Coupon code to redeem. Give this or `campaign_slug`, never both. Needs billing access.",
+    )
+    campaign_slug = serializers.CharField(
+        required=False,
+        help_text=(
+            "Slug of a campaign to redeem. Give this or `code`, never both. "
+            "Any organization member can redeem an allowlisted campaign."
+        ),
+    )
 
 
 class BillingManagedByPartnerSerializer(serializers.Serializer):
@@ -976,23 +1004,48 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             else:
                 raise
 
+    @extend_schema(request=ClaimCouponSerializer)
     @action(
         methods=["POST"],
         detail=False,
         url_path="coupons/claim",
-        permission_classes=[permissions.IsAuthenticated, HasBillingAccess],
+        permission_classes=[permissions.IsAuthenticated],
     )
     def claim_coupon(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         organization = self._get_org_required()
 
         code = request.data.get("code")
-        if not code:
-            raise ValidationError({"code": "This field is required."})
+        campaign_slug = request.data.get("campaign_slug")
+        if not code and not campaign_slug:
+            raise ValidationError({"detail": "Either 'code' or 'campaign_slug' is required."})
+        if code and campaign_slug:
+            raise ValidationError({"detail": "Provide 'code' or 'campaign_slug', not both."})
+        if campaign_slug is not None and not isinstance(campaign_slug, str):
+            raise ValidationError({"detail": "'campaign_slug' must be a string."})
+
+        authorizer_actor: Optional[User] = None
+        if not HasBillingAccess().has_permission(request, self):
+            if not campaign_slug or campaign_slug not in USER_CLAIMABLE_CAMPAIGN_SLUGS:
+                raise PermissionDenied(BILLING_ACCESS_DENIED_MESSAGE)
+            authorizer_actor = _find_privileged_authorizer(organization)
+            if authorizer_actor is None:
+                raise PermissionDenied("No one in this organization has billing access to authorize this claim.")
+
+        payload = {"code": code} if code else {"campaign_slug": campaign_slug}
 
         billing_manager = self.get_billing_manager()
 
         try:
-            res = billing_manager.claim_coupon(organization, {"code": code})
+            res = billing_manager.claim_coupon(organization, payload, authorizer_actor=authorizer_actor)
+            if campaign_slug:
+                report_user_action(
+                    request.user,
+                    "billing cheat code redeemed",
+                    properties={
+                        "campaign_slug": campaign_slug,
+                        "campaign_name": res.get("campaign") if isinstance(res, dict) else None,
+                    },
+                )
             return Response(res, status=status.HTTP_200_OK)
         except Exception as e:
             if len(e.args) > 2:
