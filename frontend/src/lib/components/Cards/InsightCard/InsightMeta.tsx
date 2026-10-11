@@ -405,12 +405,13 @@ export function InsightMeta({
 
     // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
     // dashboards, matching the "⋯" menu (which is already gated there).
+    // Hide it during a cooldown too: people read a disabled icon next to "⋯" as a broken menu
+    // and rage click it. The "⋯" menu item still shows the cooldown reason.
     const refreshControl =
-        refresh && showEditingControls && !tileRefreshing ? (
+        refresh && showEditingControls && !tileRefreshing && !refreshDisabledReason ? (
             <CardMetaRefreshButton
                 onRefresh={() => refresh()}
                 lastRefresh={insight.last_refresh}
-                disabledReason={refreshDisabledReason}
                 dataAttr="insight-card-refresh"
             />
         ) : null

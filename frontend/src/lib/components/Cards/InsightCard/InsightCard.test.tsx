@@ -91,10 +91,8 @@ describe('InsightCard', () => {
                     )
                 })
             }
-            const headerRefresh = container.querySelector('[data-attr="insight-card-refresh"]')!
-            expect(headerRefresh).toHaveAttribute('aria-disabled', 'true')
-            fireEvent.click(headerRefresh)
-            expect(refresh).not.toHaveBeenCalled()
+            const headerRefresh = (): Element | null => container.querySelector('[data-attr="insight-card-refresh"]')
+            expect(headerRefresh()).toBeNull()
 
             fireEvent.click(screen.getByLabelText('more'))
             const menuRefresh = screen.getByTestId('dashboard-tile-refresh-data')
@@ -107,11 +105,9 @@ describe('InsightCard', () => {
                 expect(screen.getByText('PostHog is busy. You can retry in 15 seconds.')).toBeVisible()
                 expect(screen.getByTestId('insight-retry-button')).toHaveAttribute('aria-disabled', 'true')
             }
-            expect(headerRefresh).toHaveAttribute('aria-disabled', 'true')
-            fireEvent.click(headerRefresh)
-            expect(refresh).not.toHaveBeenCalled()
+            expect(headerRefresh()).toBeNull()
             act(() => jest.advanceTimersByTime(15_000))
-            expect(headerRefresh).toHaveAttribute('aria-disabled', 'false')
+            expect(headerRefresh()).toHaveAttribute('aria-disabled', 'false')
             fireEvent.click(screen.getByLabelText('more'))
             expect(screen.getByTestId('dashboard-tile-refresh-data')).toHaveAttribute('aria-disabled', 'false')
             expect(refresh).not.toHaveBeenCalled()
