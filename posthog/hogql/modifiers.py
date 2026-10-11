@@ -88,6 +88,20 @@ def create_default_modifiers_for_team(
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True
 
+    if modifiers.optimizeCrossJoins is None and is_cloud():
+        from posthog.ph_client import (
+            feature_enabled_or_false,  # noqa: PLC0415 -- keeps the analytics client off django.setup's import path
+        )
+
+        if feature_enabled_or_false(
+            "hogql-optimize-cross-joins",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        ):
+            modifiers.optimizeCrossJoins = True
+
     from products.web_analytics.backend.hogql_queries.cookieless_flag import (  # noqa: PLC0415 - keeps posthog.schema off the django.setup() import path
         resolve_cookieless_traffic_is_regular_modifier,
     )
