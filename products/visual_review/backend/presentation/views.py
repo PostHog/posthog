@@ -156,13 +156,31 @@ _MISSING_IDENTIFIER_DETAIL = (
 )
 
 
+SNAPSHOTS_PAGE_SIZE_MAX = 100
+
+
 class SnapshotsPagination(PrecountedLimitOffsetPagination):
     """Adds quarantined_count to the paginated snapshots envelope so a client can
     show "N quarantined hidden" without a second request. The action pages in SQL
     through the facade, then sets the total and `quarantined_count` on the paginator
     instance before rendering the response."""
 
+    default_limit = SNAPSHOTS_PAGE_SIZE_MAX
+    # One snapshot serializes to a few KB with its signed URLs, so an unbounded page of a large
+    # run fills an MCP client's context. A larger `limit` is clamped, and `next` gives the rest.
+    max_limit = SNAPSHOTS_PAGE_SIZE_MAX
     quarantined_count = 0
+
+    def get_schema_operation_parameters(self, view: object) -> list[dict]:
+        parameters = super().get_schema_operation_parameters(view)
+        for parameter in parameters:
+            if parameter["name"] == self.limit_query_param:
+                parameter["description"] = (
+                    f"Number of snapshots to return per page. Defaults to and is capped at {self.max_limit}; "
+                    "a larger value returns this many. Page through the rest with `offset` or the `next` URL."
+                )
+                parameter["schema"] = {**parameter["schema"], "minimum": 1, "maximum": self.max_limit}
+        return parameters
 
     def get_paginated_response(self, data: object) -> Response:
         response = super().get_paginated_response(data)

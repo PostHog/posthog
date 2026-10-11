@@ -26,12 +26,14 @@ import {
     visualReviewRunsToleratedHashesList,
 } from '../generated/api'
 import type {
+    PaginatedSnapshotListApi,
     QuarantineLiftEntryApi,
     QuarantinedIdentifierEntryApi,
     RepoApi,
     RunApi,
     SnapshotApi,
     ToleratedHashEntryApi,
+    VisualReviewRunsSnapshotsListParams,
 } from '../generated/api.schemas'
 import {
     type CleanQuarantinedGroups,
@@ -372,6 +374,21 @@ function loadSelectedSnapshotIfMissing(
     }
 }
 
+// The endpoint caps a page at 100 snapshots, so follow the pages until the run is complete.
+async function loadAllRunSnapshots(
+    projectId: string,
+    runId: string,
+    params: Omit<VisualReviewRunsSnapshotsListParams, 'limit' | 'offset'>
+): Promise<SnapshotApi[]> {
+    const snapshots: SnapshotApi[] = []
+    let response: PaginatedSnapshotListApi
+    do {
+        response = await visualReviewRunsSnapshotsList(projectId, runId, { ...params, offset: snapshots.length })
+        snapshots.push(...response.results)
+    } while (response.next && response.results.length > 0)
+    return snapshots
+}
+
 export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
     path(['products', 'visual_review', 'frontend', 'scenes', 'visualReviewRunSceneLogic']),
     props({} as VisualReviewRunSceneLogicProps),
@@ -542,12 +559,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             [] as SnapshotApi[],
             {
                 loadSnapshots: async () => {
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
-                        limit: 10000,
+                    return loadAllRunSnapshots(String(values.currentProjectId), props.runId, {
                         include_quarantined: true,
                         exclude_unchanged: true,
                     })
-                    return response.results
                 },
             },
         ],
@@ -624,12 +639,10 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                     if (!values.run?.pr_number) {
                         return []
                     }
-                    const response = await visualReviewRunsSnapshotsList(String(values.currentProjectId), props.runId, {
-                        limit: 1000,
+                    return loadAllRunSnapshots(String(values.currentProjectId), props.runId, {
                         include_quarantined: true,
                         quarantined_only: true,
                     })
-                    return response.results
                 },
             },
         ],

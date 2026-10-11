@@ -90,6 +90,32 @@ describe('visualReviewRunSceneLogic', () => {
             .toMatchValues({ snapshots: [CHANGED_SNAPSHOT], selectedSnapshot: UNCHANGED_SNAPSHOT })
     })
 
+    it('loads every page of changed snapshots', async () => {
+        const secondChangedSnapshot = { id: 'snapshot-changed-2', identifier: 'changed-2', result: 'changed' }
+        useMocks({
+            get: {
+                [SNAPSHOTS_URL]: ({ request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    return offset === 0
+                        ? [
+                              200,
+                              {
+                                  count: 2,
+                                  next: `${request.url}&offset=1`,
+                                  previous: null,
+                                  results: [CHANGED_SNAPSHOT],
+                              },
+                          ]
+                        : [200, { count: 2, next: null, previous: null, results: [secondChangedSnapshot] }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.loadSnapshots())
+            .toDispatchActions(['loadSnapshotsSuccess'])
+            .toMatchValues({ snapshots: [CHANGED_SNAPSHOT, secondChangedSnapshot] })
+    })
+
     it('shows the latest deep link when an earlier one is still loading', async () => {
         const otherUnchangedSnapshot = { id: 'snapshot-other', identifier: 'other-unchanged', result: 'unchanged' }
         let releaseFirst: () => void = () => {}
