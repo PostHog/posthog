@@ -1916,8 +1916,8 @@ mod tests {
         /// A new tenure over the same store, catalog, and sinks: fresh offset trackers and
         /// in-memory queues, the way a restart or rebalance re-assigns the partition at
         /// `Offset::Stored` and replays whatever a hold pinned. The clock is kept: a real tenure
-        /// mints a fresh one whose first stamp is wall time, later than anything the last tenure
-        /// minted, which the shared clock also guarantees.
+        /// resumes above the floor the last tenure stored, so its first stamp is later than anything
+        /// the last tenure minted, which the shared clock also guarantees.
         fn restart(&mut self) {
             self.deps.seed_tracker = Arc::new(OffsetTracker::new());
             self.deps.merge_tracker = Arc::new(OffsetTracker::new());
