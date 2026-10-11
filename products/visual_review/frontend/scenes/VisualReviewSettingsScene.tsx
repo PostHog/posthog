@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight, IconCopy, IconGear, IconGithub, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSearchableSelect, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -9,13 +9,11 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
-
+import { AddRepoDropdown } from '../components/AddRepoDropdown'
 import type { RepoApi } from '../generated/api.schemas'
 import { visualReviewSettingsSceneLogic } from './visualReviewSettingsSceneLogic'
 
@@ -245,76 +243,10 @@ function RepoEditForm(): JSX.Element {
     )
 }
 
-function AddRepoDropdown(): JSX.Element {
-    const { availableRepos, existingRepoNames, saving, githubManageAccessUrl } =
-        useValues(visualReviewSettingsSceneLogic)
-    const { addRepo } = useActions(visualReviewSettingsSceneLogic)
-    const { githubRepositoriesLoading } = useValues(integrationsLogic)
-
-    const unaddedRepos = availableRepos.filter((r: GitHubRepoApi) => !existingRepoNames.has(r.full_name))
-
-    if (githubRepositoriesLoading && availableRepos.length === 0) {
-        return (
-            <div className="flex items-center gap-2 text-muted text-sm">
-                <Spinner /> Loading repositories...
-            </div>
-        )
-    }
-
-    const manageAccessUrl = githubManageAccessUrl ?? urls.settings('environment-integrations')
-
-    return (
-        <LemonSearchableSelect
-            placeholder="Add a repository..."
-            searchPlaceholder="Search repositories"
-            noResultsMessage="No repositories found"
-            loading={saving}
-            options={[
-                {
-                    options:
-                        unaddedRepos.length > 0
-                            ? unaddedRepos.map((repo: GitHubRepoApi) => ({
-                                  value: repo.full_name,
-                                  label: repo.full_name,
-                              }))
-                            : [
-                                  {
-                                      value: '__empty__' as any,
-                                      label: 'No more repositories',
-                                      disabledReason: 'All repositories have been added',
-                                  },
-                              ],
-                    footer: (
-                        <LemonButton
-                            type="tertiary"
-                            size="xsmall"
-                            fullWidth
-                            to={manageAccessUrl}
-                            targetBlank={!!githubManageAccessUrl}
-                            className="text-muted"
-                        >
-                            Manage access
-                        </LemonButton>
-                    ),
-                },
-            ]}
-            onChange={(fullName) => {
-                const repo = availableRepos.find((r: GitHubRepoApi) => r.full_name === fullName)
-                if (repo) {
-                    addRepo(repo)
-                }
-            }}
-            value={null}
-            size="small"
-        />
-    )
-}
-
 export function VisualReviewSettingsScene(): JSX.Element {
     const { repos, reposLoading } = useValues(visualReviewSettingsSceneLogic)
-    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { githubIntegrations, integrationsLoading } = useValues(integrationsLogic)
 
-    const githubIntegrations = integrations?.filter((i: { kind: string }) => i.kind === 'github') || []
     const hasGitHub = githubIntegrations.length > 0
 
     if (reposLoading) {
@@ -334,7 +266,19 @@ export function VisualReviewSettingsScene(): JSX.Element {
             <SceneTitleSection
                 name="Visual review settings"
                 resourceType={{ type: 'visual_review' }}
-                actions={hasGitHub ? <AddRepoDropdown /> : undefined}
+                actions={
+                    hasGitHub ? (
+                        <div className="flex flex-wrap gap-2">
+                            {githubIntegrations.map((integration) => (
+                                <AddRepoDropdown
+                                    key={integration.id}
+                                    integration={integration}
+                                    showAccountName={githubIntegrations.length > 1}
+                                />
+                            ))}
+                        </div>
+                    ) : undefined
+                }
             />
 
             <div className="space-y-4 max-w-2xl">

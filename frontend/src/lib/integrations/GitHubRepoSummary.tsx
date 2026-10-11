@@ -1,13 +1,8 @@
 import { IconGear } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { manageInstallationUrl } from 'lib/integrations/githubInstallationUrl'
 import { IconBranch } from 'lib/lemon-ui/icons'
-
-function manageInstallationUrl(installationId: string, accountType?: string, accountName?: string): string {
-    return accountType === 'Organization' && accountName
-        ? `https://github.com/organizations/${accountName}/settings/installations/${installationId}`
-        : `https://github.com/settings/installations/${installationId}`
-}
 
 export function GitHubRepoSummary({
     repoNames,
