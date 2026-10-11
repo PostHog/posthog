@@ -1059,7 +1059,6 @@ tools:
     scout-rubric-generate:
         operation: signals_scout_rubrics_generate
         enabled: true
-        feature_flag: scout-trials
         annotations:
             readOnly: false
             destructive: false
@@ -1071,10 +1070,10 @@ tools:
             Generation does not replace saved criteria or adopt the captured scout reference. Review the suggestions,
             summary, and generation.reference_context, then select criteria with scout-rubric-save. Requires access to
             scout rubrics and approved AI data processing.
+        feature_flag: scout-trials
     scout-rubric-get:
         operation: signals_scout_rubrics_retrieve
         enabled: true
-        feature_flag: scout-trials
         title: Read a scout's rubric and suggestions
         description: >
             Read saved criteria, their revision and adopted scout reference, plus the latest generation's status,
@@ -1083,6 +1082,7 @@ tools:
             adopt a complete reference with scout-rubric-save. Use fields to poll generation.status and generation.error
             or read criteria, suggestions, and reference sections separately. Omit fields for the full document.
             Requires access to scout rubrics.
+        feature_flag: scout-trials
         response:
             include:
                 - config_id
@@ -1108,7 +1108,6 @@ tools:
     scout-rubric-save:
         operation: signals_scout_rubrics_update
         enabled: true
-        feature_flag: scout-trials
         annotations:
             readOnly: false
             destructive: true
@@ -1121,6 +1120,7 @@ tools:
             criteria are allowed. Pass adopt_generation_id to use the current completed generation's reviewed scout
             instructions and references for judging the whole rubric. Omit it to retain the saved reference across
             prompt iterations. This changes grading criteria, not the scout's instructions or schedule.
+        feature_flag: scout-trials
     scout-run-now:
         operation: signals_scout_config_run
         enabled: true
