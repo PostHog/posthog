@@ -429,6 +429,19 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
         ].join('\n')
     }
 
+    // The backend sends this detail when a token restricted to some projects calls an organization endpoint.
+    if (error.detail.includes('API keys with scoped projects are only supported on project-based endpoints')) {
+        return [
+            `PostHog API permission denied: ${error.detail}`,
+            '',
+            `The request to ${callTarget} was rejected with HTTP 403. This is an organization endpoint, and your API key or OAuth token is limited to specific projects. More project access does not fix this.`,
+            '',
+            'To fix: use a Personal API key or OAuth token with organization access. In PostHog, open User settings → Personal API keys and set the key access to "All access" or "Organizations" (with this organization), not "Projects".',
+            '',
+            `See: ${PERSONAL_API_KEY_DOCS_URL}`,
+        ].join('\n')
+    }
+
     return [
         `PostHog API permission denied: ${error.detail}`,
         '',
