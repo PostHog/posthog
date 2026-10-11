@@ -5028,26 +5028,57 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(reasons["out-of-range"]["notability"], 1.0)
         self.assertEqual(reasons["boolean"]["kind"], "unviewed_recent")
 
-    def test_no_verdict_monitor_negation_is_not_friction(self) -> None:
-        # "Did they struggle? No" reasoning restates the question; keyword matching must not
-        # read the negation as a friction hit.
+    @parameterized.expand(
+        [
+            (
+                "no_verdict_monitor",
+                {"scanner_type": "monitor", "verdict": "no"},
+                "reasoning",
+                "The user did not struggle and saw no errors.",
+                "unviewed_recent",
+            ),
+            (
+                "negated_list",
+                {"scanner_type": "summarizer"},
+                "summary",
+                "The user paid without delay. No errors, retries, or dead ends occurred.",
+                "unviewed_recent",
+            ),
+            (
+                "contraction",
+                {"scanner_type": "summarizer"},
+                "summary",
+                "The user didn't get stuck or see any failures.",
+                "unviewed_recent",
+            ),
+            (
+                "error_free",
+                {"scanner_type": "summarizer"},
+                "summary",
+                "The checkout flow was error-free.",
+                "unviewed_recent",
+            ),
+            (
+                "friction_after_contrast",
+                {"scanner_type": "summarizer"},
+                "summary",
+                "The user saw no errors at first, but checkout failed twice.",
+                "friction",
+            ),
+        ]
+    )
+    def test_negated_friction_language_is_not_friction(
+        self, _name: str, output: dict[str, Any], prose_field: str, prose: str, expected_kind: str
+    ) -> None:
         scanner = self._create_scanner(name="m")
         self._succeeded_observation(
             scanner,
             "calm",
             1,
-            {
-                "model_output": {
-                    "scanner_type": "monitor",
-                    "verdict": "no",
-                    "reasoning": "The user did not struggle and saw no errors.",
-                    "confidence": 0.9,
-                },
-                "signals_count": 0,
-            },
+            {"model_output": {**output, prose_field: prose, "confidence": 0.9}, "signals_count": 0},
         )
         resp = self.client.get(self.feed_url)
-        self.assertEqual(resp.json()["results"][0]["reason"], {"kind": "unviewed_recent"})
+        self.assertEqual(resp.json()["results"][0]["reason"], {"kind": expected_kind})
 
     def test_the_flag_switches_the_whole_ranker_between_weighted_score_and_jev(self) -> None:
         # The two rankers are independent: a cached Jev probability must not move the weighted-score

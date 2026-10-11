@@ -82,6 +82,30 @@ _FRICTION_RE = re.compile(
     r"gave up|give up|churn\w*|unable|couldn.?t|blocked|glitch\w*|freez\w*|froze|unresponsive)\b",
     re.IGNORECASE,
 )
+# Scan prose often states the absence of friction ("no errors, retries, or dead ends"). A negator up to this
+# many tokens before a keyword, in the same clause, cancels the keyword. The window spans a short list, and a
+# clause break ends it, so "no errors at first, but checkout failed" still counts.
+_NEGATION_WINDOW_TOKENS = 8
+_NEGATOR_RE = re.compile(r"^(no|not|never|without|none|neither|nor|zero|\w+n't)$")
+_CLAUSE_BREAK_RE = re.compile(
+    r"[.!?;:\n]|\b(?:but|however|although|though|yet|except|until|whereas|while|then)\b", re.I
+)
+_NEGATION_TOKEN_RE = re.compile(r"[a-z]+(?:'[a-z]+)?")
+_FREE_SUFFIX_RE = re.compile(r"[\s-]*free\b", re.IGNORECASE)
+
+
+def _mentions_friction(text: str) -> bool:
+    text = text.replace("\u2019", "'")
+    for match in _FRICTION_RE.finditer(text):
+        if _FREE_SUFFIX_RE.match(text, match.end()):
+            continue
+        before = text[: match.start()]
+        clause_starts = [m.end() for m in _CLAUSE_BREAK_RE.finditer(before)]
+        clause = before[clause_starts[-1] :] if clause_starts else before
+        window = _NEGATION_TOKEN_RE.findall(clause.lower())[-_NEGATION_WINDOW_TOKENS:]
+        if not any(_NEGATOR_RE.match(token) for token in window):
+            return True
+    return False
 
 
 @frozen
@@ -170,7 +194,7 @@ def _parse_candidate(row: dict[str, Any]) -> _Candidate:
         score=float(score) if isinstance(score, int | float) else None,
         tags=tuple(tag for tag in tags if isinstance(tag, str)),
         summary_tokens=frozenset(_TOKEN_RE.findall(summary_text.lower())),
-        friction=friction_eligible and bool(_FRICTION_RE.search(" ".join([prose, *tags]))),
+        friction=friction_eligible and _mentions_friction(". ".join([prose, *tags])),
         # The LLM-response schema bounds this to 0-1, but a stored row (or a bool, since bool is an int
         # subclass) can carry anything, so clamp defensively — an out-of-range value would outrank its tier.
         notability=(
