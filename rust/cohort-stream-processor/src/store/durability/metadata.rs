@@ -1,10 +1,10 @@
 //! Checkpoint metadata: the per-attempt file registry, plus S3-key construction.
 //!
-//! `topic`/`partition` are pinned to the fixed store identity (`STORE_TOPIC`/`STORE_PARTITION`); the
-//! offset scalars are written as 0 and never read, since offset positions live in a separate manifest.
+//! `topic`/`partition` hold the pod's [`StoreIdentity`](super::StoreIdentity) (`STORE_TOPIC` and the
+//! pod ordinal); the offset scalars are written as 0 and never read, since offset positions live in a
+//! separate manifest.
 
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tracing::debug;
 
-use super::{STORE_PARTITION, STORE_TOPIC};
+use super::CheckpointOwner;
 use crate::store::STORE_SCHEMA_VERSION;
 
 /// Deterministic 8-hex-char prefix for spreading S3 object keys across internal partitions.
@@ -24,13 +24,6 @@ pub fn hash_prefix_for_partition(topic: &str, partition: i32) -> String {
         "{:02x}{:02x}{:02x}{:02x}",
         hash[0], hash[1], hash[2], hash[3]
     )
-}
-
-/// The single, process-wide S3 hash prefix, derived from the fixed store identity. One DB holds all
-/// partitions, so there is exactly one stable prefix. Computed once and cached.
-pub fn store_hash_prefix() -> &'static str {
-    static PREFIX: OnceLock<String> = OnceLock::new();
-    PREFIX.get_or_init(|| hash_prefix_for_partition(STORE_TOPIC, STORE_PARTITION))
 }
 
 /// Build the store path `<base_path>/<topic>/<partition>`. Slashes in the topic are replaced with
@@ -57,7 +50,7 @@ pub struct CheckpointMetadata {
     pub id: String,
     /// Topic name (fixed to `STORE_TOPIC`).
     pub topic: String,
-    /// Partition number (fixed to `STORE_PARTITION`).
+    /// The pod ordinal of the store identity (not a Kafka partition).
     pub partition: i32,
     /// Timestamp of this checkpoint's attempt
     pub attempt_timestamp: DateTime<Utc>,
@@ -77,6 +70,10 @@ pub struct CheckpointMetadata {
     /// real version and is therefore skipped.
     #[serde(default)]
     pub store_schema: u32,
+    /// The pod config that took this checkpoint. `None` for metadata written before the field
+    /// existed (always a single-pod checkpoint).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<CheckpointOwner>,
     /// Registry of file metadata for all remotely-stored files required to reconstitute a local
     /// RocksDB store across all relevant checkpoint attempts.
     pub files: Vec<CheckpointFile>,
@@ -101,6 +98,7 @@ impl CheckpointMetadata {
             producer_offset,
             updated_at: attempt_timestamp,
             store_schema: STORE_SCHEMA_VERSION,
+            owner: None,
             files: Vec::new(),
         }
     }
@@ -260,7 +258,10 @@ impl CheckpointFile {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::durability::{StoreIdentity, STORE_TOPIC};
     use tempfile::TempDir;
+
+    const STORE_PARTITION: i32 = 0;
 
     #[tokio::test]
     async fn checkpoint_metadata_creation() {
@@ -495,10 +496,15 @@ mod tests {
     }
 
     #[test]
-    fn store_hash_prefix_is_the_single_db_identity_hash() {
+    fn store_identity_hash_prefix_keys_on_the_ordinal() {
         assert_eq!(
-            store_hash_prefix(),
-            hash_prefix_for_partition(STORE_TOPIC, STORE_PARTITION)
+            StoreIdentity::for_ordinal(0).hash_prefix(),
+            hash_prefix_for_partition(STORE_TOPIC, 0),
+            "ordinal 0 keeps the single-pod prefix",
+        );
+        assert_ne!(
+            StoreIdentity::for_ordinal(0).hash_prefix(),
+            StoreIdentity::for_ordinal(1).hash_prefix(),
         );
     }
 
@@ -515,7 +521,7 @@ mod tests {
             0,
             0,
         );
-        let hash = store_hash_prefix().to_string();
+        let hash = StoreIdentity::for_ordinal(0).hash_prefix();
         let info = CheckpointInfo::new(metadata, bucket_namespace.to_string(), Some(hash.clone()));
 
         let meta_key = info.get_metadata_key();
