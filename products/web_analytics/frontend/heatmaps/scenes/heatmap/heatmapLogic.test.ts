@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
+import { getRouterContext } from 'kea-router/lib/router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -162,6 +163,39 @@ describe('heatmapLogic', () => {
             router.actions.push('/heatmaps')
             expect(router.values.location.pathname).toBe(initialPath.replace('/hm_test', ''))
             expect(logic.values.hasUnsavedChanges).toBe(false)
+        })
+
+        it.each(['new', 'hm_test'])('disables stale navigation guards after leaving heatmap %s', async (id) => {
+            logic.unmount()
+            const interceptors = getRouterContext().beforeUnloadInterceptors
+            const previousInterceptors = new Set(interceptors)
+            logic = heatmapLogic({ id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setName('Edited heatmap')
+            const added = [...interceptors].filter((interceptor) => !previousInterceptors.has(interceptor))
+            expect(added).toHaveLength(1)
+            const guard = added[0]
+            expect(guard.enabled()).toBe(id !== 'new')
+
+            logic.unmount()
+            expect(interceptors.has(guard)).toBe(false)
+            expect(guard.enabled()).toBe(false)
+            const unload = new Event('beforeunload', { cancelable: true })
+            window.dispatchEvent(unload)
+            expect(unload.defaultPrevented).toBe(false)
+            const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
+            router.actions.push('/heatmaps')
+            expect(confirm).not.toHaveBeenCalled()
+
+            logic = heatmapLogic({ id })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setName('A new edit')
+            expect(guard.enabled()).toBe(false)
+            const remountedUnload = new Event('beforeunload', { cancelable: true })
+            window.dispatchEvent(remountedUnload)
+            expect(remountedUnload.defaultPrevented).toBe(id !== 'new')
         })
 
         it.each([true, false])('saves a rename without regenerating a screenshot (ready: %s)', async (ready) => {
