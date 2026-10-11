@@ -209,7 +209,8 @@ jobs:
             # common/storybook/.storybook/test-runner.ts), so webkit adds render-error coverage
             # only. That coverage is worth a batched queue run, because a webkit-only break then
             # fails the queue instead of master. It is not worth every push of every frontend PR,
-            # so author PRs stay chromium-only.
+            # so the matrix on author PRs stays chromium-only. The flake-verification job covers the
+            # gap for the story files a PR changes: it runs them in webkit once.
             - name: Build matrix
               id: matrix
               env:
@@ -914,13 +915,13 @@ jobs:
               run: exit 1
 
     # Verify changed story files are stable by re-running them multiple times.
-    # Catches flaky snapshots before they land on master.
+    # Catches flaky snapshots and webkit-only breaks before they land on master.
     flake-verification:
         name: Storybook flake verification
         runs-on: ubuntu-24.04
         needs: [changes, build-storybook]
         # Skipped on trunk-merge/**: the job diffs against base.sha to find changed stories,
-        # which on a queue branch is the same set the PR's own run already re-ran three times.
+        # which on a queue branch is the same set the PR's own run already verified.
         if: |
             needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
@@ -1015,6 +1016,7 @@ jobs:
                 build-storybook,
                 select-stories,
                 visual-regression,
+                flake-verification,
                 vr-setup,
                 vr-complete,
                 check-baseline-removals,
@@ -1052,6 +1054,11 @@ jobs:
 
                   if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.flake-verification.result }}" != "success" && "${{ needs.flake-verification.result }}" != "skipped" ]]; then
+                    echo "Storybook flake verification did not pass (result: ${{ needs.flake-verification.result }})."
                     exit 1
                   fi
 
