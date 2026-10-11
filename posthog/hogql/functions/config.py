@@ -41,3 +41,12 @@ FIRST_ARG_DATETIME_FUNCTIONS = (
     "hopStart",
     "hopEnd",
 )
+
+# JSON extraction functions whose result is always an Array. ClickHouse cannot put an Array inside
+# Nullable, so these fail on a nullable JSON argument unless the printer removes the nullability.
+ALWAYS_ARRAY_JSON_EXTRACT_FUNCTIONS = (
+    "JSONExtractArrayRaw",
+    "JSONExtractKeys",
+    "JSONExtractKeysAndValues",
+    "JSONExtractKeysAndValuesRaw",
+)
