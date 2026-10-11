@@ -10708,6 +10708,8 @@ export namespace Schemas {
       columns?: ChartAxis[] | null;
       conditionalFormatting?: ConditionalFormattingRule[] | null;
       pinnedColumns?: string[] | null;
+      /** Show datetime values as absolute timestamps instead of relative time */
+      showAbsoluteTime?: boolean | null;
       transpose?: boolean | null;
     }
 

@@ -8272,6 +8272,8 @@ export interface TableSettingsApi {
     columns?: ChartAxisApi[] | null
     conditionalFormatting?: ConditionalFormattingRuleApi[] | null
     pinnedColumns?: string[] | null
+    /** Show datetime values as absolute timestamps instead of relative time */
+    showAbsoluteTime?: boolean | null
     transpose?: boolean | null
 }
 

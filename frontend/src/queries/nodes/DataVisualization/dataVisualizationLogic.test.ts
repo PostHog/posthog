@@ -42,6 +42,7 @@ describe('dataVisualizationLogic', () => {
     let logic: ReturnType<typeof dataVisualizationLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
 
         logic = dataVisualizationLogic({
@@ -945,5 +946,58 @@ describe('dataVisualizationLogic', () => {
         ['keeps full precision when decimal places are unset', 42.5, undefined, '42.5'],
     ])('%s', (_name, value, settings, expected) => {
         expect(formatDataWithSettings(value, settings)).toBe(expected)
+    })
+    const mountLogic = (key: string, sqlEditor?: boolean): ReturnType<typeof dataVisualizationLogic.build> => {
+        const built = dataVisualizationLogic({
+            key,
+            query: defaultQuery,
+            dataNodeCollectionId,
+            sqlEditor,
+        } as DataVisualizationLogicProps)
+        built.mount()
+        return built
+    }
+
+    test.each([
+        { sqlEditor: true, expected: true },
+        { sqlEditor: undefined, expected: false },
+    ])('shows absolute time by default: $expected when sqlEditor is $sqlEditor', ({ sqlEditor, expected }) => {
+        const built = mountLogic(`default-${sqlEditor}`, sqlEditor)
+
+        expect(built.values.showAbsoluteTime).toBe(expected)
+        built.unmount()
+    })
+
+    test.each([
+        { sqlEditor: true, toggleTo: false, nextKey: 'another-editor-tab', expectedAfterRemount: false },
+        { sqlEditor: undefined, toggleTo: true, nextKey: 'remount-first', expectedAfterRemount: false },
+    ])(
+        'a time toggle when sqlEditor is $sqlEditor shows $expectedAfterRemount after the table remounts',
+        ({ sqlEditor, toggleTo, nextKey, expectedAfterRemount }) => {
+            const first = mountLogic('remount-first', sqlEditor)
+            first.actions.setShowAbsoluteTime(toggleTo)
+            expect(first.values.showAbsoluteTime).toBe(toggleTo)
+            first.unmount()
+
+            const second = mountLogic(nextKey, sqlEditor)
+            expect(second.values.showAbsoluteTime).toBe(expectedAfterRemount)
+            second.unmount()
+        }
+    )
+
+    test('SQL editors on the same page share one time format, and other tables do not change it', () => {
+        const editorA = mountLogic('editor-a', true)
+        const editorB = mountLogic('editor-b', true)
+        const dashboardTile = mountLogic('dashboard-tile')
+
+        dashboardTile.actions.setShowAbsoluteTime(false)
+        expect(editorB.values.showAbsoluteTime).toBe(true)
+
+        editorA.actions.setShowAbsoluteTime(false)
+        expect(editorB.values.showAbsoluteTime).toBe(false)
+
+        editorA.unmount()
+        editorB.unmount()
+        dashboardTile.unmount()
     })
 })

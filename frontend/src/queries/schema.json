@@ -55133,6 +55133,10 @@
                     },
                     "type": "array"
                 },
+                "showAbsoluteTime": {
+                    "description": "Show datetime values as absolute timestamps instead of relative time",
+                    "type": "boolean"
+                },
                 "transpose": {
                     "type": "boolean"
                 }

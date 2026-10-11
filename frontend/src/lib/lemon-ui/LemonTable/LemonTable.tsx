@@ -212,6 +212,17 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     // used when not using URL to store sorting
     const [internalSorting, setInternalSorting] = useState<Sorting | null>(sorting || null)
 
+    // `currentSorting` falls back to the internal sort when the prop is null, so a controlled sort
+    // that changes (including to null) must replace it, or clearing the prop leaves the old sort.
+    const controlledSortingKey = sorting ? `${sorting.order}:${sorting.columnKey}` : sorting
+    const [lastControlledSortingKey, setLastControlledSortingKey] = useState(controlledSortingKey)
+    if (controlledSortingKey !== lastControlledSortingKey) {
+        setLastControlledSortingKey(controlledSortingKey)
+        if (sorting !== undefined) {
+            setInternalSorting(sorting)
+        }
+    }
+
     /** update sorting and conditionally replace the current browsing history item */
     const setLocalSorting = useCallback(
         (newSorting: Sorting | null) => {
