@@ -1,7 +1,7 @@
 //! Service configuration, loaded from environment variables via `envconfig`.
 
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{ensure, Context};
@@ -13,7 +13,8 @@ use rdkafka::ClientConfig;
 use tracing::warn;
 
 use crate::partitions::pacing::{AgeMs, Hysteresis, SeedPacingConfig, UsedPct};
-use crate::store::durability::DurabilityConfig;
+use crate::store::durability::stage::staging_path;
+use crate::store::durability::{CheckpointLineage, DurabilityConfig, NotAnOrdinalPod, PodOrdinal};
 use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
 use crate::workers::seed_run::RunBudget;
 use crate::workers::{CascadeConfig, EventNameGating, TransferRetryPolicy};
@@ -518,8 +519,9 @@ pub struct Config {
     #[envconfig(default = "900000")]
     pub checkpoint_s3_upload_interval_ms: u64,
 
-    /// Base directory for local checkpoints. Must be a subtree separate from `store_path` on the same
-    /// filesystem (RocksDB refuses to checkpoint into its own directory and hard-links SSTs).
+    /// Base directory for local checkpoints. Must be an absolute path outside `store_path` and its
+    /// `<store_path>.restore` staging directory, on the same filesystem (RocksDB refuses to
+    /// checkpoint into its own directory and hard-links SSTs, and every boot deletes the stage).
     #[envconfig(default = "cohort-checkpoints")]
     pub checkpoint_local_dir: String,
 
@@ -591,9 +593,9 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub checkpoint_import_attempt_depth: usize,
 
-    /// Max time for a complete S3 checkpoint import — list + metadata + all files + fallbacks (secs).
-    /// Kept under `max.poll.interval.ms` so a long restore does not get the consumer kicked.
-    #[envconfig(default = "240")]
+    /// Max time to download one S3 checkpoint candidate's files (secs). A slower candidate fails and
+    /// the restore tries the next one.
+    #[envconfig(default = "1800")]
     pub checkpoint_import_timeout_secs: u64,
 }
 
@@ -811,7 +813,9 @@ impl Config {
     /// - Reconcile scan and tick limits must be non-zero; a zero page would falsely certify an
     ///   unscanned snapshot, while Tokio rejects a zero timer interval.
     /// - `checkpoint_enabled` requires `durable_restore_enabled`: without it the restored DB is wiped
-    ///   on open, silently discarding the restore.
+    ///   on open, silently discarding the restore. It also requires a bucket, non-zero knobs, an
+    ///   absolute checkpoint directory apart from the store, and a pod name with an ordinal, so a
+    ///   misconfigured pod fails at start instead of running without checkpoints.
     /// - `durable_restore_enabled` + `cohort_cascade_enabled` requires `durable_restore_single_pod`
     ///   and a pod identity: `pod_identity()` alone is not a single-pod signal (set on every k8s pod).
     pub fn validate_startup(&self) -> anyhow::Result<()> {
@@ -901,6 +905,9 @@ impl Config {
             "CHECKPOINT_ENABLED requires DURABLE_RESTORE_ENABLED: restoring a checkpoint without \
              reopen-live is meaningless.",
         );
+        if self.checkpoint_enabled {
+            self.validate_checkpoints()?;
+        }
 
         if self.durable_restore_enabled && self.cohort_cascade_enabled {
             let single_pod_static =
@@ -936,6 +943,97 @@ impl Config {
         Ok(())
     }
 
+    fn validate_checkpoints(&self) -> anyhow::Result<()> {
+        ensure!(
+            !self.checkpoint_s3_bucket.is_empty(),
+            "CHECKPOINT_ENABLED requires CHECKPOINT_S3_BUCKET.",
+        );
+        let knobs: [(&str, u64); 11] = [
+            ("CHECKPOINT_INTERVAL_MS", self.checkpoint_interval_ms),
+            (
+                "CHECKPOINT_S3_UPLOAD_INTERVAL_MS",
+                self.checkpoint_s3_upload_interval_ms,
+            ),
+            (
+                "CHECKPOINT_MAX_CONCURRENT_UPLOADS",
+                self.checkpoint_max_concurrent_uploads as u64,
+            ),
+            (
+                "CHECKPOINT_MAX_CONCURRENT_DOWNLOADS",
+                self.checkpoint_max_concurrent_downloads as u64,
+            ),
+            (
+                "CHECKPOINT_MAX_UPLOAD_BUFFERS",
+                self.checkpoint_max_upload_buffers as u64,
+            ),
+            (
+                "CHECKPOINT_IMPORT_WINDOW_HOURS",
+                u64::from(self.checkpoint_import_window_hours),
+            ),
+            (
+                "CHECKPOINT_LOCAL_MAX_STALENESS_SECS",
+                self.checkpoint_local_max_staleness_secs,
+            ),
+            (
+                "CHECKPOINT_IMPORT_ATTEMPT_DEPTH",
+                self.checkpoint_import_attempt_depth as u64,
+            ),
+            (
+                "CHECKPOINT_S3_OPERATION_TIMEOUT_SECS",
+                self.checkpoint_s3_operation_timeout_secs,
+            ),
+            (
+                "CHECKPOINT_S3_ATTEMPT_TIMEOUT_SECS",
+                self.checkpoint_s3_attempt_timeout_secs,
+            ),
+            (
+                "CHECKPOINT_IMPORT_TIMEOUT_SECS",
+                self.checkpoint_import_timeout_secs,
+            ),
+        ];
+        for (name, value) in knobs {
+            ensure!(value > 0, "{name} must be greater than zero.");
+        }
+        let checkpoints = Path::new(&self.checkpoint_local_dir);
+        let store = Path::new(&self.store_path);
+        ensure!(
+            checkpoints.is_absolute() && store.is_absolute(),
+            "CHECKPOINT_LOCAL_DIR {checkpoints:?} and STORE_PATH {store:?} must be absolute paths.",
+        );
+        ensure!(
+            !checkpoints.starts_with(store) && !store.starts_with(checkpoints),
+            "CHECKPOINT_LOCAL_DIR {checkpoints:?} and STORE_PATH {store:?} must not contain one \
+             another: RocksDB refuses a checkpoint inside its own directory.",
+        );
+        let staging = staging_path(store);
+        ensure!(
+            !checkpoints.starts_with(&staging),
+            "CHECKPOINT_LOCAL_DIR {checkpoints:?} must not be inside {staging:?}, where a restore \
+             stages a checkpoint: every boot deletes that directory.",
+        );
+        self.checkpoint_lineage().context(
+            "POD_NAME must end in a StatefulSet ordinal, or be unset outside Kubernetes",
+        )?;
+        Ok(())
+    }
+
+    /// The checkpoint lineage of this pod, from the ordinal at the end of `POD_NAME`. A process
+    /// without `POD_NAME` (a local run or a test) uses the single pod's lineage. `HOSTNAME` is not
+    /// consulted: outside Kubernetes it names the machine, not a StatefulSet pod.
+    pub fn checkpoint_lineage(&self) -> Result<CheckpointLineage, NotAnOrdinalPod> {
+        let ordinal = match self.pod_name.as_deref().filter(|name| !name.is_empty()) {
+            Some(name) => PodOrdinal::from_pod_name(name)?,
+            None => PodOrdinal::STANDALONE,
+        };
+        Ok(CheckpointLineage::new(ordinal))
+    }
+
+    /// `COHORT_PARTITION_COUNT` as a slice id range. A count past `u16::MAX` fails the topic checks
+    /// at startup.
+    pub fn partition_count(&self) -> u16 {
+        u16::try_from(self.cohort_partition_count).unwrap_or(u16::MAX)
+    }
+
     /// Whether to wipe the store on start, folding in the durable-restore gate: keep the live store
     /// only when restore is on and one already exists on disk. Touches the filesystem (`.exists()`) —
     /// a one-shot decision evaluated once at store open.
@@ -966,8 +1064,7 @@ impl Config {
             periodic_compaction_seconds: self.cohort_periodic_compaction_seconds,
             max_background_jobs: self.cohort_max_background_jobs,
             person_record_ttl_days: self.cohort_person_record_ttl_days,
-            // A count past `u16::MAX` fails the topic checks at startup.
-            partition_count: u16::try_from(self.cohort_partition_count).unwrap_or(u16::MAX),
+            partition_count: self.partition_count(),
             ..StoreConfig::default()
         }
     }
@@ -1232,7 +1329,7 @@ mod tests {
             checkpoint_local_max_staleness_secs: 7200,
             checkpoint_import_window_hours: 24,
             checkpoint_import_attempt_depth: 10,
-            checkpoint_import_timeout_secs: 240,
+            checkpoint_import_timeout_secs: 1800,
             cohort_seed_consumer_enabled: false,
             cohort_stream_seed_events_topic: "cohort_stream_seed_events".to_string(),
             kafka_seed_consumer_group: "cohort-stream-seeds".to_string(),
@@ -1920,11 +2017,68 @@ mod tests {
     }
 
     #[test]
-    fn durability_startup_guard_allows_checkpoint_with_durable_restore() {
-        let mut config = test_config();
-        config.checkpoint_enabled = true;
-        config.durable_restore_enabled = true;
-        assert!(config.validate_startup().is_ok());
+    fn checkpoints_start_only_with_a_bucket_nonzero_knobs_a_separate_absolute_dir_and_an_ordinal() {
+        fn enabled() -> Config {
+            let mut config = test_config();
+            config.checkpoint_enabled = true;
+            config.durable_restore_enabled = true;
+            config.checkpoint_s3_bucket = "bkt".to_string();
+            config.store_path = "/data/store".to_string();
+            config.checkpoint_local_dir = "/data/checkpoints".to_string();
+            config.pod_name = Some("cohort-stream-processor-2".to_string());
+            config
+        }
+        enabled().validate_startup().unwrap();
+
+        type Misconfigure = fn(&mut Config);
+        let cases: [(&str, Misconfigure, &str); 8] = [
+            (
+                "no bucket",
+                |c| c.checkpoint_s3_bucket.clear(),
+                "CHECKPOINT_S3_BUCKET",
+            ),
+            (
+                "a zero interval",
+                |c| c.checkpoint_interval_ms = 0,
+                "CHECKPOINT_INTERVAL_MS",
+            ),
+            (
+                "a relative checkpoint dir",
+                |c| c.checkpoint_local_dir = "checkpoints".to_string(),
+                "absolute",
+            ),
+            (
+                "a relative store path",
+                |c| c.store_path = "cohort-store".to_string(),
+                "absolute",
+            ),
+            (
+                "a checkpoint dir inside the store",
+                |c| c.checkpoint_local_dir = "/data/store/checkpoints".to_string(),
+                "contain",
+            ),
+            (
+                "a store inside the checkpoint dir",
+                |c| c.checkpoint_local_dir = "/data".to_string(),
+                "contain",
+            ),
+            (
+                "a checkpoint dir inside the restore's staging dir",
+                |c| c.checkpoint_local_dir = "/data/store.restore/checkpoints".to_string(),
+                "stages",
+            ),
+            (
+                "a pod name without an ordinal",
+                |c| c.pod_name = Some("cohort-stream-processor".to_string()),
+                "POD_NAME",
+            ),
+        ];
+        for (name, misconfigure, expected) in cases {
+            let mut config = enabled();
+            misconfigure(&mut config);
+            let err = config.validate_startup().expect_err(name);
+            assert!(format!("{err:#}").contains(expected), "{name}: {err:#}");
+        }
     }
 
     #[test]

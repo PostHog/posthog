@@ -12,7 +12,8 @@ use rdkafka::error::KafkaResult;
 use rdkafka::{Offset, TopicPartitionList};
 
 use crate::consumers::events::ConsumedEvent;
-use crate::store::durability::OffsetManifest;
+use crate::partitions::ResumeOffset;
+use crate::store::durability::PendingRestore;
 
 /// The lowest offset per events partition that boot polled and did not fold. A seek there fetches
 /// every skipped event again. librdkafka discards messages it fetched before a seek, so a held-back
@@ -27,22 +28,16 @@ impl ResumePoints {
         }
     }
 
-    /// A restored store resumes at its manifest offset on every owned partition the manifest names.
-    pub(crate) fn rewind_to(
-        &mut self,
-        manifest: &OffsetManifest,
-        topic: &str,
-        owned: &HashSet<i32>,
-    ) {
-        for &partition in owned {
-            if let Some(next_offset) = manifest.offset_for(topic, partition) {
-                self.lower(partition, next_offset);
-            }
+    /// A restored store resumes at its restore plan's position on every partition the plan keeps.
+    /// The seek list leaves out the ones this consumer does not own.
+    pub(crate) fn rewind_to(&mut self, positions: &BTreeMap<u16, ResumeOffset>) {
+        for (&partition, &offset) in positions {
+            self.lower(i32::from(partition), offset.get());
         }
     }
 
     /// The seek list for the partitions still owned, or `None` when nothing needs a seek. Fails only
-    /// on a negative offset, which neither a polled message nor a captured manifest carries.
+    /// on a negative offset, which a polled message never carries.
     pub(crate) fn seek_list(
         &self,
         topic: &str,
@@ -65,27 +60,29 @@ impl ResumePoints {
     }
 }
 
-/// Where the events consumer's boot stands. Nothing folds before [`BootPhase::Live`].
+/// Where the events consumer's boot stands. Nothing folds before [`BootPhase::Live`]. A pending
+/// checkpoint restore rides along until the rewind commits its positions and settles it.
 pub(crate) enum BootPhase {
     /// Waiting for two consecutive polls to report the same non-empty assignment.
     Settling {
         previous: Option<HashSet<i32>>,
         resume: ResumePoints,
-        manifest: Option<OffsetManifest>,
+        restore: Option<PendingRestore>,
     },
     /// Recovery ran. The owned partitions must seek before anything folds.
     Rewinding {
         resume: ResumePoints,
+        restore: Option<PendingRestore>,
     },
     Live,
 }
 
 impl BootPhase {
-    pub(crate) fn settling(manifest: Option<OffsetManifest>) -> Self {
+    pub(crate) fn settling(restore: Option<PendingRestore>) -> Self {
         Self::Settling {
             previous: None,
             resume: ResumePoints::default(),
-            manifest,
+            restore,
         }
     }
 }
@@ -108,8 +105,6 @@ pub(crate) fn boot_assignment_settled(
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-
     use super::*;
     use crate::consumers::events::CohortStreamEvent;
 
@@ -153,7 +148,7 @@ mod tests {
     struct Case {
         name: &'static str,
         polls: &'static [&'static [(i32, i64)]],
-        manifest: Option<&'static [(i32, i64)]>,
+        restored: Option<&'static [(u16, i64)]>,
         owned: &'static [i32],
         expected: Option<&'static [(i32, i64)]>,
     }
@@ -164,35 +159,35 @@ mod tests {
             Case {
                 name: "the lowest polled offset per partition wins across polls",
                 polls: &[&[(0, 5), (1, 7)], &[(0, 3), (0, 6), (1, 8)]],
-                manifest: None,
+                restored: None,
                 owned: &[0, 1],
                 expected: Some(&[(0, 3), (1, 7)]),
             },
             Case {
-                name: "a manifest lowers held partitions and adds owned ones boot never polled",
+                name: "a restore lowers held partitions and adds owned ones boot never polled",
                 polls: &[&[(0, 10), (1, 2)]],
-                manifest: Some(&[(0, 4), (1, 6), (2, 9), (3, 1)]),
+                restored: Some(&[(0, 4), (1, 6), (2, 9), (3, 1)]),
                 owned: &[0, 1, 2],
                 expected: Some(&[(0, 4), (1, 2), (2, 9)]),
             },
             Case {
                 name: "a partition revoked during boot is not sought",
                 polls: &[&[(0, 3), (1, 7)]],
-                manifest: None,
+                restored: None,
                 owned: &[1],
                 expected: Some(&[(1, 7)]),
             },
             Case {
                 name: "nothing held needs no seek",
                 polls: &[&[]],
-                manifest: None,
+                restored: None,
                 owned: &[0, 1],
                 expected: None,
             },
             Case {
                 name: "only unowned partitions held needs no seek",
                 polls: &[&[(2, 4)]],
-                manifest: Some(&[(3, 1)]),
+                restored: Some(&[(3, 1)]),
                 owned: &[0],
                 expected: None,
             },
@@ -208,16 +203,14 @@ mod tests {
                     .collect();
                 resume.hold_back(&events);
             }
-            if let Some(offsets) = case.manifest {
-                let manifest = OffsetManifest {
-                    version: crate::store::durability::MANIFEST_VERSION,
-                    captured_at: Utc::now(),
-                    topics: BTreeMap::from([(
-                        TOPIC.to_string(),
-                        offsets.iter().copied().collect(),
-                    )]),
-                };
-                resume.rewind_to(&manifest, TOPIC, &owned);
+            if let Some(offsets) = case.restored {
+                let positions = offsets
+                    .iter()
+                    .map(|&(partition, offset)| {
+                        (partition, ResumeOffset::try_from(offset).unwrap())
+                    })
+                    .collect();
+                resume.rewind_to(&positions);
             }
 
             assert_eq!(
