@@ -7,6 +7,8 @@ from django.db.utils import IntegrityError
 
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -69,14 +71,29 @@ class TestDashboardTileModel(APIBaseTest):
     def test_copy_uses_current_content_after_reference_changes(self, content_field: str) -> None:
         if content_field == "text":
             original: Text | ButtonTile = Text.objects.create(team=self.team, body="Original")
-            updated: Text | ButtonTile = Text.objects.create(team=self.team, body="Updated")
+            updated: Text | ButtonTile = Text.objects.create(
+                team=self.team,
+                body="Updated",
+                agent_context="Context",
+                created_by=self.user,
+                last_modified_by=self.user,
+            )
         else:
             original = ButtonTile.objects.create(team=self.team, url="https://example.com/original", text="Original")
-            updated = ButtonTile.objects.create(team=self.team, url="https://example.com/updated", text="Updated")
+            updated = ButtonTile.objects.create(
+                team=self.team,
+                url="https://example.com/updated",
+                text="Updated",
+                placement="right",
+                style="secondary",
+                created_by=self.user,
+                last_modified_by=self.user,
+            )
         source = DashboardTile.objects.create(dashboard=self.dashboard, **{content_field: original})
         source = DashboardTile.objects.select_related(content_field).get(pk=source.pk)
         DashboardTile.objects.filter(pk=source.pk).update(**{content_field: updated})
-        destination = Dashboard.objects.create(team=self.team, name="Destination")
+        destination_team = Team.objects.create(organization=self.organization, project=self.project)
+        destination = Dashboard.objects.create(team=destination_team, name="Destination")
 
         source.copy_to_dashboard(destination)
 
@@ -84,6 +101,16 @@ class TestDashboardTileModel(APIBaseTest):
         if content_field == "text":
             assert copied.text is not None
             assert copied.text.body == "Updated"
+            assert copied.text.agent_context == "Context"
+            copied_content: Text | ButtonTile = copied.text
         else:
             assert copied.button_tile is not None
             assert copied.button_tile.url == "https://example.com/updated"
+            assert copied.button_tile.placement == "right"
+            assert copied.button_tile.style == "secondary"
+            copied_content = copied.button_tile
+        assert copied_content.id != updated.id
+        assert copied_content.team_id == destination_team.id
+        assert copied_content.created_by_id == updated.created_by_id
+        assert copied_content.last_modified_at == updated.last_modified_at
+        assert copied_content.last_modified_by_id == updated.last_modified_by_id
