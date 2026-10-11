@@ -55,6 +55,15 @@ const MAX_SESSION_LIFETIME_MS = 60 * 60 * 1000
 // failing closed costs every new team its onboarding.
 const MAX_CONSECUTIVE_POLL_FAILURES = 3
 
+// Fast cadence for a run the user just started. The wizard's OAuth grant calls back to the CLI, not
+// to the app, so the user returns to this tab by hand, and the 60s cadence makes that return land
+// on a page with no sign of the run. Also the throttle for the recheck on return to the tab.
+const EXPECTED_RUN_POLL_INTERVAL_MS = 5 * 1000
+
+// How long a copied command holds the fast poll and the program watch. Long enough to install
+// dependencies, sign in, and pick a project; short enough that a command nobody ran stops costing.
+const EXPECTED_RUN_WINDOW_MS = 15 * 60 * 1000
+
 /**
  * Keep the detector mounted and watching a program until the returned cleanup runs. The one way to
  * hold a watch open, so the mount/watch pairing (and its teardown order: unwatch before unmount,
@@ -136,6 +145,12 @@ export interface wizardActiveSessionDetectorLogicActions {
     check: () => {
         value: true
     }
+    endExpectedRun: () => {
+        value: true
+    }
+    expectRun: (workflowId: string) => {
+        workflowId: string
+    }
     markActive: (workflowId: string) => {
         workflowId: string
     }
@@ -211,6 +226,10 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
         // enters the self-driving flow keeps paying for exactly one poll per tick.
         watchWorkflow: (workflowId: string) => ({ workflowId }),
         unwatchWorkflow: (workflowId: string) => ({ workflowId }),
+        // The user copied a wizard command, so a run of this program is likely to start soon. Watches
+        // the program and polls fast for a bounded window, independent of which surface stays mounted.
+        expectRun: (workflowId: string) => ({ workflowId }),
+        endExpectedRun: true,
         markActive: (workflowId: string) => ({ workflowId }),
         markInactive: true,
         // Back to "nobody knows" — for context changes (project switch) where the previous verdict
@@ -385,6 +404,7 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 actions.setLastError(`wizard latest-session endpoint returned ${denial.status} — disabling detector`)
                 actions.markPermanentlyDisabled()
                 cache.disposables.dispose('rest-poll')
+                cache.disposables.dispose('expected-run-poll')
                 return
             }
 
@@ -438,8 +458,66 @@ export const wizardActiveSessionDetectorLogic = kea<wizardActiveSessionDetectorL
                 actions.markInactive()
             }
         },
-        markActive: () => {
+        expectRun: ({ workflowId }) => {
+            if (values.permanentlyDisabled) {
+                return
+            }
+            const expected: Set<string> = (cache.expectedRunWorkflows ??= new Set<string>())
+            if (!expected.has(workflowId)) {
+                expected.add(workflowId)
+                actions.watchWorkflow(workflowId)
+            }
+            // Not paused while hidden: the user is in the terminal for most of the window, and the
+            // watch must still end on time.
+            cache.disposables.add(
+                () => {
+                    const id = window.setTimeout(() => actions.endExpectedRun(), EXPECTED_RUN_WINDOW_MS)
+                    return () => window.clearTimeout(id)
+                },
+                'expected-run-window',
+                { pauseOnPageHidden: false }
+            )
+            // Paused while hidden, so the return to the tab re-runs this setup and checks at once.
+            // The first check waits out the rest of the interval and the interval starts after it,
+            // so checks stay at least one interval apart and alt-tab flapping can't burst.
+            cache.disposables.add(() => {
+                const sinceLastCheck = Date.now() - (cache.lastExpectedRunCheckAt ?? 0)
+                const fastCheck = (): void => {
+                    cache.lastExpectedRunCheckAt = Date.now()
+                    actions.check()
+                }
+                let intervalId: number | undefined
+                const firstId = window.setTimeout(
+                    () => {
+                        fastCheck()
+                        intervalId = window.setInterval(fastCheck, EXPECTED_RUN_POLL_INTERVAL_MS)
+                    },
+                    Math.max(0, EXPECTED_RUN_POLL_INTERVAL_MS - sinceLastCheck)
+                )
+                return () => {
+                    window.clearTimeout(firstId)
+                    window.clearInterval(intervalId)
+                }
+            }, 'expected-run-poll')
+        },
+        endExpectedRun: () => {
+            cache.disposables.dispose('expected-run-poll')
+            cache.disposables.dispose('expected-run-window')
+            // Safe to release while a run is live: the FAB's local tracker holds its own watch on
+            // the program for as long as it streams.
+            const expected: Set<string> = cache.expectedRunWorkflows ?? new Set<string>()
+            for (const workflowId of expected) {
+                actions.unwatchWorkflow(workflowId)
+            }
+            expected.clear()
+        },
+        markActive: ({ workflowId }) => {
             actions.cancelScheduledMarkInactive()
+            // The expected run connected, so the stream takes over from here. A different program's
+            // run (an SDK install already in flight) must not stop the wait for the expected one.
+            if (cache.expectedRunWorkflows?.has(workflowId)) {
+                cache.disposables.dispose('expected-run-poll')
+            }
         },
         markInactive: () => {
             cache.markInactiveAt = undefined

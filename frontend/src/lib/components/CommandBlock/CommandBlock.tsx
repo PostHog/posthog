@@ -41,6 +41,8 @@ interface CommandBlockProps {
     /** Fired after each copy click, with a monotonically increasing key. Lets callers
      *  trigger their own keyed remount animations (e.g. the wizard hedgehog cast). */
     onCopy?: (copyKey: number) => void
+    /** Fired only once the clipboard write succeeds. */
+    onCopySuccess?: () => void
     /** Skip the "Copied … to clipboard" toast. Set when this block lives inside another
      *  long-lived toast that would otherwise get pushed around by the success info toast. */
     silentCopy?: boolean
@@ -65,6 +67,7 @@ export function CommandBlock({
     size = 'md',
     decoration = 'plain',
     onCopy,
+    onCopySuccess,
     silentCopy = false,
     condensed = false,
 }: CommandBlockProps): JSX.Element {
@@ -75,7 +78,11 @@ export function CommandBlock({
     const displayCommand = condensed ? condenseCommand(command) : command
 
     const handleCopy = (): void => {
-        void copyToClipboard(command, copyLabel, { silent: silentCopy })
+        void copyToClipboard(command, copyLabel, { silent: silentCopy }).then((copied) => {
+            if (copied) {
+                onCopySuccess?.()
+            }
+        })
         const next = copyKey + 1
         setCopyKey(next)
         // WAAPI (not a CSS-class remount) so the bounce replays without resetting the rainbow scroll.

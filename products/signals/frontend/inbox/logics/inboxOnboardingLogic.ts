@@ -278,6 +278,7 @@ export interface inboxOnboardingLogicValues {
     hasResolvedSessionState: boolean // wizardActiveSessionDetectorLogic
     watchedWorkflows: string[] // wizardActiveSessionDetectorLogic
     areCountsResolved: boolean
+    awaitingWizardRun: boolean
     bannerDismissed: boolean
     hasExistingWork: boolean
     isRefetching: boolean
@@ -304,6 +305,12 @@ export interface inboxOnboardingLogicActions {
     checkWizardSession: () => {
         value: true
     } // wizardActiveSessionDetectorLogic
+    expectWizardRun: (workflowId: string) => {
+        workflowId: string
+    } // wizardActiveSessionDetectorLogic
+    expectedWizardRunEnded: () => {
+        value: true
+    } // wizardActiveSessionDetectorLogic
     dismissBanner: () => {
         value: true
     }
@@ -325,6 +332,12 @@ export interface inboxOnboardingLogicActions {
     }
     setManualSetupRequested: (teamId: number) => {
         teamId: number
+    }
+    stopAwaitingWizardRun: () => {
+        value: true
+    }
+    wizardCommandCopied: () => {
+        value: true
     }
 }
 
@@ -440,7 +453,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         ],
         actions: [
             wizardActiveSessionDetectorLogic,
-            ['check as checkWizardSession'],
+            ['check as checkWizardSession', 'expectRun as expectWizardRun', 'endExpectedRun as expectedWizardRunEnded'],
             signalSourcesLogic,
             ['loadSourceConfigs'],
             scoutFleetLogic,
@@ -463,6 +476,9 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         /** "Set up manually" was pressed on the takeover. */
         requestManualSetup: true,
         setManualSetupRequested: (teamId: number) => ({ teamId }),
+        /** The wizard command was copied from the takeover or the banner. */
+        wizardCommandCopied: true,
+        stopAwaitingWizardRun: true,
     }),
 
     listeners(({ actions, values }) => ({
@@ -484,6 +500,12 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             }
             router.actions.push(urls.inbox(INBOX_CONFIG_TAB_KEY))
         },
+        // The detector only watches the self-driving program for the self-driving onboarding arm,
+        // so without this a run started from the inbox could never flip the verdict to
+        // `wizard_running`. The detector holds the watch, so it outlives a visit to another page.
+        wizardCommandCopied: () => {
+            actions.expectWizardRun(SELF_DRIVING_WORKFLOW_ID)
+        },
         // Listeners run after the reducer, so this writes the map the choice is already in.
         setManualSetupRequested: () => {
             writeManualSetupTeams(values.manualSetupRequestedByTeam)
@@ -495,6 +517,18 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             false,
             {
                 dismissBanner: () => true,
+            },
+        ],
+        // The takeover shows a waiting state from the first copy, until a run connects and the
+        // takeover goes away.
+        // Cleared when the detector stops expecting a run or a run ends, so a takeover that comes
+        // back (no run arrived, or setup is still incomplete) offers the command again.
+        awaitingWizardRun: [
+            false,
+            {
+                wizardCommandCopied: () => true,
+                expectedWizardRunEnded: () => false,
+                stopAwaitingWizardRun: () => false,
             },
         ],
         verdictWaitExpired: [
@@ -695,6 +729,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         // the takeover back until the fresh data arrives.
         isWizardRunning: (isWizardRunning: boolean, previousIsWizardRunning: boolean | undefined) => {
             if (previousIsWizardRunning === true && !isWizardRunning) {
+                actions.stopAwaitingWizardRun()
                 actions.refreshSetupState()
             }
         },
