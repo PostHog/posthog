@@ -125,6 +125,21 @@ class TestElement(ClickhouseTestMixin, BaseTest):
         assert element_dicts[0]["attributes"] == {}
         assert element_dicts[0]["nth_child"] == 0
 
+    @parameterized.expand(
+        [
+            ("empty nth-child", 'a:nth-child=""nth-of-type="2"', {"nth_child": None, "nth_of_type": 2}),
+            ("non-numeric nth-of-type", 'a:nth-child="1"nth-of-type="x"', {"nth_child": 1, "nth_of_type": None}),
+            (
+                "empty value before other attributes",
+                'a:attr__title=""href="/a-url"nth-child="1"',
+                {"href": "/a-url", "nth_child": 1, "attributes": {"attr__title": ""}},
+            ),
+        ]
+    )
+    def test_chain_to_element_dicts_tolerates_malformed_values(self, _name: str, chain: str, expected: dict) -> None:
+        element = chain_to_element_dicts(chain)[0]
+        assert {field: element[field] for field in expected} == expected
+
     def test_build_attributes_filter_caps_entry_count(self) -> None:
         many_attrs = [f"data-attr-{i}" for i in range(100)]
         matcher = build_attributes_filter(many_attrs)
