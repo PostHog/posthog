@@ -203,6 +203,10 @@ function DashboardScene({
                 <ScreenShotEditor screenshotKey={dashboardTileScreenshotKey(dashboard?.id)} />
             )}
             <DashboardEmbeddedShareButton dashboard={dashboard} placement={placement} />
+            {/* Outside the tile-count branches: a dashboard can keep subscriptions and delivery history after its tiles are removed. */}
+            {placement === DashboardPlacement.Dashboard && !!dashboard?.id && (
+                <SubscriptionSummaries dashboardId={dashboard.id} className="mt-2 mb-2" />
+            )}
 
             {dashboardFailedToLoad && !tiles?.length ? (
                 <InsightErrorState
@@ -244,9 +248,6 @@ function DashboardScene({
                     <DashboardRetentionBanner />
                     <DashboardFlagCalledBanner />
                     <DashboardQueryScanBanner />
-                    {placement === DashboardPlacement.Dashboard && !!dashboard?.id && (
-                        <SubscriptionSummaries dashboardId={dashboard.id} className="mt-2 mb-2" />
-                    )}
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />

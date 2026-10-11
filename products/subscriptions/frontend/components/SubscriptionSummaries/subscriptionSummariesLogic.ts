@@ -45,7 +45,10 @@ export interface subscriptionSummariesLogicActions {
 export interface subscriptionSummariesLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        latestSummary: (summaries: SubscriptionSummaryApi[] | null) => SubscriptionSummaryApi | null
+        latestSummary: (
+            summaries: SubscriptionSummaryApi[] | null,
+            featureFlags: FeatureFlagsSet
+        ) => SubscriptionSummaryApi | null
     }
 }
 
@@ -88,9 +91,15 @@ export const subscriptionSummariesLogic = kea<subscriptionSummariesLogicType>([
         ],
     })),
     selectors({
-        latestSummary: [(s) => [s.summaries], (summaries: SubscriptionSummaryApi[] | null) => summaries?.[0] ?? null],
+        // Depends on the flag too, so disabling it mid-session hides the panel immediately instead of
+        // waiting for a remount.
+        latestSummary: [
+            (s) => [s.summaries, s.featureFlags],
+            (summaries: SubscriptionSummaryApi[] | null, featureFlags: FeatureFlagsSet) =>
+                featureFlags[FEATURE_FLAGS.SUBSCRIPTION_SOURCE_SUMMARIES] ? (summaries?.[0] ?? null) : null,
+        ],
     }),
-    listeners(({ props }) => ({
+    listeners(({ actions, props, values }) => ({
         loadSummariesSuccess: ({ summaries }) => {
             if (!summaries?.length) {
                 return
@@ -101,6 +110,20 @@ export const subscriptionSummariesLogic = kea<subscriptionSummariesLogicType>([
                 summary_count: summaries.length,
                 subscription_count: new Set(summaries.map((summary) => summary.subscription)).size,
             })
+        },
+        // The rollout can flip after mount, so a late assignment still loads summaries instead of
+        // waiting for the component to remount.
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            if (!props.dashboardId && !props.insightId) {
+                return
+            }
+            if (
+                values.featureFlags[FEATURE_FLAGS.SUBSCRIPTION_SOURCE_SUMMARIES] &&
+                values.summaries === null &&
+                !values.summariesLoading
+            ) {
+                actions.loadSummaries()
+            }
         },
     })),
     afterMount(({ actions, props, values }) => {

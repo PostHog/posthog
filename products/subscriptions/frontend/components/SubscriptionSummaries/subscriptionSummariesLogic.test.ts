@@ -61,4 +61,33 @@ describe('subscriptionSummariesLogic', () => {
             expect(mockSummariesList.mock.calls).toEqual(expectedCalls)
         }
     )
+
+    it('loads summaries when the flag turns on after the component is already mounted', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_SOURCE_SUMMARIES]: false })
+        logic = subscriptionSummariesLogic({ dashboardId: 7 })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockSummariesList).not.toHaveBeenCalled()
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_SOURCE_SUMMARIES]: true })
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ latestSummary: summary('b') })
+        expect(mockSummariesList).toHaveBeenCalledTimes(1)
+    })
+
+    it('hides the latest summary once the flag turns off, so it also acts as a kill switch', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_SOURCE_SUMMARIES]: true })
+        logic = subscriptionSummariesLogic({ dashboardId: 7 })
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ latestSummary: summary('b') })
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SUBSCRIPTION_SOURCE_SUMMARIES]: false })
+
+        expectLogic(logic).toMatchValues({ latestSummary: null })
+        expect(mockSummariesList).toHaveBeenCalledTimes(1)
+    })
 })

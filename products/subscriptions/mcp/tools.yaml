@@ -228,6 +228,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
+        feature_flag: subscription-source-summaries
         list: true
         title: List AI summaries for an insight or dashboard
         description: >
