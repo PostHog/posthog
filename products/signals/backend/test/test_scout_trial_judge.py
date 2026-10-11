@@ -261,9 +261,13 @@ class TestSandboxJudgeVerdicts(SimpleTestCase):
         )
         self.assertEqual(result.criteria[0].verdict, "pass")
 
-    @parameterized.expand([("acp",), ("pi",)])
-    def test_tool_evidence_at_end_of_large_log_is_available(self, runtime: str) -> None:
-        output = {"type": "text", "text": "Affected checkouts: 7.\nFilter: last 24 hours."}
+    @parameterized.expand([(runtime, depth) for runtime in ("acp", "pi") for depth in (0, 1, 2)])
+    def test_tool_evidence_at_end_of_large_log_is_available(self, runtime: str, depth: int) -> None:
+        quote = 'Affected checkouts: 7.\nFilter: "last 24 hours".'
+        text = quote
+        for _ in range(depth):
+            text = json.dumps({"results": text})
+        output = {"type": "text", "text": text}
         if runtime == "acp":
             tail = _tool_line(toolCallId="query-1", status="completed", rawOutput={"content": [output]})
         else:
@@ -281,14 +285,104 @@ class TestSandboxJudgeVerdicts(SimpleTestCase):
             json.dumps(
                 {
                     "summary": "Observed the result.",
-                    "criteria": [_verdict(source_id="trace:2001", quote=output["text"])],
+                    "criteria": [_verdict(source_id="trace:2001", quote=quote)],
                 }
             ),
             criteria=[_criterion()],
             sources=[TrialEvidenceSource(id="trace", kind="trace", text=log)],
         )
         self.assertEqual(result.criteria[0].verdict, "pass")
-        self.assertEqual(result.criteria[0].evidence[0].quote, output["text"])
+        self.assertEqual(result.criteria[0].evidence[0].quote, quote)
+        self.assertEqual(result.criteria[0].reason, "The result records the observation.")
+        self.assertEqual(result.criteria[0].confidence, "high")
+        self.assertEqual(result.summary, "Observed the result.")
+
+    @parameterized.expand(
+        [
+            (name, value, quote)
+            for quote in ("Hidden observation.", "Hidden observation.\nSecond line.")
+            for name, value in (
+                ("thought", {"type": "thinking", "text": quote}),
+                ("reasoning", {"reasoning": quote}),
+                ("metadata", {"_meta": quote}),
+            )
+        ]
+        + [
+            ("joined_fields", {"first": "First line.", "second": "\nSecond line."}, "First line.\nSecond line."),
+            (
+                "redacted_adjacency",
+                {"before": 1, "thinking": "Excluded.", "after": 2},
+                '"before": 1, "after": 2',
+            ),
+        ]
+    )
+    def test_encoded_tool_citations_cannot_use_reasoning_or_join_fields(
+        self, _name: str, value: object, quote: str
+    ) -> None:
+        source = TrialEvidenceSource(
+            id="trace",
+            kind="trace",
+            text=_tool_line(status="completed", rawOutput={"content": [{"type": "text", "text": json.dumps(value)}]}),
+        )
+        result = parse_trial_judgment(
+            json.dumps({"summary": "Claimed support.", "criteria": [_verdict(source_id="trace:1", quote=quote)]}),
+            criteria=[_criterion()],
+            sources=[source],
+        )
+        self.assertEqual(result.criteria[0].verdict, "unknown")
+        self.assertEqual(result.criteria[0].evidence, [])
+
+    def test_excessively_encoded_tool_text_does_not_hide_a_visible_sibling(self) -> None:
+        hidden = "Hidden observation."
+        for _ in range(3):
+            hidden = json.dumps({"results": hidden})
+        source = TrialEvidenceSource(
+            id="trace",
+            kind="trace",
+            text=_tool_line(status="completed", rawOutput={"encoded": hidden, "visible": "Visible observation."}),
+        )
+        result = parse_trial_judgment(
+            json.dumps(
+                {
+                    "summary": "Checked both observations.",
+                    "criteria": [
+                        _verdict(source_id="trace:1", quote="Hidden observation."),
+                        _verdict(identifier="visible", source_id="trace:1", quote="Visible observation."),
+                    ],
+                }
+            ),
+            criteria=[_criterion(), _criterion("visible")],
+            sources=[source],
+        )
+        self.assertEqual(result.criteria[0].verdict, "unknown")
+        self.assertEqual(result.criteria[0].evidence, [])
+        self.assertEqual(result.criteria[1].verdict, "pass")
+
+    def test_deep_tool_citation_does_not_discard_other_verdicts(self) -> None:
+        nested: object = "Recorded observation."
+        for _ in range(500):
+            nested = {"value": nested}
+        source = TrialEvidenceSource(
+            id="trace",
+            kind="trace",
+            text=_tool_line(rawOutput={"nested": nested, "visible": "Visible observation."}),
+        )
+        result = parse_trial_judgment(
+            json.dumps(
+                {
+                    "summary": "Checked both observations.",
+                    "criteria": [
+                        _verdict(source_id="trace:1", quote="Missing observation."),
+                        _verdict(identifier="visible", source_id="trace:1", quote="Visible observation."),
+                    ],
+                }
+            ),
+            criteria=[_criterion(), _criterion("visible")],
+            sources=[source],
+        )
+        self.assertEqual(result.criteria[0].verdict, "unknown")
+        self.assertEqual(result.criteria[0].evidence, [])
+        self.assertEqual(result.criteria[1].verdict, "pass")
 
     @parameterized.expand(
         [

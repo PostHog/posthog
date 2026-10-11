@@ -19,8 +19,9 @@ from products.signals.backend.trial_judging_types import (
     TrialRunEvidence,
 )
 
-JUDGE_PROMPT_VERSION = "sandbox-2"
+JUDGE_PROMPT_VERSION = "sandbox-3"
 MAX_JUDGE_OUTPUT_CHARACTERS = 64_000
+MAX_QUOTE_JSON_DEPTH = 2
 
 
 @frozen
@@ -73,11 +74,14 @@ Grading:
 - pass: every applicable mandatory part is supported. A plausible report or completing most of the task
   is insufficient. Lower confidence cannot compensate for an unverified requirement.
 - fail: observed evidence establishes a violation, contradiction, or an explicit admission of an unmet
-  requirement. One violated mandatory part is enough. A permitted successful retry may satisfy eventual
+  requirement. A mandatory action is demonstrably omitted when its applicability is established, it must
+  leave an observable record, and the complete relevant records show neither the action nor an allowed
+  alternative. One violated mandatory part is enough. A permitted successful retry may satisfy eventual
   success, but it does not erase an independently forbidden action.
-- unknown: required evidence is unavailable, ambiguous, or insufficient after investigation. A missing
-  observation is not proof that an action did not occur or a claim is false. A log-format problem, missing
-  attachment, or budget exhaustion must be reported honestly as unknown, never silently passed.
+- unknown: required evidence is unavailable, ambiguous, or insufficient after investigation. Missing,
+  truncated, or unreadable records cannot establish that an action was omitted. A log-format problem,
+  missing attachment, or budget exhaustion must be reported honestly as unknown, never silently passed.
+  Missing thoughts or explanations do not establish that manual reasoning or comparison was omitted.
 - not_applicable: evidence establishes that the criterion's entire applicability condition is absent.
   If only one conditional branch is absent, assess the remaining mandatory parts.
 
@@ -85,8 +89,11 @@ For factual grounding, inventory the material claims in the title, report, and r
 claims to observed results, including factual premises embedded in advice. A caveat about causation does
 not validate a separate factual claim. Explicit hypotheses and investigation requests need not already
 be proved. A report repeating itself, or copying a claim into memory, is not independent support.
-An observed contradiction means fail; otherwise missing material support means unknown. Unsupported
-confidence alone does not establish falsity. Explain the decisive observation or the missing evidence.
+An observed contradiction means fail. When the criterion requires grounding and the complete relevant
+sources are available, an unsupported factual assertion fails that grounding requirement; this does not
+establish that the assertion is false. If the relevant sources are unavailable or ambiguous, use unknown.
+Explicit hypotheses and stated evidence gaps are not unsupported factual assertions. Explain the decisive
+observation, unmet grounding requirement, or missing evidence.
 
 Inspect query expressions, filters, time ranges, boundary operators, units, counted entities, and results.
 A label such as users is not proof that real users were counted: check identifiers and null/sentinel
@@ -154,18 +161,76 @@ def _strings(value: JsonValue) -> Iterator[str]:
             yield from _strings(child)
 
 
-def _without_reasoning(value: JsonValue) -> JsonValue:
+def _without_reasoning(value: JsonValue, *, json_depth: int = MAX_QUOTE_JSON_DEPTH) -> JsonValue:
+    if isinstance(value, str):
+        try:
+            decoded = cast(JsonValue, json.loads(value))
+            if not isinstance(decoded, (dict, list, str)):
+                return value
+            if not json_depth:
+                return None
+            filtered = _without_reasoning(decoded, json_depth=json_depth - 1)
+        except ValueError:
+            return value
+        except RecursionError:
+            return None
+        # Keep the original spelling unless encoded fields need the same exclusions as native JSON.
+        return value if filtered == decoded else json.dumps(filtered, ensure_ascii=False)
     if isinstance(value, dict):
         if value.get("type") in {"thinking", "reasoning", "redacted_thinking", "analysis"}:
             return None
         return {
-            key: _without_reasoning(child)
+            key: _without_reasoning(child, json_depth=json_depth)
             for key, child in value.items()
             if key not in {"_meta", "thinking", "reasoning", "reasoning_content", "reasoning_details", "signature"}
         }
     if isinstance(value, list):
-        return [_without_reasoning(child) for child in value]
+        return [_without_reasoning(child, json_depth=json_depth) for child in value]
     return value
+
+
+def _tool_quote_matches(
+    value: JsonValue,
+    original: JsonValue,
+    quote: str,
+    *,
+    json_depth: int = MAX_QUOTE_JSON_DEPTH,
+    serialize: bool = True,
+) -> bool:
+    if value is None and original is not None:
+        return False
+    # Filtering must not invent adjacency, including inside a decoded tool-result string.
+    if serialize and any(
+        quote in json.dumps(value, ensure_ascii=False, separators=separators)
+        and quote in json.dumps(original, ensure_ascii=False, separators=separators)
+        for separators in (None, (",", ":"))
+    ):
+        return True
+    if isinstance(value, str) and isinstance(original, str):
+        if quote in value and quote in original:
+            return True
+        if json_depth:
+            try:
+                decoded = cast(JsonValue, json.loads(original))
+            except (ValueError, RecursionError):
+                return False
+            return _tool_quote_matches(
+                _without_reasoning(decoded, json_depth=json_depth - 1),
+                decoded,
+                quote,
+                json_depth=json_depth - 1,
+            )
+    elif isinstance(value, dict) and isinstance(original, dict):
+        return any(
+            _tool_quote_matches(child, original[key], quote, json_depth=json_depth, serialize=False)
+            for key, child in value.items()
+        )
+    elif isinstance(value, list) and isinstance(original, list):
+        return any(
+            _tool_quote_matches(child, previous, quote, json_depth=json_depth, serialize=False)
+            for child, previous in zip(value, original, strict=True)
+        )
+    return False
 
 
 def _object(value: JsonValue) -> dict[str, JsonValue]:
@@ -220,18 +285,12 @@ class _EvidenceQuotes:
             return False
         if citation.source_id.startswith("trace:"):
             payload = self.trace_lines.get(citation.source_id)
-            # Redacting fields must not create a quotation absent from the recorded event.
-            return bool(payload) and (
-                any(
-                    citation.quote in json.dumps(payload, ensure_ascii=False, separators=separators)
-                    and citation.quote
-                    in json.dumps(
-                        self.original_trace_lines[citation.source_id], ensure_ascii=False, separators=separators
-                    )
-                    for separators in (None, (",", ":"))
+            try:
+                return bool(payload) and _tool_quote_matches(
+                    payload, self.original_trace_lines[citation.source_id], citation.quote
                 )
-                or any(citation.quote in text for text in _strings(payload))
-            )
+            except RecursionError:
+                return False
         source = self.sources.get(citation.source_id)
         if source is None or source.kind == "trace":
             return False

@@ -4371,6 +4371,7 @@ export type TrialComparisonOutcomeStatusEnumApi =
 export const TrialComparisonOutcomeStatusEnumApi = {
     Winner: 'winner',
     Tie: 'tie',
+    Provisional: 'provisional',
     Inconclusive: 'inconclusive',
 } as const
 
