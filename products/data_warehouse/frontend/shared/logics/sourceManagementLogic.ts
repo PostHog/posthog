@@ -15,6 +15,7 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -485,7 +486,10 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                 // Only on success: a transient list failure resolves to an empty page, so reloading
                 // after a delete that failed offline would blank a list of sources that still exist.
                 actions.loadSources()
-                posthog.capture('source deleted', { sourceType: source.source_type })
+                posthog.capture('source deleted', {
+                    sourceType: source.source_type,
+                    sourceAgeHours: source.created_at ? dayjs().diff(dayjs(source.created_at), 'hour') : null,
+                })
             } catch (e) {
                 lemonToast.error("We couldn't delete this source. Refresh the page and try again.")
                 posthog.captureException(e)

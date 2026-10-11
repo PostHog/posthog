@@ -99,6 +99,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         source = ExternalDataSource.objects.create(
             source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
         )
+        ExternalDataSource.objects.filter(pk=source.pk).update(created_at=datetime(2023, 7, 1, tzinfo=UTC))
         schema = ExternalDataSchema.objects.create(name="test", team=self.team, source=source)
 
         job = ExternalDataJob.objects.create(
@@ -107,8 +108,21 @@ class TestDataWarehouseAPI(APIBaseTest):
             team=self.team,
             rows_synced=150,
             billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+            finished_at=datetime(2023, 8, 15, tzinfo=UTC),
         )
-        ExternalDataJob.objects.filter(pk=job.pk).update(created_at=datetime(2023, 8, 15, tzinfo=UTC))
+        free_job = ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            schema=schema,
+            team=self.team,
+            rows_synced=1000,
+            billable=False,
+            status=ExternalDataJob.Status.COMPLETED,
+            finished_at=datetime(2023, 8, 15, tzinfo=UTC),
+        )
+        ExternalDataJob.objects.filter(pk__in=[job.pk, free_job.pk]).update(
+            created_at=datetime(2023, 8, 15, tzinfo=UTC)
+        )
 
         response = self.client.get(endpoint)
         data = response.json()
@@ -117,6 +131,8 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(data["tracked_billing_rows"], 100)
         self.assertEqual(data["pending_billing_rows"], 50)
         self.assertEqual(data["total_rows"], 150)
+        self.assertEqual(data["breakdown_of_rows_by_source"], {str(source.pk): 1150})
+        self.assertEqual(data["billable_rows_by_source"], {str(source.pk): 150})
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.BillingManager")
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.get_cached_instance_license")

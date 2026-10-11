@@ -26,6 +26,7 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.dataclasses import frozen
 from posthog.helpers.dashboard_templates import create_data_ops_dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -66,6 +67,10 @@ from products.data_warehouse.backend.presentation.pipeline_stats import (
     RunningActivityQuerySerializer,
 )
 from products.managed_warehouse.backend.presentation import views as managed_warehouse
+from products.warehouse_sources.backend.facade.billing import (
+    get_billed_rows_synced_by_source,
+    get_rows_synced_by_source,
+)
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import (
@@ -148,6 +153,12 @@ def _managed_warehouse_monitoring_error_response(upstream_response: Response) ->
 # to billing.
 JOB_STATS_CACHE_TTL_SECONDS = 60
 TOTAL_ROWS_STATS_CACHE_TTL_SECONDS = 300
+
+
+@frozen
+class _RowsBySource:
+    all_rows: dict[str, int]
+    billable_rows: dict[str, int]
 
 
 def _pipeline_stats_cache_key(name: str, team_id: int, *parts: object) -> str:
@@ -365,9 +376,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         cached = cache.get(cache_key)
         if cached is not None:
             payload = dict(cached)
-            payload["breakdown_of_rows_by_source"] = self._breakdown_of_rows_by_source(
-                cached["billing_period_start"], cached["billing_period_end"]
-            )
+            rows_by_source = self._rows_by_source(cached["billing_period_start"], cached["billing_period_end"])
+            payload["breakdown_of_rows_by_source"] = rows_by_source.all_rows
+            payload["billable_rows_by_source"] = rows_by_source.billable_rows
             return Response(status=status.HTTP_200_OK, data=payload)
 
         billing_interval = ""
@@ -379,6 +390,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         rows_synced = 0
         billing_available = False
         breakdown_of_rows_by_source: dict[str, int] = {}
+        billable_rows_by_source: dict[str, int] = {}
 
         try:
             billing_manager = BillingManager(get_cached_instance_license())
@@ -413,9 +425,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 )
                 materialized_rows = data_modeling_jobs.aggregate(total=Sum("rows_materialized"))["total"] or 0
 
-                breakdown_of_rows_by_source = self._breakdown_of_rows_by_source(
-                    billing_period_start, billing_period_end
-                )
+                rows_by_source = self._rows_by_source(billing_period_start, billing_period_end)
+                breakdown_of_rows_by_source = rows_by_source.all_rows
+                billable_rows_by_source = rows_by_source.billable_rows
 
             else:
                 logger.info("No billing period information available, using defaults")
@@ -433,6 +445,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "billing_period_end": billing_period_end,
             "billing_period_start": billing_period_start,
             "breakdown_of_rows_by_source": breakdown_of_rows_by_source,
+            "billable_rows_by_source": billable_rows_by_source,
             "materialized_rows_in_billing_period": materialized_rows,
             "total_rows": rows_synced,
             "tracked_billing_rows": billing_tracked_rows,
@@ -443,27 +456,21 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # unreachable would keep serving zeroes long after billing recovered. The cached copy omits
         # the per-source breakdown; see the comment at the top of this method for why.
         if billing_available:
-            cacheable_payload = {k: v for k, v in payload.items() if k != "breakdown_of_rows_by_source"}
+            per_source_keys = {"breakdown_of_rows_by_source", "billable_rows_by_source"}
+            cacheable_payload = {k: v for k, v in payload.items() if k not in per_source_keys}
             cache.set(cache_key, cacheable_payload, TOTAL_ROWS_STATS_CACHE_TTL_SECONDS)
         return Response(status=status.HTTP_200_OK, data=payload)
 
-    def _breakdown_of_rows_by_source(
-        self, billing_period_start: datetime, billing_period_end: datetime
-    ) -> dict[str, int]:
+    def _rows_by_source(self, billing_period_start: datetime, billing_period_end: datetime) -> _RowsBySource:
         # Computed fresh on every request (never cached) because it is scoped to the caller's own
         # readable sources, which differ from one caller to the next on the same team.
-        breakdown: dict[str, int] = {}
-        for source in self._readable_sources().filter(deleted=False):
-            total_rows = (
-                ExternalDataJob.objects.filter(
-                    pipeline=source,
-                    created_at__gte=billing_period_start,
-                    created_at__lt=billing_period_end,
-                ).aggregate(total=Sum("rows_synced"))["total"]
-                or 0
-            )
-            breakdown[str(source.id)] = total_rows
-        return breakdown
+        source_ids = list(self._readable_sources().filter(deleted=False).values_list("id", flat=True))
+        no_rows = dict.fromkeys((str(source_id) for source_id in source_ids), 0)
+        all_rows = get_rows_synced_by_source(self.team_id, source_ids, billing_period_start, billing_period_end)
+        billed_rows = get_billed_rows_synced_by_source(
+            self.team_id, source_ids, billing_period_start, billing_period_end
+        )
+        return _RowsBySource(all_rows={**no_rows, **all_rows}, billable_rows={**no_rows, **billed_rows})
 
     @extend_schema(
         parameters=[RunningActivityQuerySerializer],

@@ -86356,6 +86356,11 @@ export namespace Schemas {
      */
     export type PipelineRowsStatsResponseBreakdownOfRowsBySource = {[key: string]: number};
 
+    /**
+     * Rows each source bills on the synced rows meter in the billing period, keyed by source id. Excludes a new source's free first week, non-billable runs and runs that did not complete.
+     */
+    export type PipelineRowsStatsResponseBillableRowsBySource = {[key: string]: number};
+
     export interface PipelineRowsStatsResponse {
       /** Whether billing answered. When false, only the counts derived from runs are meaningful. */
       billing_available: boolean;
@@ -86384,6 +86389,8 @@ export namespace Schemas {
       materialized_rows_in_billing_period: number;
       /** Rows synced in the billing period, keyed by source id. */
       breakdown_of_rows_by_source: PipelineRowsStatsResponseBreakdownOfRowsBySource;
+      /** Rows each source bills on the synced rows meter in the billing period, keyed by source id. Excludes a new source's free first week, non-billable runs and runs that did not complete. */
+      billable_rows_by_source: PipelineRowsStatsResponseBillableRowsBySource;
     }
 
     export interface PlainThreadSignalExtra {

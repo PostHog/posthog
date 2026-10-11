@@ -119,6 +119,13 @@ class PipelineRowsStatsResponseSerializer(serializers.Serializer):
         child=serializers.IntegerField(),
         help_text="Rows synced in the billing period, keyed by source id.",
     )
+    billable_rows_by_source = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text=(
+            "Rows each source bills on the synced rows meter in the billing period, keyed by source id. "
+            "Excludes a new source's free first week, non-billable runs and runs that did not complete."
+        ),
+    )
 
 
 class PipelineActivityRowSerializer(serializers.Serializer):

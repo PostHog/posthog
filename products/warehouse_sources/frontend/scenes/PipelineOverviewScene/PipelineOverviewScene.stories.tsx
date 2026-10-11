@@ -67,6 +67,7 @@ const ROWS_STATS = {
     pending_billing_rows: 2200000,
     materialized_rows_in_billing_period: 1200000,
     breakdown_of_rows_by_source: {},
+    billable_rows_by_source: {},
 }
 
 const FAILED_RUNS = {
