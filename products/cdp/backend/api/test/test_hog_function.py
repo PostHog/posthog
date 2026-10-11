@@ -629,6 +629,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("send_email_reference", "let f := sendEmail\nreturn f(inputs.email)"),
             ("send_email_nested", "if (true) { for (let i := 0; i < 1; i := i + 1) { sendEmail(inputs.email) } }"),
             ("send_push_notification", "return sendPushNotification(inputs.message)"),
+            # This one stages no queue. It sends from a PostHog-owned address, so user code must not reach it.
+            ("send_system_email", "return sendSystemEmail({'subject': 'Hi', 'body': 'Hello'})"),
         ]
     )
     def test_create_calling_reserved_function_is_blocked(self, _name: str, hog: str) -> None:
@@ -640,6 +642,72 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "hog"
         assert "Reserved for PostHog's own use" in response.json()["detail"]
         assert not HogFunction.objects.filter(team=self.team, name="Sneaky").exists()
+
+    def _create_system_email_template(self) -> None:
+        HogFunctionTemplate.objects.create(
+            template_id="template-posthog-email",
+            sha="1.0.0",
+            name="Email project members",
+            description="Sends an alert email to members of this project",
+            code="let res := sendSystemEmail({'subject': inputs.subject, 'body': inputs.body})\nif (not res.success) { throw Error('failed') }",
+            code_language="hog",
+            inputs_schema=[
+                {"key": "subject", "type": "string", "label": "Subject", "required": True},
+                {"key": "body", "type": "string", "label": "Body", "required": True},
+            ],
+            type="internal_destination",
+            status="beta",
+            category=["Other"],
+            free=True,
+        )
+
+    @parameterized.expand(
+        [
+            ("internal_destination_allowed", {}, status.HTTP_201_CREATED, None),
+            ("relabeled_input_allowed", {"inputs_schema": "relabeled"}, status.HTTP_201_CREATED, None),
+            ("destination_blocked", {"type": "destination"}, status.HTTP_400_BAD_REQUEST, "type"),
+            ("added_input_blocked", {"inputs_schema": "added"}, status.HTTP_400_BAD_REQUEST, "inputs_schema"),
+            ("retyped_input_blocked", {"inputs_schema": "retyped"}, status.HTTP_400_BAD_REQUEST, "inputs_schema"),
+            ("removed_input_blocked", {"inputs_schema": "removed"}, status.HTTP_400_BAD_REQUEST, "inputs_schema"),
+            (
+                "custom_code_blocked",
+                {"hog": "return sendSystemEmail({'subject': 'Hi', 'body': 'Hello'})"},
+                status.HTTP_400_BAD_REQUEST,
+                "hog",
+            ),
+        ]
+    )
+    def test_system_email_template_is_limited_to_internal_destinations_with_fixed_inputs(
+        self, _name: str, overrides: dict, expected: int, attr: Optional[str]
+    ) -> None:
+        self._create_system_email_template()
+        subject = {"key": "subject", "type": "string", "label": "Subject", "required": True}
+        body = {"key": "body", "type": "string", "label": "Body", "required": True}
+        schemas = {
+            "relabeled": [{**subject, "label": "Title"}, body],
+            "added": [subject, body, {"key": "to", "type": "string", "label": "To", "required": False}],
+            "retyped": [subject, {**body, "type": "json"}],
+            "removed": [subject],
+        }
+        data: dict[str, Any] = {
+            "type": "internal_destination",
+            "name": "Sync alert",
+            "template_id": "template-posthog-email",
+            "inputs": {"subject": {"value": "Sync failed"}, "body": {"value": "The sync failed."}},
+            "filters": {"events": [{"id": "$error_tracking_issue_created", "type": "events"}]},
+            **overrides,
+        }
+        if "inputs_schema" in overrides:
+            data["inputs_schema"] = schemas[overrides["inputs_schema"]]
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=data)
+
+        assert response.status_code == expected, response.json()
+        if attr:
+            assert response.json()["attr"] == attr
+        assert HogFunction.objects.filter(team=self.team, name="Sync alert").exists() == (
+            expected == status.HTTP_201_CREATED
+        )
 
     @parameterized.expand(
         [
