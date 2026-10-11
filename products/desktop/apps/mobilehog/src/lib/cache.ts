@@ -1,4 +1,3 @@
-import type { Task } from "@posthog/shared/domain-types";
 import { createSyncStoragePersister } from "@tanstack/query-sync-storage-persister";
 import { hydrate, type QueryClient } from "@tanstack/react-query";
 import {
@@ -98,49 +97,23 @@ export function persistQueryCache(
 }
 
 const TRANSCRIPT_LIMIT = 50;
-const OPENED_LIMIT = 50;
 
 interface SavedTranscript {
   savedAt: number;
   blocks: Block[];
 }
 
-function projectScope(kind: string): { store: MMKV; prefix: string } | null {
+function transcriptScope(): { store: MMKV; prefix: string } | null {
   const { session } = useAuth.getState();
   if (!session) return null;
   return {
     store: accountStore(session),
-    prefix: `${kind}-${session.projectId}`,
+    prefix: `transcript-${session.projectId}`,
   };
 }
 
-function readIndex(store: MMKV, prefix: string): string[] {
-  try {
-    const order = JSON.parse(store.getString(`${prefix}-index`) ?? "[]");
-    return Array.isArray(order)
-      ? order.filter((item): item is string => typeof item === "string")
-      : [];
-  } catch {
-    return [];
-  }
-}
-
-// Moves the id to the front and drops the oldest entries past the limit.
-function touchIndex(
-  store: MMKV,
-  prefix: string,
-  id: string,
-  limit: number,
-): void {
-  const order = [id, ...readIndex(store, prefix).filter((item) => item !== id)];
-  for (const stale of order.slice(limit)) {
-    store.remove(`${prefix}-${stale}`);
-  }
-  store.set(`${prefix}-index`, JSON.stringify(order.slice(0, limit)));
-}
-
 export function loadTranscript(taskId: string): Block[] | null {
-  const scope = projectScope("transcript");
+  const scope = transcriptScope();
   const raw = scope?.store.getString(`${scope.prefix}-${taskId}`);
   if (!raw) return null;
   try {
@@ -151,40 +124,21 @@ export function loadTranscript(taskId: string): Block[] | null {
   }
 }
 
+// Keeps the most recently saved chats and drops the oldest past the limit.
 export function saveTranscript(taskId: string, blocks: Block[]): void {
-  const scope = projectScope("transcript");
+  const scope = transcriptScope();
   if (!scope || blocks.length === 0) return;
+  const { store, prefix } = scope;
   const saved: SavedTranscript = { savedAt: Date.now(), blocks };
-  scope.store.set(`${scope.prefix}-${taskId}`, JSON.stringify(saved));
-  touchIndex(scope.store, scope.prefix, taskId, TRANSCRIPT_LIMIT);
-}
-
-export function recordOpened(taskId: string): void {
-  const scope = projectScope("opened");
-  if (scope) touchIndex(scope.store, scope.prefix, taskId, OPENED_LIMIT);
-}
-
-// Task ids opened on this device, most recent first.
-export function loadOpened(): string[] {
-  const scope = projectScope("opened");
-  return scope ? readIndex(scope.store, scope.prefix) : [];
-}
-
-// Opened ids whose task is gone (deleted or archived) are skipped, and recent
-// tasks fill the rest so a fresh install still shows something.
-export function lastOpened(
-  opened: string[],
-  recent: Task[],
-  limit: number,
-): Task[] {
-  const byId = new Map(recent.map((task) => [task.id, task]));
-  const picked = new Map<string, Task>();
-  for (const task of [
-    ...opened.flatMap((id) => byId.get(id) ?? []),
-    ...recent,
-  ]) {
-    if (picked.size === limit) break;
-    picked.set(task.id, task);
+  store.set(`${prefix}-${taskId}`, JSON.stringify(saved));
+  const indexKey = `${prefix}-index`;
+  let order: string[] = [];
+  try {
+    order = JSON.parse(store.getString(indexKey) ?? "[]");
+  } catch {}
+  order = [taskId, ...order.filter((id) => id !== taskId)];
+  for (const stale of order.slice(TRANSCRIPT_LIMIT)) {
+    store.remove(`${prefix}-${stale}`);
   }
-  return [...picked.values()];
+  store.set(indexKey, JSON.stringify(order.slice(0, TRANSCRIPT_LIMIT)));
 }

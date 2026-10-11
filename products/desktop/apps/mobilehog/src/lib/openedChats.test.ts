@@ -44,7 +44,7 @@ vi.mock("@/lib/auth", () => ({
   useAuth: { getState: () => mocks.auth },
 }));
 
-import { lastOpened, loadOpened, recordOpened } from "./cache";
+import { lastOpened, loadOpened, recordOpened } from "./openedChats";
 
 function task(id: string): Task {
   return { id } as Task;

@@ -26,7 +26,7 @@ import {
   RowSkeletons,
   TaskChatRow,
 } from "@/components/TaskRow";
-import { lastOpened, loadOpened } from "@/lib/cache";
+import { lastOpened, loadOpened } from "@/lib/openedChats";
 import { useTaskPages, useTasks } from "@/lib/queries";
 import { useReports } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
@@ -61,7 +61,7 @@ export default function RecentsScreen() {
   const navigation = useNavigation<{ openDrawer: () => void }>();
   const insets = useSafeAreaInsets();
   const input = useRef<TextInput>(null);
-  const [searching, setSearching] = useState(true);
+  const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<Scope>("all");
   const search = useDebounced(query.trim(), 250);
@@ -290,7 +290,6 @@ export default function RecentsScreen() {
                   onFocus={() => setSearching(true)}
                   placeholder="Search"
                   placeholderTextColor={colors.inkMute}
-                  autoFocus
                   autoCorrect={false}
                   returnKeyType="search"
                   clearButtonMode="while-editing"

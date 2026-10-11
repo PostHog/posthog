@@ -16,8 +16,8 @@ import {
   TranscriptRowView,
 } from "@/components/Transcript";
 import type { Photo } from "@/lib/attachments";
-import { recordOpened } from "@/lib/cache";
 import { useComposer } from "@/lib/composer";
+import { recordOpened } from "@/lib/openedChats";
 import { usePrefs } from "@/lib/prefs";
 import { useTask } from "@/lib/queries";
 import { useSessions } from "@/lib/session";
