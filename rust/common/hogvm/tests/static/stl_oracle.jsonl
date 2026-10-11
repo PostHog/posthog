@@ -123,3 +123,28 @@
 {"fn":"today","label":"today#0","match":"smoke","bytecode":["_H",1,2,"today",0,2,"print",1],"expected":""}
 {"fn":"randomFloat","label":"randomFloat#0","match":"smoke","bytecode":["_H",1,2,"randomFloat",0,2,"print",1],"expected":""}
 {"fn":"generateUUIDv4","label":"generateUUIDv4#0","match":"smoke","bytecode":["_H",1,2,"generateUUIDv4",0,2,"print",1],"expected":""}
+{"fn":"extract","label":"extract#0","match":"exact","bytecode":["_H",1,32,"year",32,"2024-03-15T10:20:30Z",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"2024"}
+{"fn":"extract","label":"extract#1","match":"exact","bytecode":["_H",1,32,"month",32,"2024-03-15T10:20:30Z",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"3"}
+{"fn":"extract","label":"extract#2","match":"exact","bytecode":["_H",1,32,"day",32,"2024-03-15T10:20:30Z",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"15"}
+{"fn":"extract","label":"extract#3","match":"exact","bytecode":["_H",1,32,"hour",32,"2024-03-15T10:20:30Z",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"10"}
+{"fn":"extract","label":"extract#4","match":"exact","bytecode":["_H",1,32,"minute",32,"2024-03-15T10:20:30Z",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"20"}
+{"fn":"extract","label":"extract#5","match":"exact","bytecode":["_H",1,32,"second",32,"2024-03-15T10:20:30.999Z",2,"toDateTime",1,2,"extract",2,2,"print",1],"expected":"30"}
+{"fn":"extract","label":"extract#6","match":"exact","bytecode":["_H",1,32,"day",32,"2024-03-15T23:30:00Z",32,"Asia/Tokyo",2,"toDateTime",2,2,"extract",2,2,"print",1],"expected":"16"}
+{"fn":"extract","label":"extract#7","match":"exact","bytecode":["_H",1,32,"hour",32,"2024-03-15T23:30:00Z",32,"Asia/Tokyo",2,"toDateTime",2,2,"extract",2,2,"print",1],"expected":"8"}
+{"fn":"extract","label":"extract#8","match":"exact","bytecode":["_H",1,32,"hour",32,"2024-03-15T10:00:00",32,"America/New_York",2,"toDateTime",2,2,"extract",2,2,"print",1],"expected":"10"}
+{"fn":"extract","label":"extract#9","match":"exact","bytecode":["_H",1,32,"year",33,1710498030,2,"fromUnixTimestamp",1,2,"extract",2,2,"print",1],"expected":"2024"}
+{"fn":"extract","label":"extract#10","match":"exact","bytecode":["_H",1,32,"minute",33,1710498030123,2,"fromUnixTimestampMilli",1,2,"extract",2,2,"print",1],"expected":"20"}
+{"fn":"extract","label":"extract#11","match":"exact","bytecode":["_H",1,32,"second",34,-1.5,2,"fromUnixTimestamp",1,2,"extract",2,2,"print",1],"expected":"58"}
+{"fn":"extract","label":"extract#12","match":"exact","bytecode":["_H",1,32,"day",32,"2024-03-15",2,"toDate",1,2,"extract",2,2,"print",1],"expected":"15"}
+{"fn":"extract","label":"extract#13","match":"exact","bytecode":["_H",1,32,"hour",32,"2024-03-15",2,"toDate",1,2,"extract",2,2,"print",1],"expected":"0"}
+{"fn":"extract","label":"extract#14","match":"exact","bytecode":["_H",1,32,"year",32,"2024-03-15T10:20:30Z",2,"extract",2,2,"print",1],"expected":"2024"}
+{"fn":"extract","label":"extract#15","match":"exact","bytecode":["_H",1,32,"hour",32,"2024-03-15T10:20:30+05:30",2,"extract",2,2,"print",1],"expected":"4"}
+{"fn":"extract","label":"extract#16","match":"exact","bytecode":["_H",1,32,"day",32,"2024-03-15",2,"extract",2,2,"print",1],"expected":"15"}
+{"fn":"extract","label":"extract#17","match":"exact","bytecode":["_H",1,32,"month",32,"2024-03-15T10:20",2,"extract",2,2,"print",1],"expected":"3"}
+{"fn":"extract","label":"extract#18","match":"exact","bytecode":["_H",1,32,"year",32,"not a date",2,"extract",2,2,"print",1],"expected":"NaN"}
+{"fn":"extract","label":"extract#19","match":"exact","bytecode":["_H",1,32,"year",32,"2024-03-15 10:20:30",2,"extract",2,2,"print",1],"expected":"NaN"}
+{"fn":"extract","label":"extract#20","match":"exact","bytecode":["_H",1,32,"year",32," 2024-03-15T10:20:30Z",2,"extract",2,2,"print",1],"expected":"NaN"}
+{"fn":"extract","label":"extract#21","match":"exact","bytecode":["_H",1,32,"year",32,"1710498030",2,"extract",2,2,"print",1],"expected":"NaN"}
+{"fn":"extract","label":"extract#22","match":"exact","bytecode":["_H",1,32,"year",32,"",2,"extract",2,2,"print",1],"expected":"NaN"}
+{"fn":"extract","label":"extract#23","match":"exact","bytecode":["_H",1,32,"year",31,2,"extract",2,2,"print",1],"expected":"NaN"}
+{"fn":"extract","label":"extract#24","match":"exact","bytecode":["_H",1,32,"year",33,1710498030,2,"extract",2,2,"print",1],"expected":"NaN"}

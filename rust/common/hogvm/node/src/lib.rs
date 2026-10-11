@@ -24,6 +24,7 @@ mod exec;
 mod ext_fns;
 mod geoip;
 mod logs;
+mod user_agent;
 
 #[cfg(not(feature = "noop"))]
 use napi::bindgen_prelude::{AsyncTask, FromNapiValue};
