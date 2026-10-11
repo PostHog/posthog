@@ -8,11 +8,17 @@ from unittest.mock import patch
 import dagster
 import pyarrow as pa
 from parameterized import parameterized
+from social_django.models import UserSocialAuth
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.signals.backend.models import SignalReport, SignalReportAction, SignalReportArtefact
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalReportArtefact,
+    SignalReportSuggestedReviewer,
+)
 from products.signals.backend.ranking.inventory import spine_report_filter
 from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
 from products.signals.dags.inbox_ranking import common
@@ -21,6 +27,7 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_SCHEMA,
     LABELS_SCHEMA,
     MODEL_DATA_SCHEMA,
+    REVIEWERS_SCHEMA,
     assemble_model_rows,
     label_provenance_ok,
 )
@@ -485,6 +492,88 @@ class TestSpineInclusion(BaseTest):
         assert metadata["excluded_no_training_consent_teams"].value == 2
 
 
+class TestReviewerSnapshot(BaseTest):
+    def _report_with_reviewers(self, team: Team, entries: list[tuple[str | None, str | None]]) -> str:
+        report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+        SignalReport.objects.filter(id=report.id).update(created_at=BEFORE_CUTOFF)
+        artefact = SignalReportArtefact.objects.create(
+            team=team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            content="[]",
+            actor_kind="task",
+        )
+        for user_uuid, github_login in entries:
+            SignalReportSuggestedReviewer.all_teams.create(
+                team=team, report=report, artefact=artefact, user_uuid=user_uuid, github_login=github_login
+            )
+        return str(report.id)
+
+    def test_rows_resolve_members_by_uuid_or_login_and_keep_unresolved_reviewers(self):
+        by_login = User.objects.create_and_join(self.organization, "login@example.com", None)
+        UserSocialAuth.objects.create(user=by_login, provider="github", uid="gh-1", extra_data={"login": "Octo-Member"})
+        outsider = User.objects.create(email="outsider@example.com", distinct_id="outsider-distinct-id")
+        report_id = self._report_with_reviewers(
+            self.team,
+            [
+                (str(self.user.uuid), None),
+                (None, "octo-member"),
+                (None, "nobody-here"),
+                # A uuid outside the organization is claimed, not proven, so it must not resolve.
+                (str(outsider.uuid), None),
+            ],
+        )
+        self._report_with_reviewers(self.team, [(None, "not-in-the-snapshot")])
+
+        rows = dag.reviewer_rows(
+            {report_id: self.team.id}, snapshot_date=SNAPSHOT_DATE, features_observed_at=AFTER_SNAPSHOT_END
+        )
+
+        assert all(set(row) == set(REVIEWERS_SCHEMA.names) for row in rows)
+        resolved = {(row["user_uuid"] or row["github_login"]): row for row in rows}
+        assert set(resolved) == {str(self.user.uuid), "octo-member", "nobody-here", str(outsider.uuid)}
+        assert (
+            resolved[str(self.user.uuid)]["user_distinct_id"],
+            resolved[str(self.user.uuid)]["identity_resolution"],
+        ) == (
+            self.user.distinct_id,
+            "user_uuid",
+        )
+        assert (resolved["octo-member"]["user_distinct_id"], resolved["octo-member"]["identity_resolution"]) == (
+            by_login.distinct_id,
+            "github_login",
+        )
+        for unresolved in ("nobody-here", str(outsider.uuid)):
+            assert resolved[unresolved]["user_distinct_id"] is None
+            assert resolved[unresolved]["identity_resolution"] == "unresolved"
+        assert {row["artefact_actor_kind"] for row in rows} == {"task"}
+        assert {row["report_team_id"] for row in rows} == {self.team.id}
+
+    def test_snapshot_keeps_only_teams_opted_in_to_ai_training_and_stamps_the_run_time(self):
+        self.organization.is_ai_training_opted_in = True
+        self.organization.save()
+        consenting = self._report_with_reviewers(self.team, [(None, "someone")])
+        organization = Organization.objects.create(name="no-consent", is_ai_training_opted_in=False)
+        self._report_with_reviewers(Team.objects.create(organization=organization), [(None, "someone")])
+        written: dict[str, Any] = {}
+
+        with (
+            patch.object(dag, "skip_unconfigured", lambda context: False),
+            patch.object(dag, "s3_client", lambda: None),
+            patch.object(
+                dag, "write_parquet", lambda client, bucket, key, table, **kwargs: written.update(table=table, **kwargs)
+            ),
+            dagster.build_asset_context(partition_key=SNAPSHOT_DATE.isoformat()) as context,
+        ):
+            dag.inbox_report_reviewers(context)
+
+        table = written["table"]
+        assert table.column("report_id").to_pylist() == [consenting]
+        # A re-run of a past day carries the run time, which is how a reader tells a backfill apart.
+        assert table.column("features_observed_at").to_pylist()[0] > SNAPSHOT_END
+        assert written["schema_version"] == dag.REVIEWERS_SCHEMA_VERSION
+
+
 class TestServerActions(BaseTest):
     def test_only_actions_a_person_or_an_external_agent_wrote_before_the_cutoff_count(self):
         snapshot_end = datetime.datetime.now(datetime.UTC) + datetime.timedelta(hours=1)
@@ -803,7 +892,7 @@ def test_embeddings_are_read_only_for_teams_opted_in_to_ai_training(monkeypatch,
     assert written["table"].num_rows == 0
 
 
-def test_the_title_snapshot_is_a_leaf_ordered_after_the_join():
+def test_the_leaf_snapshots_run_in_the_job_without_feeding_the_join():
     selection = dag.inbox_ranking_dataset_job.selection.resolve(
         [
             dag.inbox_report_state,
@@ -812,12 +901,13 @@ def test_the_title_snapshot_is_a_leaf_ordered_after_the_join():
             dag.inbox_report_labels,
             dag.inbox_report_model_data,
             dag.inbox_report_title_embeddings,
+            dag.inbox_report_reviewers,
         ]
     )
-    assert dagster.AssetKey(dag.TITLE_EMBEDDINGS_TABLE) in selection
-
     model_data_deps = {key.path[-1] for key in dag.inbox_report_model_data.keys_by_input_name.values()}
-    assert dag.TITLE_EMBEDDINGS_TABLE not in model_data_deps
+    for leaf in (dag.TITLE_EMBEDDINGS_TABLE, dag.REVIEWERS_TABLE):
+        assert dagster.AssetKey(leaf) in selection
+        assert leaf not in model_data_deps
 
     title_deps = {key.path[-1] for key in dag.inbox_report_title_embeddings.keys_by_input_name.values()}
     assert title_deps == {dag.MODEL_DATA_TABLE}

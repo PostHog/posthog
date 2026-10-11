@@ -21,7 +21,7 @@ Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally 
 
 ## The dataset dag
 
-`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds six assets on one daily partition, each a Parquet object in S3:
+`inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds seven assets on one daily partition, each a Parquet object in S3:
 
 ```text
 s3://<bucket>/<prefix>/
@@ -32,12 +32,19 @@ s3://<bucket>/<prefix>/
 │   ├── dt=YYYY-MM-DD/                         # materialized join of the three (the training table)
 │   └── latest/                                # rewritten by the newest partition; warehouse tables point here
 ├── inbox_signal_embeddings/v1/dt=YYYY-MM-DD/  # one row per signal emitted during the day (signal grain)
-└── inbox_report_title_embeddings/v1/dt=YYYY-MM-DD/  # the same shape, for the title-only rendering
+├── inbox_report_title_embeddings/v1/dt=YYYY-MM-DD/  # the same shape, for the title-only rendering
+└── inbox_report_reviewers/v1/dt=YYYY-MM-DD/   # one row per suggested reviewer of each spine report
 ```
 
 The first four are report grain and land in one table. `inbox_signal_embeddings` is signal grain, feeds the group-level model, and is read on its own — training joins it to `inbox_report_model_data` by `report_id`.
 
 `inbox_report_title_embeddings` is a report-grain leaf. It snapshots the `title_v1` rendering the same way `inbox_report_embeddings` snapshots `title_summary_v1`, and nothing joins it: the training side pairs the two by `report_id` when it measures one rendering against the other, and each carries its own `embedding_inserted_at`, because a summary-only edit re-emits only `title_summary_v1`. Its dependency on `inbox_report_model_data` is for ordering, not data — it holds a vector per live report, so it runs last and alone in the run pod. That edge has a cost: a failed join, or a run that hits the job's runtime cap, skips the title snapshot for the day, and the schedule never revisits a day. Repair such a gap with a single-asset backfill while the source rows are inside their 3-month TTL.
+
+`inbox_report_reviewers` is a (report, reviewer) leaf for user–report affinity modeling. It holds one row per entry of each spine report's current `SignalReportSuggestedReviewer` index, for teams that allow AI training. Nothing joins it, and its object carries its own schema version (`REVIEWERS_SCHEMA_VERSION`), so a failure here does not fail the training table.
+
+- `user_distinct_id` comes from `user_uuid` when that uuid names a member of the report team's organization. Otherwise it comes from `github_login`, through the same GitHub identity mapping the `pr_merged` and `pr_closed` attribution uses. `identity_resolution` says which one matched (`user_uuid`, `github_login` or `unresolved`).
+- An entry that maps to no member stays as a row with a null `user_distinct_id`, so a reviewer with no history is counted and not dropped.
+- **The asset is current-state-only.** The index is rebuilt in full on every reviewer change, and reviewer artefacts can be edited in place or deleted, so no earlier set can be rebuilt. A forward-run partition holds the set at run time (at most a few hours after the cutoff). A backfilled partition holds today's set, flagged by `features_observed_at`. History starts on the day the asset first ran.
 
 ### Partition semantics
 
