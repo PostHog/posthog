@@ -1043,12 +1043,12 @@ describe('PushNotificationService', () => {
             it('signs at most one new token per refresh window for a key', async () => {
                 mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
 
-                const first = await send()
-                const second = await send()
+                const results = [await send(), await send(), await send()]
 
-                expect(first.error).toContain('InvalidProviderToken')
-                expect(second.error).toContain('InvalidProviderToken')
-                expect(mockTrackedFetch).toHaveBeenCalledTimes(3)
+                for (const result of results) {
+                    expect(result.error).toContain('InvalidProviderToken')
+                }
+                expect(mockTrackedFetch).toHaveBeenCalledTimes(4)
                 expect(new Set(sentTokens()).size).toBe(2)
                 expect(mockValkeySet).toHaveBeenCalledWith(
                     expect.stringContaining('@posthog/apns-provider-jwt-refresh/'),
@@ -1073,6 +1073,43 @@ describe('PushNotificationService', () => {
                 expect(sentTokens()[1]).toBe('bearer token-from-another-pod')
                 expect(valkeyStore.get(jwtCacheKey)).toBe('token-from-another-pod')
                 expect([...valkeyStore.keys()].some((key) => key.includes('jwt-refresh'))).toBe(false)
+            })
+
+            it('adopts the token another pod signs while this pod waits for the refresh claim', async () => {
+                const set = mockValkeySet.getMockImplementation()!
+                mockValkeySet.mockImplementation((key: string, ...rest: any[]) => {
+                    if (key.includes('jwt-refresh')) {
+                        valkeyStore.set(jwtCacheKey, 'token-from-another-pod')
+                        return null
+                    }
+                    return set(key, ...rest)
+                })
+                mockTrackedFetch
+                    .mockResolvedValueOnce(apnsResponse(403, 'InvalidProviderToken'))
+                    .mockResolvedValueOnce(apnsResponse(200))
+
+                const result = await send()
+
+                expect(result.error).toBeUndefined()
+                expect(sentTokens()[1]).toBe('bearer token-from-another-pod')
+            })
+
+            it('signs no new tokens for a rejected key while Valkey is down', async () => {
+                const pod = new PushNotificationService(integrationManager, encryptedFields, fetchUtils, {
+                    useClient: jest.fn(() => null),
+                } as any)
+                mockTrackedFetch.mockResolvedValue(apnsResponse(403, 'InvalidProviderToken'))
+
+                for (let i = 0; i < 3; i++) {
+                    await pod.executeSendPushNotification(
+                        createSendPushNotificationInvocation({
+                            '$device_push_subscription_com.example.app': encryptedFields.encrypt('apns-device-token'),
+                        })
+                    )
+                }
+
+                expect(mockTrackedFetch).toHaveBeenCalledTimes(3)
+                expect(new Set(sentTokens()).size).toBe(1)
             })
 
             it('does not retry when the rejection is not about the provider token', async () => {

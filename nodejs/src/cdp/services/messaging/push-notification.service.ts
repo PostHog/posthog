@@ -1,6 +1,7 @@
 import { createHash, createSign } from 'crypto'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
+import { setTimeout as sleep } from 'timers/promises'
 
 import {
     CyclotronInvocationQueueParametersSendPushNotificationType,
@@ -81,6 +82,8 @@ const APNS_JWT_TTL_SECONDS = 45 * 60
 const APNS_JWT_REFRESH_PREFIX = '@posthog/apns-provider-jwt-refresh/'
 const APNS_JWT_REFRESH_WINDOW_SECONDS = 20 * 60
 const APNS_REJECTED_TOKEN_CODES = new Set(['InvalidProviderToken', 'ExpiredProviderToken'])
+const APNS_JWT_REPLACEMENT_POLLS = 5
+const APNS_JWT_REPLACEMENT_POLL_MS = 100
 
 // Keeps a token another pod already put in place of the rejected one.
 const APNS_JWT_DROP_IF_REJECTED_SCRIPT = `
@@ -761,10 +764,32 @@ export class PushNotificationService {
         const fingerprint = this.apnsKeyFingerprint(teamId, keyId, signingKey)
         const cacheKey = `${APNS_JWT_CACHE_PREFIX}${fingerprint}`
 
+        const replacement = await this.readReplacementApnsJwt(cacheKey, rejectedJwt)
+        if (replacement) {
+            return replacement
+        }
+
+        // Fails closed: without Valkey a pod cannot tell whether the fleet already refreshed this key.
+        // A pod that does not get the claim leaves both caches alone, so it never signs a token of its own.
+        const claimed = await this.valkey.useClient({ name: 'apns-jwt-refresh', failOpen: true }, (client) =>
+            client.set(`${APNS_JWT_REFRESH_PREFIX}${fingerprint}`, '1', 'EX', APNS_JWT_REFRESH_WINDOW_SECONDS, 'NX')
+        )
+        if (claimed !== 'OK') {
+            // The pod that holds the claim can still be signing, so give its token a moment to appear.
+            for (let attempt = 0; attempt < APNS_JWT_REPLACEMENT_POLLS; attempt++) {
+                await sleep(APNS_JWT_REPLACEMENT_POLL_MS)
+                const adopted = await this.readReplacementApnsJwt(cacheKey, rejectedJwt)
+                if (adopted) {
+                    return adopted
+                }
+            }
+            apnsProviderTokenRefreshCounter.labels({ outcome: 'skipped' }).inc()
+            return null
+        }
+
         if (this.apnsJwtLocalCache.get(cacheKey)?.jwt === rejectedJwt) {
             this.apnsJwtLocalCache.delete(cacheKey)
         }
-
         const current = await this.valkey.useClient({ name: 'apns-jwt-drop', failOpen: true }, (client) =>
             client.eval(APNS_JWT_DROP_IF_REJECTED_SCRIPT, 1, cacheKey, rejectedJwt)
         )
@@ -774,21 +799,24 @@ export class PushNotificationService {
             return current
         }
 
-        // Fails closed: without Valkey a pod cannot tell whether the fleet already refreshed this key.
-        const claimed = await this.valkey.useClient({ name: 'apns-jwt-refresh', failOpen: true }, (client) =>
-            client.set(`${APNS_JWT_REFRESH_PREFIX}${fingerprint}`, '1', 'EX', APNS_JWT_REFRESH_WINDOW_SECONDS, 'NX')
-        )
-        if (claimed !== 'OK') {
-            apnsProviderTokenRefreshCounter.labels({ outcome: 'skipped' }).inc()
-            return null
-        }
-
         const jwt = await this.generateApnsJwt(teamId, keyId, signingKey)
         if (jwt === rejectedJwt) {
             return null
         }
         apnsProviderTokenRefreshCounter.labels({ outcome: 'minted' }).inc()
         return jwt
+    }
+
+    private async readReplacementApnsJwt(cacheKey: string, rejectedJwt: string): Promise<string | null> {
+        const current = await this.valkey.useClient({ name: 'apns-jwt-read', failOpen: true }, (client) =>
+            client.get(cacheKey)
+        )
+        if (!current || current === rejectedJwt) {
+            return null
+        }
+        this.rememberApnsJwtLocally(cacheKey, current)
+        apnsProviderTokenRefreshCounter.labels({ outcome: 'adopted' }).inc()
+        return current
     }
 
     private async resolveApnsJwt(cacheKey: string, teamId: string, keyId: string, signingKey: string): Promise<string> {
