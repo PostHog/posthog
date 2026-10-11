@@ -72,7 +72,7 @@ describe('ReportFeedbackFooter', () => {
 
     it('pops the burst once on thumbs-up and removes it when the animation ends', async () => {
         setBangFlag(true)
-        const thumbsUp = screen.getByRole('button', { name: 'This report was useful' })
+        const thumbsUp = screen.getByLabelText('This report was useful')
 
         await user.click(thumbsUp)
 
@@ -94,7 +94,7 @@ describe('ReportFeedbackFooter', () => {
     it('does not pop on thumbs-down', async () => {
         setBangFlag(true)
 
-        await user.click(screen.getByRole('button', { name: 'This report was not useful' }))
+        await user.click(screen.getByLabelText('This report was not useful'))
 
         expect(document.querySelector(BANG_SELECTOR)).not.toBeInTheDocument()
         expect(captureInboxReportFeedback).toHaveBeenCalledWith(expect.objectContaining({ sentiment: 'negative' }))
@@ -107,7 +107,7 @@ describe('ReportFeedbackFooter', () => {
         setBangFlag(flagEnabled)
         setReducedMotion(reducedMotion)
 
-        await user.click(screen.getByRole('button', { name: 'This report was useful' }))
+        await user.click(screen.getByLabelText('This report was useful'))
 
         expect(document.querySelector(BANG_SELECTOR)).not.toBeInTheDocument()
         expect(screen.getByText('Thanks for the feedback')).toBeInTheDocument()
