@@ -6,7 +6,7 @@ from django.utils import timezone
 from posthog.schema import AnyPropertyFilterDiscriminated
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import CacheOrigin, parse_expr
 
 from posthog.api.capture import capture_internal
 from posthog.models.team.team import Team
@@ -23,6 +23,16 @@ from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
 from . import contracts
 from .constants import MCP_MISSING_CAPABILITY_EVENT
 from .enums import SubmissionKind
+
+
+def mcp_harness_virtual_field_expr() -> ast.Expr:
+    from products.mcp_analytics.backend.mcp_harness import HARNESS_TOKEN_SQL, harness_label_sql
+
+    # nosemgrep: hogql-fstring-audit (both SQL fragments are fixed server-side expressions)
+    return parse_expr(
+        f"if(startsWith(event, '$mcp_'), arrayMap(h -> {harness_label_sql('h')}, [{HARNESS_TOKEN_SQL}])[1], NULL)",
+        cache_origin=CacheOrigin.BUILTIN,
+    )
 
 
 def _to_submission(instance: MCPAnalyticsSubmission) -> contracts.Submission:

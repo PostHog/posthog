@@ -123,6 +123,8 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
             team=self.team,
         )
 
+        assert response.columns is not None
+        assert response.column_formats is not None
         self.assertEqual(response.columns[-1], column_name)
         self.assertEqual(response.column_formats[-1], "mcp_harness")
 
