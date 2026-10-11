@@ -581,7 +581,7 @@ class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthenticati
                     try:
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
-                        user = User.objects.get(pk=info["id"])
+                        user = User.objects.get(pk=info["id"], is_active=True)
                         refuse_blocked_account(request, user, call_site="jwt", impersonated=False)
                         self.record_activity_actor(user)
                         return (user, None)
@@ -842,7 +842,7 @@ class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseA
             self.team_id = team_id
             self.exported_asset_id = exported_asset_id
             self.export_context = export_context
-            user = User.objects.get(pk=user_id)
+            user = User.objects.get(pk=user_id, is_active=True)
         except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
         except Exception:

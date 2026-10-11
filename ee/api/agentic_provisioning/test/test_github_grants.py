@@ -9,9 +9,11 @@ from parameterized import parameterized
 
 from posthog.models.integration import GitHubUserAuthorization
 from posthog.models.oauth import OAuthApplication
+from posthog.test.authentication_checks import covers_authentication
 from posthog.token_bucket import Budget
 
 from ee.api.agentic_provisioning import github_grants
+from ee.api.agentic_provisioning.authentication import ConfidentialPartnerAuthentication, GitHubGrantsAuthentication
 from ee.api.agentic_provisioning.constants import GITHUB_GRANT_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import (
     TEST_PARTNER_CLIENT_SECRET,
@@ -88,6 +90,7 @@ class TestGitHubGrants(ProvisioningTestBase):
                 {"code": "gh_code", "redirect_uri": "https://posthog.com/api/wizard/github/callback"},
             )
 
+    @covers_authentication(ConfidentialPartnerAuthentication, GitHubGrantsAuthentication)
     def test_create_grant_happy_path(self):
         with (
             patch(

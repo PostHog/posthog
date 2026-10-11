@@ -16,6 +16,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import generate_random_token_secret
 from posthog.test.api_keys import create_project_secret_api_key
+from posthog.test.authentication_checks import covers_authentication
 from posthog.test.persons import create_group
 
 from products.customer_analytics.backend.models import (
@@ -27,6 +28,9 @@ from products.customer_analytics.backend.models import (
     DisplayType,
 )
 from products.customer_analytics.backend.models.account import AccountProperties
+from products.customer_analytics.backend.presentation.views.external import (
+    ExternalAccountProjectSecretAPIKeyAuthentication,
+)
 from products.customer_analytics.backend.test.factories import (
     create_account,
     create_custom_property_definition,
@@ -133,6 +137,7 @@ class TestExternalAccountAPI(APIBaseTest):
                 self.assertEqual(response.json(), {"error": "Invalid API key"})
         self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="acme-2").exists())
 
+    @covers_authentication(ExternalAccountProjectSecretAPIKeyAuthentication)
     def test_get_accepts_project_secret_api_key_with_account_read_scope(self):
         response = self._get(token=self._create_psak_token(scopes=["account:read"]))
         self.assertEqual(response.status_code, status.HTTP_200_OK)

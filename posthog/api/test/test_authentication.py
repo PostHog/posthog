@@ -10,7 +10,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
-from django.contrib.auth import BACKEND_SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, load_backend
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
@@ -20,6 +20,7 @@ from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
+from django.utils.module_loading import import_string
 
 from asgiref.sync import sync_to_async
 from django_otp.oath import totp
@@ -71,6 +72,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.authentication_checks import covers_authentication
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -875,6 +877,19 @@ class TestInternalTokensRefuseBlockedAccounts(APIBaseTest):
         with patch("posthog.auth.security_access_refused", return_value=False):
             result = authenticator.authenticate(request)
         assert result is not None and result[0] == self.user
+
+
+class TestSessionBackendsRefuseInactiveUsers(APIBaseTest):
+    @parameterized.expand(
+        [(path,) for path in settings.AUTHENTICATION_BACKENDS if hasattr(import_string(path), "get_user")]
+    )
+    def test_get_user_refuses_inactive_user(self, backend_path: str) -> None:
+        backend = load_backend(backend_path)
+        assert backend.get_user(self.user.pk) == self.user
+
+        User.objects.filter(pk=self.user.pk).update(is_active=False)
+
+        assert backend.get_user(self.user.pk) is None
 
 
 class TestLogoutRedirect(APIBaseTest):
@@ -2470,6 +2485,7 @@ class TestTeamSecretTokenAuthentication(APIBaseTest):
         self.team.save()
         self.factory = APIRequestFactory()  # Use APIRequestFactory instead of RequestFactory
 
+    @covers_authentication(TeamSecretTokenAuthentication)
     def test_authenticate_with_valid_secret_api_key_in_header(self):
         # Simulate a request with a valid team secret token
         wsgi_request = self.factory.get(
@@ -2684,6 +2700,7 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         wsgi_request = self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {token}")
         return Request(wsgi_request)
 
+    @covers_authentication(ProjectSecretAPIKeyAuthentication)
     def test_authenticate_with_valid_psak_in_header(self):
         authenticator = ProjectSecretAPIKeyAuthentication()
         result = authenticator.authenticate(self._request_with_header(self.token))
@@ -2843,6 +2860,7 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             scope="openid profile",
         )
 
+    @covers_authentication(OAuthAccessTokenAuthentication)
     def test_authenticate_with_valid_oauth_token(self):
         wsgi_request = self.factory.get(
             "/",

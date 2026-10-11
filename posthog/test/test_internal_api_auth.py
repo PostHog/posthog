@@ -11,6 +11,7 @@ from rest_framework.request import Request
 
 from posthog.auth import InternalAPIAuthentication
 from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
+from posthog.test.authentication_checks import covers_authentication
 
 
 class TestInternalAPIAuthWithoutDatabase(SimpleTestCase):
@@ -19,6 +20,7 @@ class TestInternalAPIAuthWithoutDatabase(SimpleTestCase):
         self.authentication = InternalAPIAuthentication()
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @covers_authentication(InternalAPIAuthentication)
     def test_valid_secret_allows_access(self):
         request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="test-secret-123"))
         user, auth = self.authentication.authenticate(request)

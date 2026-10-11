@@ -18,10 +18,12 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade import api as facade
 from products.customer_analytics.backend.models import AccountRelationship, AccountRelationshipDefinition
+from products.customer_analytics.backend.presentation.views.external import ExternalAccountPersonalAPIKeyAuthentication
 from products.customer_analytics.backend.test.factories import create_account, enroll_account
 
 ENDED_AT = datetime(2026, 1, 1, tzinfo=UTC)
@@ -146,6 +148,7 @@ class TestExternalAccountListAPI(APIBaseTest):
         response = self._get(params={} if project_id is None else {"project_id": project_id}, token=token)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @covers_authentication(ExternalAccountPersonalAPIKeyAuthentication)
     def test_personal_key_returns_not_found_for_deleted_project(self) -> None:
         project = Team.objects.create(organization=self.organization, name="Deleted project")
         project_id = project.id

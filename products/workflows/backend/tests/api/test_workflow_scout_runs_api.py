@@ -11,10 +11,12 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.jwt import PosthogJwtAudience, encode_jwt
+from posthog.test.authentication_checks import covers_authentication
 
 from products.signals.backend.facade.api import ScoutRunRejectionKind, WorkflowScoutRunRejected, WorkflowScoutRunStarted
 from products.signals.backend.scout_harness.run_gates import ScoutRunRejection
 from products.workflows.backend.models import HogFlow
+from products.workflows.backend.presentation.views.workflow_scout_runs import WorkflowScoutRunsJWTAuthentication
 
 SECRET = "test-workflow-scout-run-jwt"
 SCOUT = "signals-scout-error-tracking"
@@ -55,6 +57,7 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
             HTTP_AUTHORIZATION=f"Bearer {token or _token(self.team.id, str(self.hog_flow.id))}",
         )
 
+    @covers_authentication(WorkflowScoutRunsJWTAuthentication)
     def test_dispatches_a_scout_run(self) -> None:
         started = WorkflowScoutRunStarted(skill_name=SCOUT, workflow_id="signals-scout-workflow-run-1")
         with patch(_START_SCOUT, return_value=started) as start:
