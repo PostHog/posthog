@@ -302,7 +302,7 @@ class SignalScoutRunSummarySerializer(serializers.Serializer):
             "own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, "
             "`has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, "
             "`has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` "
-            "scratchpad entry and produced no report or finding). Use "
+            "scratchpad entry and produced no report, finding, or structured output). Use "
             "`derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. "
             "Note the flags describe the reports the run authored as they stand now, so charts "
             "attached to someone else's report via an edit are not counted. A missing `derived` "

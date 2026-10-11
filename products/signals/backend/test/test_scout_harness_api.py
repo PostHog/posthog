@@ -79,6 +79,7 @@ from products.signals.backend.scout_harness.tools import structured_output as st
 from products.signals.backend.scout_harness.tools.lighthouse import MAX_AUDITS_PER_RUN, RUN_AUDIT_COUNT_KEY
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
 from products.signals.backend.scout_harness.tools.scratchpad import NOT_IN_USE_WRITES_KEY
+from products.signals.backend.scout_harness.tools.structured_output import STRUCTURED_OUTPUT_COUNT_KEY
 from products.signals.backend.scout_harness.trial_state import initial_trial_state
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
@@ -5420,6 +5421,12 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
                 False,
             ),
             ("closed_out_but_emitted_a_finding", {NOT_IN_USE_WRITES_KEY: 1}, {"emitted_count": 1}, False),
+            (
+                "closed_out_but_recorded_structured_output",
+                {NOT_IN_USE_WRITES_KEY: 1, STRUCTURED_OUTPUT_COUNT_KEY: 3},
+                {},
+                False,
+            ),
             ("no_not_in_use_write", {}, {}, False),
         ]
     )
