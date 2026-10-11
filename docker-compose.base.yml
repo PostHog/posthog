@@ -331,6 +331,21 @@ services:
         profiles: ['batch-exports']
         command: azurite-blob --blobHost 0.0.0.0 --blobPort 10000 --location /data
 
+    ses:
+        image: ghcr.io/domdomegg/aws-ses-v2-local:2.10.2@sha256:1c0db32e27b52d7ac7c16048e074ffc176c9aa7f117e63babd0d911c5ef8330f
+        restart: on-failure
+        healthcheck:
+            test:
+                [
+                    'CMD',
+                    'node',
+                    '-e',
+                    "fetch('http://127.0.0.1:8005/health-check').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+                ]
+            interval: 3s
+            timeout: 1s
+            retries: 10
+
     maildev:
         image: maildev/maildev:2.0.5
         restart: on-failure

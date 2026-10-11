@@ -42,6 +42,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { LocalSes } from '~/tests/helpers/ses'
 import { createTeam, getFirstTeam, resetBehavioralCohortsDatabase, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../src/types'
@@ -2746,6 +2747,8 @@ describe('Workflows E2E (email queue)', () => {
     let team: Team
     let cyclotronPool: Pool
     let deps: ReturnType<typeof createCdpConsumerDeps>
+    let ses: LocalSes | undefined
+    let sesEnvironment: NodeJS.ProcessEnv | undefined
 
     beforeAll(() => {
         cyclotronPool = new Pool({ connectionString: CYCLOTRON_NODE_DB_URL })
@@ -2862,6 +2865,13 @@ describe('Workflows E2E (email queue)', () => {
             emailWorker?.stop() ?? Promise.resolve(),
             matcher?.stop().catch(() => {}) ?? Promise.resolve(),
         ])
+        emailWorker?.emailService.sesV2Client?.destroy()
+        await ses?.stop()
+        ses = undefined
+        if (sesEnvironment) {
+            process.env = sesEnvironment
+            sesEnvironment = undefined
+        }
         await kafkaProducer.disconnect()
         await closeHub(hub)
         mockProducerObserver.resetKafkaProducer()
@@ -2896,7 +2906,33 @@ describe('Workflows E2E (email queue)', () => {
         filters: { events: [{ id: eventName }], bytecode: ['_H', 1, 32, eventName, 32, 'event', 1, 1, 11] as any[] },
     })
 
-    it('routes the email through the dedicated queue and continues the workflow', async () => {
+    it.each(['maildev', 'ses'])('continues the workflow through the email queue via %s', async (provider) => {
+        if (provider === 'ses') {
+            sesEnvironment = { ...process.env }
+            process.env.AWS_ACCESS_KEY_ID = 'local-ses-test'
+            process.env.AWS_SECRET_ACCESS_KEY = 'local-ses-test'
+            delete process.env.AWS_SESSION_TOKEN
+            delete process.env.AWS_PROFILE
+            process.env.AWS_MAX_ATTEMPTS = '1'
+            ses = new LocalSes()
+            await ses.start()
+            ses.throttleNextRequests(2)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_integration SET config = jsonb_set(config, '{provider}', '"ses"')
+                 WHERE id = 1 AND team_id = $1`,
+                [team.id],
+                'test-use-local-ses'
+            )
+            await emailWorker.stop()
+            emailWorker.emailService.sesV2Client?.destroy()
+            emailWorker = new CdpCyclotronWorkerEmail(
+                { ...hub, SES_REGION: 'us-east-1', SES_ENDPOINT: ses.endpoint },
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await emailWorker.start()
+        }
         const hogFlow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withStatus('active')
@@ -2968,6 +3004,24 @@ describe('Workflows E2E (email queue)', () => {
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
+        if (ses) {
+            expect(ses.requests).toHaveLength(3)
+            expect(await ses.getEmails()).toEqual([
+                expect.objectContaining({
+                    subject: 'Test Email',
+                    body: { text: 'Test text', html: '<p>Test html</p>' },
+                }),
+            ])
+            const jobs = await queryCyclotronJobs()
+            expect(jobs).toEqual([
+                expect.objectContaining({
+                    function_id: hogFlow.id,
+                    queue_name: 'email',
+                    status: 'completed',
+                    transition_count: 8,
+                }),
+            ])
+        }
     })
 
     it('skips a predicted hard bounce before the email queue and completes the workflow', async () => {
