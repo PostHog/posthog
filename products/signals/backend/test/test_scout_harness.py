@@ -81,6 +81,7 @@ from products.signals.backend.scout_harness.runner import (
     SIGNALS_SCOUT_SANDBOX_ENV_NAME,
     RunResult,
     _ai_stage,
+    _background_backoff_props,
     _create_run_row,
     _failure_streak_runs_in_window,
     arun_signals_scout,
@@ -92,6 +93,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     load_skill_for_run,
     resolve_scout_acting_user_id,
 )
+from products.signals.backend.scout_harness.team_limits import BackgroundBackoff
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
@@ -1601,7 +1603,6 @@ class TestTrialDispatch(SimpleTestCase):
 
 
 def _fake_start_invoking_hook(session: MagicMock, result: object):
-
     async def _start(*args, before_task_dispatch=None, **kwargs):
         if before_task_dispatch is not None:
             await database_sync_to_async(before_task_dispatch)(session.task_run.id)
@@ -3965,3 +3966,27 @@ class TestScoutRunTokenCosts(BaseTest):
 
         assert [cost.run_id for cost in costs.costs] == [str(mine.id)]
         assert query.call_args.kwargs["task_run_ids"] == [mine.task_run_id]
+
+
+@pytest.mark.parametrize(
+    "managed_by,backoff,level,expected",
+    [
+        (
+            SignalScoutConfig.ManagedBy.BACKGROUND,
+            BackgroundBackoff(factor=2, max_interval_minutes=129600),
+            2,
+            {"background_backoff_level": 2, "background_effective_interval_minutes": 40320},
+        ),
+        (
+            SignalScoutConfig.ManagedBy.BACKGROUND,
+            BackgroundBackoff(factor=2, max_interval_minutes=129600),
+            9,
+            {"background_backoff_level": 9, "background_effective_interval_minutes": 129600},
+        ),
+        (SignalScoutConfig.ManagedBy.BACKGROUND, None, 2, {}),
+        (SignalScoutConfig.ManagedBy.TEAM, BackgroundBackoff(factor=2, max_interval_minutes=129600), 2, {}),
+    ],
+)
+def test_background_backoff_props(managed_by, backoff, level, expected):
+    config = SignalScoutConfig(managed_by=managed_by, run_interval_minutes=10080, background_backoff_level=level)
+    assert _background_backoff_props(config, backoff) == expected

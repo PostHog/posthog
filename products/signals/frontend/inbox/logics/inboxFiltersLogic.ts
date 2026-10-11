@@ -289,6 +289,7 @@ export interface inboxFiltersLogicValues {
     hasActiveFilters: boolean
     hasUserChosenScope: boolean
     isRedesign: boolean
+    isScopedToMe: boolean
     knownTeammate: {
         label: string
         uuid: string
@@ -405,6 +406,7 @@ export interface inboxFiltersLogicMeta {
             priorityFilter: SignalReportPriority[],
             activeCreatedWindow: InboxCreatedWindow | null
         ) => boolean
+        isScopedToMe: (scope: InboxScope, user: UserType | null) => boolean
         modelSortAvailable: (featureFlags: FeatureFlagsSet, user: UserType | null) => boolean
         activeSortField: (sortField: InboxSortField, modelSortAvailable: boolean) => InboxSortField
         activeSortDirection: (
@@ -701,6 +703,11 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 scoutFilter.length > 0 ||
                 priorityFilter.length > 0 ||
                 activeCreatedWindow !== null,
+        ],
+        isScopedToMe: [
+            (s) => [s.scope, s.user],
+            (scope: InboxScope, user: UserType | null): boolean =>
+                !!user?.uuid && (scope === INBOX_SCOPE_FOR_YOU || parseTeammateInboxScope(scope) === user.uuid),
         ],
         // Staff only, the same rule as the `ranking` field the backend returns.
         modelSortAvailable: [

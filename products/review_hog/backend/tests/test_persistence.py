@@ -136,6 +136,7 @@ class TestUpsertReviewReport(BaseTest):
         assert report.report_markdown == "# report"
         assert report.status == ReviewReport.Status.IDLE
         assert report.completed_head_sha == "sha-2"  # what the finished turn reviewed, for read anchoring
+        assert report.updated_at == report.last_run_at  # the reviews table sorts finished turns by updated_at
 
     def test_finalize_defers_idle_for_publishing_runs(self) -> None:
         # On publishing runs the publish stage owns the idle write: going idle at finalize hands
