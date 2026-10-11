@@ -192,7 +192,6 @@ fn setup_ai_test_router() -> Router {
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
@@ -248,7 +247,6 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         None,
         None,
         None, // ai_byte_rate_limiter
-        None,
         None,
         8,
         None,
@@ -1299,7 +1297,6 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
@@ -1969,7 +1966,6 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
@@ -2036,7 +2032,6 @@ fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
         None,             // ai_events_overflow_limiter
         Some(byte_limiter),
         None,  // replay_overflow_limiter
-        None,  // v1_sink_router
         8,     // capture_v1_scatter_gather_min_batch
         None,  // ai_gateway_signing_secret
         false, // ai_events_overflow_enabled
@@ -2299,7 +2294,6 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         None,             // ai_events_overflow_limiter
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
-        None,             // v1_sink_router
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         false,            // ai_events_overflow_enabled
@@ -2458,7 +2452,6 @@ fn setup_ai_test_router_with_overflow_limiter(
         Some(ai_events_overflow_limiter),
         None, // ai_byte_rate_limiter
         None, // replay_overflow_limiter
-        None, // v1_sink_router
         8,    // capture_v1_scatter_gather_min_batch
         None, // ai_gateway_signing_secret
         true, // ai_events_overflow_enabled
@@ -2599,7 +2592,6 @@ fn ai_router(
         None,
         None, // ai_events_overflow_limiter
         None, // ai_byte_rate_limiter
-        None,
         None,
         8,
         Some(GW_SECRET.to_string()),

@@ -26,8 +26,7 @@ impl io::Write for StringWriter<'_> {
 use super::constants::DETAIL_INVALID_OPTIONS;
 use crate::ordering::{person_ordering, OrderingGuarantee};
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event as SinkEvent;
-use crate::v1::sinks::Destination;
+use crate::v1::types::{Destination, Publishable};
 
 fn empty_raw_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).unwrap()
@@ -362,31 +361,19 @@ impl WrappedEvent {
     }
 }
 
-impl SinkEvent for WrappedEvent {
-    // Pre-parsed UUID for result correlation. By the Sink stage,
-    // we know ALL well-formed incoming events have a valid UUID.
+impl Publishable for WrappedEvent {
     fn uuid(&self) -> Uuid {
         self.uuid
     }
 
-    // Publish Ok and Warning events; skip Drop, Retry, and anything routed to Destination::Drop.
     fn should_publish(&self) -> bool {
-        (self.result == EventResult::Ok || self.result == EventResult::Warning)
-            && self.destination != Destination::Drop
+        self.result == EventResult::Ok || self.result == EventResult::Warning
     }
 
-    // Resolve the storage-agnostic Destination scope for this event.
-    // The config for each Sink implementation knows how to resolve
-    // these to topics (etc.) depending on the sink type
     fn destination(&self) -> &Destination {
         &self.destination
     }
 
-    // Returns the full typed header set for this event, combining per-request
-    // context fields (token, now, historical_migration) with event-owned
-    // fields. Sinks convert the returned CapturedEventHeaders to their
-    // backend-specific format (e.g. OwnedHeaders for Kafka) via the From impl
-    // in common_types — same conversion legacy capture uses.
     fn headers(&self, ctx: &RequestContext) -> CapturedEventHeaders {
         // Downstream treats this header as absolute: `decideProcessPerson` in
         // nodejs/src/common/persons/person-utils.ts skips person processing
@@ -527,6 +514,9 @@ impl SinkEvent for WrappedEvent {
 }
 
 impl WrappedEvent {
+    /// The `$`-prefixed properties legacy ingestion expects, as a JSON fragment
+    /// to splice into the raw properties. Splicing avoids a `serde_json::Value`
+    /// round trip, so the client's property order and formatting stay intact.
     #[allow(unused_assignments)]
     fn build_property_injections(&self, ctx: &RequestContext) -> anyhow::Result<String> {
         let mut buf = String::with_capacity(256);
@@ -1274,11 +1264,10 @@ mod tests {
         }
     }
 
-    // --- SinkEvent impl for WrappedEvent ---
+    // --- Publishable impl for WrappedEvent ---
 
-    use crate::v1::sinks::event::Event as SinkEventTrait;
-    use crate::v1::sinks::Destination;
     use crate::v1::test_utils;
+    use crate::v1::types::{Destination, Publishable};
     use common_types::HasEventName;
 
     fn ok_wrapped(event_name: &str, distinct_id: &str) -> WrappedEvent {
@@ -1396,10 +1385,6 @@ mod tests {
     #[rstest::rstest]
     #[case::drop_main(EventResult::Drop, Destination::AnalyticsMain)]
     #[case::retry_main(EventResult::Retry, Destination::AnalyticsMain)]
-    #[case::ok_dest_drop(EventResult::Ok, Destination::Drop)]
-    #[case::warning_dest_drop(EventResult::Warning, Destination::Drop)]
-    #[case::drop_dest_drop(EventResult::Drop, Destination::Drop)]
-    #[case::retry_dest_drop(EventResult::Retry, Destination::Drop)]
     fn should_publish_false(#[case] result: EventResult, #[case] dest: Destination) {
         let mut ev = ok_wrapped("$pageview", "user-1");
         ev.result = result;

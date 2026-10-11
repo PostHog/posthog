@@ -47,7 +47,7 @@ pub struct BatchResponse {
 
 impl BatchResponse {
     /// Build the response from a processed batch of WrappedEvents.
-    /// Call this after sink publishing and result merging are complete.
+    /// Call this after publishing and result merging are complete.
     pub fn build(ctx: &RequestContext, events: &[WrappedEvent]) -> Self {
         let mut has_retry = false;
         let entries: Vec<(Uuid, BatchEntryStatus)> = events
@@ -161,8 +161,8 @@ mod tests {
 
     use super::*;
     use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions, WrappedEvent};
-    use crate::v1::sinks::Destination;
     use crate::v1::test_utils;
+    use crate::v1::types::Destination;
 
     fn make_wrapped(result: EventResult, details: Option<&'static str>) -> WrappedEvent {
         let uuid = Uuid::new_v4();

@@ -1,14 +1,11 @@
-//! Hoisted, CaptureMode-agnostic serialize step.
+//! The v1 serialize step.
 //!
-//! `serialize_batch` turns a batch of [`Event`]s into [`PreparedEvent`]s
-//! (owned, storage-agnostic) before any [`Sink`](super::sink::Sink) sees them.
-//! Pulling serialization out of the Sink lets every capture mode (analytics,
-//! replay, AI) share one CPU-bound step and enables serialize-once /
-//! fan-out-to-many-sinks for dual-write topologies.
+//! `serialize_batch` turns [`Publishable`] events into the outputs layer's
+//! [`PreparedEvent`]s, which `OutputRegistry::publish_prepared` takes. It runs
+//! before any output sees the batch, so CPU-bound encoding stays apart from
+//! produce I/O and can run in parallel.
 //!
-//! Small batches serialize sequentially; large batches scatter across tokio
-//! tasks and gather back in input order. Per-event panics are isolated so one
-//! bad event never fails the whole request.
+//! Each event serializes under `catch_unwind`, so a panic fails only that event.
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
@@ -19,27 +16,25 @@ use tokio::task::JoinSet;
 use tracing::Level;
 use uuid::Uuid;
 
+use crate::outputs::PreparedEvent;
 use crate::v1::constants::{
     CAPTURE_V1_SERIALIZE_DURATION_SECONDS, CAPTURE_V1_SERIALIZE_FAILED_TOTAL,
     CAPTURE_V1_SERIALIZE_PANIC_TOTAL,
 };
 use crate::v1::context::RequestContext;
-use crate::v1::sinks::event::Event;
-use crate::v1::sinks::types::{PreparedEvent, SerializationFailure, SinkResult};
+use crate::v1::types::Publishable;
 
-/// Default scatter-gather threshold; overridden by `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`.
+/// Batches smaller than this serialize inline, because spawning a task per
+/// event costs more than serializing a handful of events. Overridden by
+/// `CAPTURE_V1_SCATTER_GATHER_MIN_BATCH`.
 pub const DEFAULT_SCATTER_GATHER_MIN_BATCH: usize = 8;
 
-/// Outcome of the serialize step: events ready to publish (input order) plus
-/// per-event failures, each already a `SinkResult` so the caller can merge them
-/// straight into the batch's result set.
 pub struct SerializedBatch {
+    /// In input order.
     pub prepared: Vec<PreparedEvent>,
-    pub failures: Vec<Box<dyn SinkResult>>,
+    pub failures: Vec<SerializationFailure>,
 }
 
-/// Per-event result before aggregation. `Skipped` mirrors the Sink's existing
-/// behavior of silently dropping `should_publish() == false` events.
 // Prepared is the hot, dominant variant and is immediately drained into a
 // Vec<PreparedEvent>; boxing it just to even out variant sizes would add a
 // heap allocation per successful event.
@@ -50,16 +45,17 @@ enum Slot {
     Failed(SerializationFailure),
 }
 
-/// Serialize one event, honoring `should_publish`. Pure and panic-free at this
-/// layer — panic isolation is the caller's (`run_one`) job.
-fn prepare_one<E: Event>(ev: &E, ctx: &RequestContext) -> anyhow::Result<Option<PreparedEvent>> {
+fn prepare_one<E: Publishable>(
+    ev: &E,
+    ctx: &RequestContext,
+) -> anyhow::Result<Option<PreparedEvent>> {
     if !ev.should_publish() {
         return Ok(None);
     }
     let payload = ev.serialize(ctx)?;
     Ok(Some(PreparedEvent {
         uuid: ev.uuid(),
-        destination: ev.destination().clone(),
+        address: ev.destination().address(),
         payload,
         headers: ev.headers(ctx),
         partition_key: ev.partition_key(ctx),
@@ -67,10 +63,9 @@ fn prepare_one<E: Event>(ev: &E, ctx: &RequestContext) -> anyhow::Result<Option<
     }))
 }
 
-/// Run `prepare_one` with panic isolation so a single misbehaving event (e.g. a
-/// `serialize` impl that panics) is recorded as a failure instead of aborting
-/// the batch / poisoning the worker.
-fn run_one<E: Event>(ev: &E, ctx: &RequestContext) -> Slot {
+/// Records a panic in `prepare_one` as this event's failure, so one bad event
+/// cannot fail the batch or kill the worker task.
+fn run_one<E: Publishable>(ev: &E, ctx: &RequestContext) -> Slot {
     let uuid = ev.uuid();
     match catch_unwind(AssertUnwindSafe(|| prepare_one(ev, ctx))) {
         Ok(Ok(Some(prepared))) => Slot::Prepared(prepared),
@@ -80,20 +75,18 @@ fn run_one<E: Event>(ev: &E, ctx: &RequestContext) -> Slot {
     }
 }
 
-/// Serialize a whole batch into `PreparedEvent`s, preserving input order for
-/// the prepared events so downstream per-partition ordering is unaffected.
+/// Prepared events keep input order, so per-partition order downstream
+/// matches the request.
 ///
-/// Consumes `events` so the parallel path can share them across tokio tasks
-/// via `Arc`, then hands ownership back (alongside the results) so the caller
-/// can keep correlating results to events and build its response. `ctx` is
-/// cloned once and shared across tasks.
+/// Takes `events` by value because the parallel path shares them across
+/// tasks, and returns them so the caller can build its per-event response.
 pub async fn serialize_batch<E>(
     events: Vec<E>,
     ctx: &RequestContext,
     scatter_gather_threshold: usize,
 ) -> (Vec<E>, SerializedBatch)
 where
-    E: Event + 'static,
+    E: Publishable + 'static,
 {
     let start = Instant::now();
     let n = events.len();
@@ -112,15 +105,14 @@ where
         for i in 0..n {
             let events = Arc::clone(&events);
             let ctx = Arc::clone(&ctx);
-            // Spawn onto the async runtime workers (not spawn_blocking): the
-            // per-event work is short CPU, so concurrent execution is naturally
-            // bounded by worker_threads (~num_cpus) and excess events queue
-            // cheaply. This mirrors v0's send_batch and avoids saturating the
-            // shared spawn_blocking pool on huge batches.
+            // Spawn onto the async runtime workers, not spawn_blocking: the
+            // per-event work is short CPU, so worker_threads bounds the
+            // concurrency and excess events queue cheaply. One spawn_blocking
+            // task per event would saturate the shared blocking pool on huge
+            // batches. The Kafka sink's parallel prep does the same.
             set.spawn(async move { (i, run_one(&events[i], &ctx)) });
         }
 
-        // Gather out-of-completion-order results back into input order.
         let mut indexed: Vec<Option<Slot>> = (0..n).map(|_| None).collect();
         while let Some(joined) = set.join_next().await {
             // run_one catches panics internally, so a JoinError is unexpected;
@@ -142,7 +134,7 @@ where
     };
 
     let mut prepared = Vec::with_capacity(n);
-    let mut failures: Vec<Box<dyn SinkResult>> = Vec::new();
+    let mut failures: Vec<SerializationFailure> = Vec::new();
     let mut failed_count = 0u64;
     let mut panic_count = 0u64;
     for slot in slots {
@@ -164,7 +156,7 @@ where
                     );
                     failed_count += 1;
                 }
-                failures.push(Box::new(f));
+                failures.push(f);
             }
         }
     }
@@ -192,6 +184,49 @@ fn batch_size_bucket(n: usize) -> &'static str {
     }
 }
 
+/// An event that failed to serialize. Always fatal: serializing the same event
+/// again fails the same way, so it is dropped, never retried.
+#[derive(Debug, Clone)]
+pub struct SerializationFailure {
+    uuid: Uuid,
+    cause: &'static str,
+    detail: String,
+}
+
+impl SerializationFailure {
+    pub fn from_error(uuid: Uuid, detail: String) -> Self {
+        Self {
+            uuid,
+            cause: "serialization_failed",
+            detail,
+        }
+    }
+
+    pub fn panicked(uuid: Uuid) -> Self {
+        Self {
+            uuid,
+            cause: "serialization_panic",
+            detail: "serialization task panicked".to_string(),
+        }
+    }
+
+    pub fn is_panic(&self) -> bool {
+        self.cause == "serialization_panic"
+    }
+
+    pub fn uuid(&self) -> Uuid {
+        self.uuid
+    }
+
+    pub fn cause(&self) -> &'static str {
+        self.cause
+    }
+
+    pub fn detail_str(&self) -> &str {
+        &self.detail
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use common_types::CapturedEventHeaders;
@@ -199,8 +234,9 @@ mod tests {
 
     use super::*;
     use crate::ordering::OrderingGuarantee;
-    use crate::v1::sinks::types::{Destination, Outcome};
+    use crate::pipeline::{Address, Lane, Pipeline};
     use crate::v1::test_utils::test_context;
+    use crate::v1::types::Destination;
 
     fn empty_captured_headers() -> CapturedEventHeaders {
         CapturedEventHeaders {
@@ -257,7 +293,7 @@ mod tests {
         }
     }
 
-    impl Event for FakeEvent {
+    impl Publishable for FakeEvent {
         fn uuid(&self) -> Uuid {
             self.uuid
         }
@@ -318,7 +354,13 @@ mod tests {
         for (i, prepared) in out.prepared.iter().enumerate() {
             assert_eq!(prepared.payload.as_ref(), format!("payload-{i}").as_bytes());
             assert_eq!(prepared.partition_key, format!("key-{i}"));
-            assert_eq!(prepared.destination, Destination::AnalyticsMain);
+            assert_eq!(
+                prepared.address,
+                Address::Lane {
+                    pipeline: Pipeline::Analytics,
+                    lane: Lane::Main
+                }
+            );
         }
     }
 
@@ -351,7 +393,7 @@ mod tests {
     }
 
     /// A serialize error is isolated: the good events still come through and the
-    /// failure surfaces as a fatal, non-retriable `SinkResult`.
+    /// failure surfaces as a `serialization_failed` failure.
     #[rstest]
     #[case::sequential(3)]
     #[case::parallel(16)]
@@ -369,10 +411,8 @@ mod tests {
         assert_eq!(out.prepared.len(), n - 1);
         assert_eq!(out.failures.len(), 1);
         let failure = &out.failures[0];
-        assert_eq!(failure.key(), bad_uuid);
-        assert_eq!(failure.outcome(), Outcome::FatalError);
-        assert_eq!(failure.cause(), Some("serialization_failed"));
-        assert!(failure.elapsed().is_none());
+        assert_eq!(failure.uuid(), bad_uuid);
+        assert_eq!(failure.cause(), "serialization_failed");
     }
 
     /// A panicking `serialize` is caught: the rest of the batch is unaffected
@@ -391,8 +431,7 @@ mod tests {
         assert_eq!(events.len(), n);
         assert_eq!(out.prepared.len(), n - 1);
         assert_eq!(out.failures.len(), 1);
-        assert_eq!(out.failures[0].cause(), Some("serialization_panic"));
-        assert_eq!(out.failures[0].outcome(), Outcome::FatalError);
+        assert_eq!(out.failures[0].cause(), "serialization_panic");
     }
 
     /// Panic failures preserve the correct event UUID (not nil).
@@ -410,8 +449,8 @@ mod tests {
         let (_events, out) = serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         assert_eq!(out.failures.len(), 1);
-        assert_eq!(out.failures[0].key(), panic_uuid);
-        assert_eq!(out.failures[0].cause(), Some("serialization_panic"));
+        assert_eq!(out.failures[0].uuid(), panic_uuid);
+        assert_eq!(out.failures[0].cause(), "serialization_panic");
     }
 
     #[tokio::test]
