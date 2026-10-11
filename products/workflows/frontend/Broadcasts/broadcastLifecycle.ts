@@ -117,3 +117,19 @@ export function confirmDeleteBroadcast(projectId: string, broadcast: ManagedBroa
         secondaryButton: { children: 'Cancel' },
     })
 }
+
+export function confirmOpenInWorkflowEditor(onConfirm: () => void): void {
+    LemonDialog.open({
+        width: 500,
+        title: 'Open in the workflow editor?',
+        description:
+            'Add delays, follow-up emails, branches or other steps there. After you add steps, the broadcast shows here read-only and you keep editing it in the workflow editor.',
+        primaryButton: {
+            children: 'Open workflow editor',
+            type: 'primary',
+            'data-attr': 'broadcast-open-in-workflow-editor-confirm',
+            onClick: onConfirm,
+        },
+        secondaryButton: { children: 'Cancel' },
+    })
+}

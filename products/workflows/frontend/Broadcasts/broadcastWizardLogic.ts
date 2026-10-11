@@ -59,7 +59,12 @@ import {
     parseBroadcastAudiencePrefill,
     SOURCE_PREFILL_PARAM,
 } from './broadcastAudiencePrefill'
-import { confirmArchiveBroadcast, confirmDeleteBroadcast, restoreBroadcast } from './broadcastLifecycle'
+import {
+    confirmArchiveBroadcast,
+    confirmDeleteBroadcast,
+    confirmOpenInWorkflowEditor,
+    restoreBroadcast,
+} from './broadcastLifecycle'
 import {
     BroadcastStatus,
     StoppableBroadcast,
@@ -370,6 +375,12 @@ export interface broadcastWizardLogicActions {
     nextStep: () => {
         value: true
     }
+    openInWorkflowEditor: () => {
+        value: true
+    }
+    openInWorkflowEditorConfirmed: () => {
+        value: true
+    }
     prefillFromLink: (prefill: BroadcastPrefill) => {
         prefill: BroadcastPrefill
     }
@@ -604,6 +615,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         moveToDraftFinished: true,
         duplicateBroadcast: true,
         archiveBroadcast: true,
+        openInWorkflowEditor: true,
+        openInWorkflowEditorConfirmed: true,
         restoreBroadcast: true,
         deleteBroadcast: true,
         duplicateBroadcastFinished: true,
@@ -855,6 +868,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             false,
             {
                 continueStep: () => true,
+                openInWorkflowEditorConfirmed: () => true,
                 saveBroadcastFinished: () => false,
             },
         ],
@@ -1277,6 +1291,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // wizard from the saved copy, so an unsaved email edit moves it only once its autosave lands.
             if (
                 props.id === 'new' &&
+                !cache.handedOffToWorkflowEditor &&
                 !cache.emailEditPending &&
                 values.broadcastId &&
                 values.broadcast?.status === 'draft'
@@ -1314,8 +1329,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             await breakpoint(1000)
-            if (!values.broadcastId || !values.currentProjectId || values.broadcast?.status !== 'draft') {
-                // Launch saves this edit instead.
+            if (
+                cache.handedOffToWorkflowEditor ||
+                !values.broadcastId ||
+                !values.currentProjectId ||
+                values.broadcast?.status !== 'draft'
+            ) {
+                // Launch, or the save before the workflow editor opens, saves this edit instead.
                 clearPending()
                 return
             }
@@ -1720,6 +1740,50 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 )
             }
             actions.moveToDraftFinished()
+        },
+        openInWorkflowEditor: () => {
+            confirmOpenInWorkflowEditor(actions.openInWorkflowEditorConfirmed)
+        },
+        openInWorkflowEditorConfirmed: async (_, breakpoint) => {
+            const broadcastId = values.broadcastId
+            if (!broadcastId || !values.currentProjectId) {
+                actions.saveBroadcastFinished(null)
+                return
+            }
+            // The editor loads the saved workflow, so the latest edits must land first, as on Continue.
+            cache.autosaveConflict = false
+            const saves = getSaveQueue(cache, values)
+            await saves.whenIdle()
+            breakpoint()
+            if (cache.autosaveConflict) {
+                actions.saveBroadcastFinished(null)
+                return
+            }
+            try {
+                const projectId = String(values.currentProjectId)
+                const saved = await saves.run(() => saveWithoutClobbering(projectId, broadcastId, values))
+                cache.emailEditPending = false
+                actions.saveBroadcastFinished(saved)
+            } catch (error: any) {
+                actions.saveBroadcastFinished(null)
+                if (error instanceof EditedElsewhereError) {
+                    actions.applyExternalEdit(error.latest, values.broadcast)
+                    lemonToast.info(
+                        'This broadcast changed while you were editing it. Review the latest version first.'
+                    )
+                    return
+                }
+                lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
+                return
+            }
+            // An autosave still waiting would save again and move the page back to the broadcast.
+            cache.handedOffToWorkflowEditor = true
+            // pinned: analytics event name - renaming breaks dashboards
+            posthog.capture('broadcast opened in workflow editor', {
+                broadcast_id: broadcastId,
+                step: values.currentStep,
+            })
+            router.actions.push(urls.workflow(broadcastId, 'workflow'))
         },
         archiveBroadcast: () => {
             if (values.currentProjectId && values.broadcast) {
