@@ -68,10 +68,10 @@ export function FollowUpAdditions({ insightProps }: { insightProps: InsightLogic
     return (
         <>
             {!has('subscription') && (
-                <AddFollowUp insightProps={insightProps} slot="subscription" label="sent to my team" />
+                <AddFollowUp insightProps={insightProps} slot="subscription" label="Send to my team" />
             )}
             {alertsSupported && !has('alert') && (
-                <AddFollowUp insightProps={insightProps} slot="alert" label="alerting me when it changes" />
+                <AddFollowUp insightProps={insightProps} slot="alert" label="Alert me when it changes" />
             )}
         </>
     )
