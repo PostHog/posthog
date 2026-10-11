@@ -28,6 +28,8 @@ from posthog.sync import database_sync_to_async
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
 from products.signals.backend.scout_harness.suggestions import (
+    ACTIVITY_READ_MAX_ROWS,
+    ACTIVITY_READ_MAX_ROWS_READ,
     MAX_DESCRIPTION_CHARS,
     PlannedSuggestionRun,
     ScoutSuggestionBatch,
@@ -97,6 +99,7 @@ class TestSuggestionSettings(SimpleTestCase):
             ("overridden", {"activity_window_days": 7, "min_events_in_window": 50}, 7, 50, 3),
             ("checks_off", {"min_events_in_window": 0, "min_active_days_in_window": 0}, 14, 0, 0),
             ("clamped", {"activity_window_days": 900, "min_active_days_in_window": -1}, 90, 100, 0),
+            ("events_clamped", {"min_events_in_window": 10**9}, 14, ACTIVITY_READ_MAX_ROWS, 3),
         ]
     )
     def test_activity_knobs(self, _name, extra, window_days, min_events, min_days):
@@ -665,6 +668,28 @@ class TestSelectTeamsToScan(BaseTest):
         self.assertEqual(selection.skipped_team_ids, ())
         self.assertIsNone(self._status(self.quiet))
 
+    def test_each_read_outcome_is_counted(self):
+        broken = self._team("broken-read")
+        reads = {
+            self.quiet.id: TeamActivity(event_count=12, active_days=1, capped=False),
+            self.busy.id: TeamActivity(event_count=ACTIVITY_READ_MAX_ROWS, active_days=0, capped=True),
+        }
+
+        def _read(team_id, **_):
+            if team_id == broken.id:
+                raise Exception("clickhouse is down")
+            return reads[team_id]
+
+        with patch("products.signals.backend.scout_harness.suggestions.read_team_activity", side_effect=_read):
+            selection = select_teams_to_scan(
+                self._planned(self.quiet, self.busy, broken), self.suggestion_settings, limit=10
+            )
+
+        self.assertEqual(
+            (selection.reads_answered, selection.reads_capped, selection.reads_failed),
+            (1, 1, 1),
+        )
+
 
 class TestReadTeamActivity(ClickhouseTestMixin, BaseTest):
     def test_counts_the_project_and_its_environments_inside_the_window(self):
@@ -698,6 +723,8 @@ class TestReadTeamActivity(ClickhouseTestMixin, BaseTest):
         self.assertEqual(kwargs["workload"], Workload.OFFLINE)
         self.assertGreater(kwargs["settings"]["max_execution_time"], 0)
         self.assertEqual(kwargs["settings"]["timeout_overflow_mode"], "throw")
+        self.assertEqual(kwargs["settings"]["max_rows_to_read"], ACTIVITY_READ_MAX_ROWS_READ)
+        self.assertGreater(ACTIVITY_READ_MAX_ROWS_READ, ACTIVITY_READ_MAX_ROWS)
 
     def test_the_read_is_attributed_to_the_product(self):
         seen: list[QueryTags] = []

@@ -156,14 +156,14 @@ class TestScoutRubricsAPI(APIBaseTest):
 
         body["criteria"][0]["enabled"] = False
         body["criteria"][0]["pass_condition"] = "Check each conclusion against the cited evidence."
+        body["criteria"][2]["applicability"] = "Every run, including informational updates."
         saved = self.client.put(self.url, {"revision": 0, "criteria": body["criteria"]})
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(saved.json()["revision"], 1)
         stale = self.client.put(self.url, {"revision": 0, "criteria": body["criteria"]})
         self.assertEqual(stale.status_code, 409)
         reloaded = self.client.get(self.url).json()
-        self.assertFalse(reloaded["criteria"][0]["enabled"])
-        self.assertEqual(reloaded["criteria"][0]["pass_condition"], body["criteria"][0]["pass_condition"])
+        self.assertEqual(reloaded["criteria"], body["criteria"])
         self.assertIsNone(reloaded["reference_context"])
         self.assertIsNone(reloaded["reference_generation_id"])
 
