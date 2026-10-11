@@ -9,7 +9,7 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
-import { cohortBroadcastDisabledReason, urlForCohortBroadcast, urlForCohortWorkflow } from 'scenes/cohorts/cohortUtils'
+import { cohortBroadcastDisabledReason, urlForCohortWorkflow } from 'scenes/cohorts/cohortUtils'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -23,7 +23,13 @@ import {
 } from '~/layout/scenes/components/SceneMenuBar'
 import { CohortType } from '~/types'
 
-import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
+import {
+    captureMessageAudienceClicked,
+    cohortAudienceProperties,
+    messageAudienceAccessDisabledReason,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { messageAudienceTooltip } from 'products/workflows/frontend/MessageAudience/messageAudienceReadiness'
+import { messageAudienceReadinessLogic } from 'products/workflows/frontend/MessageAudience/messageAudienceReadinessLogic'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -50,6 +56,7 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
 
     const cohortIdNumber = typeof cohort.id === 'number' ? cohort.id : undefined
     const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort)
+    const workflowAccessDisabledReason = messageAudienceAccessDisabledReason()
 
     return (
         <SceneMenuBar>
@@ -57,25 +64,25 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                 {!isNewCohort && cohortIdNumber !== undefined && (
                     <>
                         <SceneMenuBarSubMenu label="Create">
-                            <SceneMenuBarItem
-                                onClick={() => {
-                                    captureMessageAudienceClicked('cohort', 'broadcast')
-                                    router.actions.push(
-                                        urlForCohortBroadcast({ id: cohortIdNumber, name: cohort.name })
-                                    )
-                                }}
-                                disabled={!!broadcastDisabledReason}
-                                tooltip={broadcastDisabledReason ?? undefined}
-                                data-attr={`${RESOURCE_TYPE}-menubar-send-broadcast`}
-                            >
-                                <IconLetter />
-                                Email this cohort
-                            </SceneMenuBarItem>
+                            {broadcastDisabledReason || workflowAccessDisabledReason ? (
+                                <SceneMenuBarItem
+                                    disabled
+                                    tooltip={broadcastDisabledReason ?? workflowAccessDisabledReason ?? undefined}
+                                    data-attr={`${RESOURCE_TYPE}-menubar-send-broadcast`}
+                                >
+                                    <IconLetter />
+                                    Email this cohort
+                                </SceneMenuBarItem>
+                            ) : (
+                                <CohortEmailMenuItem cohortId={cohortIdNumber} cohortName={cohort.name ?? undefined} />
+                            )}
                             <SceneMenuBarItem
                                 onClick={() => {
                                     captureMessageAudienceClicked('cohort', 'workflow')
                                     router.actions.push(urlForCohortWorkflow(cohort))
                                 }}
+                                disabled={!!workflowAccessDisabledReason}
+                                tooltip={workflowAccessDisabledReason ?? undefined}
                                 data-attr={`${RESOURCE_TYPE}-menubar-message-with-workflow`}
                             >
                                 <IconSend />
@@ -188,5 +195,24 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
                 </SceneMenuBarMenu>
             )}
         </SceneMenuBar>
+    )
+}
+
+function CohortEmailMenuItem({ cohortId, cohortName }: { cohortId: number; cohortName?: string }): JSX.Element {
+    const logic = messageAudienceReadinessLogic({
+        audience: { properties: cohortAudienceProperties({ id: cohortId, name: cohortName }), source: 'cohort' },
+    })
+    const { readiness } = useValues(logic)
+    const { open } = useActions(logic)
+    return (
+        <SceneMenuBarItem
+            onClick={() => open('broadcast')}
+            disabled={!!readiness.disabledReason}
+            tooltip={readiness.disabledReason ?? messageAudienceTooltip(readiness)}
+            data-attr={`${RESOURCE_TYPE}-menubar-send-broadcast`}
+        >
+            <IconLetter />
+            Email this cohort
+        </SceneMenuBarItem>
     )
 }

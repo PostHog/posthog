@@ -8,6 +8,7 @@ import { CohortType } from '~/types'
 import {
     captureMessageAudienceClicked,
     cohortAudienceProperties,
+    messageAudienceAccessDisabledReason,
     messageAudienceUrl,
 } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
@@ -20,15 +21,17 @@ export function cohortSavedToast(cohort: Pick<CohortType, 'id' | 'name'>, source
             label: 'View cohort',
             action: () => router.actions.push(urls.cohort(savedCohort.id)),
         },
-        secondaryButton: {
-            label: 'Email this cohort',
-            dataAttr: `message-audience-${source}-broadcast`,
-            action: () => {
-                captureMessageAudienceClicked(source, 'broadcast')
-                router.actions.push(
-                    messageAudienceUrl({ properties: cohortAudienceProperties(savedCohort), source }, 'broadcast')
-                )
-            },
-        },
+        secondaryButton: messageAudienceAccessDisabledReason()
+            ? undefined
+            : {
+                  label: 'Email this cohort',
+                  dataAttr: `message-audience-${source}-broadcast`,
+                  action: () => {
+                      captureMessageAudienceClicked(source, 'broadcast')
+                      router.actions.push(
+                          messageAudienceUrl({ properties: cohortAudienceProperties(savedCohort), source }, 'broadcast')
+                      )
+                  },
+              },
     })
 }
