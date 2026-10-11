@@ -194,7 +194,7 @@ export interface inboxTriageLogicMeta {
         unassignDisabledReason: (
             currentReport: SignalReport | null,
             isUnassigningCurrent: boolean,
-            isScopedToMe: any
+            isScopedToMe: boolean
         ) => string | null
         returnUrl: (currentReport: SignalReport | null, currentIndex: number) => string
         currentReportUrl: (currentReport: SignalReport | null, returnUrl: string) => string | null
