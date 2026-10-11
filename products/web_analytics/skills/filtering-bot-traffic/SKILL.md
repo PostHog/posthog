@@ -39,8 +39,11 @@ the virtual properties don't expose.
 
 ### Virtual properties (insight builder, filters, breakdowns)
 
-These read the user agent for you (falling back from `$raw_user_agent` to `$user_agent`),
+These read `$raw_user_agent` and `$ip` for you, and apply the project's custom bot rules,
 so you don't pass anything in. Available wherever you pick an event property.
+HogQL computes them at query time on the `events` table only.
+In SQL, read them as `properties.$virt_is_bot` in a query whose FROM clause is `events`.
+`SELECT *` does not include them, so in a subquery or CTE select them explicitly with an alias.
 
 | Property                 | Value                                                                                                                                                                                          |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -54,8 +57,10 @@ so you don't pass anything in. Available wherever you pick an event property.
 
 Pass the user agent explicitly. Use `coalesce(nullIf(properties.$raw_user_agent, ''), properties.$user_agent)`
 to cover both server-side (`$raw_user_agent`) and JS SDK (`$user_agent`) captures. The `nullIf`
-keeps an empty `$raw_user_agent` from shadowing a real `$user_agent` and being misread as a bot —
-this mirrors the expression the virtual properties use internally.
+keeps an empty `$raw_user_agent` from shadowing a real `$user_agent` and being misread as a bot.
+This expression does not match the virtual properties exactly: they read only `$raw_user_agent`,
+and they also check `$ip` and custom bot rules.
+To match insight filters exactly, select the virtual property instead.
 
 | Function                 | Returns                                                                      |
 | ------------------------ | ---------------------------------------------------------------------------- |
