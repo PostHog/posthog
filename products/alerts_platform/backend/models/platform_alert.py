@@ -13,6 +13,7 @@ from django.db import models
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
+from products.alerts_platform.backend.facade.contracts import Grouping
 from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
     PlatformAlertConfigurationRecurrenceUnit,
@@ -22,7 +23,7 @@ from products.alerts_platform.backend.facade.enums import (
 
 
 def single_instance_grouping() -> dict[str, object]:
-    return {"mode": "single", "keys": []}
+    return Grouping().to_stored()
 
 
 # nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.

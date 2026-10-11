@@ -239,7 +239,7 @@ class TestDeliveryDispatch(SimpleTestCase):
         assert [
             [detail.value for detail in message.details if detail.label == "Untracked groups"]
             for message, _ in transport.sends
-        ] == [[], ["3 more groups not tracked because this alert is at its group limit"]]
+        ] == [["3 more groups not tracked because this alert is at its group limit"], []]
 
     def test_a_retried_evaluation_does_not_send_a_second_copy(self) -> None:
         store = RecordingThreadStore()

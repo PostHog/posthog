@@ -162,7 +162,7 @@ class Grouping:
 class GroupAdmission:
     """Which of a check's groups the configuration has room for, and how many it turned away."""
 
-    admitted: tuple[str, ...]
+    admitted: frozenset[str]
     overflowed: int
 
 
@@ -175,6 +175,34 @@ class InstanceCheckState:
     last_notified_at: datetime | None = None
     snooze_until: datetime | None = None
     firing_started_at: datetime | None = None
+
+    @classmethod
+    def composed(
+        cls,
+        *,
+        grouping_key: str,
+        state: str,
+        check_status: str,
+        configuration_snooze_until: datetime | None,
+        snooze_until: datetime | None = None,
+        last_notified_at: datetime | None = None,
+        firing_started_at: datetime | None = None,
+    ) -> InstanceCheckState:
+        """An instance as a check, history and the read API all see it.
+
+        The machine reads ERRORED and BROKEN from the same field as firing, so a failing check status
+        takes the place of the instance's state. A configuration mute extends every instance's, and
+        the later of the two holds. The single definition, so what a check judges, what history
+        records and what a reader sees cannot drift apart.
+        """
+        snoozes = [moment for moment in (configuration_snooze_until, snooze_until) if moment is not None]
+        return cls(
+            grouping_key=grouping_key,
+            state=state if check_status == PlatformAlertCheckStatus.OK else check_status,
+            last_notified_at=last_notified_at,
+            snooze_until=max(snoozes, default=None),
+            firing_started_at=firing_started_at,
+        )
 
 
 @frozen
@@ -212,30 +240,37 @@ class PlatformAlertCheckInput:
         """
         existing = {instance.grouping_key for instance in self.instances}
         room = max(self.grouping.max_instances - len(existing), 0)
-        admitted: list[str] = []
+        admitted: set[str] = set()
         overflowed = 0
         for key in dict.fromkeys(grouping_keys):
             if key in existing:
-                admitted.append(key)
+                admitted.add(key)
             elif room > 0:
-                admitted.append(key)
+                admitted.add(key)
                 room -= 1
             else:
                 overflowed += 1
-        return GroupAdmission(admitted=tuple(admitted), overflowed=overflowed)
+        return GroupAdmission(admitted=frozenset(admitted), overflowed=overflowed)
 
     def instance(self, grouping_key: str = "") -> InstanceCheckState:
         """The instance for a group, or the state a group with no instance starts from."""
         for instance in self.instances:
             if instance.grouping_key == grouping_key:
                 return instance
-        return InstanceCheckState(
+        return InstanceCheckState.composed(
             grouping_key=grouping_key,
-            state=PlatformAlertState.NOT_FIRING.value
-            if self.check_status == PlatformAlertCheckStatus.OK
-            else self.check_status,
-            snooze_until=self.snooze_until,
+            state=PlatformAlertState.NOT_FIRING.value,
+            check_status=self.check_status,
+            configuration_snooze_until=self.snooze_until,
         )
+
+    def open_keys(self) -> list[str]:
+        """The groups whose instance is not at rest. A check judges each one, returned or not."""
+        return [
+            instance.grouping_key
+            for instance in self.instances
+            if instance.state != PlatformAlertState.NOT_FIRING.value
+        ]
 
     @property
     def filters(self) -> dict[str, Any]:
@@ -382,11 +417,72 @@ class PlatformAlertOutcome:
     consecutive_failures: int
     groups: tuple[GroupOutcome, ...] = ()
     failure: CheckFailure | None = None
+    skipped: bool = False
+    # New groups `max_instances` had no room for, which the delivery names so a cap is never silent.
+    overflowed: int = 0
     error_message: str | None = None
     query_duration_ms: int | None = None
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
+
+    @classmethod
+    def ungrouped(
+        cls,
+        *,
+        configuration_id: UUID,
+        evaluation_key: str,
+        consecutive_failures: int,
+        kind: AlertEventKind,
+        new_state: str,
+        notified: bool,
+        failed: bool,
+        firing_episode: FiringEpisode | None = None,
+        value: float | None = None,
+        muted_notification: str = "",
+        error_message: str | None = None,
+        query_duration_ms: int | None = None,
+        disable: bool = False,
+        skipped: bool = False,
+    ) -> PlatformAlertOutcome:
+        """A check of a source that does not group: its one verdict on the empty key, or its failure."""
+        failure = (
+            CheckFailure(
+                kind=kind,
+                new_state=new_state,
+                notified=notified,
+                firing_episode=firing_episode,
+                muted_notification=muted_notification,
+            )
+            if failed
+            else None
+        )
+        groups = (
+            ()
+            if failed
+            else (
+                GroupOutcome(
+                    grouping_key="",
+                    kind=kind,
+                    new_state=new_state,
+                    notified=notified,
+                    firing_episode=firing_episode,
+                    value=value,
+                    muted_notification=muted_notification,
+                ),
+            )
+        )
+        return cls(
+            configuration_id=configuration_id,
+            evaluation_key=evaluation_key,
+            consecutive_failures=consecutive_failures,
+            groups=groups,
+            failure=failure,
+            error_message=error_message,
+            query_duration_ms=query_duration_ms,
+            disable=disable,
+            skipped=skipped,
+        )
 
     def __post_init__(self) -> None:
         if self.failure is not None and self.groups:
@@ -457,7 +553,7 @@ class EvaluationAnnouncement:
     # whole evaluation, and every group in one announcement saw the same count.
     consecutive_failures: int
     transitions: tuple[AnnouncedTransition, ...]
-    # Groups the configuration had no room for. The last message names them, so a cap never drops
+    # Groups the configuration had no room for. The first message names them, so a cap never drops
     # a group without anyone being told.
     overflowed: int = 0
 

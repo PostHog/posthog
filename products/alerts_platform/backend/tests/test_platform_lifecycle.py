@@ -145,6 +145,10 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         (check,) = due_checks(self.team.id, SourceKind.LOGS.value, slot_of(due, due), due)
         assert check.instance().state == "errored"
 
+        self._record(at=due, groups=(), skipped=True)
+        due = self._next_due()
+        assert self.configuration.check_status == "errored"
+
         self._record(at=due, kind=AlertEventKind.CHECK, new_state="not_firing", notified=False)
 
         self._next_due()
@@ -269,14 +273,15 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             ("firing", {"state": "firing"}, True),
             ("seen_recently", {"last_seen_hours_ago": 2}, True),
             ("still_snoozed", {"snoozed": True}, True),
-            ("checks_failing", {"recorded_state": "errored"}, True),
+            ("check_failed", {"failed": True}, True),
             ("cooldown_outlasts_the_window", {"cooldown_minutes": 48 * 60}, True),
         ]
     )
     def test_an_idle_group_is_reaped_so_its_slot_frees(self, _name: str, case: dict[str, Any], kept: bool) -> None:
         with team_scope(self.team.id):
             PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
-                cooldown_minutes=case.get("cooldown_minutes", 0)
+                cooldown_minutes=case.get("cooldown_minutes", 0),
+                grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("service",), max_instances=1).to_stored(),
             )
             PlatformAlert.objects.create(
                 team=self.team,
@@ -287,10 +292,18 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 snooze_until=self.cutoff + timedelta(hours=1) if case.get("snoozed") else None,
             )
 
-        self._record(groups=(self._group("api", state=case.get("recorded_state", "not_firing")),))
+        if case.get("failed"):
+            self._record(
+                groups=(), failure=CheckFailure(kind=AlertEventKind.ERRORED, new_state="errored", notified=False)
+            )
+        else:
+            self._record(groups=(self._group("api"),))
 
         with team_scope(self.team.id):
             assert PlatformAlert.objects.filter(configuration=self.configuration, grouping_key="old").exists() is kept
+            assert (
+                PlatformAlert.objects.filter(configuration=self.configuration, grouping_key="api").exists() is not kept
+            )
 
     def test_a_resolve_row_keeps_the_firing_it_ended(self) -> None:
         # The alert row clears the firing on a resolve, so history is the only place left holding
@@ -411,9 +424,9 @@ def _group(grouping_key: str) -> GroupOutcome:
 @pytest.mark.parametrize(
     "existing, returned, expected",
     [
-        ((), ("a", "b", "c", "d"), GroupAdmission(admitted=("a", "b", "c"), overflowed=1)),
-        (("x", "y", "z"), ("q", "x"), GroupAdmission(admitted=("x",), overflowed=1)),
-        (("x",), ("x", "a", "a", "b"), GroupAdmission(admitted=("x", "a", "b"), overflowed=0)),
+        ((), ("a", "b", "c", "d"), GroupAdmission(admitted=frozenset({"a", "b", "c"}), overflowed=1)),
+        (("x", "y", "z"), ("q", "x"), GroupAdmission(admitted=frozenset({"x"}), overflowed=1)),
+        (("x",), ("x", "a", "a", "b"), GroupAdmission(admitted=frozenset({"x", "a", "b"}), overflowed=0)),
     ],
 )
 def test_a_check_admits_existing_groups_and_new_ones_up_to_the_cap(

@@ -35,6 +35,7 @@ from posthog.temporal.alerts.admission import admit_evaluation_slots, release_ev
 
 from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.dispatcher import check_alert_per_series
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -42,13 +43,19 @@ from products.alerts_platform.backend.facade.api import due_checks, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
-    CheckFailure,
-    GroupOutcome,
+    GroupingMode,
+    InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     SkipReason,
     SourceBatchEvaluation,
     SourceKind,
+)
+from products.alerts_platform.backend.facade.grouping import (
+    GroupObservation,
+    bounded_grouping_key,
+    decide_groups,
+    is_hashed_grouping_key,
 )
 from products.alerts_platform.backend.facade.lifecycle import (
     NOTIFICATION_EVENT_KINDS,
@@ -193,6 +200,7 @@ def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> 
         evaluation_key=outcome.evaluation_key,
         destination_alert_id=legacy_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
+        overflowed=outcome.overflowed,
     )
 
 
@@ -206,8 +214,8 @@ def _legacy_alert(check: PlatformAlertCheckInput) -> AlertConfiguration | None:
     )
 
 
-def _snapshot(check: PlatformAlertCheckInput) -> AlertSnapshot:
-    instance = check.instance()
+def _snapshot(check: PlatformAlertCheckInput, instance: InstanceCheckState | None = None) -> AlertSnapshot:
+    instance = instance or check.instance()
     return insight_snapshot(
         AlertState(instance.state),
         last_notified_at=instance.last_notified_at,
@@ -253,38 +261,15 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         alert_calculation_interval=alert.calculation_interval,
         alert_config_type=(alert.config or {}).get("type"),
     )
+    if check.grouping.mode != GroupingMode.SINGLE:
+        return _decide_grouped(check, snapshot, alert, now=now)
     started_at = time.monotonic()
     try:
         result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
     except AlertExtractionError as error:
-        return _recorded(
-            check,
-            snapshot,
-            ControlPlaneOutcome(new_state=AlertState.ERRORED, consecutive_failures=0),
-            now=now,
-            notification=NotificationAction.ERROR,
-            notified=True,
-            error_message=str(error),
-            skip=SkipReason.BROKEN_CONFIG,
-            disable=True,
-            failed=True,
-        )
+        return _broken(check, snapshot, now=now, message=str(error))
     except Exception as error:
-        if classify_query_error(error) == QueryErrorCategory.RATE_LIMITED:
-            return _skipped(check, snapshot, now=now, skip=SkipReason.CAPACITY, error_message=CAPACITY_REJECTED)
-        if not isinstance(error, CH_TRANSIENT_ERRORS):
-            logger.exception("Platform insight check failed", check_id=str(check.id), error=str(error))
-        return _verdict(
-            check,
-            snapshot,
-            CheckInput(
-                threshold_breached=False,
-                error_message=str(error),
-                is_transient_error=isinstance(error, CH_TRANSIENT_ERRORS),
-            ),
-            now=now,
-            skip=SkipReason.QUERY_FAILED,
-        )
+        return _query_failed(check, snapshot, error, now=now)
     duration_ms = int((time.monotonic() - started_at) * 1000)
 
     if result.skipped_reason is not None:
@@ -296,6 +281,98 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         now=now,
         value=result.value,
         query_duration_ms=duration_ms,
+    )
+
+
+def _broken(
+    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, *, now: datetime, message: str
+) -> PlatformAlertOutcome:
+    """An alert production cannot evaluate as configured. It errors and is disabled, as production does."""
+    return _recorded(
+        check,
+        snapshot,
+        ControlPlaneOutcome(new_state=AlertState.ERRORED, consecutive_failures=0),
+        now=now,
+        notification=NotificationAction.ERROR,
+        notified=True,
+        error_message=message,
+        skip=SkipReason.BROKEN_CONFIG,
+        disable=True,
+    )
+
+
+def _query_failed(
+    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, error: Exception, *, now: datetime
+) -> PlatformAlertOutcome:
+    """A query that did not finish. A refusal for load is a skip; anything else is a failed check."""
+    if classify_query_error(error) == QueryErrorCategory.RATE_LIMITED:
+        return _skipped(check, snapshot, now=now, skip=SkipReason.CAPACITY, error_message=CAPACITY_REJECTED)
+    if not isinstance(error, CH_TRANSIENT_ERRORS):
+        logger.exception("Platform insight check failed", check_id=str(check.id), error=str(error))
+    return _verdict(
+        check,
+        snapshot,
+        CheckInput(
+            threshold_breached=False,
+            error_message=str(error),
+            is_transient_error=isinstance(error, CH_TRANSIENT_ERRORS),
+        ),
+        now=now,
+        skip=SkipReason.QUERY_FAILED,
+    )
+
+
+# Skips that mean the check could not evaluate, as opposed to a check the source chose not to run.
+_FAILED_CHECKS: Final = frozenset({SkipReason.QUERY_FAILED, SkipReason.BROKEN_CONFIG})
+
+# The one label a grouped insight alert splits on: each breakdown value is a group.
+BREAKDOWN_GROUPING_KEY = "breakdown"
+
+
+def _decide_grouped(
+    check: PlatformAlertCheckInput, snapshot: AlertSnapshot, alert: AlertConfiguration, *, now: datetime
+) -> PlatformAlertOutcome:
+    """One check of a breakdown alert, judged per breakdown value through the platform's decision.
+
+    An open value the query no longer returns is judged as not breaching, so it can resolve.
+    """
+    if tuple(check.grouping.keys) != (BREAKDOWN_GROUPING_KEY,):
+        return _broken(check, snapshot, now=now, message=f"An insight alert can only group by {BREAKDOWN_GROUPING_KEY}")
+    started_at = time.monotonic()
+    try:
+        evaluated = check_alert_per_series(alert)
+    except AlertExtractionError as error:
+        return _broken(check, snapshot, now=now, message=str(error))
+    except Exception as error:
+        return _query_failed(check, snapshot, error, now=now)
+    if not isinstance(evaluated, tuple):
+        return _skipped(check, snapshot, now=now)
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+
+    decision = decide_groups(
+        check,
+        [
+            GroupObservation(
+                grouping_key=bounded_grouping_key(series.label),
+                current_breached=bool(series.result.breaches),
+                value=series.result.value,
+                labels={BREAKDOWN_GROUPING_KEY: series.label},
+            )
+            for series in evaluated
+        ],
+        snapshot_of=lambda instance, _prior: _snapshot(check, instance),
+        policy=INSIGHT_ALERT_POLICY,
+        now=now,
+        absent=lambda key: GroupObservation(
+            grouping_key=key,
+            current_breached=False,
+            labels={} if is_hashed_grouping_key(key) else {BREAKDOWN_GROUPING_KEY: key},
+        ),
+    )
+    for verdict in decision.verdicts:
+        _record_metrics(verdict.outcome.notification, verdict.snapshot.state.value, verdict.group.new_state)
+    return decision.as_outcome(
+        configuration_id=check.id, evaluation_key=_evaluation_key(check, now), query_duration_ms=duration_ms
     )
 
 
@@ -322,7 +399,6 @@ def _verdict(
         query_duration_ms=query_duration_ms,
         skip=skip,
         disable=outcome.disable,
-        failed=skip == SkipReason.QUERY_FAILED,
     )
 
 
@@ -340,6 +416,17 @@ def _skipped(
     return _recorded(check, snapshot, unchanged, now=now, skip=skip, error_message=error_message, disable=disable)
 
 
+def _record_metrics(
+    notification: NotificationAction, previous_state: str, new_state: str, *, skip: SkipReason | None = None
+) -> None:
+    source = SourceKind.INSIGHT.value
+    safe_record(increment_checks, source, notification.value)
+    if skip is not None:
+        safe_record(increment_checks_skipped, source, skip.value)
+    if previous_state != new_state:
+        safe_record(increment_state_transition, source, previous_state, new_state)
+
+
 def _recorded(
     check: PlatformAlertCheckInput,
     snapshot: AlertSnapshot,
@@ -353,41 +440,34 @@ def _recorded(
     query_duration_ms: int | None = None,
     skip: SkipReason | None = None,
     disable: bool = False,
-    failed: bool = False,
 ) -> PlatformAlertOutcome:
     """The one place an outcome is built. Every path goes through the firing decision, because
     an outcome without an episode clears the start of a firing the alert is still in."""
-    source = SourceKind.INSIGHT.value
-    safe_record(increment_checks, source, notification.value)
-    if skip is not None:
-        safe_record(increment_checks_skipped, source, skip.value)
-    previous_state = check.instance().state
-    if previous_state != outcome.new_state.value:
-        safe_record(increment_state_transition, source, previous_state, outcome.new_state.value)
-    kind = NOTIFICATION_EVENT_KINDS[notification]
-    firing_episode = decide_firing_episode(snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY)
-    return PlatformAlertOutcome(
+    _record_metrics(notification, check.instance().state, outcome.new_state.value, skip=skip)
+    failed = skip in _FAILED_CHECKS
+    skipped = skip is not None and not failed
+    if check.grouping.mode != GroupingMode.SINGLE and not failed:
+        # A grouped check that ran reports through `_decide_grouped`; this one evaluated no group.
+        return PlatformAlertOutcome(
+            configuration_id=check.id,
+            evaluation_key=_evaluation_key(check, now),
+            consecutive_failures=outcome.consecutive_failures,
+            error_message=error_message,
+            disable=disable,
+            skipped=skipped,
+        )
+    return PlatformAlertOutcome.ungrouped(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, now),
         consecutive_failures=outcome.consecutive_failures,
-        groups=()
-        if failed
-        else (
-            GroupOutcome(
-                grouping_key="",
-                kind=kind,
-                new_state=outcome.new_state.value,
-                notified=notified,
-                firing_episode=firing_episode,
-                value=value,
-            ),
-        ),
-        failure=CheckFailure(
-            kind=kind, new_state=outcome.new_state.value, notified=notified, firing_episode=firing_episode
-        )
-        if failed
-        else None,
+        kind=NOTIFICATION_EVENT_KINDS[notification],
+        new_state=outcome.new_state.value,
+        notified=notified,
+        failed=failed,
+        firing_episode=decide_firing_episode(snapshot, outcome, now, policy=INSIGHT_ALERT_POLICY),
+        value=value,
         error_message=error_message,
         query_duration_ms=query_duration_ms,
         disable=disable,
+        skipped=skipped,
     )

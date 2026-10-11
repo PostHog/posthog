@@ -294,7 +294,7 @@ The check input and the read API show each instance the later of the two.
 
 A configuration's `grouping` holds `max_instances` (100 by default), the most instance rows it keeps.
 A source calls `check.admit(keys)` with its groups in priority order: a group that already has an instance is always admitted, so it can resolve, and new groups fill the remaining room front first.
-The count it turned away travels on the delivery as `overflowed`, and the last message of that delivery says how many groups were not tracked.
+The count it turned away travels on the delivery as `overflowed`, and the first message of that delivery says how many groups were not tracked.
 `record_outcomes` enforces the cap again and drops a group past it, counted on `alerts_platform_groups_over_cap_total`.
 An instance that is not firing, not muted, and that no check returned for longer than both 24 hours and its cooldown is deleted, which frees its slot.
 Nothing is reaped while the configuration's checks fail, because a failed check returns no groups and every instance would look gone.
@@ -302,6 +302,10 @@ Nothing is reaped while the configuration's checks fail, because a failed check 
 Logs is the first source that groups, by `service_name` and `severity_text` only.
 A grouped logs alert leaves the batched cohort and runs `GroupedAlertCheckQuery`, one query per alert, with its open groups ordered first and the rest worst first.
 A group with no instance whose check decides nothing is left out, so a quiet service costs no row, and an open group the query does not return is checked against a zero count so it can resolve.
+
+Insight groups by breakdown value, with `keys` set to `["breakdown"]`.
+`check_alert_per_series` judges every series on its own, where production's `check_alert_for_insight` stops at the first series that breaches, and the adapter runs each value through the shared machine against its own instance.
+Only threshold alerts can group; a detector scores its series together.
 
 `alerts_platform_checks_skipped_total{source,reason}` counts these by reason.
 
