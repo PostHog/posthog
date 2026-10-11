@@ -37,34 +37,32 @@ createRoot(document.getElementById('root')).render(
     <>
         {subtitle && <div className="subtitle">{subtitle}</div>}
         <h1>{title}</h1>
-        <ChartLegend
-            show={data.length > 1}
-            items={legendItemsFromSeries(data, THEME)}
-            position="bottom"
-            className="chart"
-        >
-            {kind === 'bar' ? (
-                <BarChart
-                    labels={x}
-                    series={data}
-                    theme={THEME}
-                    config={{
-                        showGrid: true,
-                        barLayout: 'grouped',
-                        yTickFormatter: (v) => `${v.toLocaleString('en-US')}${unit ?? ''}`,
-                    }}
-                />
-            ) : (
-                <TimeSeriesLineChart
-                    labels={x}
-                    series={data}
-                    theme={THEME}
-                    config={{
-                        xAxis: { tickFormatter: createXAxisTickCallback({ allDays: x, timezone }) },
-                        yAxis: { showGrid: true, suffix: unit },
-                    }}
-                />
-            )}
-        </ChartLegend>
+        {/* ChartLegend renders bare children when hidden, so the height lives on this wrapper. */}
+        <div className="chart">
+            <ChartLegend show={data.length > 1} items={legendItemsFromSeries(data, THEME)} position="bottom">
+                {kind === 'bar' ? (
+                    <BarChart
+                        labels={x}
+                        series={data}
+                        theme={THEME}
+                        config={{
+                            showGrid: true,
+                            barLayout: 'grouped',
+                            yTickFormatter: (v) => `${v.toLocaleString('en-US')}${unit ?? ''}`,
+                        }}
+                    />
+                ) : (
+                    <TimeSeriesLineChart
+                        labels={x}
+                        series={data}
+                        theme={THEME}
+                        config={{
+                            xAxis: { tickFormatter: createXAxisTickCallback({ allDays: x, timezone }) },
+                            yAxis: { showGrid: true, suffix: unit },
+                        }}
+                    />
+                )}
+            </ChartLegend>
+        </div>
     </>
 )

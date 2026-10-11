@@ -13,7 +13,7 @@ await page.setContent(`<style>
     #root { padding: 24px 28px; }
     .subtitle { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #6b7280; }
     h1 { font-size: 20px; margin: 6px 0 16px; }
-    .chart { height: 420px; }
+    .chart { height: 420px; display: flex; flex-direction: column; }
     /* The Tailwind classes that quill-charts uses. The npm package ships no CSS. */
     .flex { display: flex; } .inline-flex { display: inline-flex; } .inline-block { display: inline-block; }
     .flex-col { flex-direction: column; } .flex-row { flex-direction: row; } .flex-wrap { flex-wrap: wrap; }
