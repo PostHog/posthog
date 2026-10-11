@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.luma.setti
     EVENTS_PATH,
     GUESTS_PATH,
     LUMA_ENDPOINTS,
+    TICKET_TYPES_PATH,
 )
 
 # Call the undecorated function so the tenacity retry/backoff wrapper doesn't slow failure-path tests.
@@ -139,7 +140,16 @@ class TestGuestsFanOut:
             rows.extend(batch)
         return rows
 
-    def test_event_blasts_are_fetched_per_event_without_pagination(self, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,path,static_params",
+        [
+            ("event_blasts", BLASTS_PATH, {}),
+            ("ticket_types", TICKET_TYPES_PATH, {"include_hidden": "true"}),
+        ],
+    )
+    def test_unpaginated_children_are_fetched_per_event(
+        self, endpoint: str, path: str, static_params: dict[str, str], monkeypatch: Any
+    ) -> None:
         manager = _FakeResumableManager()
         pages: FanOutPageMap = {
             (EVENTS_PATH, None, None): (
@@ -149,15 +159,15 @@ class TestGuestsFanOut:
                 ],
                 None,
             ),
-            (BLASTS_PATH, None, "evt-1"): ([{"id": "bst-a", "event_id": "evt-1", "status": "sent"}], None),
-            (BLASTS_PATH, None, "evt-2"): ([], None),
+            (path, None, "evt-1"): ([{"id": "row-a", "status": "sent"}], None),
+            (path, None, "evt-2"): ([], None),
         }
-        rows = self._collect(manager, monkeypatch, pages, endpoint="event_blasts")
-        assert rows == [{"id": "bst-a", "event_id": "evt-1", "status": "sent"}]
-        blast_calls = [c for c in self.calls if c[0] == BLASTS_PATH]
-        assert blast_calls == [
-            (BLASTS_PATH, {"event_id": "evt-1"}, False),
-            (BLASTS_PATH, {"event_id": "evt-2"}, False),
+        rows = self._collect(manager, monkeypatch, pages, endpoint=endpoint)
+        assert rows == [{"id": "row-a", "event_id": "evt-1", "status": "sent"}]
+        child_calls = [c for c in self.calls if c[0] == path]
+        assert child_calls == [
+            (path, {"event_id": "evt-1", **static_params}, False),
+            (path, {"event_id": "evt-2", **static_params}, False),
         ]
 
     def test_paginates_guests_within_an_event(self, monkeypatch: Any) -> None:

@@ -54,6 +54,31 @@ class TestLumaSource:
         assert kwargs["endpoint"] == "events"
         assert kwargs["resumable_source_manager"] is manager
 
+    @parameterized.expand(
+        [
+            ("calendar_key_rejected", 403, "Requires a Luma organization API key"),
+            ("calendar_key_bad_request", 400, "Requires a Luma organization API key"),
+            ("organization_key", 200, None),
+            ("transient_failure", 500, None),
+        ]
+    )
+    def test_endpoint_permissions_probe_organization_endpoints(
+        self, _name: str, status: int, expected_reason_prefix: str | None
+    ) -> None:
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.luma.source.check_access",
+            return_value=(status, None),
+        ) as mock_check:
+            permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["calendars", "events"])
+
+        mock_check.assert_called_once_with("luma-key", "/v1/organizations/calendars/list")
+        assert permissions["events"] is None
+        reason = permissions["calendars"]
+        if expected_reason_prefix is None:
+            assert reason is None
+        else:
+            assert reason is not None and reason.startswith(expected_reason_prefix)
+
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "not_a_table"
