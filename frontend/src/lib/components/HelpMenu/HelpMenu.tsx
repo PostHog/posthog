@@ -1,5 +1,6 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { IconCopy, IconDatabase, IconOpenSidebar, IconServer, IconShieldLock, IconSparkles } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
@@ -8,6 +9,7 @@ import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortc
 import { IconMenu, IconWithBadge } from 'lib/lemon-ui/icons'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { Link } from 'lib/lemon-ui/Link/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
@@ -15,6 +17,7 @@ import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -50,6 +53,9 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
     const { postHogStatusTooltip, postHogStatusBadgeStatus, postHogStatusBadgeContent, statusPageUrl } =
         useValues(posthogStatusLogic)
     const { unsnoozedCount, snoozedCount } = useValues(healthSummaryLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // Only the legacy flow opens on the product picker. The self-driving flow starts at its own first step.
+    const showExploreProducts = resolveOnboardingFlowVariant(featureFlags) === 'legacy'
 
     return (
         <Menu.Root open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
@@ -150,6 +156,22 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         </Link>
                                     )}
                                 />
+                                {showExploreProducts && (
+                                    <Menu.Item
+                                        render={(props) => (
+                                            <Link
+                                                {...props}
+                                                to={combineUrl(urls.onboarding(), { entry_point: 'help_menu' }).url}
+                                                buttonProps={{ menuItem: true }}
+                                                tooltip="See all PostHog products and set up the ones you skipped"
+                                                tooltipPlacement="right"
+                                                data-attr="more-menu-explore-products-button"
+                                            >
+                                                Explore products
+                                            </Link>
+                                        )}
+                                    />
+                                )}
 
                                 <Label intent="menu" className="px-2 mt-3">
                                     System
