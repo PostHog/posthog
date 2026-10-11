@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import io
 import hashlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
+from contextlib import contextmanager
 from typing import ClassVar
 
 import pyarrow as pa
@@ -32,6 +33,9 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     BatchWriteOutcome,
     DestinationBatchContext,
     DestinationRunContext,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.merge_dedup import (
     dedupe_merge_source,
@@ -57,6 +61,11 @@ _OWNERSHIP_LABEL_KEY = "posthog_sync_schema"
 # complete table.
 _PUBLISHED_RUN_LABEL_KEY = "posthog_sync_run"
 
+IMPERSONATION_DENIED_DETAIL = (
+    "PostHog can't act as your Google Cloud service account. Grant the PostHog service account the "
+    "Service Account Token Creator role on it, then run the sync again."
+)
+
 
 class BigQueryDestinationConfigurationError(ValueError):
     """The destination's config cannot produce a valid BigQuery write."""
@@ -64,6 +73,17 @@ class BigQueryDestinationConfigurationError(ValueError):
 
 class UnrelatedTableExistsError(RuntimeError):
     """A sync would have overwritten, merged into or appended to a table it never created."""
+
+
+def _is_impersonation_denied(err: Exception) -> bool:
+    """Whether Google refused to mint a token for the service account PostHog impersonates.
+
+    The refusal comes lazily, on the first request that needs a token. Over REST it is a
+    `RefreshError`, and over gRPC the auth plugin's failure reaches the caller as a 503, so the
+    wording is all the two shapes share. Same match as the BigQuery source's validation.
+    """
+    message = str(err)
+    return "iam.serviceAccounts.getAccessToken" in message and "denied" in message
 
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
@@ -136,6 +156,16 @@ class BigQueryDestinationWriter:
         self._client = client.sync_client
         self._project = self._project or self._client.project or ""
         return self._client
+
+    @contextmanager
+    def _impersonation_denied_as_configuration_error(self) -> Iterator[None]:
+        # Without this, the 503 shape reads as transient and the run retries until it gives up.
+        try:
+            yield
+        except Exception as err:
+            if _is_impersonation_denied(err):
+                raise DestinationConfigurationError(self._ctx.destination_name, IMPERSONATION_DENIED_DETAIL) from err
+            raise
 
     def _table_ref(self, table: str) -> str:
         return f"{self._project}.{self._dataset}.{table}"
@@ -210,9 +240,16 @@ class BigQueryDestinationWriter:
             client = self._get_client()
             client.create_dataset(f"{self._project}.{self._dataset}", exists_ok=True)
 
-        await sync_to_async(ensure_dataset, thread_sensitive=False)()
+        with self._impersonation_denied_as_configuration_error():
+            await sync_to_async(ensure_dataset, thread_sensitive=False)()
 
     async def write_batch(
+        self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
+    ) -> BatchWriteOutcome:
+        with self._impersonation_denied_as_configuration_error():
+            return await self._write_batch(batches, ctx)
+
+    async def _write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
         if ctx.run.is_full_refresh and await sync_to_async(self._already_published, thread_sensitive=False)(ctx.run):
@@ -391,7 +428,8 @@ class BigQueryDestinationWriter:
             self._mark_published(client, target_ref)
             client.delete_table(self._table_ref(staging), not_found_ok=True)
 
-        await sync_to_async(publish, thread_sensitive=False)()
+        with self._impersonation_denied_as_configuration_error():
+            await sync_to_async(publish, thread_sensitive=False)()
 
     async def abort_run(self, ctx: DestinationRunContext) -> None:
         # No `self._client is None` guard: `abort_destinations` builds a fresh writer for this
