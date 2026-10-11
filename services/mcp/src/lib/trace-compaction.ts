@@ -64,6 +64,14 @@ const MIN_ITEM_BUDGET = 256
 const SMALL_BUDGET_RESERVE_RATIO = 0.1
 const SMALL_BUDGET_MIN_ITEM_RATIO = 0.25
 
+// Share of the event budget reserved for the events that show how the trace
+// ended: the last generation and failed events. The rest goes to the other events
+// in order.
+const OUTCOME_EVENTS_BUDGET_RATIO = 0.5
+// Room for the IDs of omitted events, so the agent can read them directly.
+const OMITTED_EVENT_IDS_MAX_CHARS = 2_000
+const OMITTED_EVENT_IDS_BUDGET_RATIO = 0.02
+
 // Smallest budget a trace may get in a multi-trace (list) response.
 const MIN_TRACE_BUDGET = 2_000
 // How many times the encoded-size check may re-run the walk with a smaller
@@ -168,6 +176,15 @@ export const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_cache_reporting_exclusive',
     '$ai_tokens_source',
 ])
+
+/** Free-text error fields. At `full` detail they are compacted before other content. */
+const EVENT_ERROR_PROPERTIES = new Set(['$ai_error', '$ai_error_normalized'])
+
+/** What a call returned. Compacted before inputs. */
+const EVENT_OUTPUT_PROPERTIES = new Set(['$ai_output_choices', '$ai_output', '$ai_output_state'])
+
+/** Prompts and tool schemas. Usually the largest content, so compacted last. */
+const EVENT_BULK_INPUT_PROPERTIES = new Set(['$ai_input', '$ai_input_state', '$ai_tools'])
 
 /** Trace-level fields that carry conversation content rather than metadata. */
 const SUMMARY_OMITTED_TRACE_FIELDS = new Set(['inputState', 'outputState'])
@@ -288,31 +305,130 @@ function compactValue(value: unknown, budget: number): Compacted {
         return { value: out, cost }
     }
     if (isRecord(value)) {
-        const out: Record<string, unknown> = {}
-        let cost = 2 // "{}"
-        const entries = Object.entries(value)
-        let i = 0
-        for (; i < entries.length; i++) {
-            const [key, val] = entries[i]!
-            // The key itself is unbounded input (arbitrary parsed JSON), so charge
-            // its serialized size against the budget before admitting the member —
-            // otherwise a single ~1MB property name slips past the cap even after
-            // its value is compacted to nothing.
-            const keyCost = encodedStringLength(key) + 1 // "key":
-            if (budget - cost - keyCost < minItemBudget) {
-                break
-            }
-            const child = compactValue(val, budget - cost - keyCost - reserve)
-            assignKey(out, key, child.value)
-            cost += keyCost + child.cost + 1 // "key":value,
-        }
-        if (i < entries.length) {
-            assignKey(out, '_omittedKeys', entries.length - i)
-            cost += 24
-        }
-        return { value: out, cost }
+        return compactRecord(value, budget)
     }
     return { value, cost: 0 }
+}
+
+/**
+ * Compact an object member by member. Members are visited in ascending `rank`
+ * order, so the members that matter most get the budget first, and the output
+ * keeps the original key order. Without a rank, members are visited in key order.
+ */
+function compactRecord(
+    value: Record<string, unknown>,
+    budget: number,
+    rank?: (key: string) => number,
+    compactMember: (key: string, member: unknown, memberBudget: number) => Compacted = (_key, member, memberBudget) =>
+        compactValue(member, memberBudget)
+): Compacted {
+    const reserve = metaReserveFor(budget)
+    const minItemBudget = minItemBudgetFor(budget)
+    const entries = Object.entries(value)
+    const visitOrder = rank ? [...entries].sort(([a], [b]) => rank(a) - rank(b)) : entries
+    const kept = new Map<string, unknown>()
+    let cost = 2 // "{}"
+    let i = 0
+    for (; i < visitOrder.length; i++) {
+        const [key, val] = visitOrder[i]!
+        // The key itself is unbounded input (arbitrary parsed JSON), so charge
+        // its serialized size against the budget before admitting the member —
+        // otherwise a single ~1MB property name slips past the cap even after
+        // its value is compacted to nothing.
+        const keyCost = encodedStringLength(key) + 1 // "key":
+        if (budget - cost - keyCost < minItemBudget) {
+            break
+        }
+        const child = compactMember(key, val, budget - cost - keyCost - reserve)
+        kept.set(key, child.value)
+        cost += keyCost + child.cost + 1 // "key":value,
+    }
+    const out: Record<string, unknown> = {}
+    for (const [key] of entries) {
+        if (kept.has(key)) {
+            assignKey(out, key, kept.get(key))
+        }
+    }
+    if (i < entries.length) {
+        assignKey(out, '_omittedKeys', entries.length - i)
+        cost += 24
+    }
+    return { value: out, cost }
+}
+
+/**
+ * Visit order for event properties. Identity, status, and error fields go first
+ * and outputs next, so a long prompt or tool schema cannot crowd out what the
+ * call returned or why it failed.
+ */
+function eventPropertyRank(key: string): number {
+    if (SUMMARY_METADATA_PROPERTIES.has(key) || EVENT_ERROR_PROPERTIES.has(key)) {
+        return 0
+    }
+    if (EVENT_OUTPUT_PROPERTIES.has(key)) {
+        return 1
+    }
+    return EVENT_BULK_INPUT_PROPERTIES.has(key) ? 3 : 2
+}
+
+/** Visit order for trace fields: identity and totals, then output, then input. */
+function traceFieldRank(key: string): number {
+    if (key === 'outputState') {
+        return 1
+    }
+    return key === 'inputState' ? 2 : 0
+}
+
+function compactEvent(event: unknown, budget: number): Compacted {
+    if (!isRecord(event) || !isRecord(event.properties)) {
+        return compactValue(event, budget)
+    }
+    return compactRecord(
+        event,
+        budget,
+        (key) => (key === 'properties' ? 1 : 0),
+        (key, member, memberBudget) =>
+            key === 'properties' && isRecord(member)
+                ? compactRecord(member, memberBudget, eventPropertyRank)
+                : compactValue(member, memberBudget)
+    )
+}
+
+function isFailedEvent(event: unknown): boolean {
+    if (!isRecord(event) || !isRecord(event.properties)) {
+        return false
+    }
+    const { $ai_is_error: flag, $ai_error: error } = event.properties
+    return flag === true || flag === 'true' || Boolean(error)
+}
+
+/**
+ * Indexes of the events that show how a trace ended, most important first: the
+ * last generation (or the last event when the trace has no generation), then
+ * failed events from latest to earliest.
+ */
+function outcomeEventIndexes(events: unknown[]): number[] {
+    let final = -1
+    const failed: number[] = []
+    for (let i = events.length - 1; i >= 0; i--) {
+        const event = events[i]
+        if (final === -1 && isRecord(event) && event.event === '$ai_generation') {
+            final = i
+        }
+        if (isFailedEvent(event)) {
+            failed.push(i)
+        }
+    }
+    if (final === -1 && events.length > 0) {
+        final = events.length - 1
+    }
+    const indexes = final === -1 ? [] : [final]
+    for (const index of failed) {
+        if (index !== final) {
+            indexes.push(index)
+        }
+    }
+    return indexes
 }
 
 /**
@@ -386,14 +502,16 @@ function summarizeTraceFields(fields: Record<string, unknown>): void {
 /**
  * Compact a single trace to fit `budget` characters, dropping event content
  * first when `detail` is `summary`. Non-event fields are
- * budgeted first (so a huge `inputState` can't starve the events), then events
- * are filled in until the budget runs out; the first event is compacted to fit
- * rather than kept verbatim, so no single event can breach the cap. Dropped
- * events are reported via `_truncated`.
+ * budgeted first (so a huge `inputState` can't starve the events). Then the
+ * last generation and the failed events get a reserved share, and the other
+ * events are filled in order until the budget runs out. Each event is compacted
+ * to fit rather than kept verbatim, so no single event can breach the cap.
+ * Kept events stay in their original order. Dropped events are reported via
+ * `_truncated`, with their IDs when they fit.
  *
- * Events are dropped from the tail. The backend orders events by timestamp,
- * which is not guaranteed to be parent-before-child order, so a truncated trace
- * may not be fully tree-reconstructable — hence the pointer back to PostHog.
+ * The backend orders events by timestamp, which is not guaranteed to be
+ * parent-before-child order, so a truncated trace may not be fully
+ * tree-reconstructable — hence the pointer back to PostHog.
  */
 export function compactTrace(trace: unknown, budget: number = MAX_TRACE_CHARS, detail: TraceDetail = 'full'): unknown {
     if (!isRecord(trace)) {
@@ -421,40 +539,88 @@ function compactTraceWithin(trace: Record<string, unknown>, budget: number, deta
     if (!events) {
         return compactValue(rest, budget).value
     }
-    const baseCompacted = compactValue(rest, Math.max(0, budget * BASE_FIELDS_BUDGET_RATIO))
+    const baseCompacted = compactRecord(rest, Math.max(0, budget * BASE_FIELDS_BUDGET_RATIO), traceFieldRank)
     const base = baseCompacted.value as Record<string, unknown>
 
-    let remaining = budget - baseCompacted.cost - META_RESERVE
-    const kept: unknown[] = []
-    let i = 0
-    for (; i < events.length; i++) {
-        if (kept.length >= 1 && remaining < MIN_ITEM_BUDGET) {
-            break
-        }
-        // Summarize inside the loop so events past the budget are never visited.
-        // Summarizing the whole trace up front would build a second copy of a
-        // payload that is already large enough to be the problem.
-        const event = detail === 'summary' ? summarizeEvent(events[i]) : events[i]
-        const child = compactValue(event, Math.max(MIN_ITEM_BUDGET, remaining))
-        kept.push(child.value)
-        remaining -= child.cost + 1
+    const omittedIdsReserve = Math.min(OMITTED_EVENT_IDS_MAX_CHARS, Math.floor(budget * OMITTED_EVENT_IDS_BUDGET_RATIO))
+    let remaining = budget - baseCompacted.cost - META_RESERVE - omittedIdsReserve
+    const kept = new Map<number, unknown>()
+    // Summarize inside the loops so events past the budget are never visited.
+    // Summarizing the whole trace up front would build a second copy of a
+    // payload that is already large enough to be the problem.
+    const keep = (index: number, eventBudget: number): number => {
+        const event = detail === 'summary' ? summarizeEvent(events[index]) : events[index]
+        const child = compactEvent(event, Math.max(MIN_ITEM_BUDGET, eventBudget))
+        kept.set(index, child.value)
+        return child.cost + 1
     }
 
-    assignKey(base, 'events', kept)
-    const omitted = events.length - kept.length
+    // Keep the outcome events first, each with an equal share of a capped
+    // reserve, so early prompt-heavy events cannot push them out of the response.
+    const outcomes = outcomeEventIndexes(events)
+    let outcomeRemaining = Math.floor(remaining * OUTCOME_EVENTS_BUDGET_RATIO)
+    for (let o = 0; o < outcomes.length; o++) {
+        if (kept.size >= 1 && outcomeRemaining < MIN_ITEM_BUDGET) {
+            break
+        }
+        const spent = keep(outcomes[o]!, Math.floor(outcomeRemaining / (outcomes.length - o)))
+        outcomeRemaining -= spent
+        remaining -= spent
+    }
+
+    for (let i = 0; i < events.length; i++) {
+        if (kept.has(i)) {
+            continue
+        }
+        if (kept.size >= 1 && remaining < MIN_ITEM_BUDGET) {
+            break
+        }
+        remaining -= keep(i, remaining)
+    }
+
+    const keptEvents: unknown[] = []
+    const omittedIds: string[] = []
+    for (let i = 0; i < events.length; i++) {
+        if (kept.has(i)) {
+            keptEvents.push(kept.get(i))
+        } else {
+            const event = events[i]
+            if (isRecord(event) && typeof event.id === 'string') {
+                omittedIds.push(event.id)
+            }
+        }
+    }
+    assignKey(base, 'events', keptEvents)
+    const omitted = events.length - kept.size
     if (omitted > 0) {
         const note =
             detail === 'full'
-                ? 'Re-run with detail: "summary" for metadata alone. Summary responses can also omit events; narrow the query or open the trace in PostHog for the complete data.'
-                : 'Open the trace in PostHog for the complete, untruncated data, or narrow the query to the events you need.'
+                ? 'Re-run with detail: "summary" for metadata alone. Summary responses can also omit events; read omitted events by ID with SQL, narrow the query, or open the trace in PostHog for the complete data.'
+                : 'Read omitted events by ID with SQL, open the trace in PostHog for the complete, untruncated data, or narrow the query to the events you need.'
         assignKey(base, '_truncated', {
             omittedEvents: omitted,
             totalEvents: events.length,
-            reason: 'Trace exceeded the response size limit; some events were dropped and large values were shortened.',
+            omittedEventIds: idsWithin(omittedIds, omittedIdsReserve),
+            reason: 'Trace exceeded the response size limit; some events were dropped and large values were shortened. The last generation and failed events are kept first.',
             note,
         })
     }
     return base
+}
+
+/** The leading IDs whose serialized list fits `budget` characters. */
+function idsWithin(ids: string[], budget: number): string[] {
+    const out: string[] = []
+    let cost = 2 // "[]"
+    for (const id of ids) {
+        const idCost = encodedStringLength(id) + 1
+        if (cost + idCost > budget) {
+            break
+        }
+        out.push(id)
+        cost += idCost
+    }
+    return out
 }
 
 /** What a trace collapses to when even the smallest walk budget doesn't fit. */
