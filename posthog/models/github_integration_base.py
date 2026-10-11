@@ -554,12 +554,13 @@ class GitHubIntegrationBase:
 
     def mint_scoped_installation_token(
         self,
-        permissions: Mapping[str, str],
+        permissions: Mapping[str, str] | None,
         repositories: list[str] | None = None,
     ) -> str:
         """Mint an ephemeral installation token downscoped to ``permissions`` (e.g.
         ``{"contents": "read", "metadata": "read"}``) and optionally to ``repositories``
-        (bare repo names, no owner prefix).
+        (bare repo names, no owner prefix). ``None`` permissions keep every permission the
+        installation holds.
 
         The token is returned to the caller and deliberately NOT persisted: the cached
         ``sensitive_config`` token is the shared full-permission credential every other
@@ -572,11 +573,14 @@ class GitHubIntegrationBase:
         if not installation_id:
             raise GitHubIntegrationError("No GitHub App installation id on this integration")
 
-        body: dict[str, Any] = {"permissions": dict(permissions)}
+        body: dict[str, Any] = {}
+        if permissions is not None:
+            body["permissions"] = dict(permissions)
         if repositories:
             body["repositories"] = repositories
 
         response = self.client_request(f"installations/{installation_id}/access_tokens", method="POST", json_body=body)
+        raise_if_github_rate_limited(response)
         try:
             data = response.json()
         except ValueError:
@@ -667,15 +671,17 @@ class GitHubIntegrationBase:
         name = account.get("name") if isinstance(account, dict) else None
         return not name or str(name) == str(installation_id)
 
-    def ensure_account_name(self) -> bool:
-        """Replace a placeholder account name with the real GitHub login, at most once per cooldown.
+    def ensure_account_name(self, *, force_refresh: bool = False) -> bool:
+        """Refresh a placeholder (or suspected stale) login, at most once per cooldown.
 
         Skips installations already marked unavailable, since the lookup would fail the same way.
         Returns True when the name was healed. Persists the attempt timestamp either way so a broken
         installation costs one GitHub call per cooldown window, not one per list request.
         """
         installation_id = self.github_installation_id
-        if not installation_id or self.installation_unavailable() or not self.account_name_needs_heal():
+        if not installation_id or self.installation_unavailable():
+            return False
+        if not force_refresh and not self.account_name_needs_heal():
             return False
         now = int(time.time())
         last_attempt = self.integration.config.get(ACCOUNT_NAME_HEAL_ATTEMPTED_AT_CONFIG_KEY)

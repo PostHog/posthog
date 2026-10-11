@@ -3,6 +3,7 @@ import time
 import random
 
 import pytest
+from unittest.mock import patch
 
 from temporalio.testing import ActivityEnvironment
 
@@ -130,7 +131,11 @@ def github_integration(team):
         sensitive_config={"access_token": "fake_token"},
     )
 
-    yield integration
+    # The fake installation must not call GitHub when minting scoped tokens either.
+    with patch(
+        "posthog.models.integration.GitHubIntegration.mint_scoped_installation_token", return_value="fake_token"
+    ):
+        yield integration
 
     integration.delete()
 

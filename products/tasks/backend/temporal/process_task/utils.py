@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from posthog.enums import LabeledStrEnum
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
+from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
@@ -58,6 +59,7 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state as is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
+from products.tasks.backend.logic.services.sandbox import is_public_sandbox_repo
 from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     AI_GATEWAY_TOKEN_MINTS,
@@ -877,7 +879,55 @@ def get_sandbox_ph_mcp_configs(
     ]
 
 
-def get_github_token(github_integration_id: int) -> Optional[str]:
+# GitHub installation tokens expire after 1 hour and sandboxes refresh theirs every 20 minutes, so a
+# token cached for 30 minutes still outlives the next refresh.
+SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS = 30 * 60
+
+
+def _private_repositories(repositories: Sequence[str]) -> list[str]:
+    # Public sandbox repos clone without credentials and usually sit outside the installation,
+    # where GitHub rejects a scoped mint that names them.
+    return [repository for repository in repositories if not is_public_sandbox_repo(repository)]
+
+
+def _installation_repository_names(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> list[str]:
+    # GitHub scopes a mint by bare repo name, so a repo another account owns would get the installation's
+    # repo of the same name. A placeholder account name cannot be checked, so it skips the owner match.
+    owner = None if github_integration.account_name_needs_heal() else github_integration.organization().lower()
+    if owner is not None and any(repository.lower().rpartition("/")[0] != owner for repository in repositories):
+        github_integration.ensure_account_name(force_refresh=True)
+        owner = github_integration.organization().lower()
+    names: set[str] = set()
+    for repository in repositories:
+        repository_owner, _, name = repository.lower().rpartition("/")
+        if owner is None or repository_owner == owner:
+            names.add(name)
+    return sorted(names)
+
+
+def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) -> list[str]:
+    # Same rule as TaskProcessingContext.repositories, so the token covers exactly what the run clones.
+    pinned = (state or {}).get("repositories")
+    if isinstance(pinned, list) and all(isinstance(r, str) for r in pinned):
+        return pinned
+    return [repository] if repository else []
+
+
+def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> str | None:
+    names = _installation_repository_names(github_integration, repositories)
+    if not names:
+        return None
+    cache_key = f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(names)}"
+    cache = get_tasks_cache()
+    cached = cache.get(cache_key)
+    if isinstance(cached, str) and cached:
+        return cached
+    token = github_integration.mint_scoped_installation_token(None, repositories=names)
+    cache.set(cache_key, token, timeout=SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS)
+    return token
+
+
+def get_github_token(github_integration_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
     integration = Integration.objects.get(id=github_integration_id)
     github_integration = GitHubIntegration(integration)
 
@@ -886,6 +936,9 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
             "GitHub App installation for this integration is uninstalled or suspended",
             {"github_integration_id": github_integration_id},
         )
+    private_repositories = _private_repositories(repositories)
+    if private_repositories:
+        return _mint_repository_scoped_token(github_integration, private_repositories)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
 
@@ -934,8 +987,8 @@ def resolve_readonly_github_integration(team_id: int) -> GitHubIntegration | Non
     return integration
 
 
-def get_readonly_github_token(team_id: int) -> Optional[str]:
-    """Mint an ephemeral read-only GitHub token for a repo-less sandbox, or None.
+def get_readonly_github_token(team_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
+    """Mint an ephemeral read-only GitHub token scoped to the sandbox repositories, or None.
 
     Resolves the same integration the repo-selection agent would use for this team, then mints an
     installation token downscoped to read-only permissions. Team-level installations only: the
@@ -952,16 +1005,25 @@ def get_readonly_github_token(team_id: int) -> Optional[str]:
         if integration is None:
             logger.info("No mintable team-level GitHub integration for team %d, skipping read-only token", team_id)
             return None
-        return integration.mint_scoped_installation_token(READONLY_SANDBOX_GITHUB_PERMISSIONS)
+        private_repositories = _private_repositories(repositories)
+        names = _installation_repository_names(integration, private_repositories)
+        if private_repositories and not names:
+            return None
+        return integration.mint_scoped_installation_token(
+            READONLY_SANDBOX_GITHUB_PERMISSIONS, repositories=names or None
+        )
     except Exception:
         logger.warning("Failed to mint read-only GitHub token for team %d", team_id, exc_info=True)
         return None
 
 
-def get_user_github_token(github_user_integration_id: str) -> Optional[str]:
+def get_user_github_token(github_user_integration_id: str, repositories: Sequence[str] = ()) -> Optional[str]:
     """Return the installation access token from a UserIntegration, refreshing if expired."""
     integration = UserIntegration.objects.get(id=github_user_integration_id)
     github_integration = UserGitHubIntegration(integration)
+    private_repositories = _private_repositories(repositories)
+    if private_repositories:
+        return _mint_repository_scoped_token(github_integration, private_repositories)
     if github_integration.access_token_expired():
         github_integration.refresh_access_token()
     return github_integration.integration.sensitive_config.get("access_token") or None
@@ -1198,6 +1260,7 @@ def _resolve_sandbox_github_token(
     else:
         run_state = parse_run_state(state)
         pr_authorship_mode = run_state.pr_authorship_mode
+    repositories = _sandbox_repositories(state, repository)
 
     # Loop runs mint credentials as the owner, so gate every GitHub token resolution (initial
     # provisioning, snapshot resume, and refresh all reach here) on current owner eligibility. A
@@ -1244,7 +1307,7 @@ def _resolve_sandbox_github_token(
                 raise ReauthorizationRequired(
                     f"User-authored run {run_id} requires a linked GitHub account with repo access."
                 )
-            return get_github_token(github_integration_id)
+            return get_github_token(github_integration_id, repositories=repositories)
         # Serialize the rotating mint per integration so concurrent runs (provisioning
         # clones and refresh loops) don't revoke each other's in-flight user token.
         from products.tasks.backend.temporal.process_task.sandbox_credentials import (  # noqa: PLC0415
@@ -1270,19 +1333,19 @@ def _resolve_sandbox_github_token(
             raise ReauthorizationRequired(
                 f"User-authored run {run_id} requires a linked GitHub account with repo access."
             )
-        return get_github_token(github_integration_id)
+        return get_github_token(github_integration_id, repositories=repositories)
     elif pr_authorship_mode == PrAuthorshipMode.BOT:
         if github_integration_id is not None:
-            return get_github_token(github_integration_id)
+            return get_github_token(github_integration_id, repositories=repositories)
         # BOT fallback for teams without an Integration row: borrow the
         # installation access token from the UserIntegration the task was created with.
         if github_user_integration_id:
-            return get_user_github_token(github_user_integration_id)
+            return get_user_github_token(github_user_integration_id, repositories=repositories)
         return None
     # No authorship mode resolved (legacy callers without state and without a task).
     if github_integration_id is None:
         return None
-    return get_github_token(github_integration_id)
+    return get_github_token(github_integration_id, repositories=repositories)
 
 
 def format_allowed_domains_for_log(domains: list[str], limit: int = 5) -> str:

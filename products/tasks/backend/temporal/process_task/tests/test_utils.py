@@ -834,6 +834,61 @@ class TestGetGithubToken(TestCase):
         with self.assertRaises(CredentialUnavailableError):
             get_github_token(integration.id)
 
+    @parameterized.expand(
+        [
+            ("renamed_account", "OldAcme", ["acme/api"], ["api"], "ghs_scoped"),
+            ("dedupes_owner_and_case", "Acme", ["Acme/API", "acme/api", "acme/web"], ["api", "web"], "ghs_scoped"),
+            ("drops_public_bootstrap_repo", "Acme", ["acme/web", "PostHog/.github"], ["web"], "ghs_scoped"),
+            ("public_bootstrap_only_keeps_shared_token", "Acme", ["PostHog/.github"], None, "ghs_shared"),
+            ("drops_repo_another_account_owns", "Acme", ["acme/web", "evilorg/api"], ["web"], "ghs_scoped"),
+            ("another_account_only_gets_no_token", "Acme", ["evilorg/api"], None, None),
+            ("placeholder_account_skips_owner_match", "INSTALL", ["evilorg/api"], ["api"], "ghs_scoped"),
+        ]
+    )
+    def test_repositories_get_a_cached_scoped_token_instead_of_the_shared_one(
+        self, _name, account_name, repositories, expected_mint_repositories, expected_token
+    ):
+        from posthog.models import Integration, Organization, Team
+        from posthog.models.integration import GitHubIntegration
+
+        from products.tasks.backend.redis import get_tasks_cache
+        from products.tasks.backend.temporal.process_task.utils import get_github_token
+
+        get_tasks_cache().clear()
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"type": "Organization", "name": account_name}},
+            sensitive_config={"access_token": "ghs_shared"},
+        )
+
+        with (
+            patch.object(GitHubIntegration, "mint_scoped_installation_token", return_value="ghs_scoped") as mint,
+            patch.object(
+                GitHubIntegration,
+                "client_request",
+                return_value=MagicMock(
+                    status_code=200, json=lambda: {"account": {"login": "Acme", "type": "Organization"}}
+                ),
+            ) as lookup,
+        ):
+            tokens = [get_github_token(integration.id, repositories=repositories) for _ in range(2)]
+
+        if account_name == "OldAcme" or (
+            account_name == "Acme" and any(r.startswith("evilorg/") for r in repositories)
+        ):
+            lookup.assert_called_once_with("installations/INSTALL")
+        else:
+            lookup.assert_not_called()
+        assert tokens == [expected_token, expected_token]
+        if expected_mint_repositories is None:
+            mint.assert_not_called()
+        else:
+            mint.assert_called_once_with(None, repositories=expected_mint_repositories)
+
 
 class TestSlackTaskRunActorUser(TestCase):
     def test_credential_user_grandfathers_legacy_runs_without_actor_state(self) -> None:
@@ -952,7 +1007,7 @@ class TestGetSandboxGitHubToken(TestCase):
             if has_identity:
                 mock_resolve.assert_called_once_with(identity)
         if error_case in ("missing", "reauthorization", "empty_token"):
-            mock_get_github_token.assert_called_once_with(123)
+            mock_get_github_token.assert_called_once_with(123, repositories=[])
         else:
             mock_get_github_token.assert_not_called()
 
@@ -989,14 +1044,26 @@ class TestGetSandboxGitHubToken(TestCase):
                 created_by=MagicMock(name="creator"),
             )
 
+    @parameterized.expand(
+        [
+            ("repo_less", {}, None, []),
+            ("task_repository", {}, "acme/api", ["acme/api"]),
+            ("pinned_list_ignores_changed_task_repository", {"repositories": ["acme/api"]}, "acme/new", ["acme/api"]),
+            ("empty_pinned_list_ignores_task_repository", {"repositories": []}, "acme/api", []),
+        ]
+    )
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
-    def test_bot_authorship_uses_installation_token(self, mock_get_github_token) -> None:
+    def test_bot_authorship_scopes_installation_token_to_run_repositories(
+        self, _name, extra_state, repository, expected_repositories, mock_get_github_token
+    ) -> None:
         mock_get_github_token.return_value = "ghs_bot"
 
-        result = get_sandbox_github_token(123, run_id="run-1", state={"pr_authorship_mode": "bot"})
+        result = get_sandbox_github_token(
+            123, run_id="run-1", state={"pr_authorship_mode": "bot", **extra_state}, repository=repository
+        )
 
         assert result == "ghs_bot"
-        mock_get_github_token.assert_called_once_with(123)
+        mock_get_github_token.assert_called_once_with(123, repositories=expected_repositories)
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_no_state_falls_through_to_installation_token(self, mock_get_github_token) -> None:
@@ -1005,7 +1072,7 @@ class TestGetSandboxGitHubToken(TestCase):
         result = get_sandbox_github_token(123, run_id="run-1", state=None)
 
         assert result == "ghs_default"
-        mock_get_github_token.assert_called_once_with(123)
+        mock_get_github_token.assert_called_once_with(123, repositories=[])
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_empty_state_falls_through_to_installation_token(self, mock_get_github_token) -> None:
@@ -1014,7 +1081,7 @@ class TestGetSandboxGitHubToken(TestCase):
         result = get_sandbox_github_token(123, run_id="run-1", state={})
 
         assert result == "ghs_default"
-        mock_get_github_token.assert_called_once_with(123)
+        mock_get_github_token.assert_called_once_with(123, repositories=[])
 
     def test_no_integration_id_returns_none(self) -> None:
         result = get_sandbox_github_token(None, run_id="run-1", state={"pr_authorship_mode": "bot"})
