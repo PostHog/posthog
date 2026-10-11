@@ -172,6 +172,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
         | 'CDP_FETCH_RETRIES'
+        | 'CDP_FETCH_RATE_LIMIT_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
         | 'CDP_EMAIL_TRACKING_URL'
@@ -487,6 +488,7 @@ export function createCdpCoreServices(
         {
             googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
             fetchRetries: config.CDP_FETCH_RETRIES,
+            fetchRateLimitRetries: config.CDP_FETCH_RATE_LIMIT_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
             siteUrl: config.SITE_URL,
