@@ -18,7 +18,7 @@ export interface ShareBarRow<T> {
 
 type ShareMeta<T> = T & { share: number }
 
-const SHARE_BAR_CONFIG: BarListConfig = { scale: 'total', valueDisplay: 'both' }
+const SHARE_BAR_CONFIG: BarListConfig = { labelPosition: 'top', scale: 'total', valueDisplay: 'both' }
 
 function formatCalls(value: number): string {
     return `${formatNumber(value)} ${value === 1 ? 'call' : 'calls'}`
@@ -66,7 +66,7 @@ export function ShareBarChart<T>({
         [rowByKey]
     )
     return (
-        <div translate="no">
+        <div translate="no" className="pt-2">
             <BarList
                 series={series}
                 theme={theme}

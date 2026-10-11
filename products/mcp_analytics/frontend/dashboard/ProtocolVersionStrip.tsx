@@ -65,18 +65,18 @@ export function ProtocolVersionStrip({
     theme: ChartTheme
 }): JSX.Element {
     const { totalCalls, unknownCalls, legacyCalls } = useMemo(() => summarizeProtocolVersions(rows), [rows])
-    const chartRows = useMemo<ShareBarRow<MCPProtocolVersionBreakdownItem>[]>(
-        () =>
-            rows.map((row) => ({
-                key: `${row.protocol_version}:${row.is_current}`,
-                label: protocolVersionLabel(row.protocol_version),
-                href: specVersionUrl(row.protocol_version),
-                value: row.total_calls,
-                color: versionColor(theme, row),
-                meta: row,
-            })),
-        [rows, theme]
-    )
+    const columns = useMemo<ShareBarRow<MCPProtocolVersionBreakdownItem>[][]>(() => {
+        const chartRows = rows.map((row) => ({
+            key: `${row.protocol_version}:${row.is_current}`,
+            label: protocolVersionLabel(row.protocol_version),
+            href: specVersionUrl(row.protocol_version),
+            value: row.total_calls,
+            color: versionColor(theme, row),
+            meta: row,
+        }))
+        const half = Math.ceil(chartRows.length / 2)
+        return [chartRows.slice(0, half), chartRows.slice(half)].filter((column) => column.length > 0)
+    }, [rows, theme])
     const share = (calls: number): number => (totalCalls > 0 ? (calls / totalCalls) * 100 : 0)
 
     return (
@@ -101,7 +101,17 @@ export function ProtocolVersionStrip({
                     </SummarySpan>
                 </div>
             </div>
-            <ShareBarChart rows={chartRows} totalCalls={totalCalls} theme={theme} tooltip={renderTooltip} />
+            <div className="grid min-w-0 grid-cols-1 gap-x-8 @min-[48rem]/mcp-overview:grid-cols-2">
+                {columns.map((column) => (
+                    <ShareBarChart
+                        key={column[0].key}
+                        rows={column}
+                        totalCalls={totalCalls}
+                        theme={theme}
+                        tooltip={renderTooltip}
+                    />
+                ))}
+            </div>
         </LemonCard>
     )
 }
