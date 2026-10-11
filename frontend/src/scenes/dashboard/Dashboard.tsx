@@ -9,6 +9,7 @@ import { dashboardTileScreenshotKey } from 'lib/components/Cards/InsightCard/ins
 import { NotFound } from 'lib/components/NotFound'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { useLoadingFavicon } from 'lib/hooks/useLoadingFavicon'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
@@ -137,6 +138,8 @@ function DashboardScene({
         posthog.capture('insight dashboard modal - closed')
         hideAddInsightToDashboardModal()
     }
+
+    useLoadingFavicon(placement === DashboardPlacement.Dashboard && itemsLoading)
 
     useAttachedContext(
         dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
