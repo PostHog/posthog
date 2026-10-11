@@ -19,8 +19,6 @@ from products.notifications.backend.facade.enums import NotificationOnlyResource
 
 logger = get_logger(__name__)
 
-# IMPORTANT - Do not modify this without also modifying plugin-server/../celery.ts
-# Same goes for this file path and the task names
 queue = CeleryQueue.DEFAULT.value
 
 
@@ -87,7 +85,6 @@ def _dispatch_plugin_disabled_realtime(
         logger.exception("fatal_plugin_error.realtime_setup_failed", plugin_config_id=plugin_config_id, error=str(e))
 
 
-# Called from plugin-server/../lazy.ts
 @shared_task(ignore_result=True, queue=queue)
 def fatal_plugin_error(
     plugin_config_id: int,
@@ -99,7 +96,6 @@ def fatal_plugin_error(
     _dispatch_plugin_disabled_realtime(plugin_config_id, plugin_config_updated_at, error)
 
 
-# Called from plugin-server/../hog-watcher.service.ts
 @shared_task(ignore_result=True, queue=queue)
 def hog_function_state_transition(hog_function_id: str, state: int) -> None:
     logger.info("hog_function_state_transition (disabled)", hog_function_id=hog_function_id, state=state)

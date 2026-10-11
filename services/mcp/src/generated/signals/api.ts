@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 54 enabled ops
+ * PostHog API - MCP 63 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -904,7 +904,7 @@ export const SignalsScoutCreateBody = () => zod
                     .max(signalsScoutCreateBodyConfigOnePrecheckQueryMax)
                     .nullish()
                     .describe(
-                        "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
+                        "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 \* {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`."
                     ),
                 enabled: zod
                     .boolean()
@@ -1160,7 +1160,7 @@ export const SignalsScoutConfigCreateBody = () => zod
             .max(signalsScoutConfigCreateBodyPrecheckQueryMax)
             .nullish()
             .describe(
-                "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
+                "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 \* {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`."
             ),
         enabled: zod.boolean().optional().describe('Whether this scout runs on its schedule. Defaults to true.'),
         emit: zod
@@ -1477,7 +1477,13 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .max(signalsScoutConfigUpdateBodyPrecheckQueryMax)
             .nullish()
             .describe(
-                "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank turns the pre-check off."
+                "Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 \* {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`."
+            ),
+        precheck_disabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'True turns off the pre-check, both `precheck_query` and the default the skill ships, so every scheduled run starts. False (the default) uses `precheck_query`, or the skill default when that is null.'
             ),
         suggestion_id: zod
             .string()
@@ -1522,7 +1528,7 @@ export const SignalsScoutConfigDestroyParams = () => zod.object({
 })
 
 /**
- * Run a scout's pre-check query once and return its rows, without starting a run and without saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run would get, so the result says whether that run would start or skip. Pass `precheck_query` to try a query before you save it, or omit it to try the saved one. A query error comes back in the `error` field with a 200, because a scheduled run treats it as a reason to run.
+ * Run a scout's pre-check query once and return its rows, without starting a run and without saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run would get, so the result says whether that run would start or skip. Pass `precheck_query` to try a query before you save it, or omit it to try the effective one: the saved query, or the default the scout's skill ships. A query error comes back in the `error` field with a 200, because a scheduled run treats it as a reason to run.
  * @summary Test a scout pre-check
  */
 export const SignalsScoutConfigPrecheckTestParams = () => zod.object({
@@ -1542,7 +1548,7 @@ export const SignalsScoutConfigPrecheckTestBody = () => zod.object({
         .max(signalsScoutConfigPrecheckTestBodyPrecheckQueryMax)
         .nullish()
         .describe(
-            'HogQL `SELECT` to try, with the same `{since}` and `{now}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the query saved on the scout.'
+            "HogQL `SELECT` to try, with the same `{since}`, `{now}` and `{interval_minutes}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the scout's effective query: its own `precheck_query`, or the default its skill ships."
         ),
 })
 
@@ -1627,6 +1633,164 @@ export const SignalsScoutConfigTrialBody = () => zod.object({
 })
 
 /**
+ * Freeze variants and the reviewed rubric, then run scouts and judge their results in the background.
+ * @summary Run and judge a private scout comparison
+ */
+export const SignalsScoutConfigTrialComparisonCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsScoutConfigTrialComparisonCreateBodyVariantsItemLabelMax = 100
+
+export const signalsScoutConfigTrialComparisonCreateBodyVariantsItemLaunchIdsMax = 20
+
+export const signalsScoutConfigTrialComparisonCreateBodyVariantsItemModelMax = 200
+
+export const signalsScoutConfigTrialComparisonCreateBodyVariantsItemReasoningEffortMax = 20
+
+export const signalsScoutConfigTrialComparisonCreateBodyVariantsItemSkillBodyMax = 100000
+
+export const signalsScoutConfigTrialComparisonCreateBodyNoteMax = 1000
+
+export const SignalsScoutConfigTrialComparisonCreateBody = () => zod.object({
+    comparison_id: zod.string().describe('Stable comparison ID. Reuse for an exact request retry.'),
+    baseline_variant_id: zod.string().describe('Variant used as the comparison baseline.'),
+    variants: zod
+        .array(
+            zod.object({
+                id: zod.string().describe('Stable variant identity within this comparison.'),
+                label: zod
+                    .string()
+                    .max(signalsScoutConfigTrialComparisonCreateBodyVariantsItemLabelMax)
+                    .describe('Variant name shown in the report.'),
+                launch_ids: zod
+                    .array(zod.string())
+                    .min(1)
+                    .max(signalsScoutConfigTrialComparisonCreateBodyVariantsItemLaunchIdsMax)
+                    .describe("Stable run IDs for this variant's repeats."),
+                model: zod
+                    .string()
+                    .max(signalsScoutConfigTrialComparisonCreateBodyVariantsItemModelMax)
+                    .describe('Scout model to run.'),
+                reasoning_effort: zod
+                    .string()
+                    .max(signalsScoutConfigTrialComparisonCreateBodyVariantsItemReasoningEffortMax)
+                    .describe('Reasoning effort supported by this model.'),
+                skill_body: zod
+                    .string()
+                    .max(signalsScoutConfigTrialComparisonCreateBodyVariantsItemSkillBodyMax)
+                    .optional()
+                    .describe('Replacement scout instructions. Omit to use the saved source instructions.'),
+            })
+        )
+        .describe('Up to 20 variants, each with up to 20 scout runs.'),
+    note: zod
+        .string()
+        .max(signalsScoutConfigTrialComparisonCreateBodyNoteMax)
+        .optional()
+        .describe('Shared investigation note.'),
+    expected_skill_version: zod
+        .number()
+        .min(1)
+        .optional()
+        .describe('Source version shown in the editor. Refuse a new trial if the instructions changed since setup.'),
+})
+
+/**
+ * Hide a finished trial from history or restore it without deleting results or starting any work.
+ * @summary Archive or restore a saved scout trial
+ */
+export const SignalsScoutConfigTrialComparisonArchiveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SignalsScoutConfigTrialComparisonArchiveBody = () => zod.object({
+    comparison_id: zod.string().describe('Saved comparison identity.'),
+    archived: zod.boolean().describe('Hide a finished trial from history, or restore it without rerunning it.'),
+})
+
+/**
+ * Read recent comparisons, including those saved before any scout run started.
+ * @summary List your saved scout comparisons
+ */
+export const SignalsScoutConfigTrialComparisonHistoryParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsScoutConfigTrialComparisonHistoryQueryCursorRegExp = new RegExp('^[0-9]{19}-[0-9a-f-]{36}\\.json$')
+export const signalsScoutConfigTrialComparisonHistoryQueryIncludeArchivedDefault = false
+export const signalsScoutConfigTrialComparisonHistoryQueryLimitDefault = 30
+export const signalsScoutConfigTrialComparisonHistoryQueryLimitMax = 100
+
+export const SignalsScoutConfigTrialComparisonHistoryQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .regex(signalsScoutConfigTrialComparisonHistoryQueryCursorRegExp)
+        .optional()
+        .describe('Cursor returned by the previous history page. Omit to read the newest trials.'),
+    include_archived: zod
+        .boolean()
+        .default(signalsScoutConfigTrialComparisonHistoryQueryIncludeArchivedDefault)
+        .describe('Include archived trials in the history.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsScoutConfigTrialComparisonHistoryQueryLimitMax)
+        .default(signalsScoutConfigTrialComparisonHistoryQueryLimitDefault)
+        .describe('Maximum number of recent private runs to return.'),
+})
+
+/**
+ * Read comparison progress and its saved report without starting any scout or judge calls.
+ * @summary Read a saved scout comparison
+ */
+export const SignalsScoutConfigTrialComparisonRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SignalsScoutConfigTrialComparisonRetrieveQueryParams = () => zod.object({
+    comparison_id: zod.string().describe('Saved comparison identity.'),
+})
+
+/**
+ * Recover the same comparison without repeating saved scout runs or judge attempts.
+ * @summary Resume a saved scout comparison
+ */
+export const SignalsScoutConfigTrialComparisonResumeParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SignalsScoutConfigTrialComparisonResumeBody = () => zod.object({
+    comparison_id: zod.string().describe('Saved comparison identity.'),
+})
+
+/**
  * Read a trial's existing run status and its privately captured reports and memory changes.
  * @summary Read a private scout trial result
  */
@@ -1641,6 +1805,26 @@ export const SignalsScoutConfigTrialResultParams = () => zod.object({
 
 export const SignalsScoutConfigTrialResultQueryParams = () => zod.object({
     launch_id: zod.string().describe('Launch identity returned by the trial action.'),
+})
+
+/**
+ * Read comparison readiness and source settings for the internal comparison editor.
+ * @summary Inspect a private scout comparison
+ */
+export const SignalsScoutConfigTrialSetupParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SignalsScoutConfigTrialSetupQueryParams = () => zod.object({
+    context_id: zod
+        .string()
+        .optional()
+        .describe('Saved comparison context to inspect instead of the current source skill.'),
 })
 
 /**
@@ -1863,6 +2047,104 @@ export const SignalsScoutProjectProfileGetQueryParams = () => zod.object({
         .describe(
             'When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.'
         ),
+})
+
+export const SignalsScoutRubricsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const SignalsScoutRubricsUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsScoutRubricsUpdateBodyRevisionMin = 0
+
+export const signalsScoutRubricsUpdateBodyCriteriaItemIdMax = 80
+
+export const signalsScoutRubricsUpdateBodyCriteriaItemIdRegExp = new RegExp('^[a-z][a-z0-9_-]{0,79}$')
+export const signalsScoutRubricsUpdateBodyCriteriaItemTitleMax = 120
+
+export const signalsScoutRubricsUpdateBodyCriteriaItemDescriptionMax = 1000
+
+export const signalsScoutRubricsUpdateBodyCriteriaItemPassConditionMax = 2000
+
+export const signalsScoutRubricsUpdateBodyCriteriaItemApplicabilityMax = 1000
+
+export const SignalsScoutRubricsUpdateBody = () => zod.object({
+    revision: zod
+        .number()
+        .min(signalsScoutRubricsUpdateBodyRevisionMin)
+        .describe('Revision read by the editor; stale saves return 409.'),
+    criteria: zod
+        .array(
+            zod.object({
+                id: zod
+                    .string()
+                    .max(signalsScoutRubricsUpdateBodyCriteriaItemIdMax)
+                    .regex(signalsScoutRubricsUpdateBodyCriteriaItemIdRegExp)
+                    .describe('Stable criterion identifier.'),
+                title: zod
+                    .string()
+                    .max(signalsScoutRubricsUpdateBodyCriteriaItemTitleMax)
+                    .describe('Short name for the criterion.'),
+                description: zod
+                    .string()
+                    .max(signalsScoutRubricsUpdateBodyCriteriaItemDescriptionMax)
+                    .describe('What this criterion measures.'),
+                pass_condition: zod
+                    .string()
+                    .max(signalsScoutRubricsUpdateBodyCriteriaItemPassConditionMax)
+                    .describe('The evidence needed to pass this criterion.'),
+                applicability: zod
+                    .string()
+                    .max(signalsScoutRubricsUpdateBodyCriteriaItemApplicabilityMax)
+                    .describe('When this criterion applies or cannot be assessed.'),
+                enabled: zod.boolean().describe('Whether future evaluations should use this criterion.'),
+                source: zod
+                    .enum(['default', 'custom'])
+                    .describe('\* `default` - Default\n\* `custom` - Custom')
+                    .describe(
+                        'Shared default or scout-specific criterion.\n\n\* `default` - Default\n\* `custom` - Custom'
+                    ),
+            })
+        )
+        .describe('Complete set of criteria to save.'),
+    adopt_generation_id: zod
+        .string()
+        .nullish()
+        .describe(
+            "Use this completed generation's governing source for the whole saved rubric. Omit to keep its source."
+        ),
+})
+
+export const SignalsScoutRubricsGenerateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsScoutRubricsGenerateBodyContextDefault = ``
+export const signalsScoutRubricsGenerateBodyContextMax = 2000
+
+export const SignalsScoutRubricsGenerateBody = () => zod.object({
+    context: zod
+        .string()
+        .max(signalsScoutRubricsGenerateBodyContextMax)
+        .default(signalsScoutRubricsGenerateBodyContextDefault)
+        .describe("Optional priorities for this generation. Suggestions still cover the scout's full job."),
 })
 
 /**

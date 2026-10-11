@@ -99,7 +99,11 @@ from products.signals.backend.scout_harness.lifecycle_lock import (
     resolve_auth_kind,
     user_holds_scout_lifecycle_claim,
 )
-from products.signals.backend.scout_harness.precheck import dry_run_scout_precheck
+from products.signals.backend.scout_harness.precheck import (
+    dry_run_scout_precheck,
+    resolve_effective_precheck,
+    scout_skill_is_canonical,
+)
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -3786,7 +3790,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             "Run a scout's pre-check query once and return its rows, without starting a run and without "
             "saving anything. The query gets the same `{since}` and `{now}` values the next scheduled run "
             "would get, so the result says whether that run would start or skip. Pass `precheck_query` to "
-            "try a query before you save it, or omit it to try the saved one. A query error comes back in "
+            "try a query before you save it, or omit it to try the effective one: the saved query, or the "
+            "default the scout's skill ships. A query error comes back in "
             "the `error` field with a 200, because a scheduled run treats it as a reason to run."
         ),
         operation_id="signals_scout_config_precheck_test",
@@ -3805,7 +3810,13 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         config = SignalScoutConfig.objects.for_team(team.id).filter(id=config_id).first()
         if config is None or config.skill_name in withheld_skills_for_team(team.id):
             raise exceptions.NotFound()
-        query = request.validated_data.get("precheck_query") or config.precheck_query
+        query = request.validated_data.get("precheck_query")
+        if not query:
+            # Never saved. A scout with its pre-check turned off can still test the query it would use.
+            config.precheck_disabled = False
+            query = resolve_effective_precheck(
+                config, is_canonical=scout_skill_is_canonical(team.id, config.skill_name)
+            ).query
         if not query:
             raise exceptions.ValidationError({"precheck_query": "This scout has no pre-check query. Give one to test."})
         result = dry_run_scout_precheck(team, config, query)

@@ -76,10 +76,17 @@ from posthog.cdp.validation import HogFunctionFiltersSerializer, InputsSchemaSer
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.permissions import AccessControlPermission, is_service_auth, posthog_feature_flag_enabled
+from posthog.permissions import (
+    AccessControlPermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+    is_service_auth,
+    posthog_feature_flag_enabled,
+)
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -222,6 +229,12 @@ from products.workflows.backend.facade.secrets import (
     rehydrate_flow_secrets,
     secret_keys_for_action,
     strip_content_secrets,
+)
+from products.workflows.backend.facade.suggestions_scout import (
+    PROPOSAL_WRITE_SCOPE,
+    suggestions_scout_refusal,
+    suggestions_scout_status,
+    sync_suggestions_scout,
 )
 from products.workflows.backend.facade.templates import get_function_template_schema
 from products.workflows.backend.facade.validation import (
@@ -3601,8 +3614,34 @@ class WorkflowProposalEvidenceField(serializers.JSONField):
     pass
 
 
+class SuggestionsScoutStatus(models.TextChoices):
+    RUNNING = "running"
+    PAUSED_BY_USER = "paused_by_user"
+    PAUSED_BY_SYSTEM = "paused_by_system"
+    NOT_RUNNING = "not_running"
+
+
 class HogFlowOptimizationSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether PostHog may suggest changes to this workflow.")
+    scout_status = serializers.ChoiceField(
+        choices=SuggestionsScoutStatus.choices,
+        read_only=True,
+        help_text="Whether the project's suggestions scout runs. A paused scout files no suggestions, even for "
+        "workflows that have suggestions on.",
+    )
+
+
+# Why turning suggestions on would leave the project without a scout, worded for the person who tried.
+SUGGESTIONS_REFUSAL_MESSAGES: dict[str, str] = {
+    "at_limit": "This project already runs as many scouts as it can. Turn one off in scout settings, then try again.",
+    "no_skill_access": "You need editor access to skills to turn on suggestions. Ask a project admin for access.",
+    "ai_not_approved": "Suggestions use AI, and your organization hasn't approved AI data processing. "
+    "An organization admin can approve it in organization settings.",
+    "not_skill_author": "Suggestions run as the person who wrote this project's workflows scout. "
+    "Ask them or a project admin to turn on suggestions.",
+    "key_cannot_grant": "This API key can't turn on suggestions. Use a key with the hog_flow_proposal:write scope "
+    "and access to the whole project.",
+}
 
 
 class WorkflowProposalSerializer(serializers.Serializer):
@@ -4695,6 +4734,14 @@ class HogFlowViewSet(
         )
         self._emit_resource_edited(serializer.instance)
 
+        # A workflow that kept suggestions on while it was off needs its scout back when it goes live again.
+        if (
+            result.previous.get("status") != HogFlowState.ACTIVE
+            and serializer.instance.status == HogFlowState.ACTIVE
+            and is_optimization_enabled(serializer.instance.id)
+        ):
+            self._sync_suggestions_scout(self.request)
+
         # PostHog capture for hog_flow activated (draft -> active)
         if result.previous.get("status") == HogFlowState.DRAFT and serializer.instance.status == HogFlowState.ACTIVE:
             self._report_workflow_action(
@@ -5486,6 +5533,12 @@ class HogFlowViewSet(
             enabled = param_serializer.validated_data["enabled"]
             if enabled and instance.status != HogFlowState.ACTIVE:
                 raise WorkflowNotLiveError()
+            if enabled and not is_optimization_enabled(instance.id):
+                refusal = suggestions_scout_refusal(
+                    self.team, acting_user=cast(User, request.user), may_grant=self._may_grant_scout(request)
+                )
+                if refusal is not None:
+                    raise exceptions.ValidationError({"enabled": SUGGESTIONS_REFUSAL_MESSAGES[str(refusal)]})
             changed = set_optimization_enabled(hog_flow_id=instance.id, enabled=enabled)
             if changed:
                 self._log_activity(
@@ -5494,10 +5547,35 @@ class HogFlowViewSet(
                 self._report_workflow_action(
                     "hog_flow_optimization_enabled" if enabled else "hog_flow_optimization_disabled", instance
                 )
+                self._sync_suggestions_scout(request)
         else:
             enabled = is_optimization_enabled(instance.id)
 
-        return Response(HogFlowOptimizationSerializer({"enabled": enabled}).data)
+        return Response(
+            HogFlowOptimizationSerializer(
+                {"enabled": enabled, "scout_status": suggestions_scout_status(self.team)}
+            ).data
+        )
+
+    def _may_grant_scout(self, request: Request) -> bool:
+        # Switching the scout on grants a write scope that its runs use as this person, so a scoped API
+        # key has to carry that scope itself, whichever way it toggles.
+        token_scopes = get_authenticator_scopes(request.successful_authenticator)
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
+        # The scout lives on the project, so a key limited to one of its environments may not grant it.
+        project_id = self.team.parent_team_id or self.team.id
+        return (token_scopes is None or "*" in token_scopes or PROPOSAL_WRITE_SCOPE in token_scopes) and (
+            scoped_team_ids is None or project_id in scoped_team_ids
+        )
+
+    def _sync_suggestions_scout(self, request: Request) -> None:
+        # A failure never fails the toggle.
+        try:
+            sync_suggestions_scout(
+                self.team, acting_user=cast(User, request.user), may_grant=self._may_grant_scout(request)
+            )
+        except Exception as error:
+            capture_exception(error)
 
     @extend_schema(request=HogFlowInvocationSerializer, responses={200: _FallbackSerializer})
     @action(detail=True, methods=["POST"])

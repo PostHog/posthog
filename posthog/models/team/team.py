@@ -87,7 +87,6 @@ DEFAULT_CURRENCY = CurrencyCode.USD.value
 ASYNC_USER_PRODUCT_LIST_SYNC_THRESHOLD = 100
 
 
-# keep in sync with posthog/frontend/src/scenes/project/Settings/ExtraTeamSettings.tsx
 class AvailableExtraSettings:
     pass
 

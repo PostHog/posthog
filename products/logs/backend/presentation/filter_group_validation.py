@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 # Keep aligned with `MAX_FILTER_GROUP_DEPTH` / `MAX_FILTER_GROUP_NODES` in
-# `nodejs/src/logs-ingestion/sampling/filter-group-match.ts` and
+# `nodejs/src/logs/sampling/filter-group-match.ts` and
 # `compile-rules.ts`. Both depth and breadth are bounded so an adversarially
 # deep or wide filter_group cannot stack-overflow or CPU-burn the per-record
 # evaluator in the Node ingestion worker. The breadth cap is the more
