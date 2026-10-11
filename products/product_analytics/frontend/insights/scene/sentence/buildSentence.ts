@@ -3,7 +3,9 @@ import {
     convertPropertyGroupToProperties,
 } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { dayjs } from 'lib/dayjs'
 import { dateFilterToText } from 'lib/utils/dateFilters'
+import { formatDateTimeRange } from 'lib/utils/datetime'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 
@@ -158,6 +160,7 @@ type MathDefinitions = Partial<Record<string, MathDefinition>>
 
 const DEFAULT_DATE_RANGE_LABEL = 'Last 7 days'
 const ABSOLUTE_DATE = /^\d{4}-\d{2}-\d{2}/
+const TIMED_DATE = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/
 
 function lowerFirst(text: string): string {
     return text.charAt(0).toLowerCase() + text.slice(1)
@@ -183,6 +186,11 @@ export function dateRangePhrase(label: string): DateRangePhrase {
 function dateRangeLabel(dateFrom: string | null | undefined, dateTo: string | null | undefined): string {
     // Fixed dates read better formatted. A relative range keeps its name, such as "Last 30 days".
     const fixedRange = ABSOLUTE_DATE.test(dateFrom ?? '') && ABSOLUTE_DATE.test(dateTo ?? '')
+    if (fixedRange && (TIMED_DATE.test(dateFrom ?? '') || TIMED_DATE.test(dateTo ?? ''))) {
+        // A range zoomed into on the chart ends one second before a round time, and the round time reads better.
+        const end = dayjs(dateTo)
+        return formatDateTimeRange(dayjs(dateFrom), end.second() === 59 ? end.add(1, 'second') : end)
+    }
     return (
         dateFilterToText(dateFrom, dateTo, DEFAULT_DATE_RANGE_LABEL, undefined, fixedRange) ?? DEFAULT_DATE_RANGE_LABEL
     )

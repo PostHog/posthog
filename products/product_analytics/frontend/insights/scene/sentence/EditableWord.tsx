@@ -50,7 +50,7 @@ export const EditableWord = forwardRef<HTMLButtonElement, EditableWordProps>(fun
             className={cn(
                 'inline cursor-pointer border-0 bg-transparent p-0 font-semibold underline-offset-4',
                 'hover:underline aria-expanded:underline data-popup-open:underline',
-                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring',
+                'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ring)',
                 className
             )}
             {...props}
@@ -89,7 +89,7 @@ export const EditableWord = forwardRef<HTMLButtonElement, EditableWordProps>(fun
                     'border border-(--border) bg-(--card) text-(--muted-foreground) shadow-(--shadow-sm)',
                     'opacity-0 transition-opacity group-hover/word:opacity-100 focus-visible:opacity-100',
                     'hover:border-transparent hover:bg-(--destructive) hover:text-(--destructive-foreground)',
-                    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
+                    'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--ring)'
                 )}
                 data-attr={dataAttr ? `${dataAttr}-remove` : undefined}
             >

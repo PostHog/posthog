@@ -10,7 +10,6 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightModals } from 'scenes/insights/InsightModals'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getInsightIconTypeFromQuery } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -32,6 +31,8 @@ import { InsightDraftActions } from './InsightDraftActions'
 import { InsightKindMenu } from './InsightKindMenu'
 import { DashboardFilterMark } from './sentence/DashboardFilterMark'
 import { InsightSentence } from './sentence/InsightSentence'
+import { insightZoomLogic } from './zoom/insightZoomLogic'
+import { InsightZoomReset } from './zoom/InsightZoomReset'
 
 export interface QuillInsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -52,7 +53,8 @@ export function QuillInsightScene({ insightId, attachTo }: QuillInsightSceneProp
     const { insightProps, accessDeniedToInsight, insightLoading, insightName } = useValues(logic)
     const { query } = useValues(insightDataLogic(insightProps))
     const { setQuery } = useActions(insightDataLogic(insightProps))
-    const { zoomDateRange } = useActions(insightVizDataLogic(insightProps))
+    const { zoomEnabled } = useValues(insightZoomLogic(insightProps))
+    const { zoomIn } = useActions(insightZoomLogic(insightProps))
 
     useFileSystemLogView({
         type: 'insight',
@@ -90,7 +92,6 @@ export function QuillInsightScene({ insightId, attachTo }: QuillInsightSceneProp
                     isLoading={insightLoading && !insight.id}
                     actions={
                         <div className="flex flex-wrap items-center gap-2">
-                            <InsightDataChecks insightProps={insightProps} />
                             <InsightDraftActions insightProps={insightProps} />
                             <InsightAdvancedMenu insightProps={insightProps} />
                         </div>
@@ -98,8 +99,10 @@ export function QuillInsightScene({ insightId, attachTo }: QuillInsightSceneProp
                 />
                 <InsightSentence
                     insightProps={insightProps}
+                    ending={<InsightDataChecks insightProps={insightProps} />}
                     trailing={
                         <div className="flex shrink-0 items-center gap-2">
+                            <InsightZoomReset insightProps={insightProps} />
                             <FunnelViewMenu insightProps={insightProps} />
                             <ChartTypePopover insightProps={insightProps} />
                             <ChartSettingsPopover insightProps={insightProps} />
@@ -147,7 +150,7 @@ export function QuillInsightScene({ insightId, attachTo }: QuillInsightSceneProp
                                 showOpenEditorButton: false,
                                 hideAIAnalysis: true,
                                 hideChartFrame: true,
-                                onDateRangeZoom: zoomDateRange,
+                                onDateRangeZoom: zoomEnabled ? zoomIn : undefined,
                             }}
                             filtersOverride={filtersOverride}
                             variablesOverride={variablesOverride}

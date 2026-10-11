@@ -11,9 +11,11 @@ import { SentenceParts } from './SentenceParts'
 
 export function InsightSentence({
     insightProps,
+    ending,
     trailing,
 }: {
     insightProps: InsightLogicProps
+    ending?: React.ReactNode
     /** Shown at the end of the row of additions. */
     trailing?: React.ReactNode
 }): JSX.Element | null {
@@ -44,7 +46,7 @@ export function InsightSentence({
                     </ul>
                 )}
                 <p className="m-0 text-pretty">
-                    <SentenceParts insightProps={insightProps} parts={sentence.parts} />
+                    <SentenceParts insightProps={insightProps} parts={sentence.parts} ending={ending} />
                 </p>
             </div>
             <div className="flex items-start justify-between gap-2">

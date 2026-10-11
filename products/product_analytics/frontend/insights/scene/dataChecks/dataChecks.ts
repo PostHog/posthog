@@ -17,6 +17,7 @@ export interface DataCheck {
     level: DataCheckLevel
     /** What the check looks for. It stays the same whatever the check finds. */
     name: string
+    /** A statement that reads without the name next to it. A check with no result yet repeats the name. */
     result: string
     fix?: string
     action?: DataCheckAction
@@ -63,6 +64,17 @@ const CHECK_NAMES: Record<DataCheckKey, string> = {
     local_development: 'Local development events',
     bot_traffic: 'Bot and crawler traffic',
     duplicate_events: 'Events sent twice',
+}
+
+export const CHECK_DESCRIPTIONS: Record<DataCheckKey, string> = {
+    internal_users:
+        "We count the events that your project's internal and test users filter would remove. Activity from your own team makes the numbers look higher than real usage.",
+    local_development:
+        'We look for events sent from localhost. They come from people building and testing the app, not from real users.',
+    bot_traffic:
+        'We read the browser details on each event and count the events from known bots, crawlers and AI agents.',
+    duplicate_events:
+        'We count the events where one person sent the same event from the same page twice in one second. That usually points to a tracking bug.',
 }
 
 /** The events a chart reads, 'all' when a series reads every event, or null when the checks cannot cover the chart. */
@@ -169,8 +181,9 @@ function isFinding(count: number, share: number): boolean {
     return count >= MIN_FINDING_EVENTS && share >= MIN_FINDING_SHARE
 }
 
-function passedResult(count: number): string {
-    return count ? `Almost none found (${humanFriendlyNumber(count)} events)` : 'None found'
+/** `things` is what the check looks for, as it reads after "No": "bots or crawlers". */
+function passedResult(things: string, count: number): string {
+    return count ? `Almost no ${things} found (${humanFriendlyNumber(count)} events)` : `No ${things} found`
 }
 
 function internalUsersCheck(
@@ -180,21 +193,21 @@ function internalUsersCheck(
     const key = 'internal_users'
     const name = CHECK_NAMES[key]
     if (filtersInternalUsers) {
-        return { key, level: 'passed', name, result: 'Filtered out of this chart' }
+        return { key, level: 'passed', name, result: 'Internal and test users are filtered out' }
     }
     if (!hasInternalUsersFilter || internalEvents === null) {
         return {
             key,
             level: 'skipped',
             name,
-            result: "Can't check yet, because this project has no internal and test users filter",
+            result: "Internal and test users can't be checked, because this project has no filter for them",
             fix: 'Set up the filter so PostHog knows which users are your own team.',
             action: 'open_filter_settings',
         }
     }
     const share = internalEvents / events
     if (!isFinding(internalEvents, share)) {
-        return { key, level: 'passed', name, result: passedResult(internalEvents) }
+        return { key, level: 'passed', name, result: passedResult('internal or test users', internalEvents) }
     }
     return {
         key,
@@ -212,7 +225,7 @@ function localDevelopmentCheck({ events, localEvents }: DataCheckCounts): DataCh
     const share = localEvents / events
     // No minimum share: a local session also creates test persons and flag exposures, whatever its share.
     if (localEvents < MIN_FINDING_EVENTS) {
-        return { key, level: 'passed', name, result: passedResult(localEvents) }
+        return { key, level: 'passed', name, result: passedResult('local development events', localEvents) }
     }
     return {
         key,
@@ -232,7 +245,7 @@ function botTrafficCheck({ events, botEvents }: DataCheckCounts): DataCheck {
     const name = CHECK_NAMES[key]
     const share = botEvents / events
     if (!isFinding(botEvents, share)) {
-        return { key, level: 'passed', name, result: passedResult(botEvents) }
+        return { key, level: 'passed', name, result: passedResult('bots or crawlers', botEvents) }
     }
     return {
         key,
@@ -255,7 +268,10 @@ function duplicateEventsCheck({ events, distinctEvents }: DataCheckCounts): Data
             key,
             level: 'passed',
             name,
-            result: share < MIN_FINDING_SHARE ? 'None found' : `Few found (about ${percentage(share, 0)})`,
+            result:
+                share < MIN_FINDING_SHARE
+                    ? 'No events sent twice'
+                    : `Few events sent twice (about ${percentage(share, 0)})`,
         }
     }
     return {
@@ -267,15 +283,20 @@ function duplicateEventsCheck({ events, distinctEvents }: DataCheckCounts): Data
     }
 }
 
-/** Every check with the same level and result, for a run that is still going or that produced nothing to read. */
-export function unevaluatedDataChecks(level: 'pending' | 'skipped', result: string): DataCheck[] {
-    return (Object.keys(CHECK_NAMES) as DataCheckKey[]).map((key) => ({ key, level, name: CHECK_NAMES[key], result }))
+/** Every check with no result yet, for a run that is still going or that produced nothing to read. */
+export function unevaluatedDataChecks(level: 'pending' | 'skipped'): DataCheck[] {
+    return (Object.keys(CHECK_NAMES) as DataCheckKey[]).map((key) => ({
+        key,
+        level,
+        name: CHECK_NAMES[key],
+        result: CHECK_NAMES[key],
+    }))
 }
 
 /** Every check, in a fixed order, so the list shows what was checked whatever the result. */
 export function evaluateDataChecks(counts: DataCheckCounts, context: DataChecksContext): DataCheck[] {
     if (!counts.events) {
-        return unevaluatedDataChecks('skipped', `No events in the last ${CHECKED_DAYS} days to check`)
+        return unevaluatedDataChecks('skipped')
     }
     return [
         internalUsersCheck(counts, context),

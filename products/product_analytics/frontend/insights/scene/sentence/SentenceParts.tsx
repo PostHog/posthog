@@ -15,9 +15,12 @@ function isFormulaWord(part: SentencePart | undefined): boolean {
 export function SentenceParts({
     insightProps,
     parts,
+    ending,
 }: {
     insightProps: InsightLogicProps
     parts: SentencePart[]
+    /** Stays with the last words, so it never sits on a line of its own. */
+    ending?: React.ReactNode
 }): JSX.Element {
     const clauses = sentenceClauses(parts)
     return (
@@ -47,6 +50,7 @@ export function SentenceParts({
                                 <SentenceValue key={index} insightProps={insightProps} part={part} />
                             )
                         )}
+                        {clauseIndex === clauses.length - 1 && ending}
                     </span>
                 </Fragment>
             ))}
